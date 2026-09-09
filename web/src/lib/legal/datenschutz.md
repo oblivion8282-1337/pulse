@@ -1,25 +1,15 @@
 # Datenschutzerklärung
 
-> ⚠️ **Hinweis:** Sorgfältig erstellte Vorlage nach gängiger DSGVO-Praxis —
-> **keine Rechtsberatung**. Diese Erklärung beschreibt die Datenverarbeitung
-> nach aktuellem Kenntnisstand der Pulse-Architektur. Vor Veröffentlichung
-> bitte juristisch prüfen und mit der **tatsächlichen** technischen Umsetzung
-> abgleichen lassen. Mit `[…]` markierte Stellen müssen bestätigt/ergänzt werden.
-
 ## 1. Verantwortlicher
 
 Verantwortlicher im Sinne der Datenschutz-Grundverordnung (DSGVO) ist:
 
-**Oblivion Pictures**
-Michael de Meyer
-Maria-Luiko-Str. 6
-80636 München
-Deutschland
+**Oblivion Pictures**\
+Michael de Meyer\
+Maria-Luiko-Str. 6\
+80636 München\
+Deutschland\
 E-Mail: oblivion828282@gmail.com
-
-`[Ein Datenschutzbeauftragter ist gesetzlich erst ab bestimmten Schwellen
-verpflichtend (i. d. R. ≥ 20 Personen mit ständiger Datenverarbeitung). Falls
-nicht zutreffend, ist keine Benennung erforderlich.]`
 
 ## 2. Allgemeines zur Datenverarbeitung
 
@@ -39,8 +29,6 @@ Verarbeitung erfolgt insbesondere auf Grundlage von:
 Der Dienst wird auf Servern der **netcup GmbH**, Daimlerstraße 25, 76185
 Karlsruhe, Deutschland, betrieben. Die Server stehen in Deutschland. Mit dem
 Hoster besteht ein Vertrag zur Auftragsverarbeitung (AVV) gemäß Art. 28 DSGVO.
-
-`[AVV mit netcup abschließen/prüfen.]`
 
 ## 4. Server-Logfiles
 
@@ -139,8 +127,7 @@ nutzen wir den Dienst **Resend** (Anbieter: Plus Five Five, Inc., 2261 Market
 Street #5039, San Francisco, CA 94114, USA). Dabei werden die E-Mail-Adresse und
 der Nachrichteninhalt verarbeitet. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b und
 lit. f DSGVO. Da der Anbieter in den USA sitzt, findet eine Übermittlung in ein
-Drittland statt — siehe Ziffer 15. `[Auftragsverarbeitungsvertrag (DPA) mit
-Resend abschließen bzw. dessen Geltung über die Nutzungsbedingungen bestätigen.]`
+Drittland statt — siehe Ziffer 15.
 
 ## 13. Kontaktaufnahme
 

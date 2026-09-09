@@ -12,16 +12,35 @@
   // Quelle ist statisch (per ?raw-Import), $derived hält es trotzdem sauber
   // reaktiv — kein state_referenced_locally-Lint.
   const html = $derived(renderLegal(source));
+
+  // „Zurück" führt dorthin, wo der Leser herkam — Landingpage, Login-Screen
+  // oder App-Einstellungen. Ohne eigene Vorgeschichte (Link direkt geöffnet)
+  // bleibt das href-Ziel `/`: in der Cloud die Landingpage, sonst die
+  // Weiterleitung der Startroute. Vorher stand hier fest `/login`, und wer
+  // von der Landingpage kam, landete auf dem Anmeldeschirm.
+  function zurueck(ev: MouseEvent) {
+    const eigeneHerkunft =
+      typeof document !== 'undefined' &&
+      document.referrer.startsWith(window.location.origin) &&
+      window.history.length > 1;
+    if (!eigeneHerkunft) return; // Browser folgt dem href
+    ev.preventDefault();
+    window.history.back();
+  }
 </script>
 
 <div class="bg-background text-foreground min-h-dvh">
   <div class="mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
     <header class="mb-8 flex items-center justify-between gap-4">
-      <a href="/login" class="flex items-center gap-2.5">
+      <a href="/" class="flex items-center gap-2.5">
         <img src="/pulse-mark.svg" alt="Pulse" width="32" height="32" class="size-8" />
         <span class="text-lg font-semibold">Pulse</span>
       </a>
-      <a href="/login" class="text-muted-foreground hover:text-foreground text-sm hover:underline">
+      <a
+        href="/"
+        onclick={zurueck}
+        class="text-muted-foreground hover:text-foreground text-sm hover:underline"
+      >
         {m.legal_page_back()}
       </a>
     </header>

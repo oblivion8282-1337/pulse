@@ -1,16 +1,11 @@
 # Impressum
 
-> ⚠️ **Hinweis:** Dies ist eine sorgfältig erstellte Vorlage nach gängiger
-> deutscher Rechtspraxis — **keine Rechtsberatung**. Vor der Veröffentlichung
-> bitte juristisch prüfen lassen. Mit `[…]` markierte Stellen müssen ergänzt
-> oder bestätigt werden.
-
 ## Angaben gemäß § 5 DDG (Digitale-Dienste-Gesetz)
 
-**Oblivion Pictures**
-Michael de Meyer
-Maria-Luiko-Str. 6
-80636 München
+**Oblivion Pictures**\
+Michael de Meyer\
+Maria-Luiko-Str. 6\
+80636 München\
 Deutschland
 
 ## Kontakt
@@ -30,10 +25,6 @@ Michael de Meyer (Anschrift wie oben)
 
 Wir sind nicht bereit und nicht verpflichtet, an Streitbeilegungsverfahren vor
 einer Verbraucherschlichtungsstelle teilzunehmen.
-
-> Hinweis: Die frühere EU-Plattform zur Online-Streitbeilegung (OS-Plattform)
-> wurde zum 20.07.2025 eingestellt — ein Link darauf gehört **nicht** mehr ins
-> Impressum.
 
 ## Haftung für Inhalte
 

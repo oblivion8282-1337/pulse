@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-09",
+      "date": "2026-09-09",
+      "style": "Sachlich",
+      "title": "Neue Startseite auf howispulse.com",
+      "intro": "Wer howispulse.com ohne Anmeldung öffnet, sieht jetzt eine Vorstellung von Pulse statt des Anmeldebildschirms. Angemeldete Nutzer landen wie bisher direkt in der App.",
+      "items": [
+        "Die Startseite zeigt Funktionen, den Vergleich mit Discord, Self-Hosting und die verfügbaren Plattformen, auf Deutsch und Englisch.",
+        "„App laden“ erkennt das Betriebssystem und bietet direkt den passenden Download an.",
+        "Impressum, Datenschutz und AGB sind aufgeräumt; „Zurück“ führt dorthin, wo man herkam, statt immer zum Login."
+      ]
+    },
+    {
       "id": "2026-09-08",
       "date": "2026-09-08",
       "style": "Sachlich",

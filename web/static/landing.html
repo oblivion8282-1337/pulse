@@ -1,0 +1,1385 @@
+<!doctype html>
+<!--
+  Statische Marketing-Seite fuer https://howispulse.com/.
+
+  Sie liegt NEBEN der SvelteKit-App: nginx faengt in der Cloud `/` ab und
+  liefert diese Datei aus (siehe `infra/prod/web-nginx.conf`), alles andere
+  bleibt die SPA. Kein Bundler, keine Abhaengigkeiten, kein Google-Fonts-Link
+  (Datenschutz) — die Schriften liegen unter /fonts/ und kommen vom eigenen
+  Server (web/static/fonts/LICENSE.md).
+
+  Herkunft der Gestaltung: Design-Canvas „Pulse Landing", Artboard 1d. Die
+  Hover-Zustaende standen dort als Pseudo-Attribut `style-hover`, hier stehen
+  sie als echte CSS-Regeln.
+
+  Angemeldete Nutzer sollen die Seite nicht sehen — `landing.js` leitet sie
+  nach `/app` weiter. Der Body ist deshalb `hidden`, bis die Pruefung durch
+  ist; ohne JavaScript hebt das `<noscript>`-Stylesheet unten das wieder auf.
+-->
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Pulse — Du verdienst was Besseres.</title>
+    <meta
+      name="description"
+      content="Pulse ist Chat, Sprache und Bildschirmuebertragung in voller Qualitaet — ohne Abo. Ein Konto, viele Server: die Cloud oder deine eigene Instanz."
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#04070b" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://howispulse.com/" />
+    <meta property="og:title" content="Pulse — Du verdienst was Besseres." />
+    <meta
+      property="og:description"
+      content="Chat, Sprache und Bildschirmuebertragung in voller Qualitaet — ohne Abo. Ein Konto, viele Server."
+    />
+    <meta property="og:image" content="https://howispulse.com/pulse-icon-512.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <!--
+      Eigene, enge CSP. Die Seite laedt nichts von fremden Hosts und stellt
+      keine Verbindungen her (`connect-src 'none'`) — deshalb braucht sie auch
+      nichts von dem, was die App in `web/src/app.html` freischalten muss.
+      `style-src 'unsafe-inline'`: das Markup traegt Inline-Stile aus dem
+      Design-Canvas. `script-src 'self'` ohne `unsafe-inline` ist der Grund,
+      warum alles Verhalten in `/landing.js` steht.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'"
+    />
+    <noscript>
+      <style>
+        body[hidden] {
+          visibility: visible !important;
+          animation: none !important;
+        }
+      </style>
+    </noscript>
+    <style>
+      /* `hidden` versteckt den Body nur ueber die Sichtbarkeit, nicht ueber
+         display — und hebt sich nach 3 s von selbst auf. Sonst bliebe die
+         Seite dauerhaft leer, wenn /landing.js nicht laedt (404, Netz,
+         Erweiterung). Der Normalfall entfernt das Attribut lange vorher. */
+      body[hidden] {
+        display: block !important;
+        visibility: hidden;
+        animation: lp-notausgang 0s 3s forwards;
+      }
+      @keyframes lp-notausgang {
+        to {
+          visibility: visible;
+        }
+      }
+      /* Selbst ausgelieferte Schriften (web/static/fonts/, SIL OFL 1.1) —
+         bewusst KEIN Google-Fonts-Link: der wuerde jede Besucher-IP an
+         Google melden. Variable Schnitte, ein Download je Familie. */
+      @font-face {
+        font-family: 'Plus Jakarta Sans';
+        font-style: normal;
+        font-weight: 200 800;
+        font-display: swap;
+        src: url('/fonts/plus-jakarta-sans-latin-wght.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-style: normal;
+        font-weight: 100 800;
+        font-display: swap;
+        src: url('/fonts/jetbrains-mono-latin-wght.woff2') format('woff2');
+      }
+      :root {
+        /* Zwei Farbrollen. `--akzent` traegt Knoepfe, Links, Hervorhebungen;
+           `--signal` traegt alles, was pulst oder sendet (Ringe, Pings,
+           Punkte, die Wortmarke) — die Markenfarbe des Logos. Beide zeigen
+           auf dieselben Grundwerte, damit ein Wechsel nur HIER passiert. */
+        --gruen: #10b981;
+        --gruen-hell: #34d399;
+        --gruen-rgb: 16, 185, 129;
+        --blau: #3b82f6;
+        --blau-hell: #60a5fa;
+        --blau-rgb: 59, 130, 246;
+        --akzent: var(--gruen);
+        --akzent-hell: var(--gruen-hell);
+        --akzent-rgb: var(--gruen-rgb);
+        --signal: var(--gruen);
+        --signal-hell: var(--gruen-hell);
+        --signal-rgb: var(--gruen-rgb);
+        --bg: #04070b;
+        --text: #e9edea;
+        --grau: #a9b3ad;
+        --grau-2: #8b948f;
+        --grau-3: #5d6862;
+        --linie: rgba(255, 255, 255, 0.07);
+        --rand: clamp(20px, 5vw, 56px);
+        --sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      }
+      /* Alles, was pulst oder sendet, nimmt die Signal-Farbe. */
+      .lp-hero,
+      .lp-atem,
+      .lp-ring-1,
+      .lp-ring-2,
+      .lp-ring-3,
+      .lp-ring-4,
+      .lp-raster,
+      .lp-kegel,
+      .lp-ping,
+      .lp-wortmarke,
+      .lp-punkt,
+      .lp-karte-punkt,
+      .lp-kern-aussen,
+      .lp-kern-innen,
+      .lp-kern-dot,
+      .lp-kern-puls,
+      .lp-cta,
+      .lp-cta-ring-1,
+      .lp-cta-ring-2,
+      .lp-cta-titel span {
+        --akzent: var(--signal);
+        --akzent-hell: var(--signal-hell);
+        --akzent-rgb: var(--signal-rgb);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+        background: var(--bg);
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      a {
+        color: var(--akzent);
+        text-decoration: none;
+      }
+      p {
+        text-wrap: pretty;
+      }
+      .lp-wrap {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding-left: var(--rand);
+        padding-right: var(--rand);
+      }
+      .lp-abschnitt {
+        border-top: 1px solid var(--linie);
+        padding: clamp(48px, 7vw, 80px) 0;
+      }
+      /* Sticky Nav verdeckt sonst die Ueberschrift des angesprungenen Abschnitts. */
+      [id] {
+        scroll-margin-top: 88px;
+      }
+      .lp-augbraue {
+        font: 500 12px var(--mono);
+        color: var(--akzent);
+        letter-spacing: 2px;
+      }
+      .lp-titel {
+        font-weight: 800;
+        font-size: clamp(28px, 4.4vw, 40px);
+        letter-spacing: -0.02em;
+        color: var(--text);
+        margin: 12px 0 0;
+      }
+
+      /* ── Nav ──────────────────────────────────────────────────────────── */
+      .lp-nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 28px;
+        padding: 20px var(--rand);
+        border-bottom: 1px solid var(--linie);
+        background: rgba(4, 7, 11, 0.88);
+        backdrop-filter: blur(10px);
+        flex-wrap: wrap;
+      }
+      .lp-marke {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .lp-marke img {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+      }
+      .lp-marke span {
+        font-weight: 700;
+        font-size: 16px;
+        color: var(--text);
+      }
+      .lp-nav-schub {
+        flex: 1;
+      }
+      .lp-nav-links {
+        display: flex;
+        gap: 24px;
+        font-size: 13.5px;
+        font-weight: 500;
+      }
+      .lp-nav-links a {
+        color: var(--grau);
+        transition: color 0.18s;
+      }
+      .lp-nav-links a:hover {
+        color: var(--text);
+      }
+      .lp-sprachbox {
+        font: 500 11px var(--mono);
+        color: var(--grau-2);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        padding: 4px 8px;
+        letter-spacing: 0.5px;
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .lp-sprachbox button {
+        background: none;
+        border: 0;
+        padding: 0;
+        font: inherit;
+        color: var(--grau-2);
+        cursor: pointer;
+      }
+      .lp-sprachbox button.lp-sprache-aktiv {
+        color: var(--akzent);
+      }
+      .lp-nav-knoepfe {
+        display: flex;
+        gap: 10px;
+      }
+
+      /* ── Knoepfe ──────────────────────────────────────────────────────── */
+      .lp-knopf,
+      .lp-knopf-rand {
+        display: inline-block;
+        border-radius: 8px;
+        font-size: 13.5px;
+        padding: 9px 16px;
+      }
+      .lp-knopf {
+        background: var(--akzent);
+        color: #04070b;
+        font-weight: 700;
+        transition:
+          transform 0.18s,
+          box-shadow 0.18s,
+          background 0.18s;
+      }
+      .lp-knopf:hover {
+        background: var(--akzent-hell);
+        color: #04070b;
+        transform: translateY(-1px);
+        box-shadow: 0 10px 26px -8px rgba(var(--akzent-rgb), 0.6);
+      }
+      .lp-knopf-rand {
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        color: var(--text);
+        font-weight: 600;
+        transition:
+          border-color 0.18s,
+          background 0.18s;
+      }
+      .lp-knopf-rand:hover {
+        border-color: rgba(var(--akzent-rgb), 0.6);
+        background: rgba(var(--akzent-rgb), 0.08);
+        color: var(--text);
+      }
+      .lp-gross {
+        font-size: 15px;
+        padding: 14px 26px;
+        border-radius: 10px;
+      }
+      .lp-knopf.lp-gross:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 16px 40px -12px rgba(var(--akzent-rgb), 0.65);
+      }
+      .lp-knopf-rand.lp-gross {
+        border-color: rgba(255, 255, 255, 0.18);
+      }
+      .lp-knopf-rand.lp-gross:hover {
+        transform: translateY(-2px);
+      }
+
+      /* ── Hero ─────────────────────────────────────────────────────────── */
+      .lp-hero {
+        position: relative;
+        height: clamp(440px, 62vw, 640px);
+        overflow: hidden;
+        background: radial-gradient(
+          ellipse 900px 560px at 50% 46%,
+          rgba(var(--akzent-rgb), 0.05),
+          transparent 70%
+        );
+      }
+      .lp-atem {
+        position: absolute;
+        left: 50%;
+        top: 46%;
+        width: 820px;
+        height: 820px;
+        margin: -410px 0 0 -410px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(var(--akzent-rgb), 0.09), transparent 62%);
+        animation: breathe 6.8s ease-in-out infinite;
+        will-change: opacity;
+        pointer-events: none;
+      }
+      .lp-ring {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 700px;
+        height: 700px;
+        border-radius: 50%;
+        pointer-events: none;
+        will-change: transform, opacity;
+      }
+      .lp-ring-1 {
+        border: 3px solid rgba(var(--akzent-rgb), 0.75);
+        animation: ringout 9.6s cubic-bezier(0.12, 0.7, 0.2, 1) infinite;
+      }
+      .lp-ring-2 {
+        border: 2px solid rgba(var(--akzent-rgb), 0.4);
+        animation: echoout 9.6s cubic-bezier(0.12, 0.7, 0.2, 1) 0.5s infinite;
+      }
+      .lp-ring-3 {
+        border: 3px solid rgba(var(--akzent-rgb), 0.5);
+        animation: ringout 9.6s cubic-bezier(0.12, 0.7, 0.2, 1) 4.8s infinite;
+      }
+      .lp-ring-4 {
+        border: 2px solid rgba(var(--akzent-rgb), 0.28);
+        animation: echoout 9.6s cubic-bezier(0.12, 0.7, 0.2, 1) 5.3s infinite;
+      }
+      .lp-feld {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        overflow: hidden;
+        cursor: crosshair;
+      }
+      .lp-raster {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        transition: opacity 0.5s;
+        pointer-events: none;
+        background-image:
+          repeating-radial-gradient(
+            circle at 50% 50%,
+            rgba(var(--akzent-rgb), 0.5) 0 1px,
+            transparent 1px 68px
+          ),
+          repeating-conic-gradient(
+            from 0deg at 50% 50%,
+            rgba(var(--akzent-rgb), 0.4) 0deg 0.22deg,
+            transparent 0.22deg 15deg
+          );
+      }
+      .lp-kegel {
+        position: absolute;
+        width: 520px;
+        height: 520px;
+        margin: -260px 0 0 -260px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(var(--akzent-rgb), 0.14), transparent 62%);
+        opacity: 0;
+        transition: opacity 0.5s;
+        pointer-events: none;
+      }
+      .lp-ping {
+        position: absolute;
+        width: 140px;
+        height: 140px;
+        margin: -70px 0 0 -70px;
+        border-radius: 50%;
+        border: 1.5px solid rgba(var(--akzent-rgb), 0.9);
+        animation: pingonce 1.8s cubic-bezier(0, 0, 0.3, 1);
+        pointer-events: none;
+        will-change: transform, opacity;
+      }
+      .lp-hero-inhalt {
+        position: relative;
+        z-index: 3;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        height: 100%;
+        padding: 0 var(--rand);
+        pointer-events: none;
+      }
+      .lp-wortmarke {
+        font-weight: 800;
+        font-size: clamp(72px, 15vw, 190px);
+        line-height: 0.9;
+        letter-spacing: -0.035em;
+        color: var(--akzent);
+        animation: wordpulse 6.8s ease-in-out infinite;
+      }
+      .lp-anspruch {
+        font-weight: 600;
+        font-size: clamp(18px, 2.6vw, 26px);
+        color: var(--text);
+        margin-top: 22px;
+      }
+      .lp-hero-knoepfe {
+        display: flex;
+        gap: 12px;
+        margin-top: 34px;
+        pointer-events: auto;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      /* ── Vergleichstabelle ────────────────────────────────────────────── */
+      .lp-tabelle-rahmen {
+        overflow-x: auto;
+        border-radius: 14px;
+      }
+      .lp-tabelle {
+        display: grid;
+        grid-template-columns: 200px 1fr 1fr 1.1fr;
+        min-width: 780px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        overflow: hidden;
+        font-size: 14px;
+        box-shadow: 0 24px 70px -40px rgba(var(--akzent-rgb), 0.45);
+      }
+      .lp-tabelle > div {
+        padding: 16px 22px;
+        border-top: 1px solid var(--linie);
+        color: var(--grau-2);
+      }
+      .lp-tabelle > .lp-kopf {
+        padding: 18px 22px;
+        border-top: 0;
+        background: rgba(255, 255, 255, 0.03);
+        font-weight: 600;
+      }
+      .lp-kopf.lp-pulse {
+        color: var(--text);
+        font-weight: 700;
+      }
+      .lp-kopf.lp-selbst {
+        background: rgba(var(--akzent-rgb), 0.08);
+        color: var(--akzent);
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .lp-punkt {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--akzent);
+        flex: none;
+        animation: dotpulse 2.4s ease-out infinite;
+      }
+      .lp-zeilenkopf {
+        font-weight: 600;
+      }
+      .lp-tabelle > .lp-hell {
+        color: var(--text);
+      }
+      .lp-tabelle > .lp-spalte-selbst {
+        border-top: 1px solid rgba(var(--akzent-rgb), 0.15);
+        background: rgba(var(--akzent-rgb), 0.04);
+        color: var(--text);
+      }
+
+      /* ── Funktionen ───────────────────────────────────────────────────── */
+      .lp-karten {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 16px;
+        margin-top: 40px;
+      }
+      .lp-karte {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 14px;
+        padding: 24px;
+        transition:
+          border-color 0.22s,
+          transform 0.22s,
+          background 0.22s;
+      }
+      .lp-karte:hover {
+        border-color: rgba(var(--akzent-rgb), 0.45);
+        transform: translateY(-3px);
+        background: rgba(var(--akzent-rgb), 0.035);
+      }
+      .lp-karte-punkt {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--akzent);
+        box-shadow: 0 0 0 5px rgba(var(--akzent-rgb), 0.15);
+        margin-bottom: 18px;
+        /* Gleicher Puls wie beim Punkt in der Vergleichstabelle (.lp-punkt),
+           nur laeuft hier ein zweiter Ring UM den stehenden Hof herum. Die
+           Karten pulsieren leicht versetzt, damit das Raster nicht blinkt. */
+        animation: kartenpuls 2.4s ease-out infinite;
+      }
+      .lp-karte:nth-child(4n + 2) .lp-karte-punkt {
+        animation-delay: 0.6s;
+      }
+      .lp-karte:nth-child(4n + 3) .lp-karte-punkt {
+        animation-delay: 1.2s;
+      }
+      .lp-karte:nth-child(4n + 4) .lp-karte-punkt {
+        animation-delay: 1.8s;
+      }
+      .lp-karte h3 {
+        font-weight: 700;
+        font-size: 16px;
+        color: var(--text);
+        margin: 0;
+      }
+      .lp-karte p {
+        font-size: 13.5px;
+        line-height: 1.55;
+        color: var(--grau-2);
+        margin: 8px 0 0;
+      }
+
+      /* ── Self-Hosting ─────────────────────────────────────────────────── */
+      .lp-selbst-raster {
+        display: grid;
+        grid-template-columns: 1fr 480px;
+        gap: 60px;
+        align-items: center;
+      }
+      .lp-selbst-raster p {
+        font-size: 16px;
+        line-height: 1.65;
+        color: var(--grau-2);
+        margin: 14px 0 0;
+        max-width: 520px;
+      }
+      .lp-bahn {
+        position: relative;
+        height: 360px;
+        /* KEIN overflow:hidden — die Kaestchen sind bis zu 200 px breit und
+           stehen mittig auf der Bahn; an den Raendern ragen sie ueber die
+           480 px hinaus und wurden vorher abgeschnitten. Der Abschnitt hat
+           links 60 px Luecke und rechts 56 px Rand, das faengt den Ueberhang. */
+      }
+      .lp-bahn svg {
+        position: absolute;
+        inset: 0;
+      }
+      .lp-chip {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        background: #070c11;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 10px;
+        padding: 10px 14px;
+      }
+      .lp-chip.lp-chip-selbst {
+        border-color: rgba(var(--akzent-rgb), 0.4);
+      }
+      .lp-chip-label {
+        font: 500 9px var(--mono);
+        color: var(--grau-3);
+        letter-spacing: 1.5px;
+        white-space: nowrap;
+      }
+      .lp-chip-selbst .lp-chip-label {
+        color: var(--akzent);
+      }
+      .lp-chip-name {
+        font-weight: 700;
+        font-size: 13px;
+        color: var(--text);
+        margin-top: 3px;
+        white-space: nowrap;
+      }
+      .lp-kern {
+        position: absolute;
+        left: 240px;
+        top: 150px;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+      }
+      .lp-kern > div {
+        position: absolute;
+        border-radius: 50%;
+      }
+      .lp-kern-aussen {
+        left: -44px;
+        top: -44px;
+        width: 88px;
+        height: 88px;
+        border: 1px solid rgba(var(--akzent-rgb), 0.35);
+      }
+      .lp-kern-innen {
+        left: -26px;
+        top: -26px;
+        width: 52px;
+        height: 52px;
+        border: 1px solid rgba(var(--akzent-rgb), 0.55);
+      }
+      .lp-kern-dot {
+        left: -7px;
+        top: -7px;
+        width: 14px;
+        height: 14px;
+        background: var(--akzent);
+        box-shadow: 0 0 22px rgba(var(--akzent-rgb), 0.9);
+      }
+      .lp-kern-puls {
+        left: -50px;
+        top: -50px;
+        width: 100px;
+        height: 100px;
+        border: 1px solid rgba(var(--akzent-rgb), 0.5);
+        will-change: transform, opacity;
+      }
+      .lp-kern-puls-1 {
+        animation: pingsmall 5.4s cubic-bezier(0, 0, 0.25, 1) infinite;
+      }
+      .lp-kern-puls-2 {
+        animation: pingsmall 5.4s cubic-bezier(0, 0, 0.25, 1) 2.7s infinite;
+      }
+      .lp-kern-text {
+        left: -80px;
+        top: 20px;
+        width: 160px;
+        text-align: center;
+        border-radius: 0;
+      }
+      .lp-kern-text .lp-kern-konto {
+        font: 600 11px var(--mono);
+        color: var(--akzent);
+        letter-spacing: 1px;
+        white-space: nowrap;
+      }
+      .lp-kern-text .lp-kern-cloud {
+        font: 500 9px var(--mono);
+        color: var(--grau-3);
+        letter-spacing: 1px;
+        margin-top: 3px;
+        white-space: nowrap;
+      }
+      .lp-bahn-fuss {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        text-align: center;
+        font: 400 11.5px var(--mono);
+        color: var(--grau-3);
+        letter-spacing: 0.3px;
+      }
+
+      /* ── Plattformen ──────────────────────────────────────────────────── */
+      .lp-plattformen {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 16px;
+        margin-top: 36px;
+      }
+      .lp-plattform {
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 14px;
+        padding: 36px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+        transition:
+          border-color 0.22s,
+          transform 0.22s,
+          background 0.22s;
+      }
+      .lp-plattform:hover {
+        border-color: rgba(var(--akzent-rgb), 0.45);
+        transform: translateY(-3px);
+        background: rgba(var(--akzent-rgb), 0.035);
+      }
+      .lp-plattform-bild {
+        height: 44px;
+        display: flex;
+        align-items: center;
+      }
+      .lp-plattform-name {
+        font-weight: 700;
+        font-size: 15px;
+        color: var(--text);
+      }
+      .lp-win-kachel {
+        display: grid;
+        grid-template-columns: 20px 20px;
+        grid-template-rows: 20px 20px;
+        gap: 4px;
+        place-content: center;
+      }
+      .lp-win-kachel div {
+        background: var(--grau);
+      }
+
+      /* ── Abschluss + Fuss ─────────────────────────────────────────────── */
+      .lp-cta {
+        padding: clamp(60px, 9vw, 100px) var(--rand) clamp(56px, 8vw, 90px);
+        border-top: 1px solid var(--linie);
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+        background: radial-gradient(
+          ellipse 760px 320px at 50% 40%,
+          rgba(var(--akzent-rgb), 0.09),
+          transparent 70%
+        );
+      }
+      .lp-cta-ring {
+        position: absolute;
+        left: 50%;
+        top: 40%;
+        width: 220px;
+        height: 220px;
+        margin: -110px 0 0 -110px;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      .lp-cta-ring-1 {
+        border: 1px solid rgba(var(--akzent-rgb), 0.5);
+        animation: pingring 6s cubic-bezier(0, 0, 0.25, 1) infinite;
+      }
+      .lp-cta-ring-2 {
+        border: 1px solid rgba(var(--akzent-rgb), 0.3);
+        animation: pingring 6s cubic-bezier(0, 0, 0.25, 1) 3s infinite;
+      }
+      .lp-cta-titel {
+        font-weight: 800;
+        font-size: clamp(34px, 6vw, 56px);
+        letter-spacing: -0.025em;
+        color: var(--text);
+      }
+      .lp-cta-titel span {
+        color: var(--akzent);
+        text-shadow: 0 0 60px rgba(var(--akzent-rgb), 0.45);
+      }
+      .lp-cta-knoepfe {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        margin-top: 32px;
+        flex-wrap: wrap;
+      }
+      .lp-fuss {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        padding: 24px var(--rand);
+        border-top: 1px solid var(--linie);
+        font-size: 12.5px;
+        color: var(--grau-3);
+        flex-wrap: wrap;
+      }
+      .lp-fuss a {
+        color: var(--grau-2);
+      }
+      .lp-fuss a:hover {
+        color: var(--text);
+      }
+      .lp-fuss-marke {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .lp-fuss-marke img {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+      }
+      .lp-fuss-marke span {
+        color: var(--grau-2);
+        font-weight: 600;
+      }
+      .lp-fuss-schub {
+        flex: 1;
+      }
+
+      /* ── Linux-Dialog ─────────────────────────────────────────────────── */
+      #lp-linux-dialog {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        background: #070c11;
+        color: var(--text);
+        padding: 28px;
+        max-width: 520px;
+        width: calc(100% - 32px);
+      }
+      #lp-linux-dialog::backdrop {
+        background: rgba(0, 0, 0, 0.6);
+      }
+      #lp-linux-dialog h2 {
+        margin: 0;
+        font-size: 20px;
+      }
+      #lp-linux-dialog p {
+        color: var(--grau-2);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .lp-befehl {
+        font: 400 13px var(--mono);
+        color: var(--akzent);
+        background: rgba(var(--akzent-rgb), 0.07);
+        border: 1px solid rgba(var(--akzent-rgb), 0.25);
+        border-radius: 8px;
+        padding: 12px 14px;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+      .lp-dialog-knoepfe {
+        display: flex;
+        gap: 10px;
+        margin-top: 18px;
+        flex-wrap: wrap;
+      }
+      .lp-dialog-knoepfe button {
+        font-family: inherit;
+        cursor: pointer;
+      }
+      button.lp-knopf,
+      button.lp-knopf-rand {
+        border-width: 1px;
+        border-style: solid;
+        border-color: transparent;
+      }
+      button.lp-knopf-rand {
+        border-color: rgba(255, 255, 255, 0.16);
+        background: none;
+      }
+
+      /* ── Schmale Fenster ──────────────────────────────────────────────── */
+      @media (max-width: 1000px) {
+        .lp-selbst-raster {
+          grid-template-columns: 1fr;
+          gap: 32px;
+        }
+        .lp-bahn {
+          display: none; /* 480x360 fest vermasst — abgeschnitten waere es schlechter als gar nicht */
+        }
+      }
+      @media (max-width: 860px) {
+        .lp-nav-links {
+          display: none; /* die Abschnitte stehen direkt untereinander */
+        }
+      }
+      @media (max-width: 560px) {
+        .lp-nav {
+          gap: 12px;
+          padding: 14px var(--rand);
+        }
+        .lp-nav-knoepfe .lp-knopf-rand {
+          display: none; /* „Im Browser oeffnen" steht im Hero gleich darunter */
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        .lp-atem,
+        .lp-ring,
+        .lp-wortmarke,
+        .lp-punkt,
+        .lp-karte-punkt,
+        .lp-cta-ring,
+        .lp-kern-puls {
+          animation: none !important;
+        }
+        .lp-ring,
+        .lp-cta-ring {
+          opacity: 0.25;
+          transform: translate(-50%, -50%) scale(0.6);
+        }
+      }
+
+      /* Keyframes aus dem Design-Canvas (`canvas-style.css`), nur die genutzten. */
+      @keyframes pingring {
+        0% {
+          transform: scale(0.08);
+          opacity: 0.9;
+        }
+        100% {
+          transform: scale(9);
+          opacity: 0;
+        }
+      }
+      @keyframes pingsmall {
+        0% {
+          transform: scale(0.1);
+          opacity: 0.8;
+        }
+        100% {
+          transform: scale(2.1);
+          opacity: 0;
+        }
+      }
+      @keyframes pingonce {
+        0% {
+          transform: scale(0.05);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(5);
+          opacity: 0;
+        }
+      }
+      @keyframes wordpulse {
+        0%,
+        100% {
+          text-shadow: 0 0 80px rgba(var(--akzent-rgb), 0.22);
+        }
+        50% {
+          text-shadow: 0 0 110px rgba(var(--akzent-rgb), 0.36);
+        }
+      }
+      @keyframes breathe {
+        0%,
+        100% {
+          opacity: 0.4;
+        }
+        50% {
+          opacity: 0.75;
+        }
+      }
+      @keyframes kartenpuls {
+        0%,
+        100% {
+          box-shadow:
+            0 0 0 5px rgba(var(--akzent-rgb), 0.15),
+            0 0 0 0 rgba(var(--akzent-rgb), 0.5);
+        }
+        50% {
+          box-shadow:
+            0 0 0 5px rgba(var(--akzent-rgb), 0.15),
+            0 0 0 12px rgba(var(--akzent-rgb), 0);
+        }
+      }
+      @keyframes dotpulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(var(--akzent-rgb), 0.5);
+        }
+        50% {
+          box-shadow: 0 0 0 6px rgba(var(--akzent-rgb), 0);
+        }
+      }
+      @keyframes ringout {
+        0% {
+          transform: translate(-50%, -50%) scale(0.03);
+          opacity: 0;
+          border-width: 3px;
+          box-shadow:
+            0 0 26px rgba(var(--akzent-rgb), 0.55),
+            inset 0 0 26px rgba(var(--akzent-rgb), 0.35);
+        }
+        8% {
+          opacity: 1;
+        }
+        55% {
+          opacity: 0.5;
+          border-width: 1.4px;
+        }
+        100% {
+          transform: translate(-50%, -50%) scale(3.5);
+          opacity: 0;
+          border-width: 0.5px;
+          box-shadow:
+            0 0 0 rgba(var(--akzent-rgb), 0),
+            inset 0 0 0 rgba(var(--akzent-rgb), 0);
+        }
+      }
+      @keyframes echoout {
+        0% {
+          transform: translate(-50%, -50%) scale(0.03);
+          opacity: 0;
+          border-width: 2px;
+        }
+        10% {
+          opacity: 0.5;
+        }
+        55% {
+          border-width: 1px;
+        }
+        100% {
+          transform: translate(-50%, -50%) scale(3.5);
+          opacity: 0;
+          border-width: 0.5px;
+        }
+      }
+    </style>
+  </head>
+  <body hidden>
+    <!-- ── Nav ──────────────────────────────────────────────────────────── -->
+    <nav class="lp-nav">
+      <a class="lp-marke" href="/" aria-label="Pulse">
+        <img src="/pulse-mark.svg" alt="" width="28" height="28" />
+        <span>Pulse</span>
+      </a>
+      <span class="lp-nav-schub"></span>
+      <div class="lp-nav-links">
+        <a href="#funktionen">Funktionen</a><a href="#vergleich">Vergleich</a
+        ><a href="#selfhosting">Self-Hosting</a><a href="#plattformen">Plattformen</a>
+      </div>
+      <span class="lp-sprachbox">
+        <button type="button" data-lp-sprache="de" aria-pressed="true">DE</button> /
+        <button type="button" data-lp-sprache="en" aria-pressed="false">EN</button>
+      </span>
+      <div class="lp-nav-knoepfe">
+        <a class="lp-knopf-rand" href="/login">Im Browser öffnen</a>
+        <a class="lp-knopf" href="#plattformen" data-lp-app-laden>App laden</a>
+      </div>
+    </nav>
+
+    <!-- ── Hero ─────────────────────────────────────────────────────────── -->
+    <header class="lp-hero" data-lp-hero>
+      <div class="lp-atem"></div>
+      <div class="lp-ring lp-ring-1"></div>
+      <div class="lp-ring lp-ring-2"></div>
+      <div class="lp-ring lp-ring-3"></div>
+      <div class="lp-ring lp-ring-4"></div>
+      <div class="lp-feld" data-lp-feld>
+        <div class="lp-raster" data-lp-raster></div>
+        <div class="lp-kegel" data-lp-kegel></div>
+      </div>
+      <div class="lp-hero-inhalt">
+        <div class="lp-wortmarke">Pulse</div>
+        <div class="lp-anspruch">Du verdienst was Besseres.</div>
+        <div class="lp-hero-knoepfe">
+          <a class="lp-knopf lp-gross" href="#plattformen" data-lp-app-laden>App laden</a>
+          <a class="lp-knopf-rand lp-gross" href="/login">Im Browser öffnen</a>
+        </div>
+      </div>
+    </header>
+
+    <!-- ── Vergleich ────────────────────────────────────────────────────── -->
+    <section class="lp-abschnitt" id="vergleich">
+      <div class="lp-wrap">
+        <div class="lp-augbraue">DIE NACKTEN ZAHLEN</div>
+        <h2 class="lp-titel">Wir fangen da an,<br />wo die anderen aufhören.</h2>
+        <div style="height: 40px"></div>
+        <div class="lp-tabelle-rahmen">
+          <div class="lp-tabelle">
+            <div class="lp-kopf"></div>
+            <div class="lp-kopf">Discord</div>
+            <div class="lp-kopf lp-pulse">Pulse Cloud</div>
+            <div class="lp-kopf lp-selbst">
+              <span class="lp-punkt"></span>Pulse, selbst gehostet
+            </div>
+
+            <div class="lp-zeilenkopf">Tonqualität</div>
+            <div>64 kbit/s — mehr kostet extra</div>
+            <div class="lp-hell">128 kbit/s</div>
+            <div class="lp-spalte-selbst">Bis 512 kbit/s</div>
+
+            <div class="lp-zeilenkopf">Auflösung</div>
+            <div>720p — mehr kostet extra</div>
+            <div class="lp-hell">1080p</div>
+            <div class="lp-spalte-selbst">Unbegrenzt</div>
+
+            <div class="lp-zeilenkopf">Bildrate</div>
+            <div>30 fps — mehr kostet extra</div>
+            <div class="lp-hell">60 fps</div>
+            <div class="lp-spalte-selbst">Unbegrenzt</div>
+
+            <div class="lp-zeilenkopf">Bitrate</div>
+            <div>Stark komprimiert</div>
+            <div class="lp-hell">Deutlich über der Konkurrenz</div>
+            <div class="lp-spalte-selbst">Unbegrenzt</div>
+
+            <div class="lp-zeilenkopf">Encoding</div>
+            <div>Standard</div>
+            <div class="lp-hell">AV1 &amp; H.264, direkt auf der GPU</div>
+            <div class="lp-spalte-selbst">AV1 &amp; H.264, direkt auf der GPU</div>
+
+            <div class="lp-zeilenkopf">Volle Qualität kostet</div>
+            <div>Ein Abo</div>
+            <div class="lp-hell">0 €</div>
+            <div class="lp-spalte-selbst">0 €</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Funktionen ───────────────────────────────────────────────────── -->
+    <section class="lp-abschnitt" id="funktionen">
+      <div class="lp-wrap">
+        <div class="lp-augbraue">FUNKTIONEN</div>
+        <h2 class="lp-titel">Alles drin. Nichts im Weg.</h2>
+        <div class="lp-karten">
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>Kein Rauschen</h3>
+            <p>Cleanes Design, diszipliniert, nichts im Weg. So wie es sein sollte.</p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>Communitys &amp; Rollen</h3>
+            <p>Text- und Sprachkanäle mit vollem Rollen- und Rechtesystem.</p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>Eine Stimme, die gut klingt</h3>
+            <p>Klingt nach Raum, nicht nach Funkgerät — Push-to-Talk, optional 3D-Raumklang.</p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>Watch-Partys</h3>
+            <p>Gemeinsam YouTube schauen — synchron, mit eigenem Chat.</p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>Mehrere Bildschirme gleichzeitig</h3>
+            <p>Ein Bildschirm reicht dir nicht? Dann teil zwei. Oder drei. Oder neunzig.</p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>2FA &amp; Passkeys</h3>
+            <p>TOTP und Passkeys — auf Wunsch komplett passwortloser Login.</p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>Installieren ohne Store</h3>
+            <p>Windows, macOS, Linux — und im Browser, installierbar wie eine App.</p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>Fernsteuerung</h3>
+            <p>
+              Zuschauer übernehmen auf Wunsch Maus und Tastatur — in Streaming-Qualität, auch für
+              Rechner ohne Aufsicht.
+            </p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>HDR-Streaming</h3>
+            <p>Bildschirm in HDR übertragen — AV1 mit 10 Bit, auf Windows mit NVIDIA und AMD.</p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>Verschlüsselte Direktnachrichten</h3>
+            <p>
+              Ende-zu-Ende verschlüsselt, auf allen deinen Geräten. Der Server sieht keinen Klartext.
+            </p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>Besprechung ohne Konto</h3>
+            <p>
+              Link teilen, Namen eintippen, drin. Gäste sitzen im Sprachkanal, ohne sich zu
+              registrieren.
+            </p>
+          </div>
+          <div class="lp-karte">
+            <div class="lp-karte-punkt"></div>
+            <h3>Plugins</h3>
+            <p>In Entwicklung</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Self-Hosting ─────────────────────────────────────────────────── -->
+    <section class="lp-abschnitt" id="selfhosting">
+      <div class="lp-wrap lp-selbst-raster">
+        <div>
+          <div class="lp-augbraue">SELF-HOSTING</div>
+          <h2 class="lp-titel">Ein Konto, viele Server.</h2>
+          <p style="margin-top: 16px">
+            Deine Identität liegt zentral — deine Welten betreibst du selbst. Eigene Hardware, eigene
+            Daten, eigene Regeln. Und deine Mitglieder bringen ihr Konto einfach mit.
+          </p>
+          <p>Selbst gehostet gibt es keine Grenzen — so weit deine Hardware reicht.</p>
+          <p>
+            Deine Instanz hängt an der Pulse Cloud — für Konto und Updates. Mehr nicht. Was auf
+            deinem Server passiert, sieht niemand außer dir.
+          </p>
+        </div>
+        <div class="lp-bahn" data-lp-umlaufbahn>
+          <svg
+            width="480"
+            height="360"
+            viewBox="0 0 480 360"
+            fill="none"
+            stroke="rgba(16,185,129,.28)"
+            stroke-width="1"
+            aria-hidden="true"
+          >
+            <line data-lp-linie x1="240" y1="150" x2="240" y2="150"></line>
+            <line data-lp-linie x1="240" y1="150" x2="240" y2="150"></line>
+            <line data-lp-linie x1="240" y1="150" x2="240" y2="150" stroke-dasharray="3 6"></line>
+            <line data-lp-linie x1="240" y1="150" x2="240" y2="150" stroke-dasharray="3 6"></line>
+          </svg>
+          <div class="lp-chip" data-lp-chip style="left: 240px; top: 150px">
+            <div class="lp-chip-label">PULSE CLOUD</div>
+            <div class="lp-chip-name">Gaming-Gruppe</div>
+          </div>
+          <div class="lp-chip" data-lp-chip style="left: 240px; top: 150px">
+            <div class="lp-chip-label">PULSE CLOUD</div>
+            <div class="lp-chip-name">Freundeskreis</div>
+          </div>
+          <div class="lp-chip lp-chip-selbst" data-lp-chip style="left: 240px; top: 150px">
+            <div class="lp-chip-label">SELBST GEHOSTET · ANONYM</div>
+            <div class="lp-chip-name">Dein Heimserver</div>
+          </div>
+          <div class="lp-chip lp-chip-selbst" data-lp-chip style="left: 240px; top: 150px">
+            <div class="lp-chip-label">SELBST GEHOSTET · ANONYM</div>
+            <div class="lp-chip-name">Vereins-Server</div>
+          </div>
+          <div class="lp-kern">
+            <div class="lp-kern-aussen"></div>
+            <div class="lp-kern-innen"></div>
+            <div class="lp-kern-dot"></div>
+            <div class="lp-kern-puls lp-kern-puls-1"></div>
+            <div class="lp-kern-puls lp-kern-puls-2"></div>
+            <div class="lp-kern-text">
+              <div class="lp-kern-konto">DEIN KONTO</div>
+              <div class="lp-kern-cloud">PULSE CLOUD</div>
+            </div>
+          </div>
+          <div class="lp-bahn-fuss">
+            Selbst gehostete Instanzen sind anonym — die Cloud sieht nicht, was darauf läuft.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Plattformen ──────────────────────────────────────────────────── -->
+    <section class="lp-abschnitt" id="plattformen">
+      <div class="lp-wrap">
+        <div class="lp-augbraue">PLATTFORMEN</div>
+        <h2 class="lp-titel">Läuft, wo du bist.</h2>
+        <div class="lp-plattformen">
+          <a class="lp-plattform" href="https://howispulse.com/updates/win/Pulse-Setup-latest.exe">
+            <div class="lp-plattform-bild">
+              <div class="lp-win-kachel">
+                <div></div>
+                <div></div>
+                <div></div>
+                <div></div>
+              </div>
+            </div>
+            <div class="lp-plattform-name">Windows</div>
+          </a>
+          <a class="lp-plattform" href="https://howispulse.com/downloads/Pulse-latest.dmg">
+            <div class="lp-plattform-bild">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="#a9b3ad" aria-hidden="true">
+                <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
+              </svg>
+            </div>
+            <div class="lp-plattform-name">macOS</div>
+          </a>
+          <a
+            class="lp-plattform"
+            href="https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref"
+            data-lp-linux
+          >
+            <div class="lp-plattform-bild">
+              <svg width="42" height="42" viewBox="0 0 24 24" fill="#a9b3ad" aria-hidden="true">
+                <path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z" />
+              </svg>
+            </div>
+            <div class="lp-plattform-name">Linux</div>
+          </a>
+          <a class="lp-plattform" href="/login">
+            <div class="lp-plattform-bild">
+              <svg
+                width="40"
+                height="40"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="#a9b3ad"
+                stroke-width="1.1"
+                aria-hidden="true"
+              >
+                <circle cx="10" cy="10" r="8"></circle>
+                <ellipse cx="10" cy="10" rx="3.6" ry="8"></ellipse>
+                <line x1="2" y1="10" x2="18" y2="10"></line>
+              </svg>
+            </div>
+            <div class="lp-plattform-name">Browser</div>
+          </a>
+          <a class="lp-plattform" href="https://howispulse.com/downloads/pulse-latest.apk">
+            <div class="lp-plattform-bild">
+              <div
+                style="
+                  width: 26px;
+                  height: 42px;
+                  border: 2px solid #a9b3ad;
+                  border-radius: 7px;
+                  display: flex;
+                  align-items: flex-end;
+                  justify-content: center;
+                  padding-bottom: 4px;
+                "
+              >
+                <div style="width: 9px; height: 3px; background: #a9b3ad; border-radius: 2px"></div>
+              </div>
+            </div>
+            <div class="lp-plattform-name">Android</div>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Abschluss ────────────────────────────────────────────────────── -->
+    <section class="lp-cta">
+      <div class="lp-cta-ring lp-cta-ring-1"></div>
+      <div class="lp-cta-ring lp-cta-ring-2"></div>
+      <div style="position: relative; z-index: 2">
+        <div class="lp-cta-titel">Sende einen <span>Ping.</span></div>
+        <div class="lp-cta-knoepfe">
+          <a class="lp-knopf lp-gross" href="#plattformen" data-lp-app-laden
+            >App laden — Windows · macOS · Linux</a
+          >
+          <a class="lp-knopf-rand lp-gross" href="/login">Im Browser öffnen</a>
+        </div>
+      </div>
+    </section>
+
+    <footer class="lp-fuss">
+      <span class="lp-fuss-marke">
+        <img src="/pulse-mark.svg" alt="" width="18" height="18" />
+        <span>Pulse</span>
+      </span>
+      <span class="lp-fuss-schub"></span>
+      <a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a>
+    </footer>
+
+    <dialog id="lp-linux-dialog">
+      <h2>Pulse für Linux</h2>
+      <p>Installiere Pulse als Flatpak — der Befehl richtet zugleich die Update-Quelle ein.</p>
+      <div class="lp-befehl">flatpak install --from https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref</div>
+      <div class="lp-dialog-knoepfe">
+        <button type="button" class="lp-knopf" data-lp-kopieren>Befehl kopieren</button>
+        <button type="button" class="lp-knopf-rand" data-lp-dialog-schliessen>Schließen</button>
+      </div>
+    </dialog>
+
+    <script type="module" src="/landing.js"></script>
+  </body>
+</html>

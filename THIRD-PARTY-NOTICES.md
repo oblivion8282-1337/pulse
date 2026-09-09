@@ -259,6 +259,23 @@ Precache):
 Die Standard-Rauschunterdrückung (`@sapphi-red/web-noise-suppressor`, MIT)
 kommt weiter aus npm und ist nicht separat vendiert.
 
+## Landing page (`web/static/landing.html`, cloud only)
+
+The marketing page at https://howispulse.com/ ships its two typefaces from the
+same origin (`web/static/fonts/`) so that no visitor's browser contacts Google
+Fonts. Variable fonts, Latin subset, from fontsource packages (the same
+builds Google Fonts serves): Plus Jakarta Sans is byte-identical to the file in
+`@fontsource-variable/plus-jakarta-sans` 5.2.8 (already a `web/` dependency);
+JetBrains Mono was fetched from `@fontsource-variable/jetbrains-mono` 5.2.6 via
+jsDelivr — source URL and SHA-256 in `web/static/fonts/LICENSE.md`.
+
+| Font | Copyright | License |
+|---|---|---|
+| Plus Jakarta Sans (variable, 200–800) | 2020 The Plus Jakarta Sans Project Authors, https://github.com/tokotype/PlusJakartaSans | **SIL OFL 1.1** |
+| JetBrains Mono (variable, 100–800) | 2020 The JetBrains Mono Project Authors, https://github.com/JetBrains/JetBrainsMono | **SIL OFL 1.1** |
+
+Notice + origin: `web/static/fonts/LICENSE.md`.
+
 
 ## Not covered here
 
