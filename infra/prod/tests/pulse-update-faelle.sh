@@ -25,7 +25,11 @@ cat > "$arbeit/bin/docker" <<'STUB'
 #!/usr/bin/env bash
 case "$1 $2" in
   "compose pull") exit 0 ;;
-  "compose ps")   echo "cid-laufend"; exit 0 ;;
+  "compose ps")
+      # -aq muss dabei sein: ohne -a zählte ein gestoppter Dienst nicht mit.
+      [[ " $* " == *" -aq "* ]] || { echo "cid-laufend"; exit 0; }
+      case "${!#}" in migrate-*) echo "cid-migrate" ;; *) echo "cid-laufend" ;; esac
+      exit 0 ;;
   "compose up")   echo "UP-D-AUFGERUFEN"; exit 0 ;;
   "image inspect")
       ref="${!#}"
@@ -36,7 +40,11 @@ case "$1 $2" in
       esac
       exit 0 ;;
   "image prune")      exit 0 ;;
-  "inspect --format") echo "cid-image"; exit 0 ;;
+  "inspect --format")
+      case "$3" in
+        *Status*) case "${!#}" in cid-migrate) echo exited ;; *) echo "${DIENST_STATUS-running}" ;; esac ;;
+        *)        echo "cid-image" ;;
+      esac; exit 0 ;;
 esac
 exit 0
 STUB
@@ -71,5 +79,16 @@ pruefe "vollstaendiger neuer Build liefert" ja   "vollstaendiger Build" \
 # scheitert, dass die Kennzeichnung neu ist.
 pruefe "ohne Label greift der Rueckfall"    nein "Rueckfall" \
   REV_ALLE= REV_LAUFEND=alt
+
+# Handstopp: ein absichtlich angehaltener Dauerdienst darf nicht per `up -d`
+# zurückkommen — auch nicht bei vollständigem neuen Build. Die migrate-
+# Einmaldienste stehen IMMER auf exited und dürfen den Deploy nicht blockieren
+# (der Fall "vollstaendiger neuer Build liefert" oben beweist das mit).
+pruefe "angehaltener Dienst blockiert Deploy" nein "angehalten" \
+  REV_ALLE=aaa111 REV_LAUFEND=alt999 DIENST_STATUS=exited
+pruefe "pausierter Dienst blockiert Deploy"   nein "angehalten" \
+  REV_ALLE=aaa111 REV_LAUFEND=alt999 DIENST_STATUS=paused
+pruefe "restarting ist kein Handstopp"        ja   "vollstaendiger Build" \
+  REV_ALLE=aaa111 REV_LAUFEND=alt999 DIENST_STATUS=restarting
 
 [ "$fehler" = 0 ] && echo "✓ pulse-update: alle Fälle wie erwartet" || exit 1

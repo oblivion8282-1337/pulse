@@ -792,11 +792,13 @@ container_laeuft_stabil() {
 # "if docker inspect $CONTAINER" unten erst gar nicht, keine Namenskollision
 # möglich) oder er läuft wieder — und genau den räumt dieser Block hier beim
 # nächsten Takt auf. Existiert "$CONTAINER" stattdessen weiter, aber gestoppt
-# (Absturz zwischen zwei Läufen, "${CONTAINER}-old" schon vorhanden), greift
-# dieser Block nicht (er verlangt laufendes $CONTAINER) — dann scheitern
-# weiter unten sowohl das Umbenennen als auch "docker run" an der
-# Namenskollision, und der Updater fällt in den Rollback-Zweig, der den
-# alten, funktionierenden Container wiederherstellt.
+# ("${CONTAINER}-old" schon vorhanden), greift dieser Block nicht (er verlangt
+# laufendes $CONTAINER), und seit dem Handstopp-Riegel weiter unten endet der
+# Lauf dann ohne jede Änderung: beide Container bleiben stehen, bis jemand
+# "$CONTAINER" wieder startet — erst dann räumt dieser Block "-old" ab. Ein
+# Absturz zwischen zwei Läufen sieht anders aus: mit '--restart
+# unless-stopped' steht ein abgestürzter Container auf 'restarting', nicht
+# auf 'exited', und den behandelt der Update-Zweig wie einen laufenden.
 if docker inspect "${CONTAINER}-old" >/dev/null 2>&1; then
   werte="$(docker inspect -f '{{.RestartCount}} {{.State.Status}}' "$CONTAINER" 2>/dev/null)" || werte=""
   restarts="${werte%% *}"
@@ -819,6 +821,20 @@ new_id="$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
 cur_id="$(docker inspect --format '{{.Image}}' "$CONTAINER" 2>/dev/null || true)"
 [ -n "$new_id" ] || { echo "pulse-update: cannot read image id, skipping" >&2; exit 0; }
 [ "$new_id" = "$cur_id" ] && exit 0   # already up to date
+# Ein Handstopp wird respektiert: steht der Container auf exited/paused
+# (docker stop / docker pause), rührt der Updater ihn nicht an — auch nicht
+# für ein neues Image. Vorher stellte er den angehaltenen Container beiseite
+# und startete den neuen: wer den Server für Wartung anhielt, hatte ihn fünf
+# Minuten nach dem nächsten Push wieder laufen. `restarting` fällt NICHT
+# darunter — das ist ein Absturzkarussell, und ein neues Image ist dort
+# womöglich gerade die Heilung; `docker inspect` auf einen fehlenden
+# Container liefert leer, und leer heisst hier "anlegen" wie bisher.
+cur_status="$(docker inspect --format '{{.State.Status}}' "$CONTAINER" 2>/dev/null || true)"
+case "$cur_status" in
+  exited|paused)
+    echo "pulse-update: container is stopped ($cur_status) — leaving it alone"
+    exit 0 ;;
+esac
 
 echo "pulse-update: updating $CONTAINER -> $new_id"
 # Alten Container beiseitestellen statt sofort löschen → Rollback bei Fehlstart.

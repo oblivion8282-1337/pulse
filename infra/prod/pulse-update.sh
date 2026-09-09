@@ -61,6 +61,28 @@ if ! docker compose pull "${APP_SERVICES[@]}" >/dev/null 2>&1; then
   exit 0
 fi
 
+# ── Ein Handstopp wird respektiert ───────────────────────────────────────────
+#
+# Steht einer der Dauerdienste absichtlich (docker compose stop, Wartung), dann
+# wird in diesem Lauf NICHT ausgeliefert: `up -d` wuerde ihn sonst wieder
+# starten — auch ohne neues Image, denn der "schon ausgeliefert"-Kurzschluss
+# unten fragt den laufenden chat-gateway, und den gab es dann nicht. Die
+# migrate-Einmaldienste sind davon ausgenommen: `exited` ist dort der
+# Normalzustand. `restarting` zaehlt nicht als Handstopp (Absturzkarussell —
+# ein neues Image ist dort womoeglich die Heilung). Dieselbe Fehlerklasse wie
+# im Self-Host-Updater, am 2026-09-09 dort nachgemessen.
+for svc in "${APP_SERVICES[@]}"; do
+  case "$svc" in migrate-*) continue ;; esac
+  cid="$(docker compose ps -aq "$svc" 2>/dev/null | head -1)"
+  [ -n "$cid" ] || continue
+  st="$(docker inspect --format '{{.State.Status}}' "$cid" 2>/dev/null || true)"
+  case "$st" in
+    exited|paused)
+      echo "$(ts) pulse-update: $svc ist angehalten ($st) — kein Deploy, bis er wieder laeuft"
+      exit 0 ;;
+  esac
+done
+
 # ── Nur ein VOLLSTAENDIGER Build wird ausgeliefert ──────────────────────────
 #
 # `ci.yml` baut die sieben Images als Matrix und pusht jedes einzeln, sobald es
@@ -113,7 +135,9 @@ gezogen="$revisions"
 # Am 2026-08-26 genau daran vorbeigeschrammt. Der Vergleich gegen den laufenden
 # Container kennt diesen Zustand nicht: er fragt, ob das Ausgelieferte dem
 # Gezogenen entspricht, und das ist die Frage, um die es geht.
-laufend="$(docker compose ps -q chat-gateway 2>/dev/null | head -1)"
+# -aq: ein `restarting` chat-gateway ist kein laufender, soll aber verglichen
+# werden (der Handstopp-Riegel oben hat exited/paused schon beendet).
+laufend="$(docker compose ps -aq chat-gateway 2>/dev/null | head -1)"
 if [ -n "$laufend" ]; then
   laeuft_rev="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
                  "$(docker inspect --format '{{.Image}}' "$laufend")" 2>/dev/null || true)"

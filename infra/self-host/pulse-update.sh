@@ -19,6 +19,14 @@ set -euo pipefail
 # Projektverzeichnis = wo dieses Skript liegt (docker-compose.yml + .env).
 cd "$(dirname "$0")"
 
+# Hinter einem vorhandenen Proxy heisst die Datei docker-compose.behind-proxy.yml
+# und liegt allein im Verzeichnis. Ohne diese Weiche fände `docker compose`
+# keine Konfiguration und der Updater täte bei jedem Takt nichts — still.
+if [ -z "${COMPOSE_FILE:-}" ] && [ ! -f docker-compose.yml ] && [ ! -f compose.yml ] \
+   && [ -f docker-compose.behind-proxy.yml ]; then
+  export COMPOSE_FILE=docker-compose.behind-proxy.yml
+fi
+
 LOG="${PWD}/pulse-update.log"
 
 # Eigenes Log kappen (trap = auf JEDEM Ausgang). Auf jedem Lauf wachsen sonst
@@ -52,10 +60,27 @@ service="$(docker compose config --services | head -n1)"
 image="$(docker compose config --images | head -n1)"
 [ -n "$image" ] || { echo "pulse-update: kein Image in compose config" >&2; exit 1; }
 
-# aktuell laufendes Image des Containers (vor dem Pull)
-container="$(docker compose ps -q "$service" | head -n1)"
+# Container des Dienstes — MIT -a, sonst zählt ein gestoppter nicht mit.
+# Ohne -a sah ein absichtlich angehaltener Container (docker compose stop)
+# aus wie "kein Container", die Id-Prüfung unten hielt das für veraltet, und
+# `up -d` startete ihn fünf Minuten später wieder — auch ohne neues Image.
+# Nachgemessen am 2026-09-09 mit Compose 5.5.1: `ps -q` leer, `ps -aq` voll.
+container="$(docker compose ps -aq "$service" | head -n1)"
 old_id=""
-[ -n "$container" ] && old_id="$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null || true)"
+if [ -n "$container" ]; then
+  status="$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null || true)"
+  # Ein Handstopp wird respektiert: exited/paused rührt der Updater nicht an,
+  # auch dann nicht, wenn ein neues Image bereitsteht — wer den Server für
+  # Wartung anhält, soll nicht gegen den eigenen Updater kämpfen. `restarting`
+  # fällt NICHT darunter: das ist ein Absturzkarussell, und ein neues Image
+  # ist dort womöglich gerade die Heilung.
+  case "$status" in
+    exited|paused)
+      echo "pulse-update: Container ist angehalten ($status) — nicht angefasst"
+      exit 0 ;;
+  esac
+  old_id="$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null || true)"
+fi
 
 docker compose pull >/dev/null 2>&1 \
   || { echo "pulse-update: pull failed (network/registry?), will retry next run" >&2; exit 0; }
