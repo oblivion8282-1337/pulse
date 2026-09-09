@@ -148,7 +148,6 @@ test.describe.serial('Roles + Permissions E2E', () => {
   });
 
   test('alice assigns the Mod role to bob via the Mitglieder tab', async () => {
-    await alice.getByTestId('settings-tab-members').click();
     // listMembers is async — wait for at least one row to appear before
     // counting. Two members expected (alice owner + bob via invite).
     const memberRows = alice.locator('[data-testid^="member-row-"]');

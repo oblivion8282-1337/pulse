@@ -28,7 +28,9 @@
     selectedId,
     anzahl,
     onselect,
-    onreorder
+    onreorder,
+    nameEntwurf = null,
+    onName
   }: {
     /** Alle Rollen ausser @everyone, hoechste zuerst. */
     rollen: Role[];
@@ -40,6 +42,11 @@
     /** Neue Reihenfolge (ohne @everyone). Der Aufrufer entscheidet, was
      * davon an den Server geht — siehe `reihenfolge.ts`. */
     onreorder: (neu: Role[]) => void;
+    /** Der Name der AUSGEWAEHLTEN Rolle als Entwurf — steht statt des
+     * Texts direkt in der Zeile (Remote-UI-Runde 2026-09-09). Fehlt der
+     * Callback, bleibt es beim reinen Text. */
+    nameEntwurf?: string | null;
+    onName?: (wert: string) => void;
   } = $props();
 
   // id → Platz in `rollen`, damit die Pruefungen je Zeile O(1) sind statt
@@ -107,13 +114,26 @@
     style={`background-color: ${farbe(r)}`}
     aria-hidden="true"
   ></span>
-  <span
-    class="truncate font-medium"
-    style={r.color != null ? `color: ${farbe(r)}` : ''}
-    data-testid={`role-name-${r.id}`}
-  >
-    {r.name}
-  </span>
+  {#if r.id === selectedId && onName}
+    <!-- Die ausgewaehlte Zeile TRAEGT den Namen als Eingabefeld — umbenennen
+         geschieht an Ort und Stelle, nicht in einer Karte rechts. -->
+    <input
+      class="border-input bg-card h-7 min-w-0 flex-1 rounded-md border px-2 text-sm outline-none focus-visible:border-ring disabled:opacity-60"
+      value={nameEntwurf ?? ''}
+      oninput={(e) => onName(e.currentTarget.value)}
+      disabled={r.is_everyone}
+      aria-label={m.roles_editor_name_label()}
+      data-testid={`role-name-input-${r.id}`}
+    />
+  {:else}
+    <span
+      class="truncate font-medium"
+      style={r.color != null ? `color: ${farbe(r)}` : ''}
+      data-testid={`role-name-${r.id}`}
+    >
+      {r.name}
+    </span>
+  {/if}
   {#if n !== null}
     <span
       class="text-text-muted ml-auto shrink-0 text-xs tabular-nums"
@@ -123,8 +143,6 @@
     </span>
   {/if}
 {/snippet}
-
-<p class="text-text-muted mb-2 text-xs">{m.rollen_leiter_macht_hinweis()}</p>
 
 <ul class="space-y-1" data-testid="rollen-leiter">
   {#each rollen as r, i (r.id)}
@@ -195,6 +213,5 @@
     >
       {@render zeileninhalt(everyone)}
     </button>
-    <p class="text-text-muted mt-1 px-2 text-xs">{m.rollen_leiter_everyone_hinweis()}</p>
   </div>
 {/if}

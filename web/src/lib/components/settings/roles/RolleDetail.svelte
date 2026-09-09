@@ -18,8 +18,6 @@
 </script>
 
 <script lang="ts">
-  import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import type { Role } from '$lib/api/roles';
   import { m } from '$lib/paraglide/messages.js';
@@ -67,39 +65,30 @@
   ]);
 </script>
 
-<div class="mb-4 flex items-end gap-2">
-  <div class="min-w-0 flex-1 space-y-2">
-    <Label for="role-name">{m.roles_editor_name_label()}</Label>
-    <Input
-      id="role-name"
-      bind:value={entwurf.name}
-      disabled={role.is_everyone}
-      data-testid="role-name-input"
-    />
-    {#if role.is_everyone}
-      <p class="text-text-muted text-xs">{m.roles_editor_everyone_no_rename()}</p>
-    {/if}
+<!-- Der Name der Rolle steht seit dem 2026-09-09 NICHT mehr hier, sondern
+     inline in der ausgewaehlten Leiter-Zeile links (`RollenLeiter`,
+     nameEntwurf/onName) — ein Feld zweimal war Verwirrung, nicht Komfort. -->
+
+<div class="border-border mb-4 flex items-center justify-between gap-2 border-b">
+  <div class="flex gap-1" role="tablist">
+    {#each reiterListe as [id, titel] (id)}
+      <button
+        type="button"
+        role="tab"
+        aria-selected={reiter === id}
+        class="-mb-px border-b-2 px-3 py-2 text-sm transition-colors"
+        class:border-primary={reiter === id}
+        class:text-text-bright={reiter === id}
+        class:border-transparent={reiter !== id}
+        class:text-text-muted={reiter !== id}
+        onclick={() => (reiter = id)}
+        data-testid={`role-tab-${id}`}
+      >
+        {titel}{id === 'mitglieder' && traegerzahl !== null ? ` · ${traegerzahl}` : ''}
+      </button>
+    {/each}
   </div>
   <RolleLoeschen {guildId} {role} mitgliederZahl={traegerzahl} {ondeleted} />
-</div>
-
-<div class="border-border mb-4 flex gap-1 border-b" role="tablist">
-  {#each reiterListe as [id, titel] (id)}
-    <button
-      type="button"
-      role="tab"
-      aria-selected={reiter === id}
-      class="-mb-px border-b-2 px-3 py-2 text-sm transition-colors"
-      class:border-primary={reiter === id}
-      class:text-text-bright={reiter === id}
-      class:border-transparent={reiter !== id}
-      class:text-text-muted={reiter !== id}
-      onclick={() => (reiter = id)}
-      data-testid={`role-tab-${id}`}
-    >
-      {titel}{id === 'mitglieder' && traegerzahl !== null ? ` · ${traegerzahl}` : ''}
-    </button>
-  {/each}
 </div>
 
 <!-- `tabindex` gehoert an eine blaetterbare Flaeche: ohne ihn kaeme man mit

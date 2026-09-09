@@ -1290,6 +1290,7 @@
   "guild_settings_dialog_tab_ownership": "Ownership",
   "guild_settings_dialog_tab_plugins": "Plugins",
   "guild_settings_dialog_tab_publicaddress": "Public Address",
+  "guild_settings_dialog_tab_members_roles": "Members & Roles",
   "guild_settings_dialog_tab_roles": "Roles",
   "guild_settings_dialog_tab_sounds": "Sounds",
   "guild_settings_dialog_title": "Settings",

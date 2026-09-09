@@ -14,7 +14,6 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import ShieldIcon from '@lucide/svelte/icons/shield';
-  import UsersIcon from '@lucide/svelte/icons/users';
   import CrownIcon from '@lucide/svelte/icons/crown';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import FolderIcon from '@lucide/svelte/icons/folder';
@@ -31,8 +30,7 @@
   import { Perm } from '$lib/permissions/bitfield';
   import { rolesApi } from '$lib/api/roles';
   import type { Guild } from '$lib/api/types';
-  import RolesEditor from './RolesEditor.svelte';
-  import MemberRoleAssignment from './MemberRoleAssignment.svelte';
+  import MitgliederRollen from './MitgliederRollen.svelte';
   import OwnerTransferSection from './OwnerTransferSection.svelte';
   import GuildSoundsEditor from './GuildSoundsEditor.svelte';
   import GuildDropboxEditor from './GuildDropboxEditor.svelte';
@@ -57,8 +55,20 @@
     guild: Guild | null;
   } = $props();
 
-  type Tab = 'roles' | 'members' | 'sounds' | 'dropbox' | 'plugins' | 'limits' | 'invites' | 'modqueue' | 'auditlog' | 'ownership' | 'publicaddress';
-  let tab = $state<Tab>('roles');
+  type Tab =
+    | 'roles'
+    | 'members'
+    | 'mitgliederRollen'
+    | 'sounds'
+    | 'dropbox'
+    | 'plugins'
+    | 'limits'
+    | 'invites'
+    | 'modqueue'
+    | 'auditlog'
+    | 'ownership'
+    | 'publicaddress';
+  let tab = $state<Tab>('mitgliederRollen');
   let initialized = $state(false);
 
   let guildId = $derived(guild?.id ?? '');
@@ -96,7 +106,7 @@
   $effect(() => {
     if (open && !initialized) {
       initialized = true;
-      if (canManageRoles) tab = 'roles';
+      if (canManageRoles) tab = 'mitgliederRollen';
       else if (canSeeModQueue) tab = 'modqueue';
       else if (canManageGuild) tab = 'sounds';
       else if (isOwner) tab = 'ownership';
@@ -180,7 +190,7 @@
 
   function selectTab(t: Tab): void {
     if (t === tab) return;
-    if (rolesEditorDirty && tab === 'roles') {
+    if (rolesEditorDirty && (tab === 'roles' || tab === 'members' || tab === 'mitgliederRollen')) {
       pendingTab = t;
       tabConfirmOpen = true;
       return;
@@ -203,7 +213,7 @@
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
   <Dialog.Content
-    class="flex h-[80vh] max-h-[700px] w-full max-w-4xl flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
+    class="flex h-[85vh] max-h-[820px] w-full max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl"
     data-testid="guild-settings-dialog"
   >
     <Dialog.Header class="border-border border-b px-6 py-4">
@@ -214,18 +224,11 @@
       <nav class="border-border w-48 shrink-0 space-y-1 border-r bg-bg-input/40 p-2">
         {#if canManageRoles}
           <MenuRow
-            active={tab === 'roles'}
-            onclick={() => selectTab('roles')}
+            active={tab === 'mitgliederRollen' || tab === 'roles' || tab === 'members'}
+            onclick={() => selectTab('mitgliederRollen')}
             data-testid="settings-tab-roles"
           >
-            <ShieldIcon class="size-4" /> {m.guild_settings_dialog_tab_roles()}
-          </MenuRow>
-          <MenuRow
-            active={tab === 'members'}
-            onclick={() => selectTab('members')}
-            data-testid="settings-tab-members"
-          >
-            <UsersIcon class="size-4" /> {m.guild_settings_dialog_tab_members()}
+            <ShieldIcon class="size-4" /> {m.guild_settings_dialog_tab_members_roles()}
           </MenuRow>
         {/if}
         {#if canManageGuild}
@@ -314,15 +317,13 @@
       <main class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
         {#if !guild}
           <EmptyState message={m.guild_settings_dialog_community_not_found()} />
-        {:else if tab === 'roles' && canManageRoles}
-          <RolesEditor
+        {:else if (tab === 'mitgliederRollen' || tab === 'roles' || tab === 'members') && canManageRoles}
+          <MitgliederRollen
             {guildId}
             editorPermissions={myPermissions}
             {discardSignal}
             bind:dirty={rolesEditorDirty}
           />
-        {:else if tab === 'members' && canManageRoles}
-          <MemberRoleAssignment {guildId} editorPermissions={myPermissions} />
         {:else if tab === 'sounds' && canManageGuild}
           <GuildSoundsEditor {guildId} />
         {:else if tab === 'dropbox' && canManageGuild}
