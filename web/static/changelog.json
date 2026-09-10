@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-10",
+      "date": "2026-09-10",
+      "style": "Sachlich",
+      "title": "Bildrate im Stream-Editor wieder frei einstellbar",
+      "intro": "Die Bildrate ließ sich bisher nur aus festen Stufen wählen. Im Stream-Editor steht wieder ein freies Zahlenfeld; der erlaubte Rahmen bleibt die Freigabe des Betreibers.",
+      "items": [
+        "Bildrate frei eintippbar; ein leeres Feld bedeutet wie bisher den Standard mit 60 Bildern/s.",
+        "Werte außerhalb der Freigabe werden beim Start automatisch auf die erlaubte Grenze gesetzt."
+      ]
+    },
+    {
       "id": "2026-09-09.3",
       "date": "2026-09-09",
       "style": "Sachlich",
