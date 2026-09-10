@@ -68,8 +68,8 @@
   let videoEl = $state<HTMLVideoElement | null>(null);
   let chatOpen = $state(false);
   /** Stream-Reactions ein-/ausgeblendet — Kippschalter in der Dock-Leiste
-   *  (Schnellwahl bleibt unabhängig davon nutzbar). */
-  let reaktionenAn = $state(true);
+   *  (Schnellwahl bleibt unabhängig davon nutzbar). Standard AUS seit 2026-09-10, Zwilling ScreenShareTile. */
+  let reaktionenAn = $state(false);
 
   // Die WHEP-Verbindung + der Ton gehören dem dauerhaften Manager (überlebt die
   // Navigation, siehe hqStreamManager). ensure() ist idempotent — der Keep-

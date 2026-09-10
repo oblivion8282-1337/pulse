@@ -56,8 +56,9 @@
   // Fullscreen, hier nur der Toggle-State.
   let chatOpen = $state(false);
   /** Stream-Reactions ein-/ausgeblendet — Kippschalter in der Dock-Leiste
-   *  (Schnellwahl bleibt unabhängig davon nutzbar), Zwilling WhepPlayer. */
-  let reaktionenAn = $state(true);
+   *  (Schnellwahl bleibt unabhängig davon nutzbar), Zwilling WhepPlayer.
+   *  Standard AUS (2026-09-10): wer reagieren will, klappt die Leiste selbst auf. */
+  let reaktionenAn = $state(false);
 
   let videoEl = $state<HTMLVideoElement | null>(null);
   let audioEl = $state<HTMLAudioElement | null>(null);
