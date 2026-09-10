@@ -315,7 +315,8 @@ impl Overlay {
         // Ausnahme waere `painted && !visible()` dort ab der ersten ruhigen
         // Sekunde immer wahr. Der Sparweg in `App::draw_inner` bliebe fuer die
         // ganze Fernsteuerung abgeschaltet.
-        let ausblenden_faellig = self.painted && !self.visible() && !self.fernsteuerung;
+        let ausblenden_faellig =
+            self.painted && !self.visible() && !self.fernsteuerung && !self.stats_visible;
         self.input_pending || self.stats_dirty || ausblenden_faellig
     }
 
@@ -353,13 +354,13 @@ impl Overlay {
     /// 2026-08-22 mit 3,3 us gemessen, mit offenem Menue 16,6 us — bei 144
     /// Bildern je Sekunde 0,05 bzw. 0,24 Prozent eines Kerns.
     pub fn soll_mitzeichnen(&self) -> bool {
-        self.visible() || self.wants_redraw() || self.fernsteuerung
+        self.visible() || self.wants_redraw() || self.fernsteuerung || self.stats_visible
     }
 
     /// Neue Zahlen liegen vor — beim naechsten Durchgang neu zeichnen, wenn das
     /// Overlay sichtbar ist.
     pub fn mark_stats_dirty(&mut self) {
-        if self.visible() {
+        if self.visible() || self.stats_visible {
             self.stats_dirty = true;
         }
     }
@@ -434,7 +435,7 @@ impl Overlay {
                     // weg, bleibt hier eine Luecke — das ist der guenstigere
                     // Fehler gegenueber zwei Flaechen uebereinander.
                     let oben = fernbedienung::RAND + fernbedienung::GRIFF + 8.0;
-                    self.build_stats(ctx, oben, stats);
+                    self.build_stats(ctx, oben, stats, &mut actions);
                 }
                 self.build_fernbedienung(ctx, is_fullscreen, window, &mut actions);
                 return;
@@ -449,11 +450,14 @@ impl Overlay {
             if is_fullscreen && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 actions.push(OverlayAction::Fullscreen(false));
             }
+            // Die Statistik klebt NICHT am Maus-Idle-Timer: wer sie einschaltet,
+            // will sie dauerhaft sehen (Zahlen beobachten, ohne die Maus zu
+            // bewegen). Klick auf die Fläche schaltet sie wieder aus.
+            if self.stats_visible {
+                self.build_stats(ctx, fernbedienung::RAND, stats, &mut actions);
+            }
             if !visible {
                 return;
-            }
-            if self.stats_visible {
-                self.build_stats(ctx, fernbedienung::RAND, stats);
             }
             self.build_controls(ctx, is_fullscreen, &mut actions);
         });

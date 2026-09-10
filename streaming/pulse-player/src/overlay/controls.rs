@@ -24,10 +24,19 @@ impl Overlay {
     /// `oben` ist der Abstand zur Fensteroberkante. Er ist ein Parameter, weil
     /// im Fernsteuerungs-Modus der Griff der Fernbedienung genau hier sitzt —
     /// das Feld weicht ihm dann nach unten aus (`super::paint`).
-    pub(super) fn build_stats(&self, ctx: &egui::Context, oben: f32, s: &StatsView<'_>) {
-        egui::Area::new(egui::Id::new("pulse-stats"))
+    pub(super) fn build_stats(
+        &self,
+        ctx: &egui::Context,
+        oben: f32,
+        s: &StatsView<'_>,
+        actions: &mut Vec<OverlayAction>,
+    ) {
+        // Interactable, weil die Statistik nicht am Maus-Idle-Timer klebt
+        // (super::paint): ein Klick auf die Flaeche schaltet sie aus, und der
+        // Klick darf nicht DURCH sie auf das Bild gehen (Doppelklick-Vollbild).
+        let antwort = egui::Area::new(egui::Id::new("pulse-stats"))
             .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, oben))
-            .interactable(false)
+            .interactable(true)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())
                     .fill(egui::Color32::from_black_alpha(170))
@@ -118,6 +127,9 @@ impl Overlay {
                         }
                     });
             });
+        if antwort.response.clicked() {
+            actions.push(OverlayAction::ToggleStats);
+        }
     }
 
     /// Ein Symbolknopf im Stil der App-Leiste.

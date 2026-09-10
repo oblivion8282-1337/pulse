@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-10.3",
+      "date": "2026-09-10",
+      "style": "Sachlich",
+      "title": "Diagnose-Statistik im eigenen Zuschauerfenster bleibt an",
+      "intro": "Die Statistik im nativen Zuschauerfenster blendete nach kurzer Zeit ohne Mausbewegung von selbst aus. Eingeschaltet bleibt sie jetzt dauerhaft sichtbar, bis sie wieder ausgeschaltet wird.",
+      "items": [
+        "Die Statistik aktualisiert ihre Werte auch bei ruhender Maus weiter.",
+        "Ein Klick auf die Statistik-Fläche blendet sie aus; der Schalter in der Leiste schaltet sie wieder ein.",
+        "Die Bedienleiste blendet nach wie vor nach drei Sekunden ohne Mausbewegung aus."
+      ]
+    },
+    {
       "id": "2026-09-10.2",
       "date": "2026-09-10",
       "style": "Sachlich",
