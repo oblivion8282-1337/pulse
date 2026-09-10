@@ -391,6 +391,48 @@ test.describe.serial('Rechte pro Person: Kanal-Overwrites (inkl. Voice) und Einz
     expect((await apiStatus(bob, `/channels/${textId}/messages`, { method: 'POST', body: { content: 'bob sagt was' } })).status).toBe(403);
   });
 
+  test('D: Rollen-Reorder — eine Mod kommt nicht über ihre eigene Ebene', async () => {
+    // Rollenturm (Positionen: Neuanlage = max+1, @everyone fest auf 0):
+    //   Untere (pos 1) < Mod-Rolle (pos 2, MANAGE_ROLES, carol) < Chef (pos 3)
+    // Carol darf NUR strikt unterhalb ihrer höchsten Rolle schieben —
+    // sonst huebe sie per Drag die eigene Rolle ueber die Chef-Rolle und
+    // mit der Positionsgleichheit Kick/Ban (role_hierarchy.py).
+    const untere = await api<{ id: string; position: number }>(owner, `/guilds/${guildId}/roles`, {
+      method: 'POST',
+      body: { name: 'Untere' }
+    });
+    const modRolle2 = await api<{ id: string; position: number }>(owner, `/guilds/${guildId}/roles`, {
+      method: 'POST',
+      body: { name: 'Mod-Rolle', permissions: MANAGE_ROLES }
+    });
+    const chef = await api<{ id: string; position: number }>(owner, `/guilds/${guildId}/roles`, {
+      method: 'POST',
+      body: { name: 'Chef' }
+    });
+    await api(owner, `/guilds/${guildId}/members/${carolId}/roles/${modRolle2.id}`, { method: 'PUT' });
+
+    // Legitim: eine Rolle UNTERHALB ihrer Ebene umsortieren.
+    const ok = await apiStatus(carol, `/guilds/${guildId}/roles-positions`, {
+      method: 'PATCH',
+      body: { positions: [{ id: untere.id, position: 1 }] }
+    });
+    expect(ok.status).toBeLessThan(300);
+
+    // Verboten: die eigene Rolle auf/ueber die Chef-Ebene heben …
+    const eigeneHoch = await apiStatus(carol, `/guilds/${guildId}/roles-positions`, {
+      method: 'PATCH',
+      body: { positions: [{ id: modRolle2.id, position: chef.position }] }
+    });
+    expect(eigeneHoch.status).toBe(403);
+
+    // … und jede Rolle AN ODER OBERHALB ihrer Ebene anfassen.
+    const fremdeHoch = await apiStatus(carol, `/guilds/${guildId}/roles-positions`, {
+      method: 'PATCH',
+      body: { positions: [{ id: chef.id, position: 1 }] }
+    });
+    expect(fremdeHoch.status).toBe(403);
+  });
+
   test('Aufräumen für nachfolgende Suiten: @everyone-Send wieder herstellen', async () => {
     // Playwright truncatet die DB je Lauf nicht vollständig — dieser Test
     // stellt die bewusst geänderte @everyone-Rolle zurück, damit keine
