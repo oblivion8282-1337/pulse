@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { zusammenfuegen } from '../src/lib/verlauf/zusammenfuegen.ts';
 
-type Posten = { id: string; bearbeitetAm: string | null; geloescht: boolean; inhalt: string };
+type Posten = { id: string; kryptoId?: string | null; bearbeitetAm: string | null; geloescht: boolean; inhalt: string };
 
 function posten(id: string, inhalt: string, opts: Partial<Posten> = {}): Posten {
   return { id, inhalt, bearbeitetAm: null, geloescht: false, ...opts };
@@ -95,4 +95,51 @@ test('ein rein lokaler Posten ohne Server-Gegenstueck bleibt erhalten', () => {
     ergebnis.map((p) => p.id),
     ['1', '2']
   );
+});
+
+// ── Geraeteuebergreifende Dedupe ueber kryptoId (2026-09-11) ────────────────
+// Dieselbe logische Nachricht traegt auf jedem Geraet eine andere lokale ID
+// (der Autor seine eigene, jeder Empfaenger die Zustellungs-ID seines
+// Umschlags). Ohne den kryptoId-Abgleich erschien die aus der Sicherung eines
+// anderen Geraets wiederhergestellte Kopie als Duplikat.
+
+test('Kopie vom anderen Geraet (gleiche kryptoId, andere id) erscheint nicht doppelt', () => {
+  const lokal = [posten('111', 'hallo', { kryptoId: 'autor-1' })];
+  const vomServer = [posten('222', 'hallo', { kryptoId: 'autor-1' })];
+  const ergebnis = zusammenfuegen(lokal, vomServer);
+  assert.equal(ergebnis.length, 1);
+  assert.equal(ergebnis[0].id, '111'); // der bereits liegende gewinnt
+});
+
+test('Duplikate koennen auch INNERHALB der lokalen Liste liegen (Sicherungs-Ruecklauf)', () => {
+  const lokal = [
+    posten('111', 'hallo', { kryptoId: 'autor-1' }),
+    posten('222', 'hallo', { kryptoId: 'autor-1' })
+  ];
+  const ergebnis = zusammenfuegen(lokal, []);
+  assert.equal(ergebnis.length, 1);
+  assert.equal(ergebnis[0].id, '111');
+});
+
+test('ein Grabstein auf EINE Geraetekopie deckt die logische Nachricht insgesamt ab', () => {
+  const lokal = [posten('111', 'hallo', { geloescht: true, kryptoId: 'autor-1' })];
+  const vomServer = [posten('222', 'hallo', { kryptoId: 'autor-1' })];
+  const ergebnis = zusammenfuegen(lokal, vomServer);
+  assert.equal(ergebnis.length, 1);
+  assert.equal(ergebnis[0].geloescht, true);
+});
+
+test('ohne kryptoId bleibt alles wie vorher: verschiedene ids sind verschiedene Nachrichten', () => {
+  const lokal = [posten('111', 'hallo')];
+  const vomServer = [posten('222', 'hallo')];
+  const ergebnis = zusammenfuegen(lokal, vomServer);
+  assert.equal(ergebnis.length, 2);
+});
+
+test('gleiche id mit kryptoId ueberschreibt weiter (Bearbeitungen unberuehrt)', () => {
+  const lokal = [posten('111', 'alt', { kryptoId: 'autor-1' })];
+  const vomServer = [posten('111', 'neu', { kryptoId: 'autor-1', bearbeitetAm: '2026-09-11T00:00:00Z' })];
+  const ergebnis = zusammenfuegen(lokal, vomServer);
+  assert.equal(ergebnis.length, 1);
+  assert.equal(ergebnis[0].inhalt, 'neu');
 });

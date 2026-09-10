@@ -346,6 +346,9 @@ type Posten = Mergeposten & { nachricht: Message };
 function lokalZuPosten(lokal: SatzAlsNachricht[]): Posten[] {
   return lokal.map((n) => ({
     id: n.id,
+    // Die geraeteuebergreifende Autor-ID — der Dedupe-Schluessel gegen
+    // Duplikate aus der Sicherung eines anderen Geraets (s. zusammenfuegen.ts).
+    kryptoId: n.krypto_id ?? null,
     bearbeitetAm: n.edited_at,
     geloescht: n.deleted_at !== null,
     nachricht: n
@@ -356,7 +359,13 @@ function serverZuPosten(vomServer: Message[]): Posten[] {
   // Der Server liefert geloeschte Nachrichten grundsaetzlich nicht mehr aus
   // (`Message.deleted_at.is_(None)`-Filter, s. `routes/messages.py`) — jeder
   // Posten von hier gilt deshalb als nicht geloescht.
-  return vomServer.map((n) => ({ id: n.id, bearbeitetAm: n.edited_at ?? null, geloescht: false, nachricht: n }));
+  return vomServer.map((n) => ({
+    id: n.id,
+    kryptoId: n.krypto_id ?? null,
+    bearbeitetAm: n.edited_at ?? null,
+    geloescht: false,
+    nachricht: n
+  }));
 }
 
 /**
