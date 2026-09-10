@@ -2,6 +2,29 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-10.4",
+      "date": "2026-09-10",
+      "style": "Sachlich",
+      "title": "Nachrichten aus der Sicherung erscheinen zuverlässig wieder",
+      "intro": "Auf einem anderen Gerät empfangene Nachrichten blieben manchmal unsichtbar, obwohl das Laufwerk verbunden und das Sicherungs-Passwort eingegeben war. Das Archiv wird jetzt an den Stellen tatsächlich abgefragt, an denen man es erwartet.",
+      "items": [
+        "Beim Verbinden des Laufwerks wird das Archiv sofort geladen, wenn das Passwort auf diesem Gerät schon einmal eingegeben wurde.",
+        "Beim Öffnen eines Gesprächs wird das Archiv immer nach neuen Einträgen gefragt, nicht mehr nur bei dünnem lokalem Bestand.",
+        "Nach dem Öffnen mit Passwort meldet ein Hinweis, wie viele Nachrichten aus der Sicherung wiederhergestellt wurden."
+      ]
+    },
+    {
+      "id": "2026-09-10.5",
+      "date": "2026-09-10",
+      "style": "Sachlich",
+      "title": "Vorlagen-Reihe aus dem Farbeditor entfernt",
+      "intro": "Der Farbeneditor für Namen und Kanäle zeigte unter den Paletten eine zusätzliche Reihe fester Vorlagen. Diese Reihe entfällt; die Farbauswahl darüber bleibt unverändert.",
+      "items": [
+        "Paletten je Farbe, Verlaufs-Leiste, Richtung und Vorschau bleiben wie bisher.",
+        "Betrifft Profilfarben und Kanalfarben gleichermaßen."
+      ]
+    },
+    {
       "id": "2026-09-10.3",
       "date": "2026-09-10",
       "style": "Sachlich",

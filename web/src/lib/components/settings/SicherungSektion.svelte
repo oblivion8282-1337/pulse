@@ -15,6 +15,7 @@
    * einrichten oder den Re-Wrap-Knopf im Aktiv-Zustand.
    */
   import { SICHERUNG_ENABLED } from '$lib/krypto/schalter';
+  import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
   import { m } from '$lib/paraglide/messages.js';
   import { isElectron } from '$lib/platform/runtime';
@@ -109,7 +110,15 @@
       await zieleSchreiben({ ...ziele });
       const adapter = await adapterLieferant();
       neuesPasswort = (await adapter.lese(SCHLUESSEL_DATEI)) === null;
-      zustand = 'passwort';
+      // Dieselbe DEK-Abkürzung wie in `nextcloudVerbunden`: schon entsperrt
+      // (z. B. Ordner neu gewählt) → Archiv sofort nachziehen statt erneut
+      // das Passwort zu verlangen.
+      if ((await dekAusZwischenlager()) !== null) {
+        zustand = 'an';
+        void laden();
+      } else {
+        zustand = 'passwort';
+      }
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
     } finally {
@@ -136,7 +145,18 @@
       await zieleSchreiben({ ...ziele });
       const adapter = await adapterLieferant();
       neuesPasswort = (await adapter.lese(SCHLUESSEL_DATEI)) === null;
-      zustand = 'passwort';
+      // Bereits entsperrt (DEK steckt im Zwischenlager — z. B. Laufwerk
+      // unterdessen neu verbunden)? Dann nicht erneut nach dem Passwort
+      // fragen, sondern SOFORT das Archiv nachziehen: Nachrichten, die ein
+      // anderes Gerät des Kontos gesichert hat, werden so ohne Umweg über
+      // Passwort-Eingabe sichtbar (2026-09-10 — vorher geschah hier beim
+      // Wiederverbinden GAR nichts, der Bestand blieb dunkel).
+      if ((await dekAusZwischenlager()) !== null) {
+        zustand = 'an';
+        void laden();
+      } else {
+        zustand = 'passwort';
+      }
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
     }
@@ -144,8 +164,8 @@
 
   async function laden(): Promise<void> {
     try {
-      await sicherungArchivLaden();
-      const anzahl = 0;
+      const anzahl = await sicherungArchivLaden();
+      if (anzahl > 0) toast.success(m.sicherung_archiv_geladen({ anzahl }));
     } catch (e) {
       fehler = m.sicherung_fehler_archiv_laden({ grund: e instanceof Error ? e.message : String(e) });
     }
@@ -189,7 +209,10 @@
         try {
           await sicherungErstsicherung();
           await sicherungJetztSpuelen();
-          await sicherungArchivLaden();
+          // Laden MIT Toast (s. `laden`): der Hintergrundlauf ist der Weg,
+          // auf dem ein frisches Gerät seinen Bestand zurückholt — das darf
+          // nicht still bleiben.
+          await laden();
         } catch (e) {
           fehler = m.sicherung_fehler_hintergrund({ grund: e instanceof Error ? e.message : String(e) });
         }

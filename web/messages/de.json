@@ -3192,6 +3192,7 @@
   "sicherung_fehler_schluessel_fehlt": "Schlüssel-Datei fehlt im Archiv-Ordner",
   "sicherung_fehler_passwort_regeln": "Mindestens 8 Zeichen, beide Felder gleich.",
   "sicherung_fehler_archiv_laden": "Archiv-Laden: {grund}",
+  "sicherung_archiv_geladen": "{anzahl} Nachrichten aus der Sicherung wiederhergestellt.",
   "sicherung_fehler_hintergrund": "Hintergrund-Sicherung: {grund}",
   "sicherung_fehler_passwort_aendern": "Passwort-Änderung: {grund}",
   "sicherung_passwort_aendern_link": "Passwort ändern",

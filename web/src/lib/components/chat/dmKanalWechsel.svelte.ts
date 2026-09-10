@@ -140,21 +140,22 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     }
 
     if (isStale()) return;
-    // Dünner lokaler Bestand: das Sicherungs-Archiv hält womöglich mehr
-    // dieses Gesprächs. Die neuesten 50 fire-and-forget in den lokalen
-    // Verlauf holen und die Ansicht per `prepend` auffrischen — deduped
-    // über die Ids, hält die Scroll-Position, wirft nie (s.
-    // `sicherungKanalSeiteLaden`). Bewusst NACH dem `setInitial` oben:
-    // ein Treffer, der während des Serverabrufs einläuft, würde sonst
-    // überschrieben. Nur beim Frischladen; ein wiedergeöffneter Kanal
-    // deckt das Hochscrollen ab (`verlauf/nachladen.ts`). Dynamischer
-    // Import wie in `verlauf/index.ts` — die Sicherung gehört nicht in
-    // den Chat-Grundstack.
-    // B5: das Gate zählt nur SICHTBARE Sätze — Grabstein-Zeilen
-    // (`deleted_at !== null`) füllen die 50 auf, ohne etwas zu zeigen, und
-    // würden ein nötiges Archiv-Nachladen stilllegen. Derselbe Filter wie
-    // in `verlauf/nachladen.ts`.
-    if (!alreadyLoaded && lokal.filter((n) => n.deleted_at === null).length < 50) {
+    // Sicherungs-Archiv nachziehen — BEI JEDEM Frischladen, nicht mehr nur
+    // bei dünnem lokalem Bestand (bis 2026-09-10: nur wenn < 50 sichtbare
+    // Sätze lokal lagen). Der Lesestand je Kanal macht den Lauf günstig:
+    // bereits gelesene Rahmen kommen nicht erneut, geliefert werden nur
+    // NEUE Ankünfte (z. B. von einem anderen Gerät des Kontos gesichert)
+    // und, soweit das Kontingent reicht, ältere Seiten. Die alte 50er-
+    // Klappe ließ genau den ersten Fall aus: lokal voll → Archiv wurde nie
+    // gefragt → die fremdgesicherten Nachrichten blieben unsichtbar.
+    // Fire-and-forget, deduped über die Ids, hält die Scroll-Position,
+    // wirft nie (s. `sicherungKanalSeiteLaden`). Bewusst NACH dem
+    // `setInitial` oben: ein Treffer, der während des Serverabrufs
+    // einläuft, würde sonst überschrieben. Nur beim Frischladen; ein
+    // wiedergeöffneter Kanal deckt das Hochscrollen ab
+    // (`verlauf/nachladen.ts`). Dynamischer Import wie in
+    // `verlauf/index.ts` — die Sicherung gehört nicht in den Chat-Grundstack.
+    if (!alreadyLoaded) {
       void import('$lib/sicherung/andock')
         .then(({ sicherungKanalSeiteLaden }) => sicherungKanalSeiteLaden(cid, 50))
         .then(async (angekommen) => {

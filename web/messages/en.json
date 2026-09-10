@@ -3192,6 +3192,7 @@
   "sicherung_fehler_schluessel_fehlt": "Key file missing from the archive folder",
   "sicherung_fehler_passwort_regeln": "At least 8 characters, both fields identical.",
   "sicherung_fehler_archiv_laden": "Archive load: {grund}",
+  "sicherung_archiv_geladen": "Restored {anzahl} messages from your backup.",
   "sicherung_fehler_hintergrund": "Background backup: {grund}",
   "sicherung_fehler_passwort_aendern": "Password change: {grund}",
   "sicherung_passwort_aendern_link": "Change password",
