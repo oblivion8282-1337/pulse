@@ -177,14 +177,19 @@ export function register(ctx: ReadyContext): void {
       // Server fuehrt kein Gruppenfeld darin (`routes/ws_ready.py`), und es
       // gibt auch kein Ereignis ueber einen Mitgliederwechsel. `GET /gruppen`
       // ist der einzige Weg an den Bestand, und er muss hier laufen, BEVOR
-      // eine Gruppen-Zustellung ankommt: `verlaufSpeichernPflicht` legt eine
-      // Nachricht nur in einem lokal BEKANNTEN Kanal ab und wirft sonst — die
-      // Zustellung bliebe unquittiert liegen (kein Verlust, aber ein Zyklus
-      // Verzoegerung). Bei ausgeschaltetem Schalter geht kein Aufruf hinaus
+      // der Postfach-Zyklus startet: `verlaufSpeichernPflicht` legt eine
+      // Nachricht nur in einem lokal BEKANNTEN Kanal ab und wirft sonst —
+      // die Zustellung bliebe unquittiert liegen und kaeme bei JEDEM
+      // Reconnect erneut zugestellt (2026-09-10: im Dev-Reload-Takt haben
+      // sich dieselben Toasts so endlos gehaeuft, weil der parallel gestartete
+      // Postfach-Zyklus das Rennen gegen die Gruppenliste regelmassig verlor).
+      // Bei ausgeschaltetem Schalter geht kein Aufruf hinaus
       // (`api/gruppen.ts`), die Antwort ist dann eine leere Liste.
+      const abholen = () =>
+        postfachAbholenUndAnzeigen((kanalId) => ctx.getSubs().has(kanalId));
       void gruppenApi
         .auflisten()
-        .then((gruppen) => {
+        .then(async (gruppen) => {
           privateGruppen.seed(gruppen);
           // **Jede Gruppe wird abonniert, nicht erst die geoeffnete.** Der
           // `postfach_neu`-Weckruf faechert am Server an die Abonnenten des
@@ -195,11 +200,15 @@ export function register(ctx: ReadyContext): void {
           // `dm_bump` ueber den Nutzer-Kanal laeuft; fuer Gruppen gibt es
           // kein solches Ereignis.
           for (const gruppe of gruppen) cloudGateway.subscribe(gruppe.id);
+          await abholen();
         })
         // Ein Fehlschlag darf den `ready`-Rahmen nicht kippen: ohne
-        // Gruppenliste laeuft alles andere unveraendert weiter.
-        .catch(() => undefined);
-      postfachAbholenUndAnzeigen((kanalId) => ctx.getSubs().has(kanalId));
+        // Gruppenliste laeuft alles andere unveraendert weiter — auch der
+        // Postfach-Zyklus, DM-Zustellungen duerfen nicht auf die
+        // Gruppenliste warten.
+        .catch(() => {
+          void abholen();
+        });
     }
 
     // Der Admin-Status haengt am DISPATCHENDEN Server (aktiv ODER

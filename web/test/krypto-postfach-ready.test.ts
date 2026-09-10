@@ -59,4 +59,23 @@ describe('ready.ts holt verpasste Postfach-Zustellungen nach', () => {
   it('der postfach_neu-Weckruf ruft weiterhin dieselbe Funktion auf (kein zweiter Weg)', () => {
     assert.match(chatQuelle, /registerWsHandler\('postfach_neu',[\s\S]{0,200}postfachAbholenUndAnzeigen\(/);
   });
+
+  // 2026-09-10: Der Postfach-Zyklus lief parallel zur (fire-and-forget)
+  // Gruppenliste und verlor das Rennen nach jedem Reload — persistieren warf
+  // "Kanal lokal nicht bekannt", die Zustellung blieb unquittiert und kam beim
+  // naechsten Reconnect erneut zugestellt (im Dev-Reload-Takt ein endloser
+  // Toast-Teppich). Der Zyklus muss NACH privateGruppen.seed laufen.
+  it('holt erst ab, nachdem die private-Gruppen-Liste geseedet ist', () => {
+    const seedStelle = readyQuelle.indexOf('privateGruppen.seed(gruppen)');
+    const abholStelle = readyQuelle.indexOf('await abholen()');
+    assert.ok(seedStelle >= 0, 'privateGruppen.seed(gruppen) muss im ready-Zweig stehen');
+    assert.ok(
+      abholStelle > seedStelle,
+      'der Postfach-Aufruf muss nach dem Seeden der Gruppen stehen, nicht daneben'
+    );
+  });
+
+  it('holt auch ab, wenn die Gruppenliste scheitert (DMs duerfen nicht warten)', () => {
+    assert.match(readyQuelle, /\.catch\(\(\)\s*=>\s*\{\s*void abholen\(\);?\s*\}\)/);
+  });
 });

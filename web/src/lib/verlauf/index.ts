@@ -290,7 +290,13 @@ export function verlaufLesen(
  * dann beim bestehenden, langsameren Pfad.
  */
 export function verlaufSchonAbgelegt(kanalId: string, nachrichtId: string): Promise<boolean> {
-  if (!istLokalerKanal(kanalId)) return Promise.resolve(false);
+  // Bewusst OHNE `istLokalerKanal`-Abkuerzung (2026-09-10): der In-Memory-
+  // Bestand (DMs, Gruppen) ist beim Postfach-Zyklus nach einem Reload noch
+  // nicht unbedingt geseedet — die Kurzform meldete dann blind "nicht
+  // abgelegt", obwohl der Satz laengst in IndexedDB liegt. Der direkte Blick
+  // in die Datenbank ist derselbe billige Punkt-Lookup und immer richtig; ein
+  // Treffer haelt die Zustellung vom erneuten Toast ab und bringt sie zur
+  // Quittung, die den Server-Umschlag endgueltig loescht.
   const kontoId = aktuellesKonto();
   if (kontoId === null) return Promise.resolve(false);
   return verlaufSatzVorhanden(kanalId, nachrichtId, kontoId).catch((err) => {
