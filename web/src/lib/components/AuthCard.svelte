@@ -6,9 +6,8 @@
   `children` ist der Karten-Inhalt, alle übrigen Props reichen 1:1 an
   AuthBrandPanel durch.
 
-  Die Login-Seite nutzt die Komponente bewusst NICHT: ihre Außenhülle trägt
-  das seitenweite Cursor-Radar (`use:cursorTrack` + cursor-none), das sich
-  nicht als Prop durchreichen lässt.
+  Die Login-Seite nutzt die Komponente bewusst NICHT — sie hat eine eigene
+  Außenhülle (Server-App-Badge, MFA-Schritt, App-Downloads unter der Karte).
 -->
 <script lang="ts">
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';

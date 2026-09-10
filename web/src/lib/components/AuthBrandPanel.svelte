@@ -1,8 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import CheckIcon from '@lucide/svelte/icons/check';
-  import CursorRadar from './CursorRadar.svelte';
-  import { cursorTrack } from '$lib/actions/cursor-track';
 
   interface Props {
     headline: string;
@@ -13,12 +11,7 @@
      *  einen durchgehenden Full-Bleed-Verlauf hinter das ganze Layout legen,
      *  damit an der Panel-Grenze keine Naht aus zwei Verläufen entsteht. */
     bareBg?: boolean;
-    /** Cursor-Radar NICHT selbst rendern/tracken — die Eltern-Seite stellt ein
-     *  seitenweites Radar bereit (s. login/+page.svelte). Dann auch kein
-     *  cursor:none hier (die Seite setzt es). */
-    externalCursor?: boolean;
-    /** Zusätzliche Klassen am Wurzel-Element (z.B. z-index fürs Stacking, wenn
-     *  ein seitenweites Radar zwischen Panel und Formular liegt). */
+    /** Zusätzliche Klassen am Wurzel-Element (z.B. z-index fürs Stacking). */
     rootClass?: string;
     /** Teilwort der Headline, das im Electric-Blue-Akzentverlauf erscheint. */
     headlineAccent?: string;
@@ -34,19 +27,11 @@
     description,
     features,
     bareBg = false,
-    externalCursor = false,
     rootClass = '',
     headlineAccent,
     rotatingPrefix,
     rotatingWords,
   }: Props = $props();
-
-  // Das Radar-Sonar IST der Mauszeiger: es folgt dem Cursor über das Panel und
-  // verblasst sanft, sobald die Maus die Fläche verlässt. Wird die Verfolgung
-  // extern (seitenweit) gemacht, bleibt das hier inert.
-  let cursorX = $state(0);
-  let cursorY = $state(0);
-  let cursorActive = $state(false);
 
   // Headline in Vor-/Akzent-/Nachtext zerlegen, damit das Akzent-Wort den
   // Farbverlauf bekommt. Kein Treffer → null (Headline wird ganz normal gesetzt).
@@ -78,24 +63,14 @@
 
 <!--
   Zeigt sich nur ab md: (≥768 px) — auf Mobil ist display:none (hidden).
-  Der äußere Container hat position:relative + overflow:hidden damit Glow-Blobs
-  und Radar nicht herausragen. cursor:none → das Radar ersetzt den Maus-Pfeil
-  (außer wenn die Eltern-Seite den Cursor übernimmt: externalCursor).
+  Der äußere Container hat position:relative + overflow:hidden, damit die
+  Glow-Blobs nicht herausragen.
 -->
 <div
   class={`relative hidden flex-1 flex-col justify-center overflow-hidden md:flex ${rootClass}`}
-  style="{bareBg
+  style={bareBg
     ? ''
-    : 'background: linear-gradient(150deg, #0e1f3a, #0a1525 60%, #08130c);'}{externalCursor
-    ? ''
-    : ' cursor: none;'}"
-  use:cursorTrack={externalCursor
-    ? () => {}
-    : (x, y, active) => {
-        cursorX = x;
-        cursorY = y;
-        cursorActive = active;
-      }}
+    : 'background: linear-gradient(150deg, #0e1f3a, #0a1525 60%, #08130c);'}
 >
   <!-- Atmende radiale Glow-Blobs — nur wenn das Panel seinen eigenen
        Hintergrund stellt. Bei bareBg liefert die Eltern-Seite einen
@@ -107,13 +82,6 @@
         radial-gradient(420px 320px at 75% 18%, rgba(59,130,246,.25), transparent 60%),
         radial-gradient(420px 320px at 20% 95%, rgba(16,185,129,.18), transparent 60%);"
     ></div>
-  {/if}
-
-  <!-- Cursor-folgendes Radar — nur wenn nicht extern (z-20 = über dem Inhalt). -->
-  {#if !externalCursor}
-    <div class="absolute inset-0 z-20">
-      <CursorRadar x={cursorX} y={cursorY} active={cursorActive} />
-    </div>
   {/if}
 
   <!-- Inhalt -->
