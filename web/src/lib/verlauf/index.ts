@@ -153,7 +153,12 @@ export function verlaufSpeichern(kanalId: string, nachrichten: unknown[]): Promi
   const saetze = baueSaetze(kanalId, nachrichten, kontoId);
   if (saetze.length === 0) return Promise.resolve(0);
   return verlaufPutSaetze(saetze)
-    .then(() => saetze.length)
+    .then(() => {
+      // Ein geglueckter Schreibzugriff hebt einen gemeldeten FEHLER auf
+      // (er war voruebergehend) — sonst klebte der Auskleber fuer immer.
+      verlaufZustand.erholt();
+      return saetze.length;
+    })
     .catch((err) => {
       verlaufZustand.melde(err);
       return 0;
@@ -273,7 +278,12 @@ export function verlaufLesen(
   const kontoId = aktuellesKonto();
   if (kontoId === null) return Promise.resolve([]);
   return verlaufLesenSaetze(kanalId, opts, kontoId)
-    .then((saetze) => saetze.map(satzZuNachricht))
+    .then((saetze) => {
+      // Wie beim Speichern: ein geglueckter Lesezugriff entkraeftet einen
+      // gemeldeten Fehler (2026-09-11, s. zustand.svelte.ts::erholt).
+      verlaufZustand.erholt();
+      return saetze.map(satzZuNachricht);
+    })
     .catch((err) => {
       verlaufZustand.melde(err);
       return [];

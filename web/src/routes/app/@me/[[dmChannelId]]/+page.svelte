@@ -146,13 +146,12 @@
 
   // C2: der Nutzer erfaehrt EINMAL, warum sein Verlauf nicht lokal liegt
   // (privates Fenster/voller Speicher/Fehler) — die App bleibt in jedem Fall
-  // benutzbar (Rueckfall auf den Server), s. `verlaufZustand`.
-  let verlaufHinweisGezeigt = false;
+  // benutzbar (Rueckfall auf den Server), s. `verlaufZustand`. Der
+  // Einmal-Latch liegt IM Zustand: bis 2026-09-11 zaehlte ihn eine lokale
+  // Variable hier, und jeder Seitenwechsel zeigte denselben Grund erneut.
   $effect(() => {
-    if (verlaufZustand.grund && !verlaufHinweisGezeigt) {
-      verlaufHinweisGezeigt = true;
-      toast.warning(verlaufZustand.grund);
-    }
+    const hinweis = verlaufZustand.hinweisVerbrauchen();
+    if (hinweis !== null) toast.warning(hinweis);
   });
 
   // WS reconnect: messages.clearChannel() may empty the loaded set. Re-fetch

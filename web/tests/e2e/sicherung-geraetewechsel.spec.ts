@@ -110,8 +110,8 @@ async function starteSpeicher(): Promise<{ url: string; stop: () => Promise<void
 }
 
 /** Setzt den fake Ordner (File-System-Access-Form, über HTTP) ins Fenster. */
-function ordnerStubs(ctx: BrowserContext, speicherUrl: string): Promise<void> {
-  return ctx.addInitScript(
+async function ordnerStubs(ctx: BrowserContext, speicherUrl: string): Promise<void> {
+  await ctx.addInitScript(
     (basis) => {
       const fenster = globalThis as unknown as {
         __e2eSicherungOrdner: unknown;

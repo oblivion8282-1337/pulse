@@ -16,6 +16,8 @@ const GRUND_TEXT: Record<SpeicherLage, string> = {
 class VerlaufZustand {
   verfuegbar = $state(true);
   grund = $state<string | null>(null);
+  /** Wurde der aktuelle Grund bereits als Hinweis gezeigt? */
+  private hingewiesen = false;
 
   /**
    * Ein fehlgeschlagener lokaler Lese-/Schreibversuch. Setzt den Grund nur
@@ -32,6 +34,33 @@ class VerlaufZustand {
     const { art } = deuteSpeicherfehler(err);
     this.verfuegbar = false;
     this.grund = GRUND_TEXT[art];
+    this.hingewiesen = false;
+  }
+
+  /**
+   * Der Hinweis-Text, genau einmal je gemeldetem Grund (2026-09-11): bis
+   * hierher merkte sich die DM-Seite das Gezeigt-Haben in einer lokalen
+   * Variable — jeder Seitenwechsel/Neuladen setzte sie zurück und der
+   * festgesteckte Grund kam als Toast erneut. Der Latch gehört zum Zustand,
+   * nicht zur Seite; `null` heißt „nichts (nochmal) zu zeigen".
+   */
+  hinweisVerbrauchen(): string | null {
+    if (this.grund === null || this.hingewiesen) return null;
+    this.hingewiesen = true;
+    return this.grund;
+  }
+
+  /**
+   * Ein erfolgreicher lokaler Zugriff: ein gemeldeter FEHLER war
+   * vorübergehend (kurzzeitig blockierte IndexedDB, volles Kontingent im
+   * Seitenwechsel) — der Zustand hebt sich, damit der nächste echte Fehler
+   * wieder gemeldet werden kann und nichts auf einem Veraltet-Auskleber
+   * kleben bleibt.
+   */
+  erholt(): void {
+    this.verfuegbar = true;
+    this.grund = null;
+    this.hingewiesen = false;
   }
 }
 
