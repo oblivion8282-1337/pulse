@@ -4,9 +4,10 @@
   sind raus — diese vier Werte gehen jetzt direkt an den Encoder.)
 
   Validierung: Bitrate `HQ_BITRATE_MIN_KBPS`–`HQ_BITRATE_MAX_KBPS` (Cap gegen
-  VPS-Bandbreiten-Saturation), FPS aus `FPS_VALUES` (Stufen-Dropdown; bei
-  10 bit zusätzlich die Last-Grenze `HQ_TEN_BIT_MAX_PIXELS_PER_SEC`, s.
-  `settingsCatalog`), Auflösung aus dem festen Set, Codec aus `CODEC_VALUES`.
+  VPS-Bandbreiten-Saturation), FPS Freifeld, geklemmt auf die Admin-Grenzen
+  (bis zum 2026-09-10 ein Stufen-Dropdown; die 10-bit-Last-Grenze hält jetzt
+  allein das Sidecar beim Start — `lastgrenze`, mit Ansage „fps_begrenzt"),
+  Auflösung aus dem festen Set, Codec aus `CODEC_VALUES`.
 -->
 <script lang="ts">
   import { Label } from '$lib/components/ui/label/index.js';
@@ -23,13 +24,9 @@
     clampResolution,
     captureSourceForSlot,
     persistSettings,
-    FPS_STANDARD,
-    allowedFpsSteps,
-    fpsAllowed,
-    snapFps,
   } from '../settings.svelte';
   import { stream } from '../state.svelte';
-  import { sourceSize, resolutionOptions, RESOLUTION_BOXES, fitWithinBox } from '../resolution';
+  import { sourceSize, resolutionOptions } from '../resolution';
   import { effectiveHqLimits } from '../guildLimits';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { isWindows } from '$lib/platform/runtime';
@@ -135,17 +132,48 @@
     persistSettings();
   }
 
-  // Bildrate: Auswahl aus Stufen statt Freifeld (`FPS_VALUES`). Kein
-  // „Eigener Wert"-Eintrag — ein Freifeld unterliefe genau die Führung, um
-  // die es hier geht (nicht anbieten ist besser als hinten wegklemmen).
-  function onFpsSelect(v: string) {
+  // FPS als Freifeld (seit 2026-09-10, das Stufen-Dropdown ist fürs Erste
+  // raus): leeres Feld = „Standard", das heißt `overrides.fps` bleibt ungesetzt
+  // und der Sidecar nimmt seine Vorgabe (60). Geklemmt wird auf die wirksamen
+  // Admin-Grenzen — Hart-Cap oben schon beim Tippen (wie bei der Bitrate), das
+  // Minimum erst beim Verlassen, sonst würde eine halb getippte „2" sofort auf
+  // das Minimum springen. Die 10-bit-Last-Grenze ist hier bewusst NICHT
+  // nachgebaut: das Sidecar kennt die echte Quellgröße und begrenzt beim Start
+  // mit Ansage (`lastgrenze`, „fps_begrenzt") — dieselbe Regel, nur am Ort mit
+  // den besseren Daten.
+  function onFps(e: Event) {
+    const el = e.currentTarget as HTMLInputElement;
     const next = { ...streamSettings.overrides };
-    // '' = „Standard": das Feld ungesetzt lassen, der Sidecar nimmt seine
-    // Vorgabe (60). `delete` wie bei `bit_depth` — ein `fps: undefined`
-    // schleppfe sich durch jede persistierte Einstellung.
-    if (v === '') delete next.fps;
-    else next.fps = Number(v);
+    if (el.value === '') {
+      // `delete` statt `fps: undefined` — sonst schleppft sich das durch jede
+      // persistierte Einstellung.
+      delete next.fps;
+      streamSettings.overrides = next;
+      persistSettings();
+      return;
+    }
+    let n = parseInt(el.value, 10);
+    if (isNaN(n)) return;
+    if (n > fMax) {
+      n = fMax;
+      el.value = String(n);
+    }
+    next.fps = n;
     streamSettings.overrides = next;
+    persistSettings();
+  }
+
+  function onFpsBlur(e: Event) {
+    const el = e.currentTarget as HTMLInputElement;
+    if (el.value === '') return;
+    let n = parseInt(el.value, 10);
+    if (isNaN(n)) {
+      el.value = '';
+      return;
+    }
+    n = Math.min(fMax, Math.max(fMin, n));
+    el.value = String(n);
+    streamSettings.overrides = { ...streamSettings.overrides, fps: n };
     persistSettings();
   }
 
@@ -192,61 +220,12 @@
     return resOptions.some((o) => o.value === clamped) ? clamped : 'Native';
   });
 
-  // Die Größe, die bei der gewählten Auflösung tatsächlich hinausgeht — sie
-  // begrenzt bei 10 bit die Bildraten-Stufen (Last-Regel, `settingsCatalog`).
-  // Ohne bekannte Quellgröße gilt die Stufen-BOX als obere Schranke: die
-  // Einpassung verkleinert nur, macht nie größer — die Box ist der Worst Case.
-  //
-  // Bei „Native" unter dem Linux-Portal bleibt die Größe UNBEKANNT (sie steht
-  // erst nach dem Portal-Dialog fest — Monitor oder App-Fenster) und die
-  // Liste ungeschmälert. Das Netz ist dort der Sidecar: Er kennt die Größe
-  // nach der Verhandlung und begrenzt notfalls beim Start mit Ansage
-  // (`lastgrenze`, Notice-Event „fps_begrenzt"). Ein Raten nach dem größten
-  // Monitor war zwischendrin drin (2026-08-20) und ist bewusst wieder raus:
-  // es nahm flüssige Kombinationen weg, die der Start meist doch erlaubt
-  // hätte.
-  let sendGroesse = $derived.by(() => {
-    if (resValue === 'Native') return srcSize;
-    const box = RESOLUTION_BOXES[resValue];
-    if (!box) return null;
-    if (!srcSize) return { width: box[0], height: box[1] };
-    return fitWithinBox(srcSize.width, srcSize.height, box[0], box[1]);
-  });
-  let fpsOptions = $derived(allowedFpsSteps(zehnBitGewaehlt, sendGroesse, fMin, fMax));
-  // „Standard" wird wie eine Stufe geprüft und nicht durchgewinkt — wäre die
-  // Vorgabe (60) in der Kombination nicht erlaubt, fällt der Eintrag weg
-  // (Begründung an `FPS_STANDARD`). Sonst wäre die Vorgabe der einzige Weg,
-  // die Last-Grenze unbemerkt zu unterlaufen.
-  let standardErlaubt = $derived(fpsAllowed(FPS_STANDARD, zehnBitGewaehlt, sendGroesse, fMin, fMax));
-  // Die Stufen als Auswahlliste für das Dropdown — „Standard" nur, wenn die
-  // Vorgabe (60) in dieser Kombination auch erlaubt ist.
-  let fpsAuswahl = $derived([
-    ...(standardErlaubt ? [{ value: '', label: m.overrides_editor_fps_standard() }] : []),
-    ...fpsOptions.map((f) => ({ value: String(f), label: String(f) })),
-  ]);
-  // Der wirksame Wert des Felds: die gespeicherte Wahl, oder ohne eine solche
-  // „Standard" — außer die Vorgabe ist in der Kombination gerade nicht
-  // erlaubt, dann steht sie selbst an (und wird vom Effect unten festgenagelt).
-  // `null` heißt „Standard": das Feld bleibt ungesetzt, der Sidecar nimmt 60.
-  let fpsAktuell = $derived(
-    streamSettings.overrides.fps ?? (standardErlaubt ? null : FPS_STANDARD),
+  // Der ANGEZEIGTE Wert: die gespeicherte Wahl, oder leer für „Standard"
+  // (Sidecar-Vorgabe 60) — das leere Feld IST der Standard-Eintrag des alten
+  // Dropdowns.
+  let fpsValue = $derived(
+    streamSettings.overrides.fps === undefined ? '' : String(streamSettings.overrides.fps),
   );
-  // Der ANGEZEIGTE Wert kommt immer aus der Liste (oder ist „Standard"): ein
-  // Wert außerhalb der Liste wird auf die nächste Stufe gebogen (`snapFps`
-  // gibt einen bereits enthaltenen unverändert zurück) — die Anzeige zeigt
-  // nie etwas, das nicht gesendet würde. Das Zurückschreiben macht der $Effect.
-  let fpsValue = $derived(fpsAktuell === null ? '' : String(snapFps(fpsAktuell, fpsOptions)));
-
-  // Weggefallene Stufen nicht nur anders ANZEIGEN, sondern auch so speichern:
-  // `buildStartArgs` schickt den gespeicherten Wert, und der soll nicht
-  // heimlich etwas senden, was das Feld gar nicht mehr anbietet. Das Biegen
-  // ist sichtbar (das Feld springt auf den neuen Wert), nie laut — der
-  // Wechsel der Kombination ist selbst die Nutzerhandlung.
-  $effect(() => {
-    if (fpsAktuell === null || fpsOptions.includes(fpsAktuell)) return;
-    streamSettings.overrides = { ...streamSettings.overrides, fps: snapFps(fpsAktuell, fpsOptions) };
-    persistSettings();
-  });
 
   function onShowCursor(e: Event) {
     streamSettings.show_cursor = (e.currentTarget as HTMLInputElement).checked;
@@ -323,21 +302,20 @@
 
   <div class="flex flex-col gap-1.5">
     <Label for="ov-fps" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">FPS</Label>
-    <Select
+    <Input
       id="ov-fps"
+      class="tabular-nums"
+      type="number"
+      min={fMin}
+      max={fMax}
+      step="1"
+      placeholder={m.overrides_editor_fps_standard()}
       value={fpsValue}
-      options={fpsAuswahl}
-      onchange={onFpsSelect}
+      oninput={onFps}
+      onblur={onFpsBlur}
       data-testid="stream-overrides-fps"
     />
-    <!-- Solange die Last-Grenze etwas streicht, wäre die Bereichsangabe
-         „Erlaubt: 1–144" daneben aktiv irreführend — die Liste endet ja
-         sichtbar früher. Dann sagt der Hinweis, WER die Auswahl begrenzt. -->
-    {#if zehnBitGewaehlt && sendGroesse}
-      <p class="text-text-muted text-2xs">{m.overrides_editor_fps_capped()}</p>
-    {:else}
-      <p class="text-text-muted text-2xs">{m.overrides_editor_fps_range({ min: fMin, max: fMax })}</p>
-    {/if}
+    <p class="text-text-muted text-2xs">{m.overrides_editor_fps_range({ min: fMin, max: fMax })}</p>
   </div>
  </div>
 
