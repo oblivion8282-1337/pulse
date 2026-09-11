@@ -60,6 +60,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(OrientationLockPlugin.class);
         registerPlugin(ShareReceiverPlugin.class);
         registerPlugin(AnrufPlugin.class);
+        registerPlugin(VideoCapturePlugin.class);
         super.onCreate(savedInstanceState);
         speakerRouter = new SpeakerphoneRouter(this, this, ContextCompat.getMainExecutor(this));
         speakerRouter.start();
