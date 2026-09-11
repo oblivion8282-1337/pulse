@@ -289,3 +289,4 @@ async def test_guild_out_serves_effective_value(client, session_factory, _auth_s
     # Der Client liest ``stream_bitrate_max_kbps`` — muss der wirksame (= der
     # kleinere Community-)Wert sein, nicht die Obergrenze.
     assert r.json()["stream_bitrate_max_kbps"] == 20000
+

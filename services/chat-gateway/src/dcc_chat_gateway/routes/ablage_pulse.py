@@ -93,24 +93,28 @@ async def _genutzte_bytes(session: AsyncSession, guild_id: int) -> int:
     return int(summe.scalar_one())
 
 
-async def _zuweisung(session: AsyncSession, guild_id: int) -> tuple[int, int, DropboxConfig | None]:
+async def _zuweisung(
+    session: AsyncSession, guild
+) -> tuple[int, int, DropboxConfig | None]:
     """(Gesamt, belegt, Config) der Ablage-Zuweisung dieser Community.
 
-    Die Gesamt-Zuweisung und der Schalter stehen in der bestehenden
-    Ablage-Verwaltung (``DropboxConfig`` — der Legacy-Name der
-    Community-Ablage-Konfiguration, gesetzt über Server-Einstellungen →
-    Communitys). Genau diese Zuweisung gilt, nicht ein zweites Stellrad:
-    Gesamt = ``total_quota_bytes`` der Config (ohne Config: der
-    Instanz-Default), belegt = alt belegte Bytes plus Pulse-Chiffrat.
+    Die engeste Angabe gilt: Die Betreiber-Decke
+    (``guilds.dropbox_quota_bytes``, via ``PATCH /owner/communities/{id}/limits``
+    — Senken greift sofort, weil ``clamp_dropbox_quota_to_ceiling`` eine
+    bestehende Config mitzieht) setzt den Rahmen; die
+    Community-Ablage-Config schärft ihn weiter ein. Ohne beides gilt der
+    Instanz-Default. Belegt = Alt-Belegung plus Pulse-Chiffrat.
     """
     einstellungen = chat_config.get_settings()
     gesamt = einstellungen.pulse_laufwerk_max_gesamt_bytes
+    if guild.dropbox_quota_bytes is not None:
+        gesamt = guild.dropbox_quota_bytes
     belegt = 0
-    cfg = await session.get(DropboxConfig, guild_id)
+    cfg = await session.get(DropboxConfig, guild.id)
     if cfg is not None:
-        gesamt = cfg.total_quota_bytes
+        gesamt = min(gesamt, cfg.total_quota_bytes)
         belegt += cfg.used_bytes
-    belegt += await _genutzte_bytes(session, guild_id)
+    belegt += await _genutzte_bytes(session, guild.id)
     return gesamt, belegt, cfg
 
 
@@ -120,10 +124,10 @@ async def pulse_status(
     session: SessionDep,
     current: CurrentUser,
 ) -> LaufwerkStatusOut:
-    await guild_oder_404(session, guild_id)
+    guild = await guild_oder_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     laufwerk = await session.get(AblagePulseLaufwerk, guild_id)
-    gesamt, belegt, _cfg = await _zuweisung(session, guild_id)
+    gesamt, belegt, _cfg = await _zuweisung(session, guild)
     return LaufwerkStatusOut(
         verbunden=laufwerk is not None,
         genutzt_bytes=belegt,
@@ -217,7 +221,7 @@ async def kuendige_datei_an(
     session: SessionDep,
     current: CurrentUser,
 ) -> dict[str, str]:
-    await guild_oder_404(session, guild_id)
+    guild = await guild_oder_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     if not ratelimit.check("ablage_pulse_ankuendigen", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
@@ -226,7 +230,7 @@ async def kuendige_datei_an(
     if _NAME_MUSTER.match(payload.name) is None:
         raise HTTPException(422, detail="name must be a plain *.puls name")
     einstellungen = chat_config.get_settings()
-    gesamt, belegt, cfg = await _zuweisung(session, guild_id)
+    gesamt, belegt, cfg = await _zuweisung(session, guild)
     if cfg is not None and not cfg.enabled:
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="ablage is disabled for this community"
