@@ -64,7 +64,6 @@
 <CreateChannelDialog
   open={creatingChannel}
   {guildId}
-  dropboxAllowed={guild?.dropbox_allowed ?? false}
   onClose={() => (creatingChannel = false)}
   onCreate={async (name, type) => {
     if (await kanalAnlegen(guildId, name, type)) creatingChannel = false;

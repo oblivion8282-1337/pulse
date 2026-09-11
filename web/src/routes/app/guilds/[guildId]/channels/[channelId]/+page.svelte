@@ -14,7 +14,7 @@
   import { erstelleCommunity } from '$lib/guilds/erstellen';
   import type { Device } from '$lib/api/devices';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
-  import DropboxView from '$lib/components/DropboxView.svelte';
+  import CommunityDateiablage from '$lib/components/ablage/CommunityDateiablage.svelte';
   import { isPluginEnabledForGuild } from '$lib/plugins';
   import TamagotchiWidget from '../../../../../../../../plugins/tamagotchi/components/TamagotchiWidget.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -94,6 +94,11 @@
   let activeChannelId = $derived(activeChannel?.id ?? null);
   let isVoiceChannel = $derived(activeChannel?.type === 1);
   let isDropboxChannel = $derived(activeChannel?.type === 2);
+  // Der Ablage-Kanal (Typ 2) liegt auf dem Pulse-Laufwerk — verbinden und
+  // festigen darf nur der Community-Besitzer (Festlegung 2026-09-11).
+  let istBesitzer = $derived(
+    !!activeGuild && currentServerUserId() === activeGuild.owner_id
+  );
   // Mobil + im Voice + Text-Kanal derselben Community: KEIN Karten-Stapel
   // mehr (2026-08-26, Nutzerwunsch) — die rausschauende Voice-Karte über dem
   // Chat galt als verbuggt. Der Text-Kanal füllt den Bildschirm normal; die
@@ -413,7 +418,7 @@
   {/key}
 {:else if isDropboxChannel && activeChannel}
   {#key activeChannel.id}
-    <DropboxView channel={activeChannel} />
+    <CommunityDateiablage guildId={guildId} {istBesitzer} />
   {/key}
 {:else if guildSuspended}
   <section
@@ -482,7 +487,6 @@
 <CreateChannelDialog
   open={creatingChannel}
   guildId={activeGuild?.id ?? ''}
-  dropboxAllowed={activeGuild?.dropbox_allowed ?? false}
   onClose={() => (creatingChannel = false)}
   onCreate={createChannel}
 />

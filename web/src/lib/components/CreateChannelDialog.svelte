@@ -10,45 +10,21 @@
   import { m } from '$lib/paraglide/messages.js';
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
-  import { dropboxApi } from '$lib/api/dropbox';
+  import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
 
   let {
     open = false,
     guildId = '',
-    dropboxAllowed = false,
     onClose,
     onCreate
   }: {
     open?: boolean;
     /** Aktive Community — für das Nachladen des Community-Master-Schalters. */
     guildId?: string;
-    /** Hat der Server-Betreiber die Ablage für DIESE Community freigegeben?
-     *  Gesperrt ist der Normalfall — anders als die Instanz-Policy unten wird
-     *  hier nicht ins Blaue gezeigt, weil ein Nein hier eine bewusste
-     *  Einzelentscheidung ist und nicht ein noch nicht geladener Wert. */
-    dropboxAllowed?: boolean;
     onClose: () => void;
     onCreate: (name: string, type: number) => void;
   } = $props();
 
-  // Drei Ebenen, alle müssen zustimmen:
-  //   1. Instanz-Policy des aktiven Servers (die Cloud kann die Ablage ganz
-  //      abschalten — sie nimmt beliebige Dateitypen, die kein Hash-Matching
-  //      sehen kann). Fehlt der Capability-Eintrag noch, zeigen wir die
-  //      Option: der Server 404't sie notfalls selbst.
-  //   2. Freigabe für diese Community durch den Betreiber (Server-
-  //      Einstellungen → Communitys). Die Community-Leitung kann das nicht
-  //      selbst umlegen.
-  //   3. Der eigene Master-Schalter der Community (Community-Einstellungen →
-  //      Ablage). Hat die Leitung ihre Ablage abgeschaltet, soll man auch
-  //      keinen neuen Kanal anlegen können. Der wird beim Öffnen frisch
-  //      geladen (unten), damit er nie veraltet ist.
-  let communityDropboxEnabled = $state(true);
-  const dropboxAvailable = $derived(
-    (serverCapabilities.get(activeServer.serverId)?.dropboxEnabled ?? true) &&
-      dropboxAllowed &&
-      communityDropboxEnabled
-  );
   // Instanz-Modus „Nur Ablage" (Konzept §2a): Klartext-Textkanäle sind
   // gesperrt — der Server verwirft deren Anlage und Posten. Der
   // verschlüsselte Ablage-Kanal (mit Verbindungs-Assistent) kommt mit der
@@ -57,38 +33,24 @@
     serverCapabilities.get(activeServer.serverId)?.channelCreationPolicy === 'ablage_only'
   );
 
-  $effect(() => {
-    // Nur laden, wenn Instanz + Betreiber die Ablage überhaupt zulassen —
-    // sonst zeigt der Dialog die Option ohnehin nicht. Optimistischer Default
-    // true: der deaktivierte Fall ist selten, so flackert nichts im Normalfall.
-    if (!open || !dropboxAllowed || !guildId) {
-      communityDropboxEnabled = true;
-      return;
-    }
-    let cancelled = false;
-    dropboxApi
-      .getQuota(guildId)
-      .then((cfg) => {
-        if (!cancelled) communityDropboxEnabled = cfg.enabled;
-      })
-      .catch(() => {
-        // 404 = noch keine Config = Ablage verfügbar (Default beim Erstanlegen).
-        if (!cancelled) communityDropboxEnabled = true;
-      });
-    return () => {
-      cancelled = true;
-    };
-  });
+  // Die dritte Option („Ablage") ist seit dem 2026-09-11 das Pulse-Laufwerk:
+  // verschlüsselter Community-Speicher auf dem Pulse-Server, für JEDERLEI
+  // Community ohne Betreiber-Freigabe (Festlegung nach Abstimmung, Spec
+  // §11). Die alte Dreifach-Gate aus Dropbox-Zeiten (Instanz-Capability,
+  // ``guild.dropbox_allowed``, Community-Schalter) steuert nur noch den
+  // veralteten Dropbox-Speicherweg und ist hier entfallen.
+  const ablageAvailable = ABLAGE_KANAL_ENABLED;
 
   let name = $state('');
-  // 0 = text, 1 = voice, 2 = dropbox (per-guild file storage).
-  // The route page handles type=2 by routing to /dropbox/channel
-  // instead of POST /channels.
+  // 0 = text, 1 = voice, 2 = Ablage (Community-Dateiablage, verschlüsselt
+  // über das Pulse-Laufwerk). Die Kanalliste kennt genau einen solchen
+  // Kanal je Community; die Route leitet den Namen an den idempotenten
+  // Ablage-Endpoint weiter.
   let type = $state<number>(0);
 
   // Fällt die Ablage weg, während sie ausgewählt war → zurück auf Text.
   $effect(() => {
-    if (!dropboxAvailable && type === 2) type = 0;
+    if (!ablageAvailable && type === 2) type = 0;
   });
   $effect(() => {
     if (nurAblage && type === 0) type = 1;
@@ -127,7 +89,7 @@
         <!-- Spaltenzahl folgt den sichtbaren Optionen — fixes grid-cols-3 ließe ohne
              die Ablage eine leere Zelle stehen. Klassen als Literale: Tailwind findet
              zusammengebaute Namen beim Purgen nicht. -->
-        <div class={dropboxAvailable ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-2 gap-2'}>
+        <div class={ablageAvailable ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-2 gap-2'}>
           <Button
             type="button"
             variant={type === 0 ? 'default' : 'secondary'}
@@ -152,7 +114,7 @@
             <Volume2Icon class="size-4" />
             {m.create_channel_dialog_type_voice()}
           </Button>
-          {#if dropboxAvailable}
+          {#if ablageAvailable}
             <Button
               type="button"
               variant={type === 2 ? 'default' : 'secondary'}
