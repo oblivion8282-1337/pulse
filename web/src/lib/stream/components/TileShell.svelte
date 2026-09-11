@@ -25,7 +25,7 @@
   import { statsVisible } from '../statsVisible.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import TileDock from './TileDock.svelte';
-  import TileMobilSteuerung from './TileMobilSteuerung.svelte';
+  import TileMobilSteuerung from '$lib/components/mobile/TileMobilSteuerung.svelte';
   import type { TileShellProps } from './tileShellProps';
 
   let {
