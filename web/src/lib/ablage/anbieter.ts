@@ -11,11 +11,8 @@
  * Datei beantwortet nur zwei Fragen: welche Anbieter die Oberflaeche
  * anbietet, und welche davon fuer einen Kanal taugen.
  *
- * Importfrei in Sachen Anbieter-Logik — das Feature-Flag kommt aus
- * `featureFlags.ts` (Build-Konstante ohne Importe, testläufer-sicher).
+ * Importfrei (s. CLAUDE.md zur Falle bei `pnpm test:unit`).
  */
-
-import { ABLAGE_FREMDE_ANBIETER_ENABLED } from '../featureFlags.ts';
 
 export type AblageAnbieterArt =
 	| 'dropbox'
@@ -52,12 +49,13 @@ export interface AnbieterEintrag {
  * hat eine zu schmale Zielgruppe, um die Pflege zu rechtfertigen. Beide
  * Adapter bleiben im Baum; nachziehen kostet dann nur diese Zeile.
  *
- * Seit dem 2026-09-11 sind ALLE fremden Anbieter geparkt
- * (`ABLAGE_FREMDE_ANBIETER_ENABLED`, Produktentscheidung „Pulse vermietet
- * Speicher statt fremde Clouds einzubinden“) — die Liste hier beschreibt
- * nur noch den eingeschalteten Zustand. Das Pulse-Laufwerk steht NICHT in
- * dieser Liste: es ist kein Dialog-Anbieter mit Konfiguration, sondern wird
- * direkt in der Community-Ablage verbunden (`CommunityDateiablage.svelte`).
+ * Diese Liste ist die AUSWAHL FUERS PERSOENLICHE ARCHIV (Sicherung der
+ * eigenen Nachrichten) — Festlegung vom 2026-09-11: fremde Anbieter
+ * (Dropbox, Google Drive, Nextcloud) und der Sync-Ordner gehoeren NUR hierhin,
+ * fuer alles andere (Communitys) nicht. Dort gibt es ausschliesslich das
+ * Pulse-Laufwerk (``PULSE_ANBIETER``), das eben deshalb nicht in dieser
+ * Liste steht. Das Ablage-Kanalspiel (E7, ``fuerKanaele``) bleibt wie
+ * beschrieben bei den fremden Anbietern.
  */
 export const ANBIETER: readonly AnbieterEintrag[] = [
 	{ art: 'gdrive', name: 'Google Drive', angeboten: true, fuerKanaele: true },
@@ -68,18 +66,34 @@ export const ANBIETER: readonly AnbieterEintrag[] = [
 	{ art: 's3', name: 'S3-kompatibel', angeboten: false, fuerKanaele: true },
 ];
 
-/** Die Anbieter, die die Oberflaeche zur Auswahl stellt — seit dem
- *  2026-09-11 nur noch der Sync-Ordner, solange die fremden geparkt sind
- *  (`ABLAGE_FREMDE_ANBIETER_ENABLED`). */
+/**
+ * Das Pulse-Laufwerk — der SPEICHER FUR COMMUNITYS (Eigentuemer-Entscheidung
+ * 2026-09-11): der einzige Anbieter, den die Community-Ablage im
+ * Verbinden-Dialog zeigt. Fuer das persoenliche Archiv ist er bewusst NICHT
+ * waehlbar — dort bleibt es beim eigenen Ordner und den eigenen Clouds.
+ */
+export const PULSE_ANBIETER: AnbieterEintrag = {
+	art: 'pulse',
+	name: 'Pulse-Laufwerk',
+	angeboten: true,
+	fuerKanaele: true,
+};
+
+/** Die Anbieter, die die Oberflaeche zur Auswahl stellt — das ist die
+ *  Archiv-Auswahl (s. Listen-Kopf). */
 export function angeboteneAnbieter(): AnbieterEintrag[] {
-	return ANBIETER.filter(
-		(a) => a.angeboten && (ABLAGE_FREMDE_ANBIETER_ENABLED || a.art === 'sync_ordner')
-	);
+	return ANBIETER.filter((a) => a.angeboten);
 }
 
 /** Die Anbieter, auf denen ein Kanal liegen darf. */
 export function kanalTaugliche(): AnbieterEintrag[] {
-	return ANBIETER.filter((a) => a.angeboten && a.fuerKanaele && ABLAGE_FREMDE_ANBIETER_ENABLED);
+	return ANBIETER.filter((a) => a.angeboten && a.fuerKanaele);
+}
+
+/** Die Auswahl fuer das LAUFWERK EINER COMMUNITY — ausschliesslich das
+ *  Pulse-Laufwerk (Festlegung 2026-09-11, s. PULSE_ANBIETER). */
+export function communityAnbieter(): AnbieterEintrag[] {
+	return [PULSE_ANBIETER];
 }
 
 /** Nachschlagen; `undefined` fuer eine unbekannte Art. */

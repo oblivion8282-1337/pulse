@@ -1,10 +1,12 @@
 <script lang="ts">
   /**
    * Die Community-Dateiablage auf dem PULSE-Laufwerk (2026-09-11,
-   * Spezifikation `docs/superpowers/specs/2026-09-11-pulse-laufwerk-design.md`).
+   * Spezifikation `docs/superpowers/specs/2026-09-11-pulse-laufwerk-design.md`,
+   * Festlegungen nach Abstimmung s. Spec §11).
    *
-   * Drei Zustaende, ein Pfad, kein Zwischenlager und keine Festigung mehr:
-   * verbinden (nur Besitzer, ein Klick — kein Link, kein OAuth), hochladen
+   * Drei Zustaende, ein Pfad, kein Zwischenlager und keine Festigung:
+   * verbinden (nur Besitzer, ueber den gewohnten Verbinden-Dialog — darin
+   * fuer Communitys genau ein Anbieter, das Pulse-Laufwerk), hochladen
    * (clientseitig verschluesselt per presigned PUT direkt auf den
    * Pulse-Objektspeicher), herunterladen, loeschen. Gelten tut dabei
    * durchgehend `DateiSpeicher` ueber den `pulse`-Adapter — dieselbe Engine
@@ -22,12 +24,11 @@
   import UploadIcon from '@lucide/svelte/icons/upload';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
-  import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
   import { ablagePulseApi } from '$lib/api/ablagePulse.ts';
   import { ablageVerbindungen } from '$lib/ablage/verbindungen.svelte.ts';
-  import { bytesZuBase64 } from '$lib/ablage/syncOrdnerSchluessel.ts';
+  import { communityAnbieter } from '$lib/ablage/anbieter.ts';
   import { sichererBlobTyp } from '$lib/krypto/sichererBlobTyp.ts';
-  import type { AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
+  import AblageVerbindenDialog from './AblageVerbindenDialog.svelte';
   import type { DateiInfo } from '$lib/ablage/dateispeicher.ts';
 
   let { guildId, istBesitzer }: { guildId: string; istBesitzer: boolean } = $props();
@@ -39,6 +40,7 @@
   let laeuft = $state(false);
   let fehler = $state('');
   let dateiInput: HTMLInputElement | null = $state(null);
+  let verbindenOffen = $state(false);
 
   async function frischeKontingent(): Promise<void> {
     const s = await ablagePulseApi.status(guildId);
@@ -77,35 +79,12 @@
   });
 
   /**
-   * Verbindet das Pulse-Laufwerk — EIN Klick. Der Ablage-Hauptschluessel
-   * entsteht hier lokal und verlaesst dieses Geraet nie (Konzept §3.1);
-   * dem Server wird nur gemeldet, dass die Community ein Laufwerk hat.
+   * Verbinden läuft über den GEWOHNTEN Verbinden-Dialog (Festlegung
+   * 2026-09-11) — für Communitys mit genau einem Anbieter darin: dem
+   * Pulse-Laufwerk. Der Schlüssel entsteht im Dialog lokal auf diesem
+   * Gerät und verlässt es nie (Konzept §3.1); dem Server wird nur
+   * gemeldet, dass die Community ein Laufwerk hat.
    */
-  async function verbindePulse(): Promise<void> {
-    laeuft = true;
-    fehler = '';
-    try {
-      await ablagePulseApi.verbinden(guildId);
-      if (!ablageVerbindungen.verbindungFürGuild(guildId)) {
-        const schluessel = globalThis.crypto.getRandomValues(new Uint8Array(32));
-        const verbindung: AblageVerbindung = {
-          id: `pulse-${guildId}`,
-          anbieter: 'pulse',
-          name: 'Pulse-Laufwerk',
-          konfiguration: {},
-          hauptschlüsselB64: bytesZuBase64(schluessel),
-          verbundenAm: new Date().toISOString()
-        };
-        await ablageVerbindungen.hinzufügen(verbindung);
-        await ablageVerbindungen.verknüpfeMitGuild(verbindung.id, guildId);
-      }
-      await pruefeStatus();
-    } catch (e) {
-      fehler = e instanceof Error ? e.message : String(e);
-    } finally {
-      laeuft = false;
-    }
-  }
 
   function speicherFuerVerbindung() {
     const lokal = ablageVerbindungen.verbindungFürGuild(guildId);
@@ -182,13 +161,11 @@
 {:else if status === 'nicht_verbunden'}
   {#if istBesitzer}
     <div class="rounded-lg border border-dashed p-6 text-center" data-testid="community-ablage-aufforderung">
-      <HardDriveIcon class="mx-auto mb-2 size-6 text-muted-foreground" />
       <p class="mb-3 text-sm text-muted-foreground">
-        Kein Laufwerk verbunden. Das Pulse-Laufwerk ist verschlüsselter Speicher auf dem
-        Pulse-Server — nur dieses Gerät und berechtigte Geräte halten den Schlüssel dazu.
+        Noch kein Laufwerk verbunden. Verbinde eines, damit Mitglieder Dateien ablegen können.
       </p>
-      <Button onclick={verbindePulse} disabled={laeuft} data-testid="community-ablage-verbinden">
-        Pulse-Laufwerk verbinden
+      <Button onclick={() => (verbindenOffen = true)} data-testid="community-ablage-verbinden">
+        Laufwerk verbinden
       </Button>
       {#if fehler}
         <p class="mt-2 text-sm text-destructive">{fehler}</p>
@@ -253,4 +230,17 @@
       </span>
     </div>
   </div>
+{/if}
+
+{#if verbindenOffen}
+  <AblageVerbindenDialog
+    open
+    anbieterListe={communityAnbieter()}
+    {guildId}
+    onClose={() => (verbindenOffen = false)}
+    onVerbunden={() => {
+      fehler = '';
+      void pruefeStatus();
+    }}
+  />
 {/if}
