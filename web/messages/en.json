@@ -1792,7 +1792,7 @@
   "message_lesebestaetigung_gelesen": "Read",
   "message_lesebestaetigung_gesendet": "Delivered",
   "message_input_placeholder": "Send a message",
-  "message_input_hold_to_speak": "Hold to speak",
+  "message_input_hold_to_speak": "Record a voice message",
   "message_input_recording_discard": "Discard",
   "message_input_mikrofon_fehler": "Microphone unavailable",
   "audio_player_play": "Play",
@@ -3363,5 +3363,14 @@
   "gast_kick_link_mit": "Remove and revoke link",
   "gast_kick_link_hinweis": "Afterwards the link no longer works for anyone — all guests lose access.",
   "gast_links_kopieren": "Copy",
-  "gast_stream_fehler": "Could not open the stream."
+  "gast_stream_fehler": "Could not open the stream.",
+  "message_input_recording_stop": "Done",
+  "message_input_anhang_foto": "Photo",
+  "message_input_anhang_galerie": "Gallery",
+  "message_input_anhang_dokument": "Document",
+  "message_input_anhang_video": "Video",
+  "camera_startet": "Starting camera …",
+  "camera_video_vorbereiten": "Preparing video …",
+  "camera_video_kuerzen": "Trim",
+  "camera_nicht_verfuegbar": "Camera not available"
 }

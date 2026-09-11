@@ -17,13 +17,20 @@
   import { formatiereDauer, naechstesTempo } from '$lib/attachments/aufnahmeKern';
   import { m } from '$lib/paraglide/messages.js';
 
-  let { src }: { src: string | undefined } = $props();
+  let { src, bekannteDauer = null }: { src: string | undefined; bekannteDauer?: number | null } =
+    $props();
 
   let audio: HTMLAudioElement | undefined = $state();
   let laeuft = $state(false);
   let tempo = $state(1);
   let position = $state(0);
   let dauer = $state(0);
+  // Echte Dauer aus dem Aufnahme-Register schlaegt jede Metadaten-Vermutung:
+  // MediaRecorder-WebM traegt keine Dauer, und der Such-Trick unten liefert
+  // aufgeblaehte Werte (Testrunde 2026-09-11: „2:39“ auf 5 Sekunden).
+  $effect(() => {
+    if (bekannteDauer != null) dauer = bekannteDauer;
+  });
 
   function umschalten(): void {
     if (!audio) return;
@@ -52,6 +59,7 @@
     onloadedmetadata={() => {
       const a = audio;
       if (!a) return;
+      if (bekannteDauer != null) return;
       if (a.duration === Infinity) {
         // WebM-Blob-Quirk: die Dauer steht erst, nachdem einmal ans (imaginäre)
         // Ende gesucht wurde — danach liefert durationchange den echten Wert.
@@ -64,7 +72,13 @@
         dauer = a.duration;
       }
     }}
-    ondurationchange={() => (dauer = audio?.duration ?? 0)}
+    ondurationchange={() => {
+      // Mit bekannter Dauer (Aufnahme-Register) ist jedes Metadaten-Update
+      // nur Lärm — der WebM-Container lügt hier gern (Testrunde 2026-09-11:
+      // „1:25" auf eine 10-Sekunden-Aufnahme).
+      if (bekannteDauer != null) return;
+      dauer = audio?.duration ?? 0;
+    }}
   ></audio>
   <button
     type="button"

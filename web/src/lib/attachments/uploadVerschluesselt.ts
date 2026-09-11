@@ -32,6 +32,7 @@ import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
 import { anhangBytesSichern, anhangBytesLoeschen } from '$lib/verlauf/db';
 import { m } from '$lib/paraglide/messages.js';
 import { erzeugeVorschaubild } from './vorschaubild';
+import { aufnahmeDauerRegister } from './aufnahmeKern';
 import { putMitFortschritt } from './putMitFortschritt';
 import { nextLocalId, type PendingAttachment } from './upload.svelte';
 import { anhangBereitschaft } from './anhangBereitschaft.svelte';
@@ -91,7 +92,12 @@ export function startUploadVerschluesselt(
   onChange: (next: PendingAttachment) => void
 ): { row: PendingAttachment; abort: () => void } {
   const localId = nextLocalId();
-  const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+  const previewUrl =
+    file.type.startsWith('image/') ||
+    file.type.startsWith('audio/') ||
+    file.type.startsWith('video/')
+      ? URL.createObjectURL(file)
+      : null;
   const row: PendingAttachment = {
     localId,
     file,
@@ -100,6 +106,7 @@ export function startUploadVerschluesselt(
     progress: 0,
     attachmentId: null,
     errorMessage: null,
+    aufnahmeDauer: aufnahmeDauerRegister.get(file) ?? null,
     anhang: null
   };
 
@@ -201,6 +208,7 @@ export function startUploadVerschluesselt(
         schluessel: datei.schluessel,
         breite: vorschau?.origWidth ?? null,
         hoehe: vorschau?.origHeight ?? null,
+        dauerSekunden: aufnahmeDauerRegister.get(file),
         vorschau:
           vorschauKlumpen && vorschau
             ? {

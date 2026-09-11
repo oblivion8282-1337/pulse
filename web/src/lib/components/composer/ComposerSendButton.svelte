@@ -17,19 +17,44 @@
 -->
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
+  import MicIcon from '@lucide/svelte/icons/mic';
   import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
   import { m } from '$lib/paraglide/messages.js';
 
-  let { disabled = false }: { disabled?: boolean } = $props();
+  let {
+    disabled = false,
+    mikro = false,
+    onMikrofon
+  }: {
+    disabled?: boolean;
+    /** Wahr = Nachrichtenzeile leer und nicht im Fokus: der Knopf zeigt das
+     *  MIKROFON (Tippen startet die Sprachaufnahme) statt des Sendens. */
+    mikro?: boolean;
+    onMikrofon?: () => void;
+  } = $props();
 </script>
 
-<Button
-  type="submit"
-  size="icon"
-  class="accent-gradient size-10 text-white shadow-[0_4px_14px_rgba(37,99,235,0.35)] hover:brightness-110 disabled:bg-none disabled:bg-secondary disabled:text-text-muted disabled:opacity-100 disabled:shadow-none md:size-9"
-  {disabled}
-  data-testid="message-send"
-  aria-label={m.message_input_send()}
->
-  <SendHorizontalIcon />
-</Button>
+{#if mikro && onMikrofon}
+  <Button
+    type="button"
+    variant="ghost"
+    size="icon"
+    class="text-text-muted hover:text-text-bright size-10 md:size-9"
+    onclick={onMikrofon}
+    aria-label={m.message_input_hold_to_speak()}
+    data-testid="voice-record-button"
+  >
+    <MicIcon class="size-5" />
+  </Button>
+{:else}
+  <Button
+    type="submit"
+    size="icon"
+    class="accent-gradient size-10 text-white shadow-[0_4px_14px_rgba(37,99,235,0.35)] hover:brightness-110 disabled:bg-none disabled:bg-secondary disabled:text-text-muted disabled:opacity-100 disabled:shadow-none md:size-9"
+    {disabled}
+    data-testid="message-send"
+    aria-label={m.message_input_send()}
+  >
+    <SendHorizontalIcon />
+  </Button>
+{/if}

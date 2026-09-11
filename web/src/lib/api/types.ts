@@ -135,6 +135,11 @@ export type Attachment = {
   height?: number | null;
   thumb_width?: number | null;
   thumb_height?: number | null;
+  /** Gemessene Dauer in Sekunden — nur bei Sprachnachrichten (aus der
+   *  verschlüsselten Nutzlast, `AnhangAngabe.dauerSekunden`). Der WebM-
+   *  Container selbst trägt keine brauchbare Dauer, deshalb muss die
+   *  ECHTE Zahl mitreisen; der Klartext-Server-Pfad kennt sie (noch) nicht. */
+  dauerSekunden?: number | null;
   /** Presigned MinIO GET URL — ~30 min TTL, auto-refresh on 403 via
    *  `chatApi.refreshAttachmentDownloadUrl`. Bei einem VERSCHLUESSELTEN
    *  Anhang leer: dort gibt der Server eine Adresse nur gegen einen

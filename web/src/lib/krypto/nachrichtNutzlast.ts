@@ -75,6 +75,12 @@ export type AnhangAngabe = {
   breite: number | null;
   hoehe: number | null;
   vorschau: { schluessel: string; breite: number; hoehe: number } | null;
+  /** Gemessene Dauer in Sekunden, NUR bei Sprachnachrichten (aus dem
+   *  `aufnahmeDauerRegister`). Optional ⇒ additiv ⇒ die Fassungsnummer der
+   *  Nutzlast bleibt dafür bei 1 (Modulkopf). Der WebM-Container trägt
+   *  selbst keine brauchbare Dauer — ohne dieses Feld zeigt der Player beim
+   *  Empfänger aufgeblähte Werte (Testrunde 2026-09-11). */
+  dauerSekunden?: number;
 };
 
 /**

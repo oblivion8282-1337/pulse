@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",
+    "@capacitor/camera": "^8.2.4",
     "@capacitor/core": "^8.4.0",
     "@fontsource-variable/plus-jakarta-sans": "^5.2.8",
     "@sapphi-red/web-noise-suppressor": "^0.3.5",

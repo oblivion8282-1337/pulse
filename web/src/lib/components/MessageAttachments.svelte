@@ -36,6 +36,8 @@
   import FileIcon from '@lucide/svelte/icons/file';
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import DownloadIcon from '@lucide/svelte/icons/download';
+  import PlayIcon from '@lucide/svelte/icons/play';
+  import XIcon from '@lucide/svelte/icons/x';
   import { m } from '$lib/paraglide/messages.js';
   import { formatBytes } from '$lib/utils/formatBytes';
   import { istAnhangAbgelaufenFehler } from '$lib/krypto/anhangAbgelaufen';
@@ -123,6 +125,15 @@
     lightboxOpen = true;
   }
 
+  /** Video-Vollbild (Messenger-Stil): die Bubble zeigt nur einen Play-Knopf
+   *  über dem Vorschaubild; erst der Klick öffnet den echten Player im
+   *  Vollbild-Overlay. */
+  let vollbildUrl = $state<string | null>(null);
+
+  function schliesseVollbild(): void {
+    vollbildUrl = null;
+  }
+
   /** Ersatz, wenn ein Anhang keinen Dateinamen traegt.
    *
    *  Kein Schoenheitsdetail: mit `undefined` faellt das `download`-Attribut
@@ -190,18 +201,39 @@
              mit dem Inhalt) loest sich 100 % nicht auf — Video und Audio
              schrumpften auf Mindestbreite zusammen. `w-96 max-w-full` ist
              ueberall die gleiche, definite Breite. -->
-        <video
-          src={quelleVideo ?? undefined}
-          controls
-          preload="metadata"
-          class="block max-h-96 w-96 max-w-full rounded-xl border border-border"
+        <!-- Messenger-Stil: nur VORSCHAUBILD + Play-Knopf in der Bubble —
+             die permanent sichtbare Steuerleiste war unruhig. Klick öffnet
+             den echten Player im Vollbild-Overlay. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div
+          class="relative w-96 max-w-full cursor-pointer overflow-hidden rounded-xl border border-border"
           style={reserveBox(a) || 'aspect-ratio:16 / 9;'}
-          data-testid="attachment-video"
+          onclick={() => (vollbildUrl = quelleVideo)}
+          data-testid="attachment-video-thumb"
         >
-          <track kind="captions" />
-        </video>
+          {#if quelleVideo}
+            <!-- Das Media-Fragment #t=0.1 zwingt den Browser, den ERSTEN
+                 Frame zu dekodieren und als Vorschaubild zu rendern — mit
+                 plain preload="metadata" bliebe die Fläche sonst grau. -->
+            <video
+              src={`${quelleVideo}#t=0.1`}
+              preload="metadata"
+              playsinline
+              class="pointer-events-none block size-full object-cover"
+            >
+              <track kind="captions" />
+            </video>
+          {:else}
+            <div class="block aspect-video w-96 bg-black/40"></div>
+          {/if}
+          <span class="absolute inset-0 flex items-center justify-center">
+            <span class="bg-black/60 flex size-14 items-center justify-center rounded-full border-2 border-white/80">
+              <PlayIcon class="size-7 text-white" />
+            </span>
+          </span>
+        </div>
       {:else if k === 'audio'}
-        <AudioNachricht src={quelle(a) ?? undefined} />
+        <AudioNachricht src={quelle(a) ?? undefined} bekannteDauer={a.dauerSekunden} />
       {:else}
         {@const quelleDatei = quelle(a)}
         <a
@@ -247,4 +279,33 @@
     filename={lightboxAttachment.filename}
     anhang={lightboxAttachment.verschluesselt ? lightboxAttachment : null}
   />
+{/if}
+
+{#if vollbildUrl}
+  <!-- Video-Vollbild: Klick auf den dunklen Hintergrund schließt. -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/95"
+    onclick={schliesseVollbild}
+    data-testid="attachment-video-fullscreen"
+  >
+    <!-- svelte-ignore a11y_media_has_caption, a11y_no_noninteractive_element_interactions -->
+    <video
+      src={vollbildUrl}
+      controls
+      autoplay
+      playsinline
+      class="max-h-full max-w-full"
+      onclick={(e) => e.stopPropagation()}
+    ></video>
+    <button
+      type="button"
+      class="bg-white/90 hover:bg-white absolute right-4 top-4 rounded-full p-2"
+      onclick={schliesseVollbild}
+      aria-label={m.attachment_preview_strip_remove_label()}
+      data-testid="attachment-video-fullscreen-close"
+    >
+      <XIcon class="size-5 text-black" />
+    </button>
+  </div>
 {/if}

@@ -18,6 +18,7 @@
  */
 
 import { chatApi } from '$lib/api/chat';
+import { aufnahmeDauerRegister } from './aufnahmeKern';
 import { erzeugeVorschaubild } from './vorschaubild';
 import { putMitFortschritt } from './putMitFortschritt';
 import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
@@ -33,6 +34,10 @@ export type PendingAttachment = {
   /** Set when state transitions to 'done'. */
   attachmentId: string | null;
   errorMessage: string | null;
+  /** Gemessene Dauer in Sekunden — NUR bei Sprachnachrichten gesetzt
+   *  (Register aus `aufnahmeKern.ts`), denn der WebM-Container traegt keine
+   *  brauchbare Dauer und die Vorschau-Leiste soll sie nicht erraten. */
+  aufnahmeDauer: number | null;
   /** Nur im VERSCHLUESSELTEN Weg gesetzt (`uploadVerschluesselt.ts`): alles,
    *  was in die verschluesselte Nachricht mitmuss — Dateischluessel, Name,
    *  Typ, Maße. Im Klartext-Weg bleibt es `null`, dort kennt der Server das
@@ -62,8 +67,14 @@ export function startUpload(
   onChange: (next: PendingAttachment) => void
 ): { row: PendingAttachment; abort: () => void } {
   const localId = nextLocalId();
+  // Objekt-URL fuer Bild-VORSCHAU, Audio- und Video-VORSCHAU gleichermaßen —
+  // die Bereinigung laeuft ueber denselben bestehenden Pfad.
   const previewUrl =
-    file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+    file.type.startsWith('image/') ||
+    file.type.startsWith('audio/') ||
+    file.type.startsWith('video/')
+      ? URL.createObjectURL(file)
+      : null;
   const row: PendingAttachment = {
     localId,
     file,
@@ -72,6 +83,7 @@ export function startUpload(
     progress: 0,
     attachmentId: null,
     errorMessage: null,
+    aufnahmeDauer: aufnahmeDauerRegister.get(file) ?? null,
     anhang: null
   };
 

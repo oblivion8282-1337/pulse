@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  aufnahmeDauerRegister,
   audioMimeBereinigen,
   aufnahmeDateiname,
   formatiereDauer,
@@ -30,4 +31,13 @@ test('formatiereDauer zeigt Minuten: Sekunden', () => {
   assert.equal(formatiereDauer(65), '1:05');
   assert.equal(formatiereDauer(-3), '0:00');
   assert.equal(formatiereDauer(Infinity), '–:––');
+});
+
+test('aufnahmeDauerRegister haengt die Dauer ans File und vergisst sie mit', () => {
+  const a = new File([new Uint8Array(1)], 'a.webm', { type: 'audio/webm' });
+  const b = new File([new Uint8Array(1)], 'b.webm', { type: 'audio/webm' });
+  assert.equal(aufnahmeDauerRegister.get(a), undefined);
+  aufnahmeDauerRegister.set(a, 5.2);
+  assert.equal(aufnahmeDauerRegister.get(a), 5.2);
+  assert.equal(aufnahmeDauerRegister.get(b), undefined);
 });

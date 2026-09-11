@@ -1792,7 +1792,7 @@
   "message_lesebestaetigung_gelesen": "Gelesen",
   "message_lesebestaetigung_gesendet": "Zugestellt",
   "message_input_placeholder": "Nachricht senden",
-  "message_input_hold_to_speak": "Halten zum Sprechen",
+  "message_input_hold_to_speak": "Sprachnachricht aufnehmen",
   "message_input_recording_discard": "Verwerfen",
   "message_input_mikrofon_fehler": "Mikrofon nicht verfügbar",
   "audio_player_play": "Abspielen",
@@ -3363,5 +3363,14 @@
   "gast_kick_link_mit": "Entfernen und Link entwerten",
   "gast_kick_link_hinweis": "Der Link gilt danach für niemanden mehr — alle Gäste verlieren den Zugang.",
   "gast_links_kopieren": "Kopieren",
-  "gast_stream_fehler": "Die Übertragung liess sich nicht öffnen."
+  "gast_stream_fehler": "Die Übertragung liess sich nicht öffnen.",
+  "message_input_recording_stop": "Fertig",
+  "message_input_anhang_foto": "Foto",
+  "message_input_anhang_galerie": "Galerie",
+  "message_input_anhang_dokument": "Dokument",
+  "message_input_anhang_video": "Video",
+  "camera_startet": "Kamera startet …",
+  "camera_video_vorbereiten": "Video wird vorbereitet …",
+  "camera_video_kuerzen": "Kürzen",
+  "camera_nicht_verfuegbar": "Kamera nicht verfügbar"
 }

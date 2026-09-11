@@ -13,7 +13,12 @@
  * Aufnahme). Der Wiedereinstieg nach Ablehnung: `getUserMedia` wirft, der
  * Composer zeigt einen Toast; ein zweites Halten fragt erneut.
  */
-import { AUFGABE_MAX_SEKUNDEN, audioMimeBereinigen, aufnahmeDateiname } from './aufnahmeKern';
+import {
+  AUFGABE_MAX_SEKUNDEN,
+  aufnahmeDauerRegister,
+  audioMimeBereinigen,
+  aufnahmeDateiname
+} from './aufnahmeKern';
 
 /** Der beste vom Browser angebotene Aufnahme-Container, parametrisch. */
 function besterMime(): string | undefined {
@@ -68,9 +73,13 @@ export function beendeAufnahme(lauf: LaufendeAufnahme): Promise<File | null> {
         resolve(null);
         return;
       }
-      resolve(
-        new File([new Blob(lauf.teile, { type: mime })], aufnahmeDateiname(mime), { type: mime })
-      );
+      const datei = new File([new Blob(lauf.teile, { type: mime })], aufnahmeDateiname(mime), {
+        type: mime
+      });
+      // Echte Dauer merken — der WebM-Container traegt keine, und der
+      // Metadataen-Seek im Player luegt groesszuegig (aufgeblaehte Werte).
+      aufnahmeDauerRegister.set(datei, dauerSek);
+      resolve(datei);
     };
     lauf.stoppen();
   });

@@ -1,5 +1,8 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
+  import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+  import { registerPlugin } from '@capacitor/core';
+  import VideoIcon from '@lucide/svelte/icons/video';
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
   import CameraIcon from '@lucide/svelte/icons/camera';
   import MicIcon from '@lucide/svelte/icons/mic';
@@ -18,7 +21,12 @@
     starteAufnahme,
     type LaufendeAufnahme
   } from '$lib/attachments/aufnahme';
-  import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
+  import { AUFGABE_MAX_SEKUNDEN, formatiereDauer } from '$lib/attachments/aufnahmeKern';
+  import SquareIcon from '@lucide/svelte/icons/square';
+  import XIcon from '@lucide/svelte/icons/x';
+  import ImageIcon from '@lucide/svelte/icons/image';
+  import FileTextIcon from '@lucide/svelte/icons/file-text';
+  import BottomSheet from '$lib/components/mobile/BottomSheet.svelte';
   import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { toast } from 'svelte-sonner';
@@ -103,8 +111,56 @@
     if (id) untrack(() => drafts.set(id, t));
   });
   let textarea: HTMLTextAreaElement | undefined = $state();
+  /** Ist die Nachrichtenzeile im Fokus? Entscheidet über Mikro- vs.
+   *  Senden-Symbol rechts (WhatsApp-Prinzip, Testrunde 2026-09-11). */
+  let eingabeFokus = $state(false);
   let fileInput: HTMLInputElement | undefined = $state();
   let cameraInput: HTMLInputElement | undefined = $state();
+  let galleryInput: HTMLInputElement | undefined = $state();
+  /** Anhang-Auswahl am Handy (Foto/Galerie/Dokument) — WhatsApp-Prinzip,
+   *  drei verborgene Datei-Eingaben dahinter. */
+  let anhangSheet = $state(false);
+
+  /** Native Video-Aufnahme (Java-Plugin VideoCapturePlugin) — nur Android. */
+  const VideoCapture = registerPlugin<{
+    aufnehmen(): Promise<{ base64: string; mime: string; pfad: string; groesse: number }>;
+  }>('VideoCapture');
+
+  /** Foto über die NATIVE Kamera (Capacitor-Plugin): eigene Android-
+   *  Kameraansicht statt WebView-Video-Element — das graue Kästchen des
+   *  WebView ist damit im Foto-Weg komplett verschwunden (Testrunde
+   *  2026-09-11). Abbruch durch den Nutzer still schlucken. */
+  async function fotoAufnehmen(): Promise<void> {
+    try {
+      const foto = await Camera.getPhoto({
+        resultType: CameraResultType.Uri,
+        source: CameraSource.Camera,
+        quality: 90
+      });
+      if (!foto.webPath) return;
+      const antwort = await fetch(foto.webPath);
+      const blob = await antwort.blob();
+      addFiles([new File([blob], `kamera-${Date.now()}.jpg`, { type: 'image/jpeg' })]);
+    } catch {
+      // Nutzer hat abgebrochen oder Kamera verweigert — nichts tun.
+    }
+  }
+
+  /** Video über die NATIVE System-Kamera (eigenes VideoCapturePlugin):
+   *  ACTION_VIDEO_CAPTURE liefert eine mp4, das Plugin kopiert sie in den
+   *  Cache und gibt Base64 zurück → Datei → normale Anhang-Pipeline. */
+  async function videoAufnehmen(): Promise<void> {
+    try {
+      const ergebnis = await VideoCapture.aufnehmen();
+      if (!ergebnis?.base64) return;
+      const bytes = Uint8Array.from(atob(ergebnis.base64), (z) => z.charCodeAt(0));
+      addFiles([
+        new File([bytes], `kamera-video-${Date.now()}.mp4`, { type: ergebnis.mime })
+      ]);
+    } catch {
+      // Abbruch in der Kamera-App — nichts tun.
+    }
+  }
 
   // Anhang-Zeilen samt Upload-Buchfuehrung — inklusive der Weiche zwischen
   // Klartext- und verschluesseltem Weg (`verfasserZeilen.svelte.ts`).
@@ -222,37 +278,31 @@
     input.value = ''; // allow re-selecting the same file later
   };
 
-  // ---- Sprachnachricht (P0.3): halten zum Sprechen, loslassen = senden. ----
-  // Halten statt Klick, weil die Aufnahme keine Zustände haben soll, die man
-  // erst suchen muss: Daumen drauf = läuft, Daumen weg = geht raus. Verwerfen
-  // ist der ausdrückliche Knopf daneben.
+  // ---- Sprachnachricht (P0.3, UI 2026-09-11 überarbeitet): TIPPEN statt
+  // halten. Ein Tap auf das Mikrofon startet; die Aufnahme-Leiste über dem
+  // Eingabekasten bietet „Fertig" und „Verwerfen" (✕ rechts). Keine
+  // Halte-Geste mehr: Der Layout-Shift- und Pointercancel-Zirkus aus der
+  // ersten Fassung entfiel mit ihr (Testrunde 2026-09-11).
   let aufnahme: LaufendeAufnahme | undefined = $state();
   let aufnahmeSekunden = $state(0);
   let aufnahmeTimer: ReturnType<typeof setInterval> | undefined;
-  /** Losgelassen, BEVOR getUserMedia auflöste (Erstnutzung mit Permission-
-   *  Prompt): der Pointerup verpufft sonst und die Aufnahme läuft verwaist
-   *  weiter — nach dem Auflösen sofort verwerfen. */
-  let losgelassenWährendPrompt = false;
 
   function aufnahmeTickerStarten(): void {
     aufnahmeSekunden = 0;
     aufnahmeTimer = setInterval(() => {
-      if (aufnahme) aufnahmeSekunden = Math.floor((Date.now() - aufnahme.gestartetAm) / 1000);
+      if (!aufnahme) return;
+      aufnahmeSekunden = Math.floor((Date.now() - aufnahme.gestartetAm) / 1000);
+      // Der 300-s-Rahmen endet hier, im UI sichtbar als fertiger Entwurf.
+      if (aufnahmeSekunden >= AUFGABE_MAX_SEKUNDEN) void aufnahmeEnde();
     }, 500);
   }
 
   async function aufnahmeStart(): Promise<void> {
     if (aufnahme || !channelId || !attachmentsAllowed) return;
-    losgelassenWährendPrompt = false;
     try {
       aufnahme = await starteAufnahme();
     } catch {
       toast.error(m.message_input_mikrofon_fehler());
-      return;
-    }
-    if (losgelassenWährendPrompt) {
-      brichAufnahmeAb(aufnahme);
-      aufnahme = undefined;
       return;
     }
     aufnahmeTickerStarten();
@@ -260,10 +310,7 @@
 
   async function aufnahmeEnde(): Promise<void> {
     const lauf = aufnahme;
-    if (!lauf) {
-      losgelassenWährendPrompt = true;
-      return;
-    }
+    if (!lauf) return;
     aufnahme = undefined;
     clearInterval(aufnahmeTimer);
     const datei = await beendeAufnahme(lauf);
@@ -418,74 +465,154 @@
            dieselbe Upload-Pipeline wie ein gewähltes. Nur auf dem Handy — am
            Rechner wäre der Knopf nur ein zweiter Datei-Dialog. -->
       {#if viewport.istHandy}
+        <!-- Zwei verborgene Eingaben hinter dem EINEN Büroklammer-Knopf:
+             Galerie (Bilder) und Dokumente. Die Kamera läuft über das
+             NATIVE Kamera (VideoCapturePlugin) — das <input capture> wurde von
+             Android-16-Systempickern geschluckt (Testrunde 2026-09-11). -->
         <input
           type="file"
           accept="image/*"
-          capture="environment"
-          bind:this={cameraInput}
+          bind:this={galleryInput}
           onchange={onFilePick}
           class="sr-only"
-          data-testid="attachment-camera-input"
+          data-testid="attachment-gallery-input"
         />
-        <Button
-          variant="ghost"
-          size="icon"
-          class="size-10 md:size-9"
-          aria-label={m.message_input_take_photo()}
-          onclick={() => cameraInput?.click()}
-          data-testid="attachment-camera-button"
-        >
-          <CameraIcon class="size-5" />
-        </Button>
       {/if}
-      <!-- Sprachnachricht (mobil): halten zum Sprechen, loslassen sendet.
-           `contextmenu` wird abgefangen — Android feuert es beim Langhalten
-           und würde sonst das Auswahlfenster über den Knopf legen. -->
+      <!-- Sprachnachricht (mobil): TIPPEN startet die Aufnahme; die Leiste
+           über dem Eingabekasten bietet Fertig und Verwerfen. -->
       {#if viewport.istHandy && attachmentsEnabled}
         {#if aufnahme}
+          <!-- Bewusst ABSOLUT über dem Eingabekasten, nicht in der Knopf-
+               Reihe: als Flex-Geschwister würde die Leiste die Knöpfe der
+               Reihe verschieben (Befund Testrunde 2026-09-11). -->
           <div
-            class="text-error flex h-10 items-center gap-2 px-1 text-sm font-semibold"
+            class="bg-bg-input/70 absolute bottom-full left-0 right-0 z-30 mb-2 flex items-center gap-3 rounded-xl border border-border px-3 py-2.5 shadow-lg backdrop-blur-lg"
             data-testid="recording-indicator"
           >
             <span class="bg-error size-2.5 animate-pulse rounded-full"></span>
-            {aufnahmeDauer}
+            <span class="text-error text-sm font-semibold tabular-nums">
+              {aufnahmeDauer}
+            </span>
+            <span class="flex-1"></span>
             <button
               type="button"
-              class="text-text-muted hover:text-text-bright ml-1 text-xs underline"
+              class="accent-gradient text-primary-foreground flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold shadow-sm"
+              onclick={aufnahmeEnde}
+              data-testid="recording-stop"
+            >
+              <SquareIcon class="size-3.5" />
+              {m.message_input_recording_stop()}
+            </button>
+            <button
+              type="button"
+              class="bg-bg-panel text-text-muted hover:text-error ml-1 rounded-full border border-border p-1.5 transition-colors"
               onclick={aufnahmeVerwerfen}
+              aria-label={m.message_input_recording_discard()}
               data-testid="recording-discard"
             >
-              {m.message_input_recording_discard()}
+              <XIcon class="size-4" />
             </button>
           </div>
         {/if}
-        <Button
-          variant="ghost"
-          size="icon"
-          class="size-10 md:size-9 {aufnahme ? 'text-error' : ''}"
-          aria-label={m.message_input_hold_to_speak()}
-          onpointerdown={aufnahmeStart}
-          onpointerup={aufnahmeEnde}
-          onpointercancel={aufnahmeEnde}
-          onpointerleave={() => {
-            if (aufnahme) void aufnahmeEnde();
-          }}
-          oncontextmenu={(e) => e.preventDefault()}
-          data-testid="voice-record-button"
-        >
-          <MicIcon class="size-5" />
-        </Button>
       {/if}
       <Button
         variant="ghost"
         size="icon"
         class="size-10 md:size-9"
         aria-label={m.message_input_attach_file()}
-        onclick={() => fileInput?.click()}
+        onclick={() => {
+          // Am Handy: Auswahl-Blatt (Foto / Galerie / Dokument). Am Rechner
+          // bleibt der direkte Datei-Dialog — dort gibt es keine Kamera-App
+          // und eine Galerie-Trennung wäre nur Umwege.
+          if (viewport.istHandy) anhangSheet = true;
+          else fileInput?.click();
+        }}
         data-testid="attachment-button"
       >
         <PaperclipIcon class="size-5" />
       </Button>
+    {/if}
+    {#if viewport.istHandy}
+      <BottomSheet
+        open={anhangSheet}
+        testid="attachment-source-sheet"
+        closeLabel={m.message_input_attach_file()}
+        panelClass="bg-popover text-popover-foreground relative rounded-t-2xl border-t border-border px-3 pt-2 pb-[calc(1rem+var(--safe-bottom))] shadow-2xl"
+        onClose={() => (anhangSheet = false)}
+      >
+        <div class="mx-auto mb-3 mt-1 h-1 w-9 shrink-0 rounded-full bg-border"></div>
+        <!-- Drei Kacheln nebeneinander, WhatsApp-Prinzip in Pulse-Farben:
+             runder Farbkreis je Quelle, kein Text-Wust. -->
+        <div
+          class="flex items-stretch justify-center gap-3"
+          data-testid="attachment-source-options"
+        >
+          <button
+            type="button"
+            class="bg-bg-input hover:bg-bg-hover flex w-24 flex-col items-center gap-2 rounded-2xl border border-border px-2 py-4 transition-colors"
+            onclick={() => {
+              anhangSheet = false;
+              void fotoAufnehmen();
+            }}
+            data-testid="attachment-source-camera"
+          >
+            <span
+              class="accent-gradient text-primary-foreground flex size-12 items-center justify-center rounded-full"
+            >
+              <CameraIcon class="size-6" />
+            </span>
+            <span class="text-xs font-semibold">{m.message_input_anhang_foto()}</span>
+          </button>
+          <button
+            type="button"
+            class="bg-bg-input hover:bg-bg-hover flex w-24 flex-col items-center gap-2 rounded-2xl border border-border px-2 py-4 transition-colors"
+            onclick={() => {
+              anhangSheet = false;
+              void videoAufnehmen();
+            }}
+            data-testid="attachment-source-video"
+          >
+            <span
+              class="bg-rose-500/20 text-rose-400 flex size-12 items-center justify-center rounded-full"
+            >
+              <VideoIcon class="size-6" />
+            </span>
+            <span class="text-xs font-semibold">{m.message_input_anhang_video()}</span>
+          </button>
+          <button
+            type="button"
+            class="bg-bg-input hover:bg-bg-hover flex w-24 flex-col items-center gap-2 rounded-2xl border border-border px-2 py-4 transition-colors"
+            onclick={() => {
+              anhangSheet = false;
+              galleryInput?.click();
+            }}
+            data-testid="attachment-source-gallery"
+          >
+            <span
+              class="bg-violet-500/20 text-violet-400 flex size-12 items-center justify-center rounded-full"
+            >
+              <ImageIcon class="size-6" />
+            </span>
+            <span class="text-xs font-semibold">{m.message_input_anhang_galerie()}</span>
+          </button>
+          <button
+            type="button"
+            class="bg-bg-input hover:bg-bg-hover flex w-24 flex-col items-center gap-2 rounded-2xl border border-border px-2 py-4 transition-colors"
+            onclick={() => {
+              anhangSheet = false;
+              fileInput?.click();
+            }}
+            data-testid="attachment-source-document"
+          >
+            <span
+              class="bg-sky-500/20 text-sky-400 flex size-12 items-center justify-center rounded-full"
+            >
+              <FileTextIcon class="size-6" />
+            </span>
+            <span class="text-xs font-semibold">{m.message_input_anhang_dokument()}</span>
+          </button>
+        </div>
+      </BottomSheet>
     {/if}
     <!-- `min-h-*` + `py-*` in zwei Grössen: Der Kasten ist damit jeweils so hoch
          wie die Knöpfe daneben und führt seine Zeile selbst mittig — 44px auf dem
@@ -506,7 +633,11 @@
       onkeyup={onMentionSync}
       onclick={onMentionSync}
       onpaste={onPaste}
-      onblur={() => mentionOverlay?.close()}
+      onblur={() => {
+        mentionOverlay?.close();
+        eingabeFokus = false;
+      }}
+      onfocus={() => (eingabeFokus = true)}
       placeholder={effectivePlaceholder}
       {disabled}
       class="text-text-bright placeholder:text-text-muted max-h-40 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2 text-[15px] leading-6 outline-none disabled:cursor-not-allowed disabled:opacity-60 md:min-h-9 md:py-1.5"
@@ -520,6 +651,10 @@
       onChange={(t) => (text = t)}
     />
     <ComposerEmojiButton onPick={insertEmoji} />
-    <ComposerSendButton disabled={sendDisabled} />
+    <ComposerSendButton
+      disabled={sendDisabled}
+      mikro={!eingabeFokus && !aufnahme && text.trim().length === 0 && anhaenge.zeilen.length === 0}
+      onMikrofon={aufnahmeStart}
+    />
   </div>
 </form>

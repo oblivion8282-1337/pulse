@@ -40,3 +40,13 @@ export function formatiereDauer(sekunden: number): string {
   const s = Math.max(0, Math.floor(sekunden));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
+
+/**
+ * Gemessene Aufnahme-Dauer je Datei. Der WebM-Container von MediaRecorder
+ * traegt keine brauchbare Dauer (Chrome meldet `Infinity`, der Seek-Trick
+ * im Player aufgeblaehte Werte — sichtbar als „2:39“ auf einer 5-Sekunden-
+ * Aufnahme, Testrunde 2026-09-11); die ECHTE Sekundenzahl kennt allein der
+ * Aufnahme-Code. WeakMap statt Feld auf `File`: das File bleibt ein
+ * plattformsauberes Objekt und der Eintrag stirbt mit dem File.
+ */
+export const aufnahmeDauerRegister = new WeakMap<File, number>();
