@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import AblagePulseLaufwerk, AblagePulseObjekt
+from dcc_chat_gateway.models import AblagePulseLaufwerk, AblagePulseObjekt, DropboxConfig
 from dcc_chat_gateway.routes._deps import guild_oder_404, mitglied_oder_403
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -93,6 +93,27 @@ async def _genutzte_bytes(session: AsyncSession, guild_id: int) -> int:
     return int(summe.scalar_one())
 
 
+async def _zuweisung(session: AsyncSession, guild_id: int) -> tuple[int, int, DropboxConfig | None]:
+    """(Gesamt, belegt, Config) der Ablage-Zuweisung dieser Community.
+
+    Die Gesamt-Zuweisung und der Schalter stehen in der bestehenden
+    Ablage-Verwaltung (``DropboxConfig`` — der Legacy-Name der
+    Community-Ablage-Konfiguration, gesetzt über Server-Einstellungen →
+    Communitys). Genau diese Zuweisung gilt, nicht ein zweites Stellrad:
+    Gesamt = ``total_quota_bytes`` der Config (ohne Config: der
+    Instanz-Default), belegt = alt belegte Bytes plus Pulse-Chiffrat.
+    """
+    einstellungen = chat_config.get_settings()
+    gesamt = einstellungen.pulse_laufwerk_max_gesamt_bytes
+    belegt = 0
+    cfg = await session.get(DropboxConfig, guild_id)
+    if cfg is not None:
+        gesamt = cfg.total_quota_bytes
+        belegt += cfg.used_bytes
+    belegt += await _genutzte_bytes(session, guild_id)
+    return gesamt, belegt, cfg
+
+
 @router.get("/guilds/{guild_id}/ablage/pulse/status", response_model=LaufwerkStatusOut)
 async def pulse_status(
     guild_id: int,
@@ -102,11 +123,11 @@ async def pulse_status(
     await guild_oder_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     laufwerk = await session.get(AblagePulseLaufwerk, guild_id)
-    einstellungen = chat_config.get_settings()
+    gesamt, belegt, _cfg = await _zuweisung(session, guild_id)
     return LaufwerkStatusOut(
         verbunden=laufwerk is not None,
-        genutzt_bytes=await _genutzte_bytes(session, guild_id),
-        kontingent_bytes=einstellungen.pulse_laufwerk_max_gesamt_bytes,
+        genutzt_bytes=belegt,
+        kontingent_bytes=gesamt,
     )
 
 
@@ -205,14 +226,19 @@ async def kuendige_datei_an(
     if _NAME_MUSTER.match(payload.name) is None:
         raise HTTPException(422, detail="name must be a plain *.puls name")
     einstellungen = chat_config.get_settings()
+    gesamt, belegt, cfg = await _zuweisung(session, guild_id)
+    if cfg is not None and not cfg.enabled:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="ablage is disabled for this community"
+        )
     grenze = (
         einstellungen.pulse_laufwerk_verzeichnis_max_bytes
         if payload.name == VERZEICHNIS_NAME
-        else einstellungen.pulse_laufwerk_max_datei_bytes
+        else (cfg.per_file_max_bytes if cfg is not None else einstellungen.pulse_laufwerk_max_datei_bytes)
     )
     if payload.groesse > grenze:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="file too large")
-    if await _genutzte_bytes(session, guild_id) + payload.groesse > einstellungen.pulse_laufwerk_max_gesamt_bytes:
+    if belegt + payload.groesse > gesamt:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="drive quota exceeded")
 
     key = _storage_key(guild_id, payload.name)

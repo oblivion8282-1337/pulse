@@ -280,3 +280,84 @@ async def test_unpassender_name_wird_abgewiesen(client, _auth_signer, mock_s3):
         headers=auth(t_owner),
     )
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_admin_zuweisung_statt_default_kontingent(
+    client, _auth_signer, mock_s3, session_factory
+):
+    """Die 1-GB-Zuweisung aus den Server-Einstellungen (DropboxConfig,
+    Legacy-Name der Community-Ablage-Verwaltung) gilt — nicht der
+    Instanz-Default. Alte Belegung zählt mit, die Datei-Grenze ebenso."""
+    from dcc_chat_gateway.models import DropboxConfig
+
+    t_owner, _ = await _register_user(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=auth(t_owner))).json()
+    gid = g["id"]
+    await client.put(f"/guilds/{gid}/ablage/pulse/laufwerk", headers=auth(t_owner))
+
+    async with session_factory() as session:
+        session.add(
+            DropboxConfig(
+                guild_id=gid,
+                enabled=True,
+                total_quota_bytes=1500,
+                per_file_max_bytes=1000,
+                used_bytes=200,  # Alt-Belegung aus dem früheren Speicherweg
+            )
+        )
+        await session.commit()
+
+    r = await client.get(f"/guilds/{gid}/ablage/pulse/status", headers=auth(t_owner))
+    assert r.json()["kontingent_bytes"] == 1500
+    assert r.json()["genutzt_bytes"] == 200
+
+    r = await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien",
+        json={"name": "a-01.puls", "groesse": 1001},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 413  # über per_file_max_bytes der Zuweisung
+
+    r = await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien",
+        json={"name": "a-01.puls", "groesse": 1000},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 201
+    await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien/gelungen",
+        json={"name": "a-01.puls"},
+        headers=auth(t_owner),
+    )
+    # 200 alt + 1000 neu = 1200; 400 bleiben frei — und die Grenze je Datei
+    # (1000) schließt den Rest sowieso aus.
+    r = await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien",
+        json={"name": "a-02.puls", "groesse": 500},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_deaktivierte_ablage_blockiert_neue_ankuendigung(
+    client, _auth_signer, mock_s3, session_factory
+):
+    from dcc_chat_gateway.models import DropboxConfig
+
+    t_owner, _ = await _register_user(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=auth(t_owner))).json()
+    gid = g["id"]
+    await client.put(f"/guilds/{gid}/ablage/pulse/laufwerk", headers=auth(t_owner))
+
+    async with session_factory() as session:
+        session.add(DropboxConfig(guild_id=gid, enabled=False, total_quota_bytes=1500))
+        await session.commit()
+
+    r = await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien",
+        json={"name": "a-01.puls", "groesse": 10},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 409
