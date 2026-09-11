@@ -11,6 +11,10 @@ import pytest
 
 from dcc_chat_gateway import s3 as s3_mod
 
+# Die Owner-Routen (Betreiber-Zuweisung) lösen die Owner-Claim nur im
+# Cloud-Modus auf — dieselbe Regel wie test_guild_limits.py.
+pytestmark = pytest.mark.usefixtures("cloud_mode")
+
 
 def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
@@ -314,7 +318,7 @@ async def test_admin_zuweisung_statt_default_kontingent(
 
     r = await client.post(
         f"/guilds/{gid}/ablage/pulse/dateien",
-        json={"name": "a-01.puls", "groesse": 1001},
+        json={"name": "a-01.puls", "groesse": 3 * 1024 * 1024},
         headers=auth(t_owner),
     )
     assert r.status_code == 413  # über per_file_max_bytes der Zuweisung
@@ -361,3 +365,126 @@ async def test_deaktivierte_ablage_blockiert_neue_ankuendigung(
         headers=auth(t_owner),
     )
     assert r.status_code == 409
+
+
+# ─── Super-Admin-Kette: Betreiber-Zuweisung steuert das Pulse-Kontingent ────
+
+
+@pytest.mark.asyncio
+async def test_super_admin_obergrenze_gilt_fuer_pulse_ablage(
+    client, _auth_signer, mock_s3, owner_token, cloud_mode, session_factory
+):
+    owner_tok, _owner_uid = owner_token
+    """Kette laut Festlegung: Betreiber gibt der Community 1000 Bytes →
+    das Pulse-Laufwerk zeigt 1000 und weist Mehr ab. Der Kanal wird VOR
+    der Zuweisung angelegt (Config mit der 1-GiB-Default-Decke geseedet),
+    das Senken der Decke muss sofort nachziehen."""
+    t_owner, _, _, _, gid = await _guild_mit_zwei_mitgliedern(client, _auth_signer)
+    await client.put(f"/guilds/{gid}/ablage/pulse/laufwerk", headers=auth(t_owner))
+    r = await client.post(
+        f"/guilds/{gid}/dropbox/channel",
+        json={"name": "Ablage"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code in (200, 201), r.text
+
+    r = await client.patch(
+        f"/owner/communities/{gid}/limits",
+        json={"dropbox_allowed": True, "dropbox_quota_bytes": 2 * 1024 * 1024},
+        headers=auth(owner_tok),
+    )
+    assert r.status_code == 200, r.text
+
+    r = await client.get(f"/guilds/{gid}/ablage/pulse/status", headers=auth(t_owner))
+    assert r.json()["kontingent_bytes"] == 2 * 1024 * 1024
+
+    r = await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien",
+        json={"name": "a-01.puls", "groesse": 3 * 1024 * 1024},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 413
+    r = await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien",
+        json={"name": "a-01.puls", "groesse": 1024 * 1024},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 201
+    await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien/gelungen",
+        json={"name": "a-01.puls"},
+        headers=auth(t_owner),
+    )
+    r = await client.get(f"/guilds/{gid}/ablage/pulse/status", headers=auth(t_owner))
+    assert r.json()["genutzt_bytes"] == 1024 * 1024
+
+
+@pytest.mark.asyncio
+async def test_super_admin_senkung_beisst_sofort(
+    cloud_mode, client, _auth_signer, mock_s3, owner_token, session_factory
+):
+    owner_tok, _owner_uid = owner_token
+    """Decke später senken: bestehende Config wird runtergezogen (clamp),
+    die Pulse-Ablage weist beim nächsten Upload ab — ohne dass die
+    Community selbst speichert."""
+    t_owner, _, _, _, gid = await _guild_mit_zwei_mitgliedern(client, _auth_signer)
+    await client.put(f"/guilds/{gid}/ablage/pulse/laufwerk", headers=auth(t_owner))
+    await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien",
+        json={"name": "a-01.puls", "groesse": 800000},
+        headers=auth(t_owner),
+    )
+    await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien/gelungen",
+        json={"name": "a-01.puls"},
+        headers=auth(t_owner),
+    )
+
+    r = await client.patch(
+        f"/owner/communities/{gid}/limits",
+        json={"dropbox_quota_bytes": 1024 * 1024},
+        headers=auth(owner_tok),
+    )
+    assert r.status_code == 200, r.text
+
+    r = await client.get(f"/guilds/{gid}/ablage/pulse/status", headers=auth(t_owner))
+    assert r.json()["kontingent_bytes"] == 1024 * 1024
+
+    r = await client.post(
+        f"/guilds/{gid}/ablage/pulse/dateien",
+        json={"name": "a-02.puls", "groesse": 800000},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_community_eroschung_wird_auf_decke_geklemmt(
+    client, _auth_signer, mock_s3, owner_token, cloud_mode
+):
+    owner_tok, _owner_uid = owner_token
+    """Die Community kann ihre Ablage-Einstellung erhöhen, aber nie über
+    die Betreiber-Decke hinaus (clamp statt Fehler — die Antwort trägt den
+    wirklichen Wert)."""
+    from dcc_chat_gateway import config as chat_config
+
+    chat_config.get_settings().cloud_dropbox_enabled = True
+    t_owner, _, _, _, gid = await _guild_mit_zwei_mitgliedern(client, _auth_signer)
+    await client.put(f"/guilds/{gid}/ablage/pulse/laufwerk", headers=auth(t_owner))
+    r = await client.patch(
+        f"/owner/communities/{gid}/limits",
+        json={"dropbox_allowed": True, "dropbox_quota_bytes": 2 * 1024 * 1024},
+        headers=auth(owner_tok),
+    )
+    assert r.status_code == 200, r.text
+
+    r = await client.patch(
+        f"/guilds/{gid}/dropbox/settings",
+        json={"total_quota_bytes": 5 * 1024 * 1024},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["total_quota_bytes"] == 2 * 1024 * 1024
+
+    r = await client.get(f"/guilds/{gid}/ablage/pulse/status", headers=auth(t_owner))
+    assert r.json()["kontingent_bytes"] == 2 * 1024 * 1024
