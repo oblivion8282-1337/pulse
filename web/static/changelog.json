@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-12.1",
+      "date": "2026-09-12",
+      "style": "Sachlich",
+      "title": "Dateiablage: verschlüsselter Community-Speicher",
+      "intro": "Die Community-Dateiablage liegt ab jetzt Ende-zu-Ende-verschlüsselt auf dem Pulse-Server. Pulse sieht weder Dateinamen noch Inhalte.",
+      "items": [
+        "Die Ablage wird über das Plus-Menü angelegt — neben Text- und Sprachkanal. Sie gehört der Community, nicht mehr dem Ersteller eines einzelnen Kanals.",
+        "Neu in der Ablage: Ordner anlegen, Suche, Raster- und Listenansicht, Löschen mit Rückfrage. Der Füllstand zeigt die von der Betreiberverwaltung zugewiesene Speichergrenze.",
+        "Der Betreiber setzt die Speichergrenze je Community; Erhöhungen und Senkungen greifen sofort.",
+        "Der alte unverschlüsselte Dropbox-Speicher ist eingestellt. Dort liegende Dateien bleiben unangetastet liegen, sind in der neuen Ablage aber nicht sichtbar."
+      ]
+    },
+    {
       "id": "2026-09-11.6",
       "date": "2026-09-11",
       "style": "Sachlich",
