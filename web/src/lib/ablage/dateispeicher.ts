@@ -32,6 +32,8 @@ import type { AblageAdapter } from './adapter.ts';
 import { zufallsHex } from './hex.ts';
 
 export const VERZEICHNIS_DATEI = 'verzeichnis.puls';
+/** Mime-Marker für Ordner-Einträge (kein eigenes Objekt, nur Verzeichnis). */
+export const ORDNER_MIME = 'application/x-pulse-folder';
 
 export interface DateiInfo {
 	id: string;
@@ -40,6 +42,10 @@ export interface DateiInfo {
 	groesse: number;
 	hochgeladenAm: string;
 	hochgeladenVon: string;
+	/** Ordner-Pfad des Eintrags (``''`` = Wurzel). */
+	pfad?: string;
+	/** Ordner-Eintrag (hat kein Objekt, kann nicht heruntergeladen werden). */
+	istOrdner?: boolean;
 }
 
 export class DateiSpeicher {
@@ -99,20 +105,24 @@ export class DateiSpeicher {
 		this.verzeichnis = await öffneVerzeichnis(this.hauptschlüssel, bytes);
 	}
 
-	async liste(): Promise<DateiInfo[]> {
-		return this.nacheinander(() => this._liste());
+	async liste(pfad = ''): Promise<DateiInfo[]> {
+		return this.nacheinander(() => this._liste(pfad));
 	}
 
-	private async _liste(): Promise<DateiInfo[]> {
+	private async _liste(pfad: string): Promise<DateiInfo[]> {
 		await this._ladenWennNoetig();
-		return (this.verzeichnis?.einträge ?? []).map((e) => ({
-			id: e.id,
-			name: e.name,
-			mime: e.mime,
-			groesse: e.groesse,
-			hochgeladenAm: e.hochgeladenAm,
-			hochgeladenVon: e.hochgeladenVon,
-		}));
+		return (this.verzeichnis?.einträge ?? [])
+			.filter((e) => (e.pfad ?? '') === pfad)
+			.map((e) => ({
+				id: e.id,
+				name: e.name,
+				mime: e.mime,
+				groesse: e.groesse,
+				hochgeladenAm: e.hochgeladenAm,
+				hochgeladenVon: e.hochgeladenVon,
+				pfad: e.pfad ?? '',
+				istOrdner: e.datei === '',
+			}));
 	}
 
 	async hochladen(
@@ -120,6 +130,7 @@ export class DateiSpeicher {
 		mime: string,
 		inhalt: Uint8Array,
 		hochgeladenVon: string,
+		pfad = '',
 	): Promise<DateiInfo> {
 		const id = zufallsHex(8);
 		const dateiName = `a-${id}.puls`;
@@ -150,12 +161,51 @@ export class DateiSpeicher {
 			groesse: inhalt.length,
 			hochgeladenAm: jetzt,
 			hochgeladenVon,
+			pfad,
 		};
 		return this.nacheinander(async () => {
 			await this._ladenWennNoetig();
 			this.verzeichnis!.einträge.push(eintrag);
 			await this._speichereVerzeichnis();
-			return { id, name, mime, groesse: inhalt.length, hochgeladenAm: jetzt, hochgeladenVon };
+			return { id, name, mime, groesse: inhalt.length, hochgeladenAm: jetzt, hochgeladenVon, pfad };
+		});
+	}
+
+	/** Legt einen Ordner-Eintrag an (nur Verzeichnis, kein Objekt).
+	 *  Ein gleichnamiger Eintrag im selben Ordner wird abgewiesen —
+	 *  dasselbe Verhalten wie der alte Ablage-Endpoint (409). */
+	async erstelleOrdner(name: string, pfad = ''): Promise<DateiInfo> {
+		return this.nacheinander(async () => {
+			await this._ladenWennNoetig();
+			const doppelt = (this.verzeichnis!.einträge ?? []).some(
+				(e) => (e.pfad ?? '') === pfad && e.name === name,
+			);
+			if (doppelt) {
+				throw new DateiablageFehler(`„${name}“ existiert in diesem Ordner bereits`);
+			}
+			const jetzt = new Date().toISOString();
+			const eintrag: AblageEintrag = {
+				id: zufallsHex(8),
+				datei: '',
+				name,
+				mime: ORDNER_MIME,
+				groesse: 0,
+				hochgeladenAm: jetzt,
+				hochgeladenVon: '',
+				pfad,
+			};
+			this.verzeichnis!.einträge.push(eintrag);
+			await this._speichereVerzeichnis();
+			return {
+				id: eintrag.id,
+				name,
+				mime: ORDNER_MIME,
+				groesse: 0,
+				hochgeladenAm: jetzt,
+				hochgeladenVon: '',
+				pfad,
+				istOrdner: true,
+			};
 		});
 	}
 
@@ -181,15 +231,30 @@ export class DateiSpeicher {
 	}
 
 	/** Löscht eine Datei aus dem Verzeichnis und — wo der Adapter das
-	 *  anbietet — vom Laufwerk. Der Sync-Client des Anbieters räumt ggf.
-	 *  nach seinem eigenen Zyklus ab. */
+	 *  anbietet — vom Laufwerk. Ein Ordner-Eintrag reißt seinen ganzen
+	 *  Unterbaum mit (Enträge + Objekte) — die Ansicht fragt vorher
+	 *  nach (confirmDialog). */
 	async löschen(id: string): Promise<void> {
 		return this.nacheinander(async () => {
 			await this._ladenWennNoetig();
 			const eintrag = this.verzeichnis!.einträge.find((e) => e.id === id);
 			if (!eintrag) return;
-			this.verzeichnis!.einträge = this.verzeichnis!.einträge.filter((e) => e.id !== id);
-			await this.adapter.lösche?.(eintrag.datei);
+			const weg: AblageEintrag[] = [eintrag];
+			if (eintrag.datei === '') {
+				// Ordner: eigener Pfad (pfad + name) ist der Unterbaum, der mitgeht.
+				const baum = eintrag.pfad ? `${eintrag.pfad}/${eintrag.name}` : eintrag.name;
+				for (const e of this.verzeichnis!.einträge) {
+					if (e.id === eintrag.id) continue;
+					const p = e.pfad ?? '';
+					if (p === baum || p.startsWith(`${baum}/`)) weg.push(e);
+				}
+			}
+			for (const e of weg) {
+				if (e.datei !== '') await this.adapter.lösche?.(e.datei);
+			}
+			this.verzeichnis!.einträge = this.verzeichnis!.einträge.filter(
+				(e) => !weg.some((w) => w.id === e.id),
+			);
 			await this._speichereVerzeichnis();
 		});
 	}
