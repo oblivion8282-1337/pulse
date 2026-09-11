@@ -288,6 +288,11 @@ if [ "${web_grund#ja}" != "$web_grund" ]; then
   echo "  Node-Unit-Tests (web)…"
   ( cd web && pnpm test:unit ) \
     || { echo "✗ web-Unit-Tests ROT — abgebrochen." >&2; exit 1; }
+  # Geräte-Trennung: viewport.* nur an Kompositions-Punkten, keine
+  # Breakpoint-Anordnungen mehr (Regel + Begründung im Skriptkopf).
+  echo "  Geräte-Trennung (viewport/Breakpoints)…"
+  bash "$(dirname "${BASH_SOURCE[0]}")/geraete-trennung.sh" \
+    || { echo "✗ Geräte-Trennung ROT — abgebrochen." >&2; exit 1; }
   # shellcheck disable=SC2086
   stempeln web $BEREICH_web
 fi

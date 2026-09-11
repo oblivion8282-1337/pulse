@@ -108,6 +108,7 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
   - **Ein verschwindender Monitor beendet den Stream NICHT**: `capture/wgc.rs::on_closed` behandelt nur Fenster-Quellen; bei Monitoren läuft der Worker weiter, ohne dass Bilder kommen (sieht beim Zuschauer wie ein Standbild aus, nicht wie ein Abbruch).
 - Frontend: WHEP-Client `web/src/lib/stream/whep.ts`. Gating: `isElectron() && (isLinux()||isWindows()||isMac()) && stream.gsrAvailable`.
 
+- **Geräte-Trennung ist Gate-geprüft (2026-09-06)** — `viewport.*` nur in `routes/**`, `components/mobile/**` und dem Store (`viewport.svelte.ts`/`geraetKlasse.ts`); **keine Breakpoint-Varianten** (`md:`/`lg:`/`max-*:`/`@media width`) mehr in `web/src` — die Anordnung hängt an der Geräteklasse (`geraetKlasse.ts`, „Ansicht folgt dem Gerät"), nicht an der Fensterbreite. Mobile-Design lebt in `components/mobile/`, gewählt an EINEM Ort pro Bildschirm (der Route); geteilte Komponenten bekommen ihr Verhalten als Props. Der Zweitname `istHandy` ist abgeschafft (→ `isMobile`). Ausnahmen stehen bewusst in `scripts/geraete-trennung.sh` (`AUSNAHMEN`, je mit Begründung) — das Gate läuft im web-Teil von `gate.sh` und blockiert Verstöße. Hintergrund: Mobile-Verhalten war als Ifs/Klassen in geteilten Komponenten versteckt; jede Mobile-Änderung berührte Desktop-Zeilen (Folge: die `fix(web): … am Handy kaputt`-Serie und der 22-Dateien-Merge vom 2026-09-05).
 **Mobil/Tablet „chat-first" (seit 2026-08-23)** — auf `< lg` navigiert man über **vier Bereiche** (Chats, Räume, Freunde, Du) statt über die `GuildRail`; **Desktop (`≥ lg`) ist unverändert**. Entwurf `docs/superpowers/specs/2026-08-22-mobile-chatfirst-design.md`, Plan `docs/superpowers/plans/2026-08-22-mobile-chatfirst.md`, Bildquelle ist der Design-Canvas im Claude-Design-Projekt `498e4ab1-e7b9-49ff-9ba6-3f0483a9152b`.
 - **Die Bereiche sind echte Routen, es gibt KEINEN Navigations-Store.** Der Stack ist die URL (`/app/@me` · `/app/rooms` → `/app/rooms/[guildId]` → die **bestehende** Kanal-Route · `/app/friends` · `/app/me` → `/app/me/[section]` · `/app/discover`). Damit funktionieren Android-System-Back und `navigateToFromNotification()` ohne Zusatzcode. Wer hier einen Store einzieht, baut beides nach.
 - **Eine einzige Layout-Regel**, in `app/+layout.svelte`: `< md` Bereichs-Leiste unten (ausser auf einem Detail-Screen), `md`–`lg` Bereichs-Spalte links, `>= lg` nichts davon. Die Leisten verstecken sich **nicht selbst** — sonst gäbe es zwei Stellen mit derselben Bedingung. `GuildRail` ist `hidden lg:flex` (an EINER Stelle gegatet, nicht an den vier Routen, die sie rendern).
@@ -408,7 +409,6 @@ Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (
 - **media-svc**: `MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list`. MediaMTX down → nur `mediamtx_poll_failed`-Log.
 Einzel-Infra: MediaMTX `docker compose -f streaming/server/docker-compose.yml up -d`, LiveKit `docker compose --profile voice up -d`.
 
-<<<<<<< HEAD
 ## Eine neue Maschine einrichten (ZUERST, wenn dieses Repo hier frisch geklont ist)
 
 Die Werkzeugkette reist über das Repo mit, **Systemwerkzeuge und persönliche
@@ -435,9 +435,7 @@ im PATH genügt.
 nur über Git Bash, `dev-up.fish` läuft dort gar nicht → Remote-Dev-Stack
 (`infra/dev-remote/README.md`) oder WSL. macOS und Linux sind gleichwertig.
 Ausführlich: `docs/ONBOARDING.md`.
-=======
 **(c) Lokal unter Windows** — `pnpm dev:local` (`scripts/dev-local.mjs`, Port von `dev-up.fish` nach Node, gleiche Begründung wie `dev-remote.mjs`). Einmalig nötig: **Docker Desktop + WSL2** und **uv** (Pre-flight nennt die Befehle); `.env`/JWT-Keys/Binaries erzeugt `pnpm dev:local:bootstrap` selbst. **Unterschied zum Linux-Stack:** LiveKit und MediaMTX laufen **nativ als Windows-Prozesse** statt im Container — deren Compose-Dateien setzen `network_mode: host`, das gibt es auf Docker Desktop nicht. Folgen: (1) der native MediaMTX hat die **fünf Pulse-Patches nicht** (Vollbild-Rückweg, Keyframe-Takt, FlexFEC, Dependency-Descriptor) — App-Entwicklung und Streaming-Grundpfad laufen, gezielte Messläufe zu diesen Features gehören auf den Linux-Stack/Testserver; (2) `LIVEKIT_URL` bleibt `ws://localhost:7880`, weil voice-signaling mit den Repo-Dev-Keys gegen eine Nicht-lokale URL den Start verweigert — **Voice vom Handy im LAN braucht echte LiveKit-Keys**, Streaming vom Handy geht (MediaMTX-Config bekommt die LAN-IP als ICE-Kandidat, Oberfläche im LAN via `PULSE_WEB_HOST=0.0.0.0`). Stolperfalle beim detached-Start unter Windows: `spawn(shell:true, detached:true)` verliert lautlos Stdout/Stderr — die Dienste laufen dann mit leeren Logs und ohne Port (deshalb startet `dev-local.mjs` detached grundsätzlich **ohne** Shell; uv/livekit/mediamtx sind echte `.exe`). Logs: `.dev-local/logs/`, alles aus: `pnpm dev:local:down` (Volumes bleiben).
->>>>>>> a11fbcd9 (feat(dev): lokaler Dev-Stack für Windows — scripts/dev-local.mjs)
 
 ## Tests
 

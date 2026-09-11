@@ -150,13 +150,10 @@ streaming/testbench/sdp-*.txt
 # Bau-Cache der VAAPI-DMA-BUF-Probe (wie die uebrigen player-labor-Kisten).
 streaming/player-labor/vaapi-dmabuf-export/target/
 
-<<<<<<< HEAD
 # Ablage-Integrationstests: Nachspiel-Tokens der Anbieter (nie committen)
 web/.ablage-int/
 
 # Lokaler Redis-Snapshot des Test-Laefs
 dump.rdb
-=======
 # Lokaler Dev-Stack auf Windows (scripts/dev-local.mjs): Binaries, Logs, Config
 .dev-local/
->>>>>>> a11fbcd9 (feat(dev): lokaler Dev-Stack für Windows — scripts/dev-local.mjs)
