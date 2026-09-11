@@ -106,7 +106,17 @@ if (process.platform === 'linux' && !process.env.PULSE_PROP) {
 // migrate the existing config dir on first run (else `pulse-stream.json` with
 // the user's HQ-stream settings would silently appear empty).
 (function setupAppName(): void {
-  const newName = SERVER_MODE ? 'Pulse Server' : 'Pulse';
+  // Eine Dev-Instanz gegen einen anderen Stack (PULSE_DEV_URL, nur ungepackt)
+  // bekommt ein EIGENES Profil: sonst teilt sie Session und Krypto-Identität
+  // mit der produktiven App — der Konto-Wechsel dort würde an der
+  // Geräte-Wand (409) hängen — und der Single-Instance-Lock würde gegen eine
+  // laufende Pulse.exe entscheiden. Gleiche Regel wie unter Linux
+  // (seit 2026-09-02: ~/.config/Pulse-Dev).
+  const newName = SERVER_MODE
+    ? 'Pulse Server'
+    : process.env.PULSE_DEV_URL && !app.isPackaged
+      ? 'Pulse-Dev'
+      : 'Pulse';
   const configHome = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config');
   const oldDir = path.join(configHome, '@dcc', 'desktop');
   const newDir = path.join(configHome, newName);
