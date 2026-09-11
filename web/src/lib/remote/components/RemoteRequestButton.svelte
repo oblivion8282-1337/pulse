@@ -8,6 +8,11 @@
   diesen Host: wartender Zustand mit Abbrechen; läuft sie, wird daraus das
   Beenden.
 
+  **Nur das Icon** (2026-09-11, Nutzerwunsch): wie die Knöpfe der Bedienleiste
+  im nativen Player (`controls.rs::action_button`) zeigt auch dieser Knopf kein
+  sichtbares Etikett — die Beschreibung steht in `title`/`aria-label` für Hover
+  und Screenreader. Der wartende Zustand trägt den Host-Namen im Tooltip.
+
   Eingehängt im `NativeWindowPanel` — der Kachel-Zustand, während das Bild im
   eigenen Player-Fenster läuft. Das ist kein Zufall, sondern die einzige Stelle,
   an der Fernsteuerung überhaupt gehen kann: erfasst wird IM Fenster, das
@@ -49,15 +54,22 @@
       size="sm"
       variant="destructive"
       onclick={() => remoteSession.end()}
+      title={m.remote_request_stop()}
+      aria-label={m.remote_request_stop()}
       data-testid="remote-request-stop"
     >
       <XIcon class="size-4" />
-      {m.remote_request_stop()}
     </Button>
   {:else if pending}
-    <Button size="sm" variant="secondary" onclick={() => remoteSession.cancel()} data-testid="remote-request-cancel">
+    <Button
+      size="sm"
+      variant="secondary"
+      onclick={() => remoteSession.cancel()}
+      title={m.remote_request_pending({ user: hostName })}
+      aria-label={m.remote_request_pending({ user: hostName })}
+      data-testid="remote-request-cancel"
+    >
       <Loader2Icon class="size-4 animate-spin" />
-      {m.remote_request_pending({ user: hostName })}
     </Button>
   {:else}
     <Button
@@ -65,10 +77,11 @@
       variant="ghost"
       disabled={busyElsewhere}
       onclick={() => remoteSession.request(channelId, hostUserId, slot)}
+      title={m.remote_request_button()}
+      aria-label={m.remote_request_button()}
       data-testid="remote-request"
     >
       <MousePointerIcon class="size-4" />
-      {m.remote_request_button()}
     </Button>
   {/if}
 {/if}
