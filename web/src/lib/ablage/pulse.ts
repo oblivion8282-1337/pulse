@@ -23,6 +23,7 @@
 
 import type { AblageAdapter } from './adapter.ts';
 import { ablagePulseApi } from '../api/ablagePulse.ts';
+import { ApiError } from '../api/client.ts';
 
 export function pulseAdapter(guildId: string): AblageAdapter {
   return {
@@ -38,7 +39,16 @@ export function pulseAdapter(guildId: string): AblageAdapter {
     },
 
     async lese(datei: string): Promise<Uint8Array | null> {
-      const { url } = await ablagePulseApi.leseUrl(guildId, datei);
+      // 404 ist hier kein Fehler, sondern "Klumpen fehlt" — beim ERSTEN
+      // Lesen eines frischen Laufwerks gibt es das Verzeichnis noch gar
+      // nicht, und `DateiSpeicher.laden` behandelt null als leere Ablage.
+      let url: string;
+      try {
+        ({ url } = await ablagePulseApi.leseUrl(guildId, datei));
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
       const antwort = await fetch(url);
       if (antwort.status === 404) return null;
       if (!antwort.ok) throw new Error(`Lesen fehlgeschlagen: ${antwort.status}`);
