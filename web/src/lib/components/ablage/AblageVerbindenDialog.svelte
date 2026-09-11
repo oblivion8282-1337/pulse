@@ -27,7 +27,9 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import LockIcon from '@lucide/svelte/icons/lock';
   import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
-  import { angeboteneAnbieter, type AblageAnbieterArt } from '$lib/ablage/anbieter.ts';
+  import { angeboteneAnbieter, type AblageAnbieterArt, type AnbieterEintrag } from '$lib/ablage/anbieter.ts';
+  import { ablagePulseApi } from '$lib/api/ablagePulse.ts';
+  import { bytesZuBase64 } from '$lib/ablage/syncOrdnerSchluessel.ts';
   import { ANBIETER_IKONE } from './anbieterIkonen.ts';
   import { adapterAusVerzeichnis, wähleOrdner, syncOrdnerMoeglich } from '$lib/ablage/syncOrdner.ts';
   import { legeGriffAb } from '$lib/ablage/ordnerGriff.ts';
@@ -40,11 +42,19 @@
     open = false,
     onClose,
     onVerbunden,
+    /** Überschreibt die Archiv-Auswahl (`angeboteneAnbieter()`) — das
+     *  Community-Laufwerk reicht hier nur das Pulse-Laufwerk durch
+     *  (`communityAnbieter()`, Festlegung 2026-09-11). */
+    anbieterListe,
+    /** Nur für das Pulse-Laufwerk: die Community, die verbunden wird. */
+    guildId,
   }: {
     open?: boolean;
     onClose: () => void;
     /** Wird nach erfolgreicher Verbindung gerufen — mit der neuen Verbindung. */
     onVerbunden: (v: AblageVerbindung) => void;
+    anbieterListe?: readonly AnbieterEintrag[];
+    guildId?: string;
   } = $props();
 
   /** Kurzbeschreibung je Anbieter — reiner Anzeigetext, deshalb hier und
@@ -62,7 +72,9 @@
   // Firefox/Safari koennen keinen Ordner waehlen (kein File-System-Access) —
   // die Ordner-Wahl faellt dort aus der Liste statt erst beim Klick zu
   // scheitern (Plan Aufgabe 4). Cloud-Anbieter bleiben ueberall dabei.
-  const anbieter = anbieterFuerUmgebung(angeboteneAnbieter(), syncOrdnerMoeglich());
+  const anbieter = $derived(
+    anbieterFuerUmgebung(anbieterListe ?? angeboteneAnbieter(), syncOrdnerMoeglich())
+  );
 
   let auswahl: AblageAnbieterArt | null = $state(null);
   let verbinde = $state(false);
@@ -154,6 +166,42 @@
       verbinde = false;
     }
   }
+  /**
+   * Das Pulse-Laufwerk braucht keinen Anbieter-Konto-Weg — der „Verbinden“-
+   * Schritt ist serverseitig nur der Verbunden-Marker, der Schlüssel entsteht
+   * hier lokal und verlässt dieses Gerät nie (Konzept §3.1). Nur für
+   * Communitys: braucht die Guild-Id, sonst kann der Marker nicht gesetzt
+   * werden.
+   */
+  async function verbindePulse(): Promise<void> {
+    if (!guildId) {
+      fehler = 'Das Pulse-Laufwerk gehört zu einer Community — hier fehlt die Angabe dazu.';
+      return;
+    }
+    verbinde = true;
+    fehler = '';
+    try {
+      await ablagePulseApi.verbinden(guildId);
+      const verbindung: AblageVerbindung = {
+        id: `pulse-${guildId}`,
+        anbieter: 'pulse',
+        name: 'Pulse-Laufwerk',
+        konfiguration: {},
+        hauptschlüsselB64: bytesZuBase64(
+          globalThis.crypto.getRandomValues(new Uint8Array(32))
+        ),
+        verbundenAm: new Date().toISOString(),
+      };
+      await ablageVerbindungen.hinzufügen(verbindung);
+      await ablageVerbindungen.verknüpfeMitGuild(verbindung.id, guildId);
+      onVerbunden(verbindung);
+      schliessen();
+    } catch (e) {
+      fehler = e instanceof Error ? e.message : String(e);
+    } finally {
+      verbinde = false;
+    }
+  }
 </script>
 
 <Dialog.Root {open} onOpenChange={() => schliessen()}>
@@ -199,6 +247,14 @@
             schliessen();
           }}
         />
+      {:else if auswahl === 'pulse'}
+        <p class="mb-4 text-sm text-muted-foreground">
+          Verschlüsselter Speicher auf dem Pulse-Server für diese Community. Es gibt
+          nichts einzugeben — der Schlüssel entsteht auf diesem Gerät und bleibt dort.
+        </p>
+        <Button onclick={verbindePulse} disabled={verbinde} data-testid="pulse-verbinden">
+          Pulse-Laufwerk verbinden
+        </Button>
       {:else}
         <p class="mb-4 text-sm text-muted-foreground">
           Die Verbindung für <strong>{auswahl}</strong> braucht die Krypto-Etappe —

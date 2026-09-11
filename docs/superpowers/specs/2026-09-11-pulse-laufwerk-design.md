@@ -188,5 +188,39 @@ gegen ein Hash-Set, **bevor** der PADF-Klumpen entsteht.
 
 ---
 
+## 11. Festlegungen nach Abstimmung mit dem Eigentümer (2026-09-11, nachmittags)
+
+Die Baustelle lief auf, dann Punkt-für-Punkt konsolidiert. Diese vier
+Entscheidungen schneiden §9 und Teile der Einleitung neu:
+
+1. **Fremde Anbieter bleiben — aber NUR für die Sicherung der eigenen
+   Nachrichten.** Dropbox, Google Drive, Nextcloud und der Sync-Ordner
+   gehören ausschließlich zur Archiv-Auswahl (Einstellungen). Nicht
+   geparkt, kein Rip-out — §9 „Staubsauger-Etappe" ist damit gestrichen
+   (OneDrive/S3 bleiben wie seit 2026-08-31 unbelegt in der Liste).
+2. **Das Community-Laufwerk verbindet sich über den gewohnten
+   Verbinden-Dialog** (AblageVerbindenDialog, Anbieter-Auswahl mit Icon und
+   Beschreibung) — nicht über eine Sonderkarte. In dieser Dialog-Instanz
+   steht genau ein Anbieter: das Pulse-Laufwerk. Die Dialog-Liste ist
+   deshalb als Prop überschreibbar (`anbieterListe`), Standard bleibt die
+   Archiv-Auswahl.
+3. **Das persönliche Archiv bekommt KEIN Pulse-Laufwerk.** Eigentümer:
+   „Archiv bleibt eigenständig" — eigene Clouds und der eigene Ordner,
+   kein Miet-Speicher dort. Der Vermietungsfall ist ausschließlich:
+   Community-Besitzer mietet Speicher für seine Community.
+4. **Die Grundrichtung bleibt:** Pulse vermietet verschlüsselten Speicher;
+   der Server sieht weiterhin nur Chiffrat.
+
+Konsequenz im Klienten: `anbieter.ts` führt die zwei Kontexte getrennt —
+`angeboteneAnbieter()` (Archiv, fremde Anbieter) und `communityAnbieter()`
+(„nur Pulse"). Das zwischenzeitlich gebaute Park-Flag
+`ABLAGE_FREMDE_ANBIETER_ENABLED` ist wieder entfernt.
+
+*Offene Entscheidungen beim Eigentümer (unverändert aus §0-Ende): Tarifmodell
+(§5), Hash-Set-Bezug (§7), Schicksal der Ablage-Kanäle (§9), Re-Key-Politik
+für Communitys (§8).*
+
+---
+
 *Offene Entscheidungen beim Eigentümer: Tarifmodell (§5), Hash-Set-Bezug
 (§7), Schicksal der Ablage-Kanäle (§9), Re-Key-Politik für Communitys (§8).*
