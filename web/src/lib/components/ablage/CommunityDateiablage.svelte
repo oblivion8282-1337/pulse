@@ -122,22 +122,33 @@
   }
 
   async function legeOrdnerAn(): Promise<void> {
+    const debug: Record<string, unknown> = { gestartet: true, name: neuerOrdnerName, pfad };
+    (window as unknown as Record<string, unknown>).__ablageDebug = debug;
     const name = neuerOrdnerName.trim();
-    if (!name) return;
+    if (!name) {
+      debug.früh = 'name leer';
+      return;
+    }
     const speicher = await speicherFuerVerbindung();
-    if (!speicher) return;
+    if (!speicher) {
+      debug.früh = 'kein speicher';
+      return;
+    }
     try {
       await speicher.erstelleOrdner(name, pfad);
+      debug.geschrieben = true;
       ordnerDialogOffen = false;
       neuerOrdnerName = '';
       await ladeListe();
+      debug.einträge = zeilen.map((z) => z.name);
     } catch (e) {
-      fehler = e instanceof Error && e.message.includes('name-duplicate')
-        ? m.ablage_pulse_name_doppelt({ name })
-        : e instanceof Error
-          ? e.message
-          : String(e);
+      debug.fehler = e instanceof Error ? e.message : String(e);
+      fehler = debug.fehler as string;
+      if (fehler.includes('name-duplicate')) {
+        fehler = m.ablage_pulse_name_doppelt({ name });
+      }
     }
+    (window as unknown as Record<string, unknown>).__ablageDebug = debug;
   }
 
   async function pruefeStatus(): Promise<void> {
@@ -287,9 +298,11 @@
   {:else}
     <DropboxBreadcrumb channelName={m.ablage_pulse_name()} currentPath={pfad} navigate={navigiere} />
 
-    <DropboxQuotaGauge
-      quota={{ enabled: true, used_bytes: genutzt, total_quota_bytes: kontingent } as never}
-    />
+    <div data-testid="community-ablage-kontingent">
+      <DropboxQuotaGauge
+        quota={{ enabled: true, used_bytes: genutzt, total_quota_bytes: kontingent } as never}
+      />
+    </div>
 
     <div class="flex flex-wrap items-center gap-2 border-b border-border/40 px-5 py-2.5">
       <button

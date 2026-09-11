@@ -57,13 +57,22 @@ from dcc_chat_gateway.routes._dropbox_writes import (
     perform_restore,
     perform_trash,
 )
-from dcc_chat_gateway.routes._deps import publish_guild_event
+from dcc_chat_gateway.routes._deps import guild_oder_404, publish_guild_event
 from dcc_chat_gateway.security import CurrentUser
 from dcc_shared.events import ChannelCreatedEvent
 
 log = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["dropbox"])
+
+#: Kanal-Anlege-Route OHNE die Betreiber-/Instanz-Gates: Seit dem
+#: Pulse-Laufwerk (Spec §11, 2026-09-11) ist die Ablage im Plus-Menü für
+#: jede Community sichtbar, und der Kanal selbst verbraucht keinen alten
+#: Dropbox-Speicher — der Inhalt liegt verschlüsselt auf dem Pulse-Laufwerk.
+#: Der Community-Schalter (``dropbox_configs.enabled``) bleibt in
+#: ``_get_or_create_dropbox_channel`` trotzdem wirksam. Alle ÜBRIGEN
+#: Dropbox-Routen (alter Speicherweg) bleiben hinter ``_dropbox_gate``.
+kanal_router = APIRouter(tags=["dropbox"])
 
 
 # ---------------------------------------------------------------------------
@@ -200,13 +209,12 @@ async def ensure_dropbox_channel(
     )
 
 
-@router.post(
+@kanal_router.post(
     "/guilds/{guild_id}/dropbox/channel",
     response_model=DropboxChannelOut,
 )
 async def create_dropbox_channel(
     guild_id: Annotated[int, Path(ge=1)],
-    guild: DropboxGuild,
     payload: DropboxChannelCreateIn,
     session: SessionDep,
     current: CurrentUser,
@@ -215,11 +223,19 @@ async def create_dropbox_channel(
     """Idempotent dropbox-channel create. Used by the frontend's
     "Create channel → Ablage" flow, which needs to honour the user-typed
     name. If a dropbox channel already exists, returns it unchanged
-    (singleton — admins rename via PATCH, not by creating a new one)."""
+    (singleton — admins rename via PATCH, not by creating a new one).
+
+    Seit dem 2026-09-11 (Pulse-Laufwerk, Spec §11) KEINE
+    Betreiber-Freigabe (``guilds.dropbox_allowed``) mehr: die Ablage ist
+    im Plus-Menü für jede Community sichtbar, der Kanal selbst verbraucht
+    keinen alten Dropbox-Speicher — der Inhalt liegt verschlüsselt auf dem
+    Pulse-Laufwerk. Der Community-Schalter (``dropbox_configs.enabled``)
+    bleibt trotzdem wirksam (s. ``_get_or_create_dropbox_channel``)."""
 
     await check_permission(
         session, current, guild_id, Permissions.MANAGE_CHANNELS
     )
+    guild = await guild_oder_404(session, guild_id)
 
     # Display-string sink — same hardening as patch_entry / create_folder
     # (validate_name rejects path-traversal, bidi-spoof, homograph chars

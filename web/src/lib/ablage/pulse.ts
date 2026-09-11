@@ -49,7 +49,10 @@ export function pulseAdapter(guildId: string): AblageAdapter {
         if (e instanceof ApiError && e.status === 404) return null;
         throw e;
       }
-      const antwort = await fetch(url);
+      // `cache: 'no-store'`: presigned GETs auf denselben Schlüssel sind bei
+      // SigV4 innerhalb einer Sekunde byte-identisch — ohne diesen Zusatz
+      // serviert der Browser-Cache mal den alten Stand des Verzeichnisses.
+      const antwort = await fetch(url, { cache: 'no-store' });
       if (antwort.status === 404) return null;
       if (!antwort.ok) throw new Error(`Lesen fehlgeschlagen: ${antwort.status}`);
       return new Uint8Array(await antwort.arrayBuffer());
