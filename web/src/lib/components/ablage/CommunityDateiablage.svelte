@@ -30,6 +30,8 @@
   import UploadIcon from '@lucide/svelte/icons/upload';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import FolderIcon from '@lucide/svelte/icons/folder';
+  import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
   import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
   import Rows3Icon from '@lucide/svelte/icons/rows-3';
   import FileIcon from '@lucide/svelte/icons/file';
@@ -44,6 +46,9 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import DropboxQuotaGauge from '../dropbox/DropboxQuotaGauge.svelte';
+  import DropboxBreadcrumb from '../dropbox/DropboxBreadcrumb.svelte';
+  import DropboxCreateFolderDialog from '../dropbox/DropboxCreateFolderDialog.svelte';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
   import AblageVerbindenDialog from './AblageVerbindenDialog.svelte';
   import { communityAnbieter } from '$lib/ablage/anbieter.ts';
   import type { DateiInfo } from '$lib/ablage/dateispeicher.ts';
@@ -60,6 +65,10 @@
   let verbindenOffen = $state(false);
   let suchText = $state('');
   let istRaster = $state(true);
+  /** Aktueller Ordner (``''`` = Wurzel, Segmente mit ``/``). */
+  let pfad = $state('');
+  let ordnerDialogOffen = $state(false);
+  let neuerOrdnerName = $state('');
 
   let gefiltert = $derived(
     suchText.trim() === ''
@@ -95,7 +104,35 @@
       status = 'ohne_schluessel';
       return;
     }
-    zeilen = await speicher.liste();
+    zeilen = await speicher.liste(pfad);
+  }
+
+  /** Brotkrumen-Navigation — Index 0 = Wurzel, 1 = erster Ordner, … */
+  function navigiere(idx: number): void {
+    pfad = idx === 0 ? '' : pfad.split('/').slice(0, idx).join('/');
+    suchText = '';
+    void ladeListe();
+  }
+
+  async function oeffneOrdner(zeile: DateiInfo): Promise<void> {
+    pfad = zeile.pfad ? `${zeile.pfad}/${zeile.name}` : zeile.name;
+    suchText = '';
+    await ladeListe();
+  }
+
+  async function legeOrdnerAn(): Promise<void> {
+    const name = neuerOrdnerName.trim();
+    if (!name) return;
+    const speicher = await speicherFuerVerbindung();
+    if (!speicher) return;
+    try {
+      await speicher.erstelleOrdner(name, pfad);
+      ordnerDialogOffen = false;
+      neuerOrdnerName = '';
+      await ladeListe();
+    } catch (e) {
+      fehler = e instanceof Error ? e.message : String(e);
+    }
   }
 
   async function pruefeStatus(): Promise<void> {
@@ -136,7 +173,8 @@
           datei.name,
           datei.type || 'application/octet-stream',
           inhalt,
-          ''
+          '',
+          pfad
         );
       }
       await ladeListe();
@@ -174,6 +212,13 @@
   async function loeschen(zeile: DateiInfo): Promise<void> {
     const speicher = await speicherFuerVerbindung();
     if (!speicher) return;
+    if (zeile.istOrdner) {
+      const ok = await confirmDialog({
+        description: `Ordner „${zeile.name}“ löschen — samt allem, was drinliegt?`,
+        destructive: true
+      });
+      if (!ok) return;
+    }
     try {
       await speicher.löschen(zeile.id);
       await ladeListe();
@@ -236,6 +281,8 @@
       </p>
     </div>
   {:else}
+    <DropboxBreadcrumb channelName="Ablage" currentPath={pfad} navigate={navigiere} />
+
     <DropboxQuotaGauge
       quota={{ enabled: true, used_bytes: genutzt, total_quota_bytes: kontingent } as never}
     />
@@ -251,6 +298,17 @@
         data-testid="community-ablage-hochladen"
       >
         <UploadIcon class="size-4" />
+      </button>
+      <button
+        type="button"
+        class={ICON_BTN}
+        onclick={() => (ordnerDialogOffen = true)}
+        disabled={laeuft}
+        title="Ordner erstellen"
+        aria-label="Ordner erstellen"
+        data-testid="community-ablage-ordner-anlegen"
+      >
+        <FolderPlusIcon class="size-4" />
       </button>
       <Input
         type="text"
@@ -297,35 +355,49 @@
       {:else if istRaster}
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {#each gefiltert as zeile (zeile.id)}
-            {@const Icon = dateiIcon(zeile.mime)}
+            {@const Icon = zeile.istOrdner ? FolderIcon : dateiIcon(zeile.mime)}
             <div
               class="glass-2 group relative flex flex-col gap-1.5 rounded-xl border-2 border-border/60 p-3 transition-colors hover:border-primary/60"
               data-testid="community-ablage-datei-{zeile.id}"
             >
-              <div
-                class="flex aspect-square w-full items-center justify-center rounded-md bg-bg-hover/40 text-text-dim group-hover:bg-primary/5"
+              <button
+                type="button"
+                class="flex aspect-square w-full items-center justify-center rounded-md bg-bg-hover/40 text-text-dim group-hover:bg-primary/5 {zeile.istOrdner
+                  ? 'text-primary'
+                  : ''}"
+                onclick={() => (zeile.istOrdner ? oeffneOrdner(zeile) : herunterladen(zeile))}
+                title={zeile.istOrdner ? 'Ordner öffnen' : 'Herunterladen'}
               >
                 <Icon class="size-12" />
-              </div>
+              </button>
               <p class="truncate text-sm font-medium" title={zeile.name}>{zeile.name}</p>
-              <p class="text-text-faint text-xs">{formatBytes(zeile.groesse)}</p>
+              <p class="text-text-faint text-xs">
+                {#if zeile.istOrdner}
+                  Ordner
+                {:else}
+                  {formatBytes(zeile.groesse)}
+                {/if}
+              </p>
               <div
                 class="absolute right-1 top-1 flex gap-0.5 opacity-0 transition group-hover:opacity-100"
               >
+                {#if !zeile.istOrdner}
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    title="Herunterladen"
+                    onclick={() => herunterladen(zeile)}
+                    data-testid="community-ablage-download-{zeile.id}"
+                  >
+                    <DownloadIcon class="size-3.5" />
+                  </Button>
+                {/if}
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  title="Herunterladen"
-                  onclick={() => herunterladen(zeile)}
-                  data-testid="community-ablage-download-{zeile.id}"
-                >
-                  <DownloadIcon class="size-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  title="Löschen"
+                  title={zeile.istOrdner ? 'Ordner löschen' : 'Löschen'}
                   onclick={() => loeschen(zeile)}
+                  data-testid="community-ablage-loeschen-{zeile.id}"
                 >
                   <Trash2Icon class="size-3.5" />
                 </Button>
@@ -336,34 +408,51 @@
       {:else}
         <div class="space-y-1">
           {#each gefiltert as zeile (zeile.id)}
-            {@const Icon = dateiIcon(zeile.mime)}
+            {@const Icon = zeile.istOrdner ? FolderIcon : dateiIcon(zeile.mime)}
             <div
               class="group flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-muted"
               data-testid="community-ablage-datei-{zeile.id}"
             >
-              <Icon class="size-5 shrink-0 text-text-dim" />
+              <Icon class="size-5 shrink-0 {zeile.istOrdner ? 'text-primary' : 'text-text-dim'}" />
               <div class="min-w-0 flex-1">
-                <div class="truncate text-sm font-medium" title={zeile.name}>
-                  {zeile.name}
-                </div>
+                {#if zeile.istOrdner}
+                  <button
+                    type="button"
+                    class="block w-full truncate text-left text-sm font-medium hover:underline"
+                    onclick={() => oeffneOrdner(zeile)}
+                  >
+                    {zeile.name}
+                  </button>
+                {:else}
+                  <div class="truncate text-sm font-medium" title={zeile.name}>
+                    {zeile.name}
+                  </div>
+                {/if}
                 <div class="text-text-faint text-xs">
-                  {formatBytes(zeile.groesse)}
-                  {#if zeile.hochgeladenAm}
-                    · {new Date(zeile.hochgeladenAm).toLocaleDateString()}
+                  {#if zeile.istOrdner}
+                    Ordner
+                  {:else}
+                    {formatBytes(zeile.groesse)}
+                    {#if zeile.hochgeladenAm}
+                      · {new Date(zeile.hochgeladenAm).toLocaleDateString()}
+                    {/if}
                   {/if}
                 </div>
               </div>
-              <button
-                class="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                title="Herunterladen"
-                onclick={() => herunterladen(zeile)}
-              >
-                <DownloadIcon class="size-4" />
-              </button>
+              {#if !zeile.istOrdner}
+                <button
+                  class="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="Herunterladen"
+                  onclick={() => herunterladen(zeile)}
+                >
+                  <DownloadIcon class="size-4" />
+                </button>
+              {/if}
               <button
                 class="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive"
-                title="Löschen"
+                title={zeile.istOrdner ? 'Ordner löschen' : 'Löschen'}
                 onclick={() => loeschen(zeile)}
+                data-testid="community-ablage-loeschen-{zeile.id}"
               >
                 <Trash2Icon class="size-4" />
               </button>
@@ -381,6 +470,18 @@
     bind:this={dateiInput}
     onchange={(e) => hochladen((e.target as HTMLInputElement).files)}
   />
+
+  {#if ordnerDialogOffen}
+    <DropboxCreateFolderDialog
+      name={neuerOrdnerName}
+      onInput={(s: string) => (neuerOrdnerName = s)}
+      onCommit={legeOrdnerAn}
+      onCancel={() => {
+        ordnerDialogOffen = false;
+        neuerOrdnerName = '';
+      }}
+    />
+  {/if}
 </section>
 
 {#if verbindenOffen}

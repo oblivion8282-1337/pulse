@@ -210,12 +210,18 @@ async function sha256(bytes: Uint8Array, kontext: string): Promise<Uint8Array> {
 
 export interface AblageEintrag {
   id: string;
+  /** Objektname auf dem Laufwerk (``a-<hex>.puls``). Ein Ordner-Eintrag
+   *  hat KEIN Objekt — bei ihm steht hier ``''``. */
   datei: string;
   name: string;
   mime: string;
   groesse: number;
   hochgeladenAm: string;
   hochgeladenVon: string;
+  /** Ordner-Pfad des Eintrags, Segmente mit ``/`` getrennt
+   *  (``''`` = Wurzel, ``'a/b'`` = im Ordner b in a). Fehlt er
+   *  (ältere Verzeichnisse), gilt die Wurzel. */
+  pfad?: string;
 }
 
 export interface VerzeichnisDaten {
