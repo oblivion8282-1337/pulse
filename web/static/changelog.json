@@ -2,6 +2,35 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-11",
+      "date": "2026-09-11",
+      "style": "Sachlich",
+      "title": "Keine doppelten Nachrichten aus der Sicherung mehr",
+      "intro": "Wurde ein Gespräch von der Sicherung wiederhergestellt, konnte dieselbe Nachricht doppelt erscheinen — jedes Gerät trägt seine eigene Kopie im Archiv. Gleiche Nachrichten werden jetzt beim Zusammenführen als eine erkannt.",
+      "items": [
+        "Betraf Gespräche, die auf mehreren Geräten geführt und über das Laufwerk wiederhergestellt wurden.",
+        "Gelöschte Nachrichten bleiben gelöscht, egal von welchem Gerät der Löschstein stammt."
+      ]
+    },
+    {
+      "id": "2026-09-11.2",
+      "date": "2026-09-11",
+      "style": "Sachlich",
+      "title": "Der Hinweis „Lokaler Verlauf ist gerade nicht verfügbar“ wiederholt sich nicht mehr",
+      "intro": "War der lokale Verlauf einmal kurzzeitig nicht erreichbar, erschien der Warnhinweis bei jedem Seitenwechsel erneut. Er erscheint jetzt nur noch einmal, und ein erfolgreicher Zugriff nimmt die Meldung zurück.",
+      "items": []
+    },
+    {
+      "id": "2026-09-11.3",
+      "date": "2026-09-11",
+      "style": "Sachlich",
+      "title": "Fernsteuerung anfragen: nur noch das Symbol",
+      "intro": "Der Knopf zum Anfragen der Fernsteuerung zeigt wie die übrigen Knöpfe der Player-Leiste nur noch sein Symbol. Die Beschreibung erscheint beim Darüberhalten.",
+      "items": [
+        "Auch im wartenden Zustand (Warten auf Freigabe) nur Symbol; der Name des Gegenübers steht im Hover-Hinweis."
+      ]
+    },
+    {
       "id": "2026-09-10.4",
       "date": "2026-09-10",
       "style": "Sachlich",
