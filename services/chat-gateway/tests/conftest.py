@@ -569,3 +569,24 @@ def skip_init_frames(ws):
         if m.get("op") == "presence_update":
             continue
         break
+
+
+async def everyone_remote_control_entfernen(client, owner_token: str, gid) -> None:
+    """Seit ``f3dff047`` (2026-09-10) ist REMOTE_CONTROL Teil der
+    DEFAULT_EVERYONE_PERMISSIONS für NEUE Communitys. Tests, deren Absicht das
+    FEHLEN des Bits ist (4051-Pfade, Wache, Wecken), nehmen es hier explizit
+    aus @everyone heraus — der alte Zustand, jetzt als ausdrücklicher Setup-
+    Schritt statt als stillschweigende Annahme über den Default.
+    """
+    from dcc_shared.permissions import Permissions  # noqa: PLC0415 — bewusst lokal, s. Kopf
+
+    rollen = (
+        await client.get(f"/guilds/{gid}/roles", headers={"Authorization": f"Bearer {owner_token}"})
+    ).json()
+    everyone = next(r for r in rollen if r["is_everyone"])
+    ohne = int(everyone["permissions"]) & ~int(Permissions.REMOTE_CONTROL)
+    await client.patch(
+        f"/guilds/{gid}/roles/{everyone['id']}",
+        json={"permissions": str(ohne)},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )

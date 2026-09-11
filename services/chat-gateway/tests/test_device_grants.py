@@ -407,9 +407,13 @@ async def test_freigabe_rettet_fehlendes_remote_control_nicht(
     mgr = _register(client)
     _geraet_verbinden(mgr, client, did, host_uid, gid, a)
 
-    # Ein DRITTES Mitglied — ohne Overwrite hat es das Default-@everyone-Recht:
-    # VIEW_CHANNEL ja, REMOTE_CONTROL nein (Bit 37 ist nicht im
-    # DEFAULT_EVERYONE_PERMISSIONS-Satz).
+    # Ein DRITTES Mitglied — das @everyone-Recht ist hier ausdrücklich auf
+    # VIEW_CHANNEL ja, REMOTE_CONTROL nein reduziert: seit f3dff047 ist das
+    # Bit Default für neue Communitys, dieser Test will seinen Wegfall (s.
+    # conftest::everyone_remote_control_entfernen).
+    from .conftest import everyone_remote_control_entfernen
+
+    await everyone_remote_control_entfernen(client, owner_token, gid)
     _fremd_token, fremd_uid = await _mitglied(client, owner_token, gid, _auth_signer)
     ctx = _ctx(client, fremd_uid)
     await ws_remote_handlers.handle_request(

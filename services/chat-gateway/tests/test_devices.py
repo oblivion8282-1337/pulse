@@ -805,6 +805,12 @@ async def test_wecken_verlangt_remote_control(client, _auth_signer, session_fact
     did = int(device["id"])
     fremd_token, fremd_uid = await _mitglied(client, owner_token, gid, _auth_signer)
 
+    # Seit f3dff047 ist REMOTE_CONTROL Default für neue Communitys — dieser
+    # Test will das Bit ausdrücklich NICHT in @everyone (s. conftest).
+    from .conftest import everyone_remote_control_entfernen
+
+    await everyone_remote_control_entfernen(client, owner_token, gid)
+
     ohne = _ctx(client, fremd_uid)
     await ws_device_handlers.handle_wake(ohne, {"device_id": str(did)})
     assert ohne.websocket.sent[-1]["code"] == 4060

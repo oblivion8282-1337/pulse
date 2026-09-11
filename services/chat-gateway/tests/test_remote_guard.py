@@ -331,6 +331,12 @@ async def test_audit_uses_the_real_permission_resolution(
         headers=_auth(owner_t),
     )
 
+    # Seit f3dff047 ist REMOTE_CONTROL Default für neue Communitys — dieser
+    # Test will das Bit ausdrücklich NICHT in @everyone (s. conftest).
+    from .conftest import everyone_remote_control_entfernen
+
+    await everyone_remote_control_entfernen(client, owner_t, g["id"])
+
     mgr = _Mgr(factory=session_factory)
     host_ws, ctrl_ws = _Sock(), _Sock()
     mgr._ws_user[host_ws] = _real_user(owner_uid)  # Owner = Host

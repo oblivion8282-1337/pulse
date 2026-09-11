@@ -44,10 +44,25 @@ def _drain_for(ws, op: str, *, max_drained: int = 20) -> dict:
 
 def _setup_remote(tc: TestClient, _auth_signer):
     """Owner (has REMOTE_CONTROL implicitly) + a plain member, guild + voice
-    channel. Returns (owner_token, owner_uid, member_token, member_uid, gid, cid)."""
+    channel. Returns (owner_token, owner_uid, member_token, member_uid, gid, cid).
+
+    REMOTE_CONTROL wird aus @everyone ENTFERNT (s. conftest::
+    everyone_remote_control_entfernen): seit f3dff047 ist das Bit Default
+    für neue Communitys — die Tests hier prüfen ausdrücklich den Fall
+    „Mitglied OHNE das Bit"."""
+    from dcc_shared.permissions import Permissions
+
     owner_uid = random.randint(1, 1_000_000)
     owner_token = _auth_signer.issue_access(owner_uid, f"u{owner_uid}")
     g = tc.post("/guilds", json={"name": "g"}, headers=_auth(owner_token)).json()
+    rollen = tc.get(f"/guilds/{g['id']}/roles", headers=_auth(owner_token)).json()
+    everyone = next(r for r in rollen if r["is_everyone"])
+    ohne = int(everyone["permissions"]) & ~int(Permissions.REMOTE_CONTROL)
+    tc.patch(
+        f"/guilds/{g['id']}/roles/{everyone['id']}",
+        json={"permissions": str(ohne)},
+        headers=_auth(owner_token),
+    )
     vc = tc.post(
         f"/guilds/{g['id']}/channels",
         json={"name": "Voice", "type": 1},
