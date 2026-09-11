@@ -372,6 +372,13 @@ export async function adapterFür(v: AblageVerbindung): Promise<AblageAdapter> {
         passwort: v.konfiguration.passwort,
       });
     }
+    case 'pulse': {
+      // Das Pulse-Laufwerk haengt an EINER Community (`fuerGuild`); das
+      // persoenliche Archiv darauf ist nicht Teil dieser Etappe.
+      if (!v.fuerGuild) throw new Error('Pulse-Laufwerk ohne Community-Bezug');
+      const { pulseAdapter } = await import('./pulse.ts');
+      return pulseAdapter(v.fuerGuild);
+    }
     default:
       throw new Error(`Kein Adapter für Anbieter: ${v.anbieter}`);
   }

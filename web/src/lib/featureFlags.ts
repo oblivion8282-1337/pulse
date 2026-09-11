@@ -41,3 +41,14 @@ export const APP_HOSTING_ENABLED = false;
  * macht ihn nur wählbar, er ersetzt keine Cloud.
  */
 export const ABLAGE_KANAL_ENABLED = true;
+
+/**
+ * Fremde Laufwerks-Anbieter (Nextcloud, Dropbox, Google Drive, OneDrive,
+ * S3) — Produktentscheidung 2026-09-11: sie werden NICHT ausgeliefert,
+ * Pulse vermietet eigenen Speicher („Pulse-Laufwerk“, Spezifikation
+ * `docs/superpowers/specs/2026-09-11-pulse-laufwerk-design.md`). Der
+ * Schalter parkt sie nur aus der Oberfläche; die Adapter bleiben im Baum,
+ * bis die Staubsauger-Etappe der Spezifikation sie entfernt. Wieder
+ * anstellen kostet dann diese Zeile.
+ */
+export const ABLAGE_FREMDE_ANBIETER_ENABLED = false;

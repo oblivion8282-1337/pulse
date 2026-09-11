@@ -47,6 +47,14 @@ _RULES: dict[str, tuple[int, float]] = {
     "ablage_guild_laufwerk_setzen": (10, 60.0), # dasselbe fuer das Community-Laufwerk (E8)
     "ablage_guild_abruf": (30, 60.0), # dasselbe fuer die Community-Weiterreich-Route (E8)
     "ablage_zwischenlager_ankuendigen": (20, 60.0), # 20 Zwischenlager-Uploads / Minute (E8)
+    # Pulse-Laufwerk (2026-09-11): das Verzeichnis wird je Schreibvorgang neu
+    # geschrieben, darum duerft es beim Ankuendigen lebhaft zugehen.
+    "ablage_pulse_verbinden": (10, 60.0),
+    "ablage_pulse_trennen": (10, 60.0),
+    "ablage_pulse_ankuendigen": (60, 60.0),
+    "ablage_pulse_gelungen": (60, 60.0),
+    "ablage_pulse_lese_url": (120, 60.0),
+    "ablage_pulse_loeschen": (60, 60.0),
     # Die Verbindungsprobe spricht eine vom Nutzer FREI GEWAEHLTE Zieladresse
     # an — die einzige Route hier, die das tut. Sie ist deshalb knapper
     # bemessen als ihre Nachbarn: ein Mensch verbindet ein Laufwerk ein paar

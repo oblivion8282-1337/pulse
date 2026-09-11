@@ -21,6 +21,7 @@ export const ANBIETER_IKONE: Record<AblageAnbieterArt, typeof PackageIcon> = {
 	onedrive: CloudIcon,
 	gdrive: HardDriveIcon,
 	nextcloud: GlobeIcon,
+	pulse: DatabaseIcon,
 	sync_ordner: FolderIcon,
 	s3: DatabaseIcon,
 };

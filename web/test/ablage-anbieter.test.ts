@@ -8,33 +8,35 @@ import {
 	ANBIETER
 } from '../src/lib/ablage/anbieter.ts';
 
-test('angeboten werden genau Google Drive, Nextcloud, Dropbox und der Ordner', () => {
-	// Die vier werden NAMENTLICH geprueft, nicht gezaehlt: „genau vier" waere
-	// nach dem naechsten Tausch immer noch gruen und haette nichts gemerkt.
-	const arten = angeboteneAnbieter()
-		.map((a) => a.art)
-		.sort();
-	assert.deepEqual(arten, ['dropbox', 'gdrive', 'nextcloud', 'sync_ordner']);
+test('angeboten wird nur noch der Ordner — fremde Anbieter sind geparkt', () => {
+	// Entscheidung des Eigentuemers vom 2026-09-11: Pulse vermietet eigenen
+	// Speicher (Pulse-Laufwerk), fremde Clouds werden nicht mehr angeboten
+	// (`ABLAGE_FREMDE_ANBIETER_ENABLED = false`). Namentlich geprueft, nicht
+	// gezaehlt — „genau eins" waere nach dem naechsten Tausch immer noch gruen.
+	const arten = angeboteneAnbieter().map((a) => a.art).sort();
+	assert.deepEqual(arten, ['sync_ordner']);
 });
 
 test('OneDrive und S3 werden nicht angeboten, bleiben aber in der Liste', () => {
 	// Entscheidung des Eigentuemers vom 2026-08-31: aus der Oberflaeche raus,
 	// die Adapter bleiben im Baum. Beides gehoert geprueft — „geloescht" und
-	// „nicht angeboten" sind verschiedene Zustaende.
+	// „nicht angeboten" sind verschiedene Zustaende. Seit dem 2026-09-11 gilt
+	// dasselbe fuer Dropbox, Google Drive und Nextcloud (geparkt, nicht
+	// geloescht).
 	const angeboten = angeboteneAnbieter().map((a) => a.art);
-	assert.ok(!angeboten.includes('onedrive'));
-	assert.ok(!angeboten.includes('s3'));
-	assert.ok(anbieter('onedrive') !== undefined, 'OneDrive muss nachschlagbar bleiben');
-	assert.ok(anbieter('s3') !== undefined, 'S3 muss nachschlagbar bleiben');
+	for (const fremd of ['onedrive', 's3', 'dropbox', 'gdrive', 'nextcloud'] as const) {
+		assert.ok(!angeboten.includes(fremd), `${fremd} soll geparkt sein`);
+		assert.ok(anbieter(fremd) !== undefined, `${fremd} muss nachschlagbar bleiben`);
+	}
 });
 
-test('ein Kanal darf nicht auf einem reinen Ordner liegen', () => {
-	// Entwurf §2.2: ein Kanal, dessen Inhalt niemand ausser dem Ersteller
-	// erreichen kann, ist fuer die Mitglieder kein Kanal. Der Ordner bleibt
-	// trotzdem angeboten — fuer das persoenliche Archiv ist er das Beste.
+test('solange die fremden Anbieter geparkt sind, bleibt kein kanaltauglicher ueber', () => {
+	// Entwurf §2.2 bleibt Guinea: ein Kanal auf einem reinen Ordner waere
+	// fuer Mitglieder kein Kanal. Und ohne fremde Clouds ist kein Anbieter
+	// mehr kanaltauglich — Ablage-Kanaele laufen, sobald sie folgen, ueber das
+	// Pulse-Laufwerk, nicht ueber diese Liste.
 	const fuerKanaele = kanalTaugliche().map((a) => a.art);
-	assert.ok(!fuerKanaele.includes('sync_ordner'));
-	assert.deepEqual(fuerKanaele.sort(), ['dropbox', 'gdrive', 'nextcloud']);
+	assert.deepEqual(fuerKanaele, []);
 });
 
 test('kanalTaugliche ist eine Teilmenge von angeboteneAnbieter', () => {

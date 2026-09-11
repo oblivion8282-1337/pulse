@@ -58,6 +58,7 @@ from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
 from dcc_chat_gateway.user_purge_ablage import (
     purge_ablage_konto_laufwerk,
+    purge_ablage_pulse_objekte,
     purge_ablage_zwischenlager,
 )
 from dcc_chat_gateway.user_purge_gruppen import purge_private_group_memberships
@@ -353,6 +354,10 @@ async def _purge_db(
     # Zwischenlager-Uploads. S. Modul-Docstring von ``user_purge_ablage.py``.
     await purge_ablage_zwischenlager(session, user_id)
     await purge_ablage_konto_laufwerk(session, user_id)
+
+    # 9c-3. Pulse-Laufwerk (2026-09-11) — gemietete Chiffrat-Klumpen des
+    # Kontos, s. Modul-Docstring von ``user_purge_ablage.py``.
+    await purge_ablage_pulse_objekte(session, user_id)
 
     # 9d. Geraete-Kopplung + Verlaufsumzug (Etappe F) — Bughunt 2026-08-29
     # (Runde 6, Befund 5): s. Modul-Docstring von ``user_purge_kopplung.py``.

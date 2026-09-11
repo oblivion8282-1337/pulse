@@ -54,6 +54,7 @@
     onedrive: 'Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner',
     gdrive: 'Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat',
     nextcloud: 'Freigabe-Link aus deiner Nextcloud einfügen — mehr braucht es nicht',
+    pulse: 'Verschlüsselter Speicher auf dem Pulse-Server — kein Konto, kein Link',
     sync_ordner: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch',
     s3: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben',
   };
