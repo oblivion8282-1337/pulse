@@ -112,7 +112,10 @@ async def _zuweisung(
     belegt = 0
     cfg = await session.get(DropboxConfig, guild.id)
     if cfg is not None:
-        gesamt = min(gesamt, cfg.total_quota_bytes)
+        # Die Community-Zuweisung ist beim Anlegen aus der Betreiber-Decke
+        # geseedet und bei jedem Decken-Senken nachgezogen — sie ist der
+        # gültige Wert, auch wenn der Instanz-Default kleiner ist.
+        gesamt = cfg.total_quota_bytes
         belegt += cfg.used_bytes
     belegt += await _genutzte_bytes(session, guild.id)
     return gesamt, belegt, cfg
