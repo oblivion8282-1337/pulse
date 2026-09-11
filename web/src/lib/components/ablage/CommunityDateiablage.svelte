@@ -379,7 +379,8 @@
                 {/if}
               </p>
               <div
-                class="absolute right-1 top-1 flex gap-0.5 opacity-0 transition group-hover:opacity-100"
+                class="absolute right-1 top-1 flex gap-0.5"
+                data-testid="community-ablage-aktionen-{zeile.id}"
               >
                 {#if !zeile.istOrdner}
                   <Button
