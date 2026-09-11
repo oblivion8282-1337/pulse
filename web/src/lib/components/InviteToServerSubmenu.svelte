@@ -1,8 +1,10 @@
 <!--
   Submenu rendered inside PopoverFriendActions when the user clicks
   "Zu Server einladen". Lists all guilds where the caller has CREATE_INVITES
-  permission; clicking one sends a Community-Invite (Stufe 3) statt einem
-  Roh-Link per DM.
+  permission — AUSSER solche, in denen der Freund bereits Mitglied ist
+  (2026-09-11: ein Angebot, das der Server ohnehin mit 409 already_member
+  quittiert, verwirrt nur). Clicking one sends a Community-Invite (Stufe 3)
+  statt einem Roh-Link per DM.
 
   Flow:
     1. chatApi.createInvite(guild.id, {maxUses:1, expiresInSeconds:86400})
@@ -22,6 +24,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import MenuRow from '$lib/components/menu/MenuRow.svelte';
   import { guildIconSrc } from '$lib/guildIcon';
+  import { memberListCache } from './MentionAutocomplete.svelte';
 
   let {
     friendUserId,
@@ -38,6 +41,36 @@
   let invitableGuilds = $derived(
     guilds.list.filter((g: Guild) => roles.hasGuildPermission(g.id, Perm.CREATE_INVITES))
   );
+
+  // Communitys, in denen der Freund schon Mitglied ist — sie verschwinden
+  // aus der Liste. memberListCache teilt sich den Fetch mit MemberList/
+  // Mention-Autocomplete (ein Call je Guild, deduped, bei Mitglieds-
+  // wechseln invalidiert). Ein Cache-Fehler lässt die Community sichtbar:
+  // der Backend-Guard (409 already_member) fängt den Restfall auf.
+  let friendGuildIds = $state<Set<string>>(new Set());
+
+  $effect(() => {
+    const ziele = invitableGuilds;
+    if (ziele.length === 0) return;
+    let cancelled = false;
+    void Promise.allSettled(
+      ziele.map(async (g) =>
+        (await memberListCache.get(g.id)).some((mitglied) => mitglied.user_id === friendUserId)
+          ? g.id
+          : null
+      )
+    ).then((ergebnisse) => {
+      if (cancelled) return;
+      friendGuildIds = new Set(
+        ergebnisse.filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled' && r.value !== null).map((r) => r.value)
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  let anbietbareGuilds = $derived(invitableGuilds.filter((g) => !friendGuildIds.has(g.id)));
 
   function guildInitial(name: string): string {
     return name.trim().charAt(0).toUpperCase();
@@ -82,12 +115,12 @@
 </script>
 
 <div class="mt-1 flex flex-col gap-1" data-testid="invite-to-server-submenu">
-  {#if invitableGuilds.length === 0}
+  {#if anbietbareGuilds.length === 0}
     <p class="text-text-muted px-3 py-2 text-xs">
       {m.invite_to_server_submenu_no_invitable_guilds()}
     </p>
   {:else}
-    {#each invitableGuilds as guild (guild.id)}
+    {#each anbietbareGuilds as guild (guild.id)}
       {@const iconSrc = guildIconSrc(guild.icon_url, activeServer.current?.hostname)}
       <MenuRow
         onclick={() => sendInvite(guild)}
