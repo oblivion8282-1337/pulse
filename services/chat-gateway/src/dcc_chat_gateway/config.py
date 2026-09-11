@@ -189,6 +189,17 @@ class Settings(BaseSettings):
     ablage_zwischenlager_max_gesamt_bytes: int = 512 * 1024 * 1024
     ablage_zwischenlager_max_alter_tage: int = 7
 
+    # Pulse-Laufwerk (Spezifikation
+    # docs/superpowers/specs/2026-09-11-pulse-laufwerk-design.md): vermieteter
+    # Chiffrat-Speicher je Community auf dem eigenen Objektspeicher. Dieselbe
+    # Groessenordnung wie das Zwischenlager zum Start; die Werte sind die
+    # spaeteren Tarif-Stellschrauben. Das Verzeichnis (``verzeichnis.puls``)
+    # wird bei jedem Schreibvorgang neu geschrieben — seine Grenze ist die
+    # Gegenstelle fuer ausufernde Eintraege, nicht eine echte Sorge um Bytes.
+    pulse_laufwerk_max_datei_bytes: int = 64 * 1024 * 1024
+    pulse_laufwerk_verzeichnis_max_bytes: int = 256 * 1024
+    pulse_laufwerk_max_gesamt_bytes: int = 512 * 1024 * 1024
+
     # Anhaenge verschluesselter Direktnachrichten, die Pulse in die
     # Cloud-Ordner ALLER Beteiligten schiebt (Design §11.1/§11.3).
     #

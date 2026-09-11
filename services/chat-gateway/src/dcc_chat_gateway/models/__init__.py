@@ -11,6 +11,7 @@ from dcc_chat_gateway.models.ablage_laufwerk import (
     AblageKanalLaufwerk,
     AblageKontoLaufwerk,
 )
+from dcc_chat_gateway.models.ablage_pulse import AblagePulseLaufwerk, AblagePulseObjekt
 from dcc_chat_gateway.models.ablage_zwischenlager import AblageZwischenlagerDatei
 from dcc_chat_gateway.models.admin import AdminAuditLog, ChatSettings
 from dcc_chat_gateway.models.channels import (

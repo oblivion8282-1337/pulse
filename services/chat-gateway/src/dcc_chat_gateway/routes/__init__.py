@@ -9,6 +9,7 @@ from dcc_chat_gateway.routes import (
     ablage_kanal,
     ablage_konto_laufwerk,
     ablage_pruefen,
+    ablage_pulse,
     ablage_zwischenlager,
     admin,
     admin_backups,
@@ -96,6 +97,7 @@ router.include_router(ablage_konto_laufwerk.router)
 router.include_router(ablage_pruefen.router)
 router.include_router(ablage_guild_laufwerk.router)
 router.include_router(ablage_zwischenlager.router)
+router.include_router(ablage_pulse.router)
 # Friend-system / DM / Block routes are cloud-only (global social layer).
 # The ``require_cloud`` dependency (applied inside each router) returns 404
 # on self-host at request time. The routers are still registered so the
