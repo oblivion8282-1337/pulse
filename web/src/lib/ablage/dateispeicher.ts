@@ -173,7 +173,10 @@ export class DateiSpeicher {
 
 	/** Legt einen Ordner-Eintrag an (nur Verzeichnis, kein Objekt).
 	 *  Ein gleichnamiger Eintrag im selben Ordner wird abgewiesen —
-	 *  dasselbe Verhalten wie der alte Ablage-Endpoint (409). */
+	 *  dasselbe Verhalten wie der alte Ablage-Endpoint (409). Der
+	 *  Fehler trägt den stabilen Marker ``name-duplicate`` statt eines
+	 *  Textes: Übersetzen ist Sache der Ansicht (paraglide), diese Datei
+	 *  läuft auch im Node-Testläufer ohne Sprachmodul. */
 	async erstelleOrdner(name: string, pfad = ''): Promise<DateiInfo> {
 		return this.nacheinander(async () => {
 			await this._ladenWennNoetig();
@@ -181,7 +184,7 @@ export class DateiSpeicher {
 				(e) => (e.pfad ?? '') === pfad && e.name === name,
 			);
 			if (doppelt) {
-				throw new DateiablageFehler(`„${name}“ existiert in diesem Ordner bereits`);
+				throw new DateiablageFehler('name-duplicate');
 			}
 			const jetzt = new Date().toISOString();
 			const eintrag: AblageEintrag = {

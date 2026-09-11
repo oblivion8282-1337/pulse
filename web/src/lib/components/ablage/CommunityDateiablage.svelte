@@ -43,6 +43,7 @@
   import { ablageVerbindungen } from '$lib/ablage/verbindungen.svelte.ts';
   import { sichererBlobTyp } from '$lib/krypto/sichererBlobTyp.ts';
   import { formatBytes } from '$lib/utils/formatBytes';
+  import { m } from '$lib/paraglide/messages.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import DropboxQuotaGauge from '../dropbox/DropboxQuotaGauge.svelte';
@@ -131,7 +132,11 @@
       neuerOrdnerName = '';
       await ladeListe();
     } catch (e) {
-      fehler = e instanceof Error ? e.message : String(e);
+      fehler = e instanceof Error && e.message.includes('name-duplicate')
+        ? m.ablage_pulse_name_doppelt({ name })
+        : e instanceof Error
+          ? e.message
+          : String(e);
     }
   }
 
@@ -161,7 +166,7 @@
     if (!dateien?.length) return;
     const speicher = await speicherFuerVerbindung();
     if (!speicher) {
-      fehler = 'Dieses Gerät hat keinen Zugriffsschlüssel für dieses Laufwerk.';
+      fehler = m.ablage_pulse_kein_schluessel();
       return;
     }
     laeuft = true;
@@ -182,7 +187,9 @@
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
       if (fehler.includes('quota')) {
-        fehler = 'Der Speicher dieser Community ist voll.';
+        fehler = m.ablage_pulse_speicher_voll();
+      } else if (fehler.includes('disabled')) {
+        fehler = m.ablage_pulse_deaktiviert();
       }
     } finally {
       laeuft = false;
@@ -214,7 +221,7 @@
     if (!speicher) return;
     if (zeile.istOrdner) {
       const ok = await confirmDialog({
-        description: `Ordner „${zeile.name}“ löschen — samt allem, was drinliegt?`,
+        description: m.ablage_pulse_ordner_loeschen_frage({ name: zeile.name }),
         destructive: true
       });
       if (!ok) return;
@@ -241,7 +248,7 @@
   data-testid="community-ablage-ansicht"
 >
   {#if status === 'laedt'}
-    <p class="text-text-faint py-12 text-center text-sm">Wird geladen …</p>
+    <p class="text-text-faint py-12 text-center text-sm">{m.dropbox_loading()}</p>
   {:else if status === 'nicht_verbunden'}
     {#if istBesitzer}
       <div class="flex flex-1 items-center justify-center p-8">
@@ -250,14 +257,13 @@
           data-testid="community-ablage-aufforderung"
         >
           <p class="mb-3 text-sm text-muted-foreground">
-            Noch kein Laufwerk verbunden. Verbinde eines, damit Mitglieder Dateien
-            ablegen können.
+            {m.ablage_pulse_hinweis_kein_laufwerk()}
           </p>
           <Button
             onclick={() => (verbindenOffen = true)}
             data-testid="community-ablage-verbinden"
           >
-            Laufwerk verbinden
+            {m.ablage_pulse_verbinden_knopf()}
           </Button>
           {#if fehler}
             <p class="mt-2 text-sm text-destructive">{fehler}</p>
@@ -266,7 +272,7 @@
       </div>
     {:else}
       <p class="text-text-faint py-12 text-center text-sm">
-        Noch keine Ablage eingerichtet.
+        {m.ablage_pulse_nicht_eingerichtet()}
       </p>
     {/if}
   {:else if status === 'ohne_schluessel'}
@@ -275,13 +281,11 @@
       data-testid="community-ablage-ohne-schluessel"
     >
       <p class="max-w-md text-center text-sm text-muted-foreground">
-        Für diese Community ist ein Pulse-Laufwerk verbunden, aber dieses Gerät hat
-        keinen Zugriffsschlüssel dafür. Der Schlüssel liegt auf dem Gerät, das das
-        Laufwerk verbunden hat.
+        {m.ablage_pulse_ohne_schluessel()}
       </p>
     </div>
   {:else}
-    <DropboxBreadcrumb channelName="Ablage" currentPath={pfad} navigate={navigiere} />
+    <DropboxBreadcrumb channelName={m.ablage_pulse_name()} currentPath={pfad} navigate={navigiere} />
 
     <DropboxQuotaGauge
       quota={{ enabled: true, used_bytes: genutzt, total_quota_bytes: kontingent } as never}
@@ -293,8 +297,8 @@
         class={ICON_BTN}
         onclick={() => dateiInput?.click()}
         disabled={laeuft}
-        title="Hochladen"
-        aria-label="Hochladen"
+        title={m.ablage_pulse_hochladen()}
+        aria-label={m.ablage_pulse_hochladen()}
         data-testid="community-ablage-hochladen"
       >
         <UploadIcon class="size-4" />
@@ -304,16 +308,16 @@
         class={ICON_BTN}
         onclick={() => (ordnerDialogOffen = true)}
         disabled={laeuft}
-        title="Ordner erstellen"
-        aria-label="Ordner erstellen"
+        title={m.ablage_pulse_ordner_erstellen()}
+        aria-label={m.ablage_pulse_ordner_erstellen()}
         data-testid="community-ablage-ordner-anlegen"
       >
         <FolderPlusIcon class="size-4" />
       </button>
       <Input
         type="text"
-        placeholder="Dateien suchen"
-        aria-label="Dateien suchen"
+        placeholder={m.ablage_pulse_suche()}
+        aria-label={m.ablage_pulse_suche()}
         class="flex-1"
         value={suchText}
         oninput={(e) => (suchText = (e.currentTarget as HTMLInputElement).value)}
@@ -323,8 +327,8 @@
         type="button"
         class={istRaster ? ICON_BTN_ACTIVE : ICON_BTN}
         onclick={() => (istRaster = !istRaster)}
-        title="Ansicht umschalten"
-        aria-label="Ansicht umschalten"
+        title={m.ablage_pulse_ansicht_umschalten()}
+        aria-label={m.ablage_pulse_ansicht_umschalten()}
         data-testid="community-ablage-ansicht-umschalten"
       >
         {#if istRaster}
@@ -347,9 +351,11 @@
       {#if gefiltert.length === 0}
         <div class="text-text-faint py-12 text-center text-sm">
           {#if suchText.trim() !== ''}
-            Keine Treffer für „{suchText}“.
+            {m.ablage_pulse_keine_treffer({ query: suchText })}
+          {:else if pfad !== ''}
+            {m.dropbox_empty_folder()}
           {:else}
-            Noch keine Dateien.
+            {m.ablage_pulse_leer()}
           {/if}
         </div>
       {:else if istRaster}
@@ -366,14 +372,14 @@
                   ? 'text-primary'
                   : ''}"
                 onclick={() => (zeile.istOrdner ? oeffneOrdner(zeile) : herunterladen(zeile))}
-                title={zeile.istOrdner ? 'Ordner öffnen' : 'Herunterladen'}
+                title={zeile.istOrdner ? m.ablage_pulse_ordner_oeffnen() : m.ablage_pulse_herunterladen()}
               >
                 <Icon class="size-12" />
               </button>
               <p class="truncate text-sm font-medium" title={zeile.name}>{zeile.name}</p>
               <p class="text-text-faint text-xs">
                 {#if zeile.istOrdner}
-                  Ordner
+                  {m.dropbox_folder_label()}
                 {:else}
                   {formatBytes(zeile.groesse)}
                 {/if}
@@ -386,7 +392,7 @@
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    title="Herunterladen"
+                    title={m.ablage_pulse_herunterladen()}
                     onclick={() => herunterladen(zeile)}
                     data-testid="community-ablage-download-{zeile.id}"
                   >
@@ -396,7 +402,7 @@
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  title={zeile.istOrdner ? 'Ordner löschen' : 'Löschen'}
+                  title={zeile.istOrdner ? m.ablage_pulse_ordner_loeschen() : m.ablage_pulse_loeschen()}
                   onclick={() => loeschen(zeile)}
                   data-testid="community-ablage-loeschen-{zeile.id}"
                 >
@@ -431,7 +437,7 @@
                 {/if}
                 <div class="text-text-faint text-xs">
                   {#if zeile.istOrdner}
-                    Ordner
+                    {m.dropbox_folder_label()}
                   {:else}
                     {formatBytes(zeile.groesse)}
                     {#if zeile.hochgeladenAm}
@@ -443,7 +449,7 @@
               {#if !zeile.istOrdner}
                 <button
                   class="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title="Herunterladen"
+                  title={m.ablage_pulse_herunterladen()}
                   onclick={() => herunterladen(zeile)}
                 >
                   <DownloadIcon class="size-4" />
@@ -451,7 +457,7 @@
               {/if}
               <button
                 class="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive"
-                title={zeile.istOrdner ? 'Ordner löschen' : 'Löschen'}
+                title={zeile.istOrdner ? m.ablage_pulse_ordner_loeschen() : m.ablage_pulse_loeschen()}
                 onclick={() => loeschen(zeile)}
                 data-testid="community-ablage-loeschen-{zeile.id}"
               >

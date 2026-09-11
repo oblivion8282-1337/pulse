@@ -36,7 +36,7 @@ test('ordner anlegen, hineinladen, filtern — und doppelte Namen abweisen', asy
 
 	await assert.rejects(
 		() => s.erstelleOrdner('Fotos', ''),
-		/existiert in diesem Ordner bereits/
+		/name-duplicate/
 	);
 });
 
