@@ -24,11 +24,7 @@ import { build, files, version } from '$service-worker';
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const CACHE = `pulse-cache-${version}`;
-// `files` umfasst alles aus statics/ — auch die 13 MB sherpa-onnx-WASM für
-// GTCRN. Die gehören NICHT in den Install-Precache (sonst lädt jede Install
-// sie herunter, auch wer das Modell nie aktiviert); der HTTP-Cache der
-// Browser-Fetches reicht, die Dateien ändern sich nur bei Release-Updates.
-const ASSETS = [...build, ...files].filter((p) => !p.startsWith('/gtcrn/'));
+const ASSETS = [...build, ...files];
 
 sw.addEventListener('install', (event) => {
   event.waitUntil(

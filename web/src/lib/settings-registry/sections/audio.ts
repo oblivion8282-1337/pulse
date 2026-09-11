@@ -4,9 +4,10 @@
  */
 import type { SectionConfig } from '../types';
 
-/** `'rnnoise_gated'` = Standard-Kette (RNNoise + Gate, im Worklet);
- *  `'gtcrn'` = GTCRN-Modell via sherpa-onnx (Main Thread, experimentell). */
-export type NoiseSuppressionMode = 'off' | 'rnnoise_gated' | 'gtcrn';
+/** `'rnnoise_gated'` = Standard-Kette (RNNoise + Gate, im Worklet).
+ *  GTCRN (sherpa-onnx, 2026-08-29–2026-09-11) ist wieder raus — gespeicherte
+ *  'gtcrn'-Werte wandern über die Validierung unten auf den Standard. */
+export type NoiseSuppressionMode = 'off' | 'rnnoise_gated';
 
 /**
  * Spatial (3D) audio for voice playback. `off` = today's flat mix; `standard`
@@ -93,7 +94,7 @@ export const AUDIO_SECTION: SectionConfig<AudioSettings> = {
       // (DFN3 was removed 2026-05-16). Any non-'off', non-current legacy value
       // indicates the user wanted *some* filter on — map to the gated mode.
       noiseSuppression:
-        a.noiseSuppression === 'off' || a.noiseSuppression === 'rnnoise_gated' || a.noiseSuppression === 'gtcrn'
+        a.noiseSuppression === 'off' || a.noiseSuppression === 'rnnoise_gated'
           ? a.noiseSuppression
           : typeof a.noiseSuppression === 'string'
             ? 'rnnoise_gated'

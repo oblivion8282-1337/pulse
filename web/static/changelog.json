@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-11.6",
+      "date": "2026-09-11",
+      "style": "Sachlich",
+      "title": "Experimentelle GTCRN-Rauschunterdrückung entfernt",
+      "intro": "Das alternative Rauschunterdrückungs-Modell GTCRN ist wieder herausgenommen. Die Rauschunterdrückung nutzt wieder ausschließlich die Standard-Kette.",
+      "items": [
+        "Wer in den Audio-Einstellungen GTCRN gewählt hatte, wird automatisch auf die Standard-Rauschunterdrückung zurückgestellt.",
+        "Mit dem Modell entfällt auch der zugehörige einmalige Download (~13 MB)."
+      ]
+    },
+    {
       "id": "2026-09-11.5",
       "date": "2026-09-11",
       "style": "Sachlich",

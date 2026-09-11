@@ -127,11 +127,9 @@ export default defineConfig({
     // klein genug für diesen Pfad und kippte die Rauschunterdrückung im
     // Prod-Build (Dev funktionierte, weil Vite dort jede Datei separat
     // ausliefert). Erzwinge eine separate Datei für alle Worklet-Prozessoren
-    // — auch gtcrnFerryWorklet.js (unser eigenes, 2026-08-30 dieselbe Falle
-    // nochmal; zusätzlich blockt die CSP worker-src 'self' blob: data:).
+    // (zusätzlich blockt die CSP worker-src 'self' blob: data:).
     assetsInlineLimit(filePath) {
       if (filePath.endsWith('workletProcessor.js')) return false;
-      if (filePath.endsWith('gtcrnFerryWorklet.js')) return false;
       return undefined;
     },
     rollupOptions: {

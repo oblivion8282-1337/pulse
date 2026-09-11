@@ -12,7 +12,7 @@
  * live sources and this stays torn down (never two mic streams at once).
  */
 import { Track } from 'livekit-client';
-import { createSendProcessor, type SendProcessorHandle } from './noiseFilter';
+import { createSendProcessor, type SendProcessorHandle, type SendProcessorMode } from './noiseFilter';
 import { LocalMicAnalyser } from './localMicAnalyser';
 import { settings } from '$lib/stores/settings.svelte';
 import { applySinkId } from '$lib/audio/applySinkId';
@@ -70,11 +70,8 @@ class MicTest {
     if (!track) return;
 
     try {
-      const mode = settings.audio.noiseSuppression === 'gtcrn'
-        ? 'gtcrn'
-        : settings.audio.noiseSuppression !== 'off'
-          ? 'rnnoise_gated'
-          : 'gain_only';
+      const mode: SendProcessorMode =
+        settings.audio.noiseSuppression !== 'off' ? 'rnnoise_gated' : 'gain_only';
       const proc = createSendProcessor(mode, settings.audio.noiseGateThresholdDb, settings.audio.inputMakeupGain);
       await proc.processor.init({ kind: Track.Kind.Audio, track });
       if (gen !== this.#gen) { void proc.processor.destroy(); return; }
