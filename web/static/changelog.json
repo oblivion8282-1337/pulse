@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-12.2",
+      "date": "2026-09-12",
+      "style": "Sachlich",
+      "title": "Kamera-Bild immer komplett sichtbar",
+      "intro": "Kamera-Kacheln zeigen das gesamte Kamerabild, statt es an die Kachelgröße anzupassen und Ränder abzuschneiden.",
+      "items": [
+        "Kleine oder schmale Kacheln zeigen jetzt das volle Bild mit schwarzen Balken statt eines beschnittenen Ausschnitts. Im Vollbild ändert sich nichts."
+      ]
+    },
+    {
       "id": "2026-09-12.1",
       "date": "2026-09-12",
       "style": "Sachlich",

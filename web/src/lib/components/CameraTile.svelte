@@ -98,7 +98,7 @@
       autoplay
       playsinline
       muted
-      class="h-full min-h-0 w-full min-w-0 object-cover {mirror ? '-scale-x-100' : ''}"
+      class="h-full min-h-0 w-full min-w-0 object-contain {mirror ? '-scale-x-100' : ''}"
     ></video>
   {/snippet}
 </TileShell>
