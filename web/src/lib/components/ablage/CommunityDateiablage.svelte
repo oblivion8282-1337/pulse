@@ -122,33 +122,22 @@
   }
 
   async function legeOrdnerAn(): Promise<void> {
-    const debug: Record<string, unknown> = { gestartet: true, name: neuerOrdnerName, pfad };
-    (window as unknown as Record<string, unknown>).__ablageDebug = debug;
     const name = neuerOrdnerName.trim();
-    if (!name) {
-      debug.früh = 'name leer';
-      return;
-    }
+    if (!name) return;
     const speicher = await speicherFuerVerbindung();
-    if (!speicher) {
-      debug.früh = 'kein speicher';
-      return;
-    }
+    if (!speicher) return;
     try {
       await speicher.erstelleOrdner(name, pfad);
-      debug.geschrieben = true;
       ordnerDialogOffen = false;
       neuerOrdnerName = '';
       await ladeListe();
-      debug.einträge = zeilen.map((z) => z.name);
     } catch (e) {
-      debug.fehler = e instanceof Error ? e.message : String(e);
-      fehler = debug.fehler as string;
-      if (fehler.includes('name-duplicate')) {
-        fehler = m.ablage_pulse_name_doppelt({ name });
-      }
+      fehler = e instanceof Error && e.message.includes('name-duplicate')
+        ? m.ablage_pulse_name_doppelt({ name })
+        : e instanceof Error
+          ? e.message
+          : String(e);
     }
-    (window as unknown as Record<string, unknown>).__ablageDebug = debug;
   }
 
   async function pruefeStatus(): Promise<void> {
