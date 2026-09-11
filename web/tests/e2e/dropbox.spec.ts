@@ -80,6 +80,12 @@ async function registerAndLogin(page: Page, suffix: string) {
 }
 
 test.describe('Dropbox / Ablage', () => {
+  // Seit dem 2026-09-11 ist der Typ-2-Kanal die verschlüsselte
+  // Pulse-Ablage (CommunityDateiablage) — der alte Dropbox-Speicherweg mit
+  // Papierkorb/Wiederherstellen hat keine Oberfläche mehr. Dieses Spec
+  // beschreibt genau den und ruht, bis entschieden ist, ob die
+  // Pulse-Ablage ein eigenes E2E bekommt.
+  test.skip(true, 'Ablage-Kanal nutzt jetzt das verschlüsselte Pulse-Laufwerk (Spec §11)');
   test('create dropbox channel, upload, trash via DOM, restore via DOM', async ({
     page
   }) => {

@@ -210,6 +210,14 @@ Entscheidungen schneiden §9 und Teile der Einleitung neu:
    Community-Besitzer mietet Speicher für seine Community.
 4. **Die Grundrichtung bleibt:** Pulse vermietet verschlüsselten Speicher;
    der Server sieht weiterhin nur Chiffrat.
+5. **Einbettung (nachgereicht im selben Gespräch):** Die Dateiablage ist
+   und bleibt ein **Kanal** (Typ 2, „Ablage" im Plus-Menü neben Text und
+   Sprache). Die alte Dreifach-Freigabe aus Dropbox-Zeiten entfällt — die
+   Option ist immer sichtbar. Das separate Laufwerk-Symbol im
+   Kanallisten-Kopf ist entfernt; der Kanal öffnet die
+   CommunityDateiablage (verbinden → Verbinden-Dialog mit „Pulse-Laufwerk",
+   dann Dateiliste). Der alte Dropbox-Speicherweg (`DropboxView`, alte
+   Server-Routen) bleibt ungenutzt im Baum, sein E2E-Spec ruht.
 
 Konsequenz im Klienten: `anbieter.ts` führt die zwei Kontexte getrennt —
 `angeboteneAnbieter()` (Archiv, fremde Anbieter) und `communityAnbieter()`
