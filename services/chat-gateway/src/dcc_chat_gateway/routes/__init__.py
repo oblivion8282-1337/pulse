@@ -174,6 +174,7 @@ _dropbox_gate = [
     Depends(require_guild_dropbox_allowed),
 ]
 router.include_router(dropbox.router, dependencies=_dropbox_gate)
+router.include_router(dropbox.kanal_router)
 router.include_router(dropbox_uploads.router, dependencies=_dropbox_gate)
 router.include_router(dropbox_downloads.router, dependencies=_dropbox_gate)
 router.include_router(dropbox_admin.admin_router, dependencies=_dropbox_gate)
