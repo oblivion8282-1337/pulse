@@ -130,47 +130,8 @@ test.describe('Pulse-Laufwerk — Community-Dateiablage', () => {
     // Ordner anlegen, hinein, Datei im Ordner hochladen
     await page.getByTestId('community-ablage-ordner-anlegen').click();
     await page.getByTestId('dropbox-folder-name-input').fill('Fotos');
-    await page.waitForTimeout(1000);
-
+    await page.waitForTimeout(800);
     await page.getByTestId('dropbox-folder-create').click();
-    await page.waitForTimeout(2000);
-    console.log(
-      'FOLDER-DEBUG:',
-      JSON.stringify({
-        dialogOffen: await page.getByTestId('dropbox-folder-dialog')
-          .isVisible()
-          .catch(() => false),
-        ablageDebug: await page
-          .evaluate(() => (window as unknown as Record<string, unknown>).__ablageDebug)
-          .catch((e) => String(e)),
-        kartenImDom: await page
-          .evaluate(
-            () =>
-              document.querySelectorAll('[data-testid^=community-ablage-datei-]').length
-          )
-          .catch((e) => String(e)),
-        ansichtText: await page
-          .evaluate(
-            () =>
-              document.querySelector('[data-testid=community-ablage-ansicht]')?.textContent?.slice(0, 400) ?? null
-          )
-          .catch((e) => String(e)),
-        netz: await page.evaluate(() => window.__net).catch(() => null),
-        rejections: await page.evaluate(() => window.__rejections).catch(() => null),
-        log: await page.evaluate(() => window.__log).catch(() => null),
-        verzeichnisGroesse: await page.evaluate(async () => {
-          const token = localStorage.getItem('dcc.tokens.access');
-          const gid = location.pathname.match(/guilds\/(\d+)/)?.[1];
-          const r1 = await fetch(`/api/chat/guilds/${gid}/ablage/pulse/dateien/lese-url?name=verzeichnis.puls`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (!r1.ok) return `lese-url ${r1.status}`;
-          const { url } = await r1.json();
-          const b = await (await fetch(url)).arrayBuffer();
-          return b.byteLength;
-        }).catch((e) => String(e))
-      })
-    );
 
     const ordnerKarte = ansicht.locator('[data-testid^=community-ablage-datei-]', {
       hasText: 'Fotos'

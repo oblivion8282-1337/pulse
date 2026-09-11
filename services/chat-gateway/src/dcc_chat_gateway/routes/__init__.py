@@ -28,8 +28,6 @@ from dcc_chat_gateway.routes import (
     dms,
     dropbox,
     dropbox_admin,
-    dropbox_downloads,
-    dropbox_uploads,
     friends,
     geraete,
     guild_icons,
@@ -175,8 +173,9 @@ _dropbox_gate = [
 ]
 router.include_router(dropbox.router, dependencies=_dropbox_gate)
 router.include_router(dropbox.kanal_router)
-router.include_router(dropbox_uploads.router, dependencies=_dropbox_gate)
-router.include_router(dropbox_downloads.router, dependencies=_dropbox_gate)
+# Der alte Dropbox-Speicherweg (uploads/downloads/entries) ist eingestellt
+# (2026-09-11, Pulse-Laufwerk) — die Routen sind ausgebaut; MinIO-Daten
+# alter Communitys bleiben kalt liegen.
 router.include_router(dropbox_admin.admin_router, dependencies=_dropbox_gate)
 router.include_router(notifications.router)
 router.include_router(presence.router)
