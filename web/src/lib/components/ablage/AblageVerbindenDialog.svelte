@@ -26,6 +26,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import LockIcon from '@lucide/svelte/icons/lock';
+  import { m } from '$lib/paraglide/messages.js';
   import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
   import { angeboteneAnbieter, type AblageAnbieterArt, type AnbieterEintrag } from '$lib/ablage/anbieter.ts';
   import { ablagePulseApi } from '$lib/api/ablagePulse.ts';
@@ -64,6 +65,8 @@
     onedrive: 'Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner',
     gdrive: 'Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat',
     nextcloud: 'Freigabe-Link aus deiner Nextcloud einfügen — mehr braucht es nicht',
+    // Pulse zeigt in der Liste Name + Beschreibung aus paraglide
+    // (ablage_pulse_*); dieser Eintrag bleibt nur als Fallback stehen.
     pulse: 'Verschlüsselter Speicher auf dem Pulse-Server — kein Konto, kein Link',
     sync_ordner: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch',
     s3: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben',
@@ -175,7 +178,7 @@
    */
   async function verbindePulse(): Promise<void> {
     if (!guildId) {
-      fehler = 'Das Pulse-Laufwerk gehört zu einer Community — hier fehlt die Angabe dazu.';
+      fehler = m.ablage_pulse_fehlt_guild();
       return;
     }
     verbinde = true;
@@ -225,8 +228,12 @@
           >
             <Icon class="text-text-muted size-6 shrink-0" />
             <div>
-              <div class="font-semibold">{a.name}</div>
-              <div class="text-xs text-muted-foreground">{BESCHREIBUNG[a.art]}</div>
+              <div class="font-semibold">
+                {a.art === 'pulse' ? m.ablage_pulse_name() : a.name}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {a.art === 'pulse' ? m.ablage_pulse_beschreibung() : BESCHREIBUNG[a.art]}
+              </div>
             </div>
           </button>
         {/each}
@@ -249,11 +256,10 @@
         />
       {:else if auswahl === 'pulse'}
         <p class="mb-4 text-sm text-muted-foreground">
-          Verschlüsselter Speicher auf dem Pulse-Server für diese Community. Es gibt
-          nichts einzugeben — der Schlüssel entsteht auf diesem Gerät und bleibt dort.
+          {m.ablage_pulse_beschreibung()}
         </p>
         <Button onclick={verbindePulse} disabled={verbinde} data-testid="pulse-verbinden">
-          Pulse-Laufwerk verbinden
+          {m.ablage_pulse_verbinden()}
         </Button>
       {:else}
         <p class="mb-4 text-sm text-muted-foreground">
