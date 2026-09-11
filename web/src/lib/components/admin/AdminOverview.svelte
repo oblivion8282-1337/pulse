@@ -7,6 +7,7 @@
 import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { adminApi, type AuthStats, type ChatStats } from '$lib/api/admin';
+  import { fetchServerInfo } from '$lib/api/server-info';
   import { m } from '$lib/paraglide/messages.js';
   import UsersIcon from '@lucide/svelte/icons/users';
   import LayersIcon from '@lucide/svelte/icons/layers';
@@ -27,6 +28,7 @@ import { errText } from '$lib/utils/errText';
   let auth = $state<AuthStats | null>(null);
   let chat = $state<ChatStats | null>(null);
   let error = $state<string | null>(null);
+  let buildVersion = $state('');
 
   onMount(async () => {
     try {
@@ -35,13 +37,32 @@ import { errText } from '$lib/utils/errText';
     } catch (e) {
       error = errText(e);
     }
+    // Baustempel aus dem öffentlichen well-known des EIGENEN Hosts — keine
+    // Anmeldung nötig, darf die Kacheln nie blockieren (bei Erfolg leer).
+    const info = await fetchServerInfo(window.location.origin);
+    if (info?.build_version) buildVersion = info.build_version;
   });
 
   // Null → 0: storage_bytes === null zeigt eh den "nicht aktiv"-Hinweis.
 </script>
 
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-overview">
-  <h2 class="text-text-bright mb-4 text-base font-semibold">{m.admin_overview_title()}</h2>
+  <h2 class="text-text-bright mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-base font-semibold">
+    {m.admin_overview_title()}
+    <!-- Der Baustempel dieses Servers (kurzer Commit-SHA, bei jedem CI-Deploy
+         automatisch neu; 'dev' = kein CI-Bau). Derselbe Stempel auf Cloud und
+         Self-Host = byte-identischer Stand — deshalb dieselbe Anzeige auf
+         beiden Admin-Seiten. -->
+    {#if buildVersion}
+      <span
+        class="text-text-muted font-mono text-xs font-normal"
+        data-testid="admin-build-version"
+        title={m.admin_overview_build_hint()}
+      >
+        {buildVersion}
+      </span>
+    {/if}
+  </h2>
 
   {#if error}
     <FieldError message={m.admin_overview_stats_load_error({ error: error ?? '' })} />

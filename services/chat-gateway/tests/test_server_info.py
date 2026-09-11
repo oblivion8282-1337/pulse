@@ -100,3 +100,26 @@ async def test_beide_oberflaechen_nennen_dieselbe_liste(client):
 
     r = await client.get("/.well-known/pulse-server-info")
     assert r.json()["capabilities"] == list(SERVER_FAEHIGKEITEN)
+
+
+@pytest.mark.asyncio
+async def test_server_info_build_version_dev_ohne_ci_bau(client):
+    """Ohne ``PULSE_BUILD_VERSION`` (Dev-Stack, lokale Tests) meldet der
+    Endpunkt ehrlich ``dev`` — hier lief kein Bauprozess mit."""
+    r = await client.get("/.well-known/pulse-server-info")
+    assert r.status_code == 200, r.text
+    assert r.json()["build_version"] == "dev"
+
+
+@pytest.mark.asyncio
+async def test_server_info_build_version_aus_der_umgebung(client, monkeypatch):
+    """Die CI schreibt den kurzen Commit-SHA als Umgebungsvariable ins Image —
+    derselbe Wert, den Admin-Anzeige und Server-Kärtchen zeigen. Der Stempel
+    muss 1:1 durchgereicht werden (kein Mischen mit server_version)."""
+    monkeypatch.setenv("PULSE_BUILD_VERSION", "48c405a")
+    r = await client.get("/.well-known/pulse-server-info")
+    assert r.status_code == 200, r.text
+    koerper = r.json()
+    assert koerper["build_version"] == "48c405a"
+    # Die handgesetzte Kompatibilitaets-Nummer bleibt unangetastet daneben.
+    assert koerper["server_version"] == __version__

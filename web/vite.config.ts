@@ -198,7 +198,12 @@ export default defineConfig({
       '/api/ws': {
         ...apiProxy(CHAT_PORT, { ws: true }),
         ...(API_ORIGIN ? {} : { rewrite: (p: string) => p.replace(/^\/api\/ws/, '') })
-      }
+      },
+      // Öffentliche Server-Metadaten (Baustempel-Anzeige, „Server hinzufügen"-
+      // Pre-Check) — in Produktion routet nginx/Caddy dies an den chat-gateway
+      // (web-nginx.conf / Self-Host-Caddyfile); ohne die Dev-Weiterleitung
+      // greift der SPA-Rückfall und die Anzeige bliebe lokal leer.
+      '/.well-known/pulse-server-info': apiProxy(CHAT_PORT)
     }
   }
 });

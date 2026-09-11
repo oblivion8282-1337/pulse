@@ -72,3 +72,9 @@ COPY infra/self-host/pulse-update.sh /usr/share/nginx/html/self-host/pulse-updat
 # text/plain-Block fuer /self-host/ ab und der Leser sieht Quelltext).
 COPY docs/self-host-guide.html /usr/share/nginx/html/self-host/guide
 EXPOSE 80
+
+# Baustempel-Arg aus der CI-Matrix (fuer alle Images gleich mitgegeben).
+# Das Web-Image ist statisches nginx und braucht ihn nicht — deklariert, damit
+# der Bau ohne Warnung laeuft. Quelle des Stempels im laufenden System ist der
+# chat-gateway (build_version via /.well-known/pulse-server-info).
+ARG PULSE_BUILD_VERSION

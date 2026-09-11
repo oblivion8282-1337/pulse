@@ -48,7 +48,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket
 
-from dcc_chat_gateway import __version__
+from dcc_chat_gateway import __version__, build_version
 from dcc_chat_gateway.client_ip import ws_client_ip
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.faehigkeiten import SERVER_FAEHIGKEITEN
@@ -210,6 +210,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     await websocket.send_json({
         "op": "hello",
         "server_version": __version__,
+        # Der Baustempel des Laufs (2026-09-11) — s. dcc_chat_gateway
+        # .build_version. Derselbe Stempel auf Cloud und Self-Host heisst
+        # byte-identischer Stand; ``dev`` heisst: kein CI-Bau.
+        "build_version": build_version(),
         # ``server-ticket``: dieser Server kann ``POST /session``. Es gibt
         # keinen zweiten Anmeldeweg mehr — die Angabe dient der Diagnose
         # (``selfhost_probe_anmeldeweg``) und kuenftigen Klienten, nicht einer

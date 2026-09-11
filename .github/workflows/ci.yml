@@ -300,7 +300,11 @@ jobs:
         with:
           context: .
           file: ${{ matrix.file }}
-          build-args: ${{ matrix.args }}
+          # matrix.args je Service + der Baustempel fuer ALLE: der kurze
+          # Commit-SHA, den der chat-gateway als build_version meldet.
+          build-args: |
+            ${{ matrix.args }}
+            PULSE_BUILD_VERSION=${{ steps.sha.outputs.short }}
           push: true
           tags: |
             ghcr.io/oblivion8282-1337/pulse-${{ matrix.name }}:latest

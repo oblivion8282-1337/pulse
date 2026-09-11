@@ -47,6 +47,9 @@ async function antwortetUeberhaupt(hostname: string, timeoutMs: number): Promise
 
 export type ServerInfo = {
   server_version: string;
+  /** Baustempel des Laufs (kurzer Commit-SHA, 'dev' ohne CI-Bau) — der
+   *  Stand-Vergleich zwischen Cloud und Self-Host, s. server_info.py. */
+  build_version?: string;
   pulse_oidc_issuer: string;
   instance_id: string | null;
   capabilities: string[];
@@ -142,4 +145,36 @@ export async function preCheckServer(
   }
 
   return { ok: true, info, hostname };
+}
+
+/**
+ * Baustempel eines Servers abrufen — der leichte Weg ohne die ganzen
+ * Pre-Check-Validierungen (der Aufrufer zeigt nur an, er entscheidet nicht).
+ * Liefert ``null`` bei Netz-/CORS-Fehlern: die Anzeige bleibt dann einfach
+ * leer, kein Fehler-Toast für eine Kanne-Info.
+ */
+export async function fetchServerInfo(
+  origin: string,
+  timeoutMs = 4000
+): Promise<ServerInfo | null> {
+  const basis = origin.replace(/\/$/, '');
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const resp = await fetch(`${basis}/.well-known/pulse-server-info`, {
+      method: 'GET',
+      signal: ac.signal,
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' }
+    });
+    if (!resp.ok) return null;
+    const info = (await resp.json()) as ServerInfo;
+    return typeof info?.server_version === 'string' ? info : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }

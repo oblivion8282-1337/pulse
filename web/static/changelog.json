@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-11.5",
+      "date": "2026-09-11",
+      "style": "Sachlich",
+      "title": "Server-Stand als Baustempel sichtbar",
+      "intro": "Jede Bereitstellung trägt einen Baustempel (kurze Kennung des ausgelieferten Stands), der bei jedem Deploy automatisch neu gesetzt wird. Betreiber der Pulse-Cloud und Self-Host-Betreiber sehen dieselbe Kennung — gleiche Kennung bedeutet exakt derselben Software-Stand.",
+      "items": [
+        "In der Admin-Übersicht steht der Baustempel neben der Überschrift.",
+        "Das Server-Info-Kärtchen (Info eines verbundenen Servers) zeigt dessen Baustempel.",
+        "Ohne CI-Bau (z. B. Entwicklungsumgebung) steht dort „dev“."
+      ]
+    },
+    {
       "id": "2026-09-11.4",
       "date": "2026-09-11",
       "style": "Sachlich",
