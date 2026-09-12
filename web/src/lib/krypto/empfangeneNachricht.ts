@@ -34,7 +34,11 @@ export function baueEmpfangeneNachricht(
     content: text,
     nonce: null,
     reply_to_id: replyToId,
-    created_at: new Date().toISOString(),
+    // Sendezeit = Einlieferungszeit der Nutzlast (Server-Uhr). Ohne dieses
+    // Feld (aelterer Self-Host-Server) bleibt nur die eigene Uhr — dann
+    // zeigt eine offline zugestellte Nachricht den ABHOLmoment, nicht den
+    // Sendezeitpunkt (Bughunt 2026-09-12).
+    created_at: z.created_at ?? new Date().toISOString(),
     // Lokal geparst, s. `mentionMarkierungen.ts`-Modulkopf.
     mentions: parseMentionMarkers(text),
     // Erkennungsmerkmal, s. `Message.verschluesselt` in `api/types.ts`.

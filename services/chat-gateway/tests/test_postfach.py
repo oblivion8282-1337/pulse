@@ -6,6 +6,7 @@ import base64
 import itertools
 import json
 import random
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -810,6 +811,16 @@ async def test_abholen_liefert_nur_die_eigenen(
     zustellungen = r.json()
     assert len(zustellungen) == 1
     assert zustellungen[0]["daten"] == daten
+    # Sendezeitstempel: Einlieferungszeit der Nutzlast, nicht der Abholmoment
+    # (Bughunt 2026-09-12 — offline zugestellte DMs zeigten vorher die
+    # App-Oeffnungszeit). Parsebar und maximal Sekunden neben "jetzt".
+    # Ohne Offset (SQLite-TestDB, naive UTC) als UTC lesen — Postgres in
+    # Produktion liefert ohnehin tz-aware.
+    erstellt = datetime.fromisoformat(zustellungen[0]["created_at"])
+    if erstellt.tzinfo is None:
+        erstellt = erstellt.replace(tzinfo=timezone.utc)
+    alter = datetime.now(timezone.utc) - erstellt
+    assert timedelta(0) <= alter < timedelta(seconds=30)
 
     # Das ZWEITE Geraet DESSELBEN Nutzers sieht nichts.
     r = await _abholen(client, token=token_b, pubkey=pub_2)

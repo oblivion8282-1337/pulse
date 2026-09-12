@@ -1511,6 +1511,11 @@ class PostfachZustellungOut(BaseModel):
     #: Base64, wie ``PostfachNutzlastIn.daten``.
     daten: str
     groesse: int
+    #: Einlieferungszeit der Nutzlast (Server-Uhr, UTC) — fuer den Klienten
+    #: der Sendezeitpunkt: der Umschlag selbst traegt keine Zeit, und ohne
+    #: dieses Feld stuende ihm nur der ABHOLmoment zur Verfuegung (eine
+    #: offline zugestellte DM zeigte sonst den Zeitpunkt des App-Oeffnens).
+    created_at: datetime
 
     @field_serializer("id", "channel_id")
     def _ser_id(self, v: int) -> str:

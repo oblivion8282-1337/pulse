@@ -91,6 +91,14 @@ async def postfach_abholen(
                 DmNutzlast.art,
                 DmNutzlast.daten,
                 DmNutzlast.groesse,
+                # Einlieferungszeit = Sendezeit (Bughunt 2026-09-12): der
+                # Klient hat fuer verschluesselte Nachrichten KEINE eigene
+                # Zeitquelle — der Umschlag traegt keine, und ohne dieses
+                # Feld stempelte er den ABHOLmoment darauf (eine offline
+                # zugestellte DM zeigte den Zeitpunkt des App-Oeffnens).
+                # Server-Uhr wie bei jeder Klartext-Nachricht; die Spalte
+                # existiert eh (Fristlauf), sie wird hier nur sichtbar.
+                DmNutzlast.created_at,
             )
             .join(DmNutzlast, DmNutzlast.id == DmZustellung.nutzlast_id)
             .where(

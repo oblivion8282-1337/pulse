@@ -83,6 +83,11 @@ export interface PostfachZustellung {
   /** Base64. */
   daten: string;
   groesse: number;
+  /** Einlieferungszeit der Nutzlast (Server-Uhr, UTC-ISO) — für den
+   *  Empfänger der Sendezeitpunkt. Optional: ältere Self-Host-Server ohne
+   *  das Feld, der Klient fällt dann auf die eigene Uhr zurück
+   *  (`empfangeneNachricht.ts`). */
+  created_at?: string;
 }
 
 export const postfachApi = {
