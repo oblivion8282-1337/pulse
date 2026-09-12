@@ -2,6 +2,28 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-12.4",
+      "date": "2026-09-12",
+      "style": "Sachlich",
+      "title": "Keine Hinweis-Fenster mehr über Server-Bezeichnungen",
+      "intro": "Beim Überfahren der Server-Bezeichnungen in der Liste links erscheint kein Hinweis-Fenster mehr.",
+      "items": [
+        "Betrifft den Pulse-Eintrag und die Bezeichnungen selbst gehosteter Server. Einstellungen des Servers bleiben über Rechtsklick erreichbar.",
+        "Die Community-Symbole zeigen weiterhin ihren Hinweis beim Überfahren."
+      ]
+    },
+    {
+      "id": "2026-09-12.3",
+      "date": "2026-09-12",
+      "style": "Sachlich",
+      "title": "Verschieben in Sprachkanäle repariert",
+      "intro": "Das Verschieben von Mitgliedern in andere Sprachkanäle konnte Kanäle aus der Liste verschwinden lassen und das verschobene Mitglied ohne Sprachverbindung stranden lassen — beides ist behoben.",
+      "items": [
+        "Wird ein Mitglied in einen anderen Sprachkanal verschoben, bleibt der zuvor besuchte Kanal in seiner Kanalliste sichtbar — sofern es ihn ohnehin sehen darf.",
+        "Wer zügig nacheinander durch mehrere Kanäle verschoben wird, landet zuverlässig im Zielkanal und bleibt nicht ohne Sprachverbindung hängen."
+      ]
+    },
+    {
       "id": "2026-09-12.2",
       "date": "2026-09-12",
       "style": "Sachlich",
