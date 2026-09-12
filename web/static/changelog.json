@@ -2,6 +2,28 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-12.8",
+      "date": "2026-09-12",
+      "style": "Sachlich",
+      "title": "Einstellungen öffnen sich flüssiger",
+      "intro": "Das Einblenden des Einstellungs-Fensters konnte kurz ruckeln — die Ursache ist behoben.",
+      "items": [
+        "Schuld war eine doppelte Hintergrund-Verwischung während der kurzen Einblend-Animation zusammen mit einem gleichzeitig startenden Nachladen von Gerätelisten."
+      ]
+    },
+    {
+      "id": "2026-09-12.7",
+      "date": "2026-09-12",
+      "style": "Sachlich",
+      "title": "Direktnachrichten funktionieren jetzt auch ohne App",
+      "intro": "Bisher brauchte jede Seite einer Unterhaltung ein eingerichtetes Gerät — die App oder einen gekoppelten Browser. Jetzt können auch reine Browser-Konten verschlüsselt schreiben und empfangen, einschließlich Unterhaltungen zwischen zwei Browsern.",
+      "items": [
+        "Der Server sieht weiterhin nur verschlüsselte Umschläge; an der Ende-zu-Ende-Verschlüsselung ändert sich nichts.",
+        "Im Browser erscheint ein einmaliger Hinweis, wenn die Nachrichten nur dort liegen und keine Online-Sicherung verbunden ist — mit den Auswegen „App herunterladen“ und „Online-Laufwerk verbinden“. Mit verbundener Sicherung oder einem weiteren Gerät entfällt er.",
+        "Der Hinweis fasst zugleich die frühere Zeile zum verschlüsselten Archiv zusammen; das doppelte Feld im Chat entfällt."
+      ]
+    },
+    {
       "id": "2026-09-12.6",
       "date": "2026-09-12",
       "style": "Sachlich",
