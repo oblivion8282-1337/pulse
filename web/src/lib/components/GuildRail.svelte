@@ -50,8 +50,6 @@
     type ServerEntry
   } from '$lib/api/servers.svelte';
   import { leaveAndRemoveServer, notifyLeaveOutcome } from '$lib/api/server-removal';
-  import { directStatus } from '$lib/stores/directStatus.svelte';
-  import { directFailureMessageKey } from '$lib/direct/policy';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { darfCommunityAnlegen } from '$lib/servers/erstellrecht';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
@@ -436,73 +434,46 @@
         <div class="bg-border my-2 h-px w-8 shrink-0" aria-hidden="true"></div>
       {/if}
 
-      <!-- Section-Header: Server-Label + Status-Dot, Klick = aktivieren -->
+      <!-- Section-Header: Server-Label + Status-Dot, Klick = aktivieren.
+           Bewusst OHNE Hover-Tooltip (Wunsch 2026-09-12): Server-Infos
+           leben im Rechtsklick-Menü („Serverinfo"), die Labels sprechen
+           für sich. Community-Kacheln behalten ihren Hover-Tooltip. -->
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           {#snippet child({ props: ctxProps })}
-            <Tooltip.Root>
-              <Tooltip.Trigger>
-                {#snippet child({ props: tipProps })}
-                  <button
-                    {...ctxProps}
-                    {...tipProps}
-                    class="relative flex min-h-6 w-full shrink-0 items-center justify-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-bold tracking-wide transition-colors hover:bg-bg-hover data-[active=true]:text-primary {server.isCloud ? 'uppercase' : ''}"
-                    data-active={isActiveServer}
-                    onclick={() => activeServer.set(server.id)}
-                    data-testid={`server-${server.id}`}
-                    aria-label={serverDisplayName(server)}
-                  >
-                    <!-- Cloud-Server: Marken-Label "PULSE" ohne Status-Dot
-                         (immer da, kein Verbindungszustand nötig). Selbst-
-                         gehostete Zusatz-Server zeigen den Anzeigenamen
-                         (vom Server-Admin gesetzt; Fallback = Hostname,
-                         über bis zu 2 Zeilen umbrochen). Status-Dot nur im
-                         Ausnahmezustand (gelb/rot/grau) — der grüne
-                         „alles ok"-Dauerzustand wäre nur Rauschen. -->
-                    {#if server.isCloud}
-                      Pulse
-                    {:else}
-                      <!-- break-words: bevorzugt am Leerzeichen umbrechen
-                           („Unicut / Media"), nur zur Not mitten im Wort
-                           (lange Hostnamen ohne Leerzeichen). -->
-                      <span class="line-clamp-2 min-w-0 break-words text-center leading-tight">
-                        {serverDisplayName(server)}
-                      </span>
-                      {#if sState !== 'open'}
-                        <span
-                          class="size-1.5 shrink-0 rounded-full {serverStateDotColor(sState)}"
-                          data-testid="server-state-dot"
-                          aria-label={`Status: ${sState}`}
-                        ></span>
-                      {/if}
-                    {/if}
-                  </button>
-                {/snippet}
-              </Tooltip.Trigger>
-              <Tooltip.Content side="right" class="flex-col items-start gap-0">
-                <span class="font-semibold">{serverDisplayName(server)}</span>
-                {#if !server.isCloud}
-                  <span class="text-text-muted text-xs">
-                    {server.hostname.replace(/^https?:\/\//, '')}
-                  </span>
-                  {#if server.je_verbunden === false}
-                    <!-- Hier ging nie eine Anmeldung durch: genehmigte, aber nie
-                         eingerichtete Instanz — erklärt den toten Status-Punkt.
-                         Nur ein ausdrückliches false zählt; Einträge aus
-                         früheren Fassungen tragen das Feld nicht und haben sich
-                         nachweislich schon angemeldet. -->
-                    <span class="text-text-muted text-xs">{m.server_icon_not_set_up()}</span>
-                  {/if}
-                  {#if server.instance_id && directStatus.failures[server.instance_id]}
-                    <!-- Direct-only-Fehlzustand (App-Host ohne Relay-Fallback):
-                         offline / keine Direktverbindung / Identität geändert. -->
-                    <span class="text-xs text-destructive">
-                      {m[directFailureMessageKey(directStatus.failures[server.instance_id])]()}
-                    </span>
-                  {/if}
+            <button
+              {...ctxProps}
+              class="relative flex min-h-6 w-full shrink-0 items-center justify-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-bold tracking-wide transition-colors hover:bg-bg-hover data-[active=true]:text-primary {server.isCloud ? 'uppercase' : ''}"
+              data-active={isActiveServer}
+              onclick={() => activeServer.set(server.id)}
+              data-testid={`server-${server.id}`}
+              aria-label={serverDisplayName(server)}
+            >
+              <!-- Cloud-Server: Marken-Label "PULSE" ohne Status-Dot
+                   (immer da, kein Verbindungszustand nötig). Selbst-
+                   gehostete Zusatz-Server zeigen den Anzeigenamen
+                   (vom Server-Admin gesetzt; Fallback = Hostname,
+                   über bis zu 2 Zeilen umbrochen). Status-Dot nur im
+                   Ausnahmezustand (gelb/rot/grau) — der grüne
+                   „alles ok"-Dauerzustand wäre nur Rauschen. -->
+              {#if server.isCloud}
+                Pulse
+              {:else}
+                <!-- break-words: bevorzugt am Leerzeichen umbrechen
+                     („Unicut / Media"), nur zur Not mitten im Wort
+                     (lange Hostnamen ohne Leerzeichen). -->
+                <span class="line-clamp-2 min-w-0 break-words text-center leading-tight">
+                  {serverDisplayName(server)}
+                </span>
+                {#if sState !== 'open'}
+                  <span
+                    class="size-1.5 shrink-0 rounded-full {serverStateDotColor(sState)}"
+                    data-testid="server-state-dot"
+                    aria-label={`Status: ${sState}`}
+                  ></span>
                 {/if}
-              </Tooltip.Content>
-            </Tooltip.Root>
+              {/if}
+            </button>
           {/snippet}
         </ContextMenu.Trigger>
         <ContextMenu.Content>
