@@ -22,15 +22,13 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { toast } from 'svelte-sonner';
   import { E2E_DMS_ENABLED, PRIVATE_GRUPPEN_ENABLED } from '$lib/krypto/schalter';
-  import { schloss } from '$lib/krypto/schloss.svelte';
   import { dmSendeSperre } from '$lib/krypto/dmSendeSperre';
-  import { wandEntscheidung } from '$lib/krypto/dmOhneAppGeraet';
   import { SICHERUNG_ENABLED } from '$lib/krypto/schalter';
   import { zieleLesen, zieleBesetzt } from '$lib/sicherung/ziele';
   import { dekAusZwischenlager } from '$lib/sicherung/geraete';
   import SicherungHinweis from '$lib/components/settings/SicherungHinweis.svelte';
-  import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
-  import DmOhneAppGeraet from '$lib/components/dm/DmOhneAppGeraet.svelte';
+  import DmBrowserWarnhinweis from '$lib/components/dm/DmBrowserWarnhinweis.svelte';
+  import { dmBrowserWarnung } from '$lib/krypto/dmBrowserWarnung.svelte';
   import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import type { DMChannel, Message } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
@@ -71,41 +69,21 @@
 
   let visibleMessages = $derived(dmChannelId ? messages.for(dmChannelId) : []);
 
-  // Spec §3a: ohne App-Geraet gibt es keine Direktnachrichten — kann die
-  // Gegenseite nicht teilnehmen, sperrt das Eingabefeld (Rechnung importfrei
-  // in `krypto/dmSendeSperre.ts`). Der Stand kommt aus einer Route, die
-  // nichts verbraucht, genau einmal je Gegenstelle (`schlossAbfrage.ts`);
-  // `POST /keys/claim` wuerde Einmalschluessel verbrauchen — deshalb NICHT.
-  $effect(() => {
-    if (activeDM) schloss.sicherstellen(activeDM.other_user_id);
-  });
-  let dmSperre = $derived(
-    activeDM
-      ? dmSendeSperre(E2E_DMS_ENABLED, activeDM.can_send !== false, schloss.stand(activeDM.other_user_id))
-      : null
-  );
-
-  // Spec §3a Punkt 1: dieselbe Frage wie oben, aber fuer das EIGENE Konto,
-  // ueber dieselbe Route (`darf_schluessel_holen` erlaubt das eigene Konto
-  // ausdruecklich). Ohne mindestens ein eigenes App-Geraet gibt es fuer
-  // dieses Konto keine Direktnachrichten — der Bildschirm tritt an die
-  // Stelle der Liste, statt sie leer zu lassen. Wand-Entscheidung und
-  // -Auspraegung importfrei (`krypto/dmOhneAppGeraet.ts`); in App-Kontexten
-  // (dieselbe Erkennung wie `veroeffentlichen.ts::eigenesGeraetDauerhaft`)
-  // bietet der Bildschirm die Einrichtung DIESES Geraets an (B11).
-  const appKontext = isElectron() || isCapacitorAndroid();
-  $effect(() => {
-    if (auth.user) schloss.sicherstellen(auth.user.id);
-  });
-  let wandArt = $derived(
-    wandEntscheidung(E2E_DMS_ENABLED, appKontext, auth.user ? schloss.stand(auth.user.id) : undefined)
-  );
+  // Sperrgrund fuer das Eingabefeld bleibt nur der Kontakt (keine Freundschaft
+  // oder blockiert) — die Geraete-Sperre ist mit der Koexistenz-Regel
+  // gefallen (2026-09-12, Rechnung importfrei in `krypto/dmSendeSperre.ts`).
+  let dmSperre = $derived(activeDM ? dmSendeSperre(activeDM.can_send !== false) : null);
 
   // Frischgerät-Erkennung: läuft die Sicherung auf DIESEM Gerät noch nicht,
   // liegt der Verlauf noch im Cloud-Archiv — Hinweis mit Direktsprung in die
   // Sicherungs-Einstellungen zeigen. Prüft beim Laden und periodisch nach,
   // damit der Hinweis verschwindet, sobald die Sicherung aktiv ist.
+  //
+  // Zeigt der Browser-Warnhinweis oben (reines Browser-Konto ohne Sicherung),
+  // unterbleibt das Feld: Der Banner trägt dieselbe Aussage samt Knopf —
+  // Zusammenfassung 2026-09-12, vorher standen beide übereinander.
   let sicherungHinweis = $state(false);
+  let browserWarnung = $derived(dmBrowserWarnung.zeigt());
   $effect(() => {
     if (!SICHERUNG_ENABLED || !auth.user) return;
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -271,13 +249,13 @@
   />
 {/if}
 
-<!-- Chat-Bereich: Spec §3a Punkt 1 — ohne eigenes App-Geraet gibt es fuer
-     dieses Konto keine Direktnachrichten; die Wand ersetzt NUR den Chat, die
-     Liste daneben bleibt. Die Auspraegung (App: Geraet einrichten / Browser:
-     Apps + Kopplung) entscheidet `wandEntscheidung`. -->
-{#if wandArt !== 'keine'}
-  <DmOhneAppGeraet art={wandArt} />
-{:else if !viewport.isMobile || !!dmChannelId}
+<!-- Chat-Bereich. Der Browser-Warnhinweis (einmal je Sitzung, wegklickbar)
+     steht darueber, wenn dieses Konto ein reines Browser-Konto ohne
+     verbundene Sicherung ist — Entscheidung in
+     `krypto/dmBrowserWarnung.svelte.ts`. -->
+{#if !viewport.isMobile || !!dmChannelId}
+  <div class="flex h-full min-w-0 flex-1 flex-col gap-2">
+  <DmBrowserWarnhinweis />
   {#if kanalWechsel.loadError}
     <section
       class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl"
@@ -316,14 +294,12 @@
         verschluesselteAnhaenge={E2E_DMS_ENABLED}
         showMemberList={false}
         composerDisabled={dmSperre !== null}
-        composerDisabledReason={dmSperre === 'ohne_app'
-          ? m.dm_page_composer_ohne_app_reason()
-          : m.dm_page_composer_disabled_reason()}
+        composerDisabledReason={m.dm_page_composer_disabled_reason()}
         onEditMessage={editMessage}
         onDeleteMessage={deleteMessage}
         onToggleReaction={toggleReaction}
         onTogglePin={togglePin}
-        leerHinweis={sicherungHinweis ? leereNachrichten : undefined}
+        leerHinweis={sicherungHinweis && !browserWarnung ? leereNachrichten : undefined}
       />
   {:else}
     <section
@@ -334,9 +310,10 @@
       <p class="text-text-muted max-w-sm text-center text-sm">
         {m.dm_page_empty_hint()}
       </p>
-      {#if sicherungHinweis}
+      {#if sicherungHinweis && !browserWarnung}
         <SicherungHinweis />
       {/if}
     </section>
   {/if}
+  </div>
 {/if}

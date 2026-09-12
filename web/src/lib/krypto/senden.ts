@@ -8,10 +8,10 @@
  *  1. Geraetebuendel holen (`POST /keys/claim`) — Empfaenger UND die eigenen
  *     anderen Geraete (`empfaengerGeraete.ts`, Spec §2). Das eigene AKTUELLE
  *     Geraet bleibt aussen vor: es hat den Klartext schon, und eine Sitzung
- *     mit sich selbst gibt es nicht. `zielgeraeteBerechnen` wendet dabei
- *     zuerst die Koexistenz-Regel an (Spec §3, Bughunt 2026-08-28 FIX 1):
- *     nur wenn BEIDE Konten ein dauerhaftes Geraet haben, gibt es ueberhaupt
- *     Zielgeraete.
+ *     mit sich selbst gibt es nicht. Die Koexistenz-Regel (Spec §3) ist seit
+ *     dem 2026-09-12 aufgehoben — auch Konten ohne haltbares Geraet (reiner
+ *     Browser) empfangen und senden; der Schutz davor ist ein Warnhinweis
+ *     (`krypto/dmBrowserWarnung.ts`), keine Sendesperre.
  *  2. Je Zielgeraet eine Sitzung — vorhandene laden, sonst ausgehend
  *     aufbauen (`sitzungAusgehend`, verbraucht einen Einmal- oder den
  *     Rueckfallschluessel).
@@ -50,12 +50,10 @@
  * **Kein Zielgeraet:** hat der Empfaenger keines (und man selbst auch keine
  * weiteren), wird NICHTS verschluesselt und NICHTS eingeliefert, sondern
  * `{ art: 'unverschluesselt' }` zurueckgegeben. Der Name des Falls stammt aus
- * der Koexistenz-Regel (Spec §3) und beschreibt heute nur noch, dass NICHTS
- * eingeliefert wurde — **einen Klartext-Weg fuer DMs gibt es seit Spec §3a
- * nicht mehr** („ohne App-Geraet keine Direktnachrichten"). Der Aufrufer
- * (`app/@me/[[dmChannelId]]`) meldet diesen Fall sichtbar; der Regelfall
- * „Gegenseite ohne App" sperrt schon vorher das Eingabefeld
- * (`krypto/dmSendeSperre.ts`).
+ * der frueheren Koexistenz-Regel (Spec §3) und beschreibt heute nur noch,
+ * dass NICHTS eingeliefert wurde — **einen Klartext-Weg fuer DMs gibt es
+ * seit Spec §3a nicht mehr**. Der Aufrufer (`app/@me/[[dmChannelId]]`)
+ * meldet diesen Fall sichtbar.
  */
 import type { Message } from '../api/types';
 import { ApiError } from '../api/client';
@@ -63,7 +61,6 @@ import { keysApi } from '../api/keys';
 import { postfachApi, type PostfachNutzlast } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
 import { auth } from '../stores/auth.svelte';
-import { isElectron, isCapacitorAndroid } from '../platform/runtime';
 import { directMessages } from '../stores/directMessages.svelte';
 import { verlaufSpeichernPflicht } from '../verlauf';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
@@ -96,8 +93,8 @@ export type SendeErgebnis =
 /**
  * Der gemeinsame Umschlag-Kern: verschlüsselt `bytes` je Zielgerät (Sitzung
  * laden oder aufbauen), liefert alles an das Postfach ein und validiert die
- * Zustellung. `'unverschluesselt'` = Koexistenz-Fall (kein Zielgerät mit
- * verwertbarem Schlüssel) oder bewiesener Nicht-Zustellung; `null` = nicht
+ * Zustellung. `'unverschluesselt'` = kein Zielgerät mit verwertbarem
+ * Schlüssel oder bewiesener Nicht-Zustellung; `null` = nicht
  * angemeldet. Der Aufrufer entscheidet über Rückfall und Anzeige.
  */
 async function versendeUmschlaege(
@@ -148,7 +145,7 @@ async function versendeUmschlaege(
 
   if (nutzlasten.length === 0) {
     // Alle Zielgeraete waren ohne verwertbaren Schluessel — dieselbe
-    // Koexistenz-Antwort wie "kein Geraet ueberhaupt".
+    // Antwort wie "kein Geraet ueberhaupt".
     return 'unverschluesselt';
   }
 
@@ -186,8 +183,8 @@ async function versendeUmschlaege(
     // 2026-08-28, FIX 2) — die Nachricht kam nirgends an, obwohl die
     // Anfrage mit 2xx beantwortet wurde. Die lokalen Sitzungen sind zwar
     // schon weitergedreht (s. Modulkopf Schritt 3), aber das darf hier
-    // nicht als Erfolg gelten: der Aufrufer faellt auf den Klartext-Weg
-    // zurueck, genau wie im Koexistenz-Fall oben.
+    // nicht als Erfolg gelten: der Aufrufer bekommt denselben Fehlerfall
+    // wie oben bei „kein Zielgeraet".
     return 'unverschluesselt';
   }
 
@@ -224,13 +221,7 @@ export async function sendeVerschluesselt(
   // (empfaengerGeraete.ts) sind strukturell dieselbe Wire-Form — Letztere
   // importfrei gehalten (s. dort), deshalb zwei benannte Typen statt einem.
   const buendel = await keysApi.claim([eigeneUserId, empfaengerUserId], cloudRoute());
-  const ziel = zielgeraeteBerechnen(
-    buendel,
-    eigeneUserId,
-    empfaengerUserId,
-    eigeneKennung,
-    isElectron() || isCapacitorAndroid()
-  );
+  const ziel = zielgeraeteBerechnen(buendel, eigeneUserId, empfaengerUserId, eigeneKennung);
   if (ziel.length === 0) {
     return { art: 'unverschluesselt' };
   }
@@ -316,13 +307,7 @@ export async function sendeLoeschung(
   if (eigeneUserId === null) return false;
   const eigeneKennung = await geraeteKennung();
   const buendel = await keysApi.claim([eigeneUserId, empfaengerUserId], cloudRoute());
-  const ziel = zielgeraeteBerechnen(
-    buendel,
-    eigeneUserId,
-    empfaengerUserId,
-    eigeneKennung,
-    isElectron() || isCapacitorAndroid()
-  );
+  const ziel = zielgeraeteBerechnen(buendel, eigeneUserId, empfaengerUserId, eigeneKennung);
   if (ziel.length === 0) return false;
   const status = await versendeUmschlaege(
     kanalId,

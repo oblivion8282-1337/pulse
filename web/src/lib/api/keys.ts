@@ -3,7 +3,7 @@
  *
  * Wire-Form spiegelt `services/chat-gateway/.../routes/` — `schluessel.py`
  * (veroeffentlichen, Vorrat), `schluessel_abholen.py` (`claim`),
- * `schluessel_auskunft.py` (`verschluesselbar`, `geraetestand`) und
+ * `schluessel_auskunft.py` (`geraetestand`) und
  * `geraete.py` (die eigene Liste) — plus `schemas.py` (Abschnitt
  * "Geraete-Schluesselverzeichnis"). Bearer-Auth wie
  * jede andere chat-gateway-Route (`request()` aus `./client`, nicht die
@@ -81,21 +81,6 @@ export const keysApi = {
   ): Promise<{ vorrat: number }> {
     return request<{ vorrat: number }>(
       `/keys/onetime/count?device_pubkey=${encodeURIComponent(devicePubkey)}`,
-      {},
-      route
-    );
-  },
-
-  /** Ob ein Gespraech mit diesem Konto verschluesselt laufen kann — reine
-   *  Auskunft, die KEINEN Einmalschluessel verbraucht (im Unterschied zu
-   *  `claim`, s. `routes/schluessel_auskunft.py`). Fehlende Berechtigung
-   *  ergibt `false`, keine 403. */
-  verschluesselbar(
-    userId: string,
-    route: { serverId?: string } = {}
-  ): Promise<{ verschluesselbar: boolean }> {
-    return request<{ verschluesselbar: boolean }>(
-      `/keys/verschluesselbar/${encodeURIComponent(userId)}`,
       {},
       route
     );

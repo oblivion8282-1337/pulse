@@ -102,9 +102,9 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
       // NICHTS eingeliefert (kein Zielgeraet auf einer der beiden Seiten,
       // oder der Server hat jeden Empfaenger uebersprungen). Frueher ging
       // die Nachricht hier im Klartext hinaus; seit Spec §3a gibt es diesen
-      // Weg nicht mehr. Den Regelfall („Gegenseite ohne App") faengt schon
-      // die Sperre am Eingabefeld ab — hier bleibt der Rest: eigenes Geraet
-      // noch ohne Schluessel, oder der Stand war beim Tippen unbekannt.
+      // Weg nicht mehr. Seit der Aufhebung der Koexistenz-Regel (2026-09-12)
+      // ist das der Restfall: ein Konto ueberhaupt ohne Geraet mit
+      // Schluesseln (nie angemeldet, oder alles verfallen).
       toast.error(m.dm_page_send_failed(), { description: m.dm_page_senden_kein_geraet() });
     });
     return;
