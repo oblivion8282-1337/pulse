@@ -16,7 +16,12 @@ _buckets: dict[str, dict[int, tuple[float, int]]] = {}
 
 # action -> (limit, window_seconds)
 _RULES: dict[str, tuple[int, float]] = {
-    "token": (5, 60.0),  # 5 token requests / minute
+    # Jeder Voice-Join kostet ein Token; schnelles Kanal-Wechseln (Admin
+    # zieht einen User durch Kanäle, Client-Reconnect nach Netzflicken)
+    # braucht mehrere in der Minute. 5/min warf da schon beim dritten Zug
+    # ein 429 — der Gezogene strandet dann ohne Voice („User verschwunden").
+    # 20/min ist weiter strikt gegen Token-Minting-Missbrauch.
+    "token": (20, 60.0),
 }
 
 

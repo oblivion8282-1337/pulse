@@ -244,6 +244,45 @@ async def test_revoke_removes_grant_and_hides(
 
 
 @pytest.mark.asyncio
+async def test_revoke_keeps_public_channel_visible(
+    client, _auth_signer, app, monkeypatch, _isolate_chat_settings
+):
+    """Revoke nach Pull in einen ÖFFENTLICHEN Kanal sendet kein
+    ``channel_hidden`` — der Nutzer sieht den Kanal über @everyone weiter.
+    Bug 2026-09-12: das bedingungslose Hidden leerte die Sidebar des
+    Gezogenen, bis ein Neuladen den Kanal zurückholte."""
+    monkeypatch.setattr(_isolate_chat_settings, "internal_service_secret", "s")
+    hidden: list[int] = []
+
+    async def _capture(_target, envelope):
+        if getattr(envelope, "op", None) == "channel_hidden":
+            hidden.append(int(envelope.channel_id))
+
+    monkeypatch.setattr(app.state.connection_manager, "publish_user_event", _capture)
+
+    t_owner, _, t_other, uid_other, g, _ = await _make_private_voice_channel(client, _auth_signer)
+    public = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "offen", "type": 1},
+            headers=auth(t_owner),
+        )
+    ).json()
+    await client.post(
+        f"/channels/{public['id']}/members/{uid_other}/voice-move", headers=auth(t_owner)
+    )
+    r = await client.post(
+        "/internal/voice-pull-revoke",
+        json={"channel_id": int(public["id"]), "user_id": uid_other},
+        headers=_internal("s"),
+    )
+    assert r.status_code == 200 and r.json() == {"revoked": True}
+    assert hidden == []
+    listing = (await client.get(f"/guilds/{g['id']}/channels", headers=auth(t_other))).json()
+    assert any(c["id"] == public["id"] for c in listing)
+
+
+@pytest.mark.asyncio
 async def test_revoke_without_secret_unauthorized(client, _isolate_chat_settings, monkeypatch):
     # Secret unset in the shared settings → endpoint disabled (fail-closed).
     monkeypatch.setattr(_isolate_chat_settings, "internal_service_secret", "")
