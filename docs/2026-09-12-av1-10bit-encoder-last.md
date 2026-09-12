@@ -297,3 +297,11 @@ existiert im Weg nicht (MediaMTX transkodiert nicht), und ein echter
 Einstellung. HQ bleibt damit nativer-Player-only, bis libwebrtc
 High-Bitdepth-AV1-Dekodierung zulässt (dav1d kann es, die Integration
 verweigert es) oder eine Transkodierstufe gebaut wird.
+
+**Status des Experiment-Codes (12.09., spät):** Der Rgb10-Pfad und seine
+Schalter sind aus dem Code wieder entfernt (Commit nach `dc1c6e60`, in der
+Git-Historie abrufbar) — er löste ein Problem, das die Messung als
+nicht-existent belegt hat (die P010-Umrechnung ist lastmäßig frei), und
+hing am NVIDIA-Leseweg (CPU-Fallback). Die Befunde dieses Abschnitts bleiben
+unverändert gültig. Der Wieder-Einstieg ist über die Git-Historie und die
+Wand-Dokumentation im nv_import-Modulkommentar jederzeit möglich.

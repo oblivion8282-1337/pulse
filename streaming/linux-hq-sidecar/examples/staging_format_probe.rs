@@ -46,17 +46,6 @@ fn expected(c: [u8; 3]) -> (i32, i32, i32) {
     )
 }
 
-/// Unabhängige Nachrechnung der Erwartung für den gepackten RGB10-Pfad:
-/// der Blit skaliert 8→10 bit (255 → 1023, NVENC macht die YUV-Wandlung
-/// erst danach — hier nicht Teil der Prüfung).
-fn expected_rgb10(c: [u8; 3]) -> (i32, i32, i32) {
-    (
-        (c[0] as f64 * 1023.0 / 255.0).round() as i32,
-        (c[1] as f64 * 1023.0 / 255.0).round() as i32,
-        (c[2] as f64 * 1023.0 / 255.0).round() as i32,
-    )
-}
-
 /// 16-bit-Wort → 10-bit-Code. `None`, wenn die unteren 6 Bit nicht null sind:
 /// dann liegen die Daten nicht wie von P010 gefordert oben.
 fn code(word: u16) -> Option<i32> {
@@ -72,7 +61,6 @@ fn main() {
     for (label, fmt) in [
         ("RGBA8 (8 bit, Textur direkt bei CUDA)", StagingFormat::Rgba8),
         ("R16 + RG16 (P010-Ebenen)", StagingFormat::P010),
-        ("GL_RGB10_A2 + PBO (x2bgr10le gepackt)", StagingFormat::Rgb10),
     ] {
         match NvDmabufImporter::new(W, H, fmt) {
             Ok(_) => println!("{label}: angelegt + bei CUDA registriert"),
@@ -148,54 +136,9 @@ fn main() {
         }
     }
 
-    // ── Rgb10: gepackte 10-bit-Wörter (x2bgr10le) gegen die Nachrechnung. ──
-    let mut imp10 = match NvDmabufImporter::new(W, H, StagingFormat::Rgb10) {
-        Ok(i) => i,
-        Err(e) => {
-            println!("Rgb10 nicht anlegbar: {e:#}");
-            std::process::exit(1);
-        }
-    };
-    let packed = match imp10.selftest_rgb10(&rgba) {
-        Ok(v) => v,
-        Err(e) => {
-            println!("selftest_rgb10: FEHLER — {e:#}");
-            std::process::exit(1);
-        }
-    };
-    for y in 0..H {
-        for x in 0..W {
-            let c = COLORS[((y / 2) * BLOCKS_X + x / 2) as usize];
-            let i = ((y * W + x) * 4) as usize;
-            let word = u32::from_le_bytes([
-                packed[i],
-                packed[i + 1],
-                packed[i + 2],
-                packed[i + 3],
-            ]);
-            let (want_r, want_g, want_b) = expected_rgb10(c);
-            // Bits 30–31 tragen den Alphakanal der Quelle (XRGB-Capture hat
-            // dort undefinierte Werte) — x2bgr10le definiert sie als unbenutzt
-            // und NVENC ignoriert sie beim 4:2:0-Encoding. Maskiert raus.
-            let word = word & 0x3FFF_FFFF;
-            let got_r = (word & 0x3FF) as i32;
-            let got_g = ((word >> 10) & 0x3FF) as i32;
-            let got_b = ((word >> 20) & 0x3FF) as i32;
-            // ±1 erlaubt Rundung.
-            for (name, got, want) in
-                [("R", got_r, want_r), ("G", got_g, want_g), ("B", got_b, want_b)]
-            {
-                if (got - want).abs() > 1 {
-                    fehler += 1;
-                    println!("  {name} ({x},{y}) rgb{c:?}: {got}, erwartet {want}");
-                }
-            }
-        }
-    }
-
     if fehler == 0 {
         println!(
-            "Farbmathematik + Bit-Lage: OK — P010 (BT.709 begrenzt, 10 Bit oben) und Rgb10 (gepackt 8→10 skaliert) ({} Werte geprüft)",
+            "Farbmathematik + Bit-Lage: OK — BT.709 begrenzter Bereich, 10 Bit oben ({} Werte geprüft)",
             W * H + BLOCKS_X * BLOCKS_Y * 2
         );
     } else {

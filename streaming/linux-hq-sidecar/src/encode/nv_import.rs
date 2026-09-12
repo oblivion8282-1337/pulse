@@ -81,20 +81,10 @@ const GL_LINEAR_FILTER: i32 = 0x2601;
 const GL_TEXTURE_WRAP_S: u32 = 0x2802;
 const GL_TEXTURE_WRAP_T: u32 = 0x2803;
 const GL_CLAMP_TO_EDGE: i32 = 0x812F;
-// RGB10-A2-Pfad (StagingFormat::Rgb10): gepackte 10-bit-Staging-Textur +
-// Pixel-Pack-Buffer, aus dem CUDA die Bytes in den Pool trägt. Das Wort
-// GL_RGBA + GL_UNSIGNED_INT_2_10_10_10_REV (erste Komponente in den unteren
-// Bits) ist bitgenau `x2bgr10le` — R in Bits 0–9, X in Bits 30–31.
-const GL_RGB10_A2: u32 = 0x8059;
-const GL_RGBA: u32 = 0x1908;
-const GL_UNSIGNED_INT_2_10_10_10_REV: u32 = 0x8368;
-const GL_PIXEL_PACK_BUFFER: u32 = 0x88EB;
-const GL_STREAM_READ: u32 = 0x88E9;
 
 // ── CUDA-Konstanten/-Typen (cuda.h) ─────────────────────────────────────────
 const CUDA_SUCCESS: i32 = 0;
 const CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY: u32 = 1;
-const CU_GRAPHICS_REGISTER_FLAGS_NONE: u32 = 0;
 const CU_MEMORYTYPE_HOST: u32 = 1;
 const CU_MEMORYTYPE_DEVICE: u32 = 2;
 const CU_MEMORYTYPE_ARRAY: u32 = 3;
@@ -163,11 +153,6 @@ type FnGlBlitFramebuffer = unsafe extern "C" fn(
 );
 type FnGlTexSubImage2D =
     unsafe extern "C" fn(u32, i32, i32, i32, i32, i32, u32, u32, *const c_void);
-type FnGlGenBuffers = unsafe extern "C" fn(i32, *mut u32);
-type FnGlDeleteBuffers = unsafe extern "C" fn(i32, *const u32);
-type FnGlBindBuffer = unsafe extern "C" fn(u32, u32);
-type FnGlBufferData = unsafe extern "C" fn(u32, isize, *const c_void, u32);
-type FnGlReadPixels = unsafe extern "C" fn(i32, i32, i32, i32, u32, u32, *mut c_void);
 
 type FnCuInit = unsafe extern "C" fn(u32) -> i32;
 type FnCuDeviceGet = unsafe extern "C" fn(*mut i32, i32) -> i32;
@@ -177,10 +162,6 @@ type FnCuCtxPushCurrent = unsafe extern "C" fn(CuContext) -> i32;
 type FnCuCtxPopCurrent = unsafe extern "C" fn(*mut CuContext) -> i32;
 type FnCuGraphicsGlRegisterImage =
     unsafe extern "C" fn(*mut CuGraphicsResource, u32, u32, u32) -> i32;
-type FnCuGraphicsGlRegisterBuffer =
-    unsafe extern "C" fn(*mut CuGraphicsResource, u32, u32) -> i32;
-type FnCuGraphicsResourceGetMappedPointer =
-    unsafe extern "C" fn(*mut u64, *mut usize, CuGraphicsResource) -> i32;
 type FnCuGraphicsMapResources =
     unsafe extern "C" fn(u32, *mut CuGraphicsResource, *mut c_void) -> i32;
 type FnCuGraphicsSubResourceGetMappedArray =
@@ -204,14 +185,28 @@ type FnCuCtxSynchronize = unsafe extern "C" fn() -> i32;
 ///   nicht nach 10-bit-YUV wandelt — beides gemessen, Begründung im
 ///   Modul-Kopf von [`nv_p010`].
 ///
-/// Zwei weitere Wege wurden probiert und verworfen, damit sie niemand erneut
-/// aufgreift: eine gepackte `GL_RGB10_A2`-**Textur** lässt CUDA nicht
-/// registrieren (`cuGraphicsGLRegisterImage` → `CUDA_ERROR_INVALID_VALUE`),
-/// und der Umweg über einen **Pixel-Pack-Buffer** scheiterte am Frame-Pool,
-/// der `x2bgr10le` ablehnte. Letzteres war die einzige Hürde: Der CUDA-Pool
-/// trägt seit dem Patch in `streaming/pulse-player/scripts/build-ffmpeg-linux.sh`
-/// (Handport von Upstream `2cf3f4d6`, „hwcontext_cuda: remove format
-/// allowlist") auch `x2bgr10le` — damit fährt [`Rgb10`](StagingFormat::Rgb10).
+/// **Drei weitere Wege wurden probiert und verworfen** (Messung 2026-09-12,
+/// Detail + Zahlen in `docs/2026-09-12-av1-10bit-encoder-last.md` §6), damit
+/// niemand dieselbe Reise wieder macht:
+///
+/// 1. Eine gepackte `GL_RGB10_A2`-Textur lässt CUDA nicht registrieren
+///    (`cuGraphicsGLRegisterImage` → `CUDA_ERROR_INVALID_VALUE`).
+/// 2. Der Pixel-Pack-Buffer (PBO) umgeht das — CUDA nimmt Buffer in jedem
+///    Byte-Layout. Der Weg funktionierte Ende-zu-Ende (Stream live, Farben
+///    geprüft), ABER: das gepackte 10-bit-Leseformat
+///    (`glReadPixels` GL_RGBA + GL_UNSIGNED_INT_2_10_10_10_REV aus GL_RGB10_A2)
+///    läuft im NVIDIA-Treiber auf einen CPU-Fallback — konstant ~430 ms je
+///    Bild bei 2560x1440, mit und ohne PBO. Unbenutzbar.
+/// 3. Der Frame-Pool-Wall (x2bgr10le am CUDA-Pool) ist gefallen: seit dem
+///    Allowlist-Patch / Upstream `2cf3f4d6` akzeptiert `hwcontext_cuda`
+///    x2bgr10le (Bau: ehem. `scripts/build-ffmpeg-linux.sh`, Git-Historie).
+///    NVENC selbst nimmt das Format (`ABGR10`) und kodiert es — es scheitert
+///    also nur am Leseweg. Sobald der Treiber den gepackten Read schnell
+///    kann, ist der Weg offen; bis dahin bleibt P010.
+///
+/// An der Frage hat sich übrigens nichts geändert: die vom Rgb10-Weg zu
+/// ersetzende P010-Umrechnung ist lastmäßig frei (gemessen, §6) — der Weg
+/// löst ein Problem, das an moderner Hardware keines ist.
 ///
 /// [`nv_p010`]: super::nv_p010
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,16 +215,6 @@ pub enum StagingFormat {
     Rgba8,
     /// 10 bit, 4:2:0 semiplanar → Encoder-Pool `P010LE`.
     P010,
-    /// 10 bit gepackt → Encoder-Pool `X2BGR10LE` — **NVENC wandelt
-    /// RGB→YUV selbst** (Buffer-Format `ABGR10`, `rgb_mode=yuv420`, VUI zwingt
-    /// BT.601/limited wie im 8-bit-Pfad). Kette: Blit (komponentenweise,
-    /// skaliert 8→10 bit) in eine `GL_RGB10_A2`-Textur → `glReadPixels` als
-    /// `GL_UNSIGNED_INT_2_10_10_10_REV` in einen bei CUDA registrierten
-    /// Pixel-Pack-Buffer → `cuMemcpy2D` DEVICE→DEVICE in den Pool-Frame. Der
-    /// Umweg über den PBO ist nötig, weil CUDA GL_RGB10_A2-Texturen nicht
-    /// registrieren kann (s. oben) — Buffer dagegen frisst es in jedem
-    /// Byte-Layout. Umschaltbar per `PULSE_NVENC_TEN_BIT_RGB=1` (A/B-Messung).
-    Rgb10,
 }
 
 impl StagingFormat {
@@ -239,12 +224,11 @@ impl StagingFormat {
         match self {
             StagingFormat::Rgba8 => AVPixelFormat::AV_PIX_FMT_RGB0,
             StagingFormat::P010 => AVPixelFormat::AV_PIX_FMT_P010LE,
-            StagingFormat::Rgb10 => AVPixelFormat::AV_PIX_FMT_X2BGR10LE,
         }
     }
 
     pub fn is_ten_bit(self) -> bool {
-        matches!(self, StagingFormat::P010 | StagingFormat::Rgb10)
+        self == StagingFormat::P010
     }
 }
 
@@ -278,10 +262,6 @@ enum StagingKind {
         cu_y: CuGraphicsResource,
         cu_uv: CuGraphicsResource,
     },
-    /// Eine GL_RGB10_A2-Textur (Blit-Ziel) + ein Pixel-Pack-Buffer, in den
-    /// `glReadPixels` die gepackten 10-bit-Wörter schreibt und den CUDA
-    /// registriert hat (Texturen dieses Formats will CUDA nicht, Buffer schon).
-    Rgb10 { tex: u32, pbo: u32, cu_res: CuGraphicsResource },
 }
 
 /// Pro PipeWire-Buffer gecachtes EGLImage + daran gebundene GL-Textur — der
@@ -320,11 +300,6 @@ pub struct NvDmabufImporter {
     gl_framebuffer_texture_2d: FnGlFramebufferTexture2D,
     gl_blit_framebuffer: FnGlBlitFramebuffer,
     gl_tex_sub_image_2d: FnGlTexSubImage2D,
-    gl_gen_buffers: FnGlGenBuffers,
-    gl_delete_buffers: FnGlDeleteBuffers,
-    gl_bind_buffer: FnGlBindBuffer,
-    gl_buffer_data: FnGlBufferData,
-    gl_read_pixels: FnGlReadPixels,
 
     /// RGBA8-Staging-Textur (einmal bei CUDA registriert) — Ziel des
     /// GPU-Copies/-Blits aus der EGLImage-Textur, Quelle des cuMemcpy2D.
@@ -347,10 +322,8 @@ pub struct NvDmabufImporter {
     cu_ctx_push: FnCuCtxPushCurrent,
     cu_ctx_pop: FnCuCtxPopCurrent,
     cu_register_image: FnCuGraphicsGlRegisterImage,
-    cu_register_buffer: FnCuGraphicsGlRegisterBuffer,
     cu_map_resources: FnCuGraphicsMapResources,
     cu_get_mapped_array: FnCuGraphicsSubResourceGetMappedArray,
-    cu_get_mapped_pointer: FnCuGraphicsResourceGetMappedPointer,
     cu_unmap_resources: FnCuGraphicsUnmapResources,
     cu_unregister_resource: FnCuGraphicsUnregisterResource,
     cu_memcpy_2d: FnCuMemcpy2D,
@@ -446,11 +419,6 @@ impl NvDmabufImporter {
             let gl_blit_framebuffer =
                 egl_proc!(get_proc, "glBlitFramebuffer", FnGlBlitFramebuffer);
             let gl_tex_sub_image_2d = egl_proc!(get_proc, "glTexSubImage2D", FnGlTexSubImage2D);
-            let gl_gen_buffers = egl_proc!(get_proc, "glGenBuffers", FnGlGenBuffers);
-            let gl_delete_buffers = egl_proc!(get_proc, "glDeleteBuffers", FnGlDeleteBuffers);
-            let gl_bind_buffer = egl_proc!(get_proc, "glBindBuffer", FnGlBindBuffer);
-            let gl_buffer_data = egl_proc!(get_proc, "glBufferData", FnGlBufferData);
-            let gl_read_pixels = egl_proc!(get_proc, "glReadPixels", FnGlReadPixels);
 
             // NVIDIA-Device suchen: Kandidaten durchprobieren, Context bauen,
             // GL_VENDOR prüfen. (Mesa-Devices würden bei
@@ -556,20 +524,8 @@ impl NvDmabufImporter {
             let cu_ctx_pop = cu_sym!(cuda_lib, "cuCtxPopCurrent_v2", FnCuCtxPopCurrent);
             let cu_register_image =
                 cu_sym!(cuda_lib, "cuGraphicsGLRegisterImage", FnCuGraphicsGlRegisterImage);
-            let cu_register_buffer = cu_sym!(
-                cuda_lib,
-                "cuGraphicsGLRegisterBuffer",
-                FnCuGraphicsGlRegisterBuffer
-            );
             let cu_map_resources =
                 cu_sym!(cuda_lib, "cuGraphicsMapResources", FnCuGraphicsMapResources);
-            let cu_get_mapped_pointer = cu_sym!(
-                cuda_lib,
-                // v2: das unversionierte Symbol ist der Alt-ABI (32-bit-Größe)
-                // und meldet rc=201, wo die v2 sauber mappt.
-                "cuGraphicsResourceGetMappedPointer_v2",
-                FnCuGraphicsResourceGetMappedPointer
-            );
             let cu_get_mapped_array = cu_sym!(
                 cuda_lib,
                 "cuGraphicsSubResourceGetMappedArray",
@@ -623,11 +579,6 @@ impl NvDmabufImporter {
                 gl_framebuffer_texture_2d,
                 gl_blit_framebuffer,
                 gl_tex_sub_image_2d,
-                gl_gen_buffers,
-                gl_delete_buffers,
-                gl_bind_buffer,
-                gl_buffer_data,
-                gl_read_pixels,
                 staging: None,
                 staging_format,
                 fbos: [0; 2],
@@ -641,10 +592,8 @@ impl NvDmabufImporter {
                 cu_ctx_push,
                 cu_ctx_pop,
                 cu_register_image,
-                cu_register_buffer,
                 cu_map_resources,
                 cu_get_mapped_array,
-                cu_get_mapped_pointer,
                 cu_unmap_resources,
                 cu_unregister_resource,
                 cu_memcpy_2d,
@@ -687,7 +636,6 @@ impl NvDmabufImporter {
         let kind = match self.staging_format {
             StagingFormat::Rgba8 => self.create_rgba8_staging(width, height)?,
             StagingFormat::P010 => self.create_p010_staging(width, height)?,
-            StagingFormat::Rgb10 => self.create_rgb10_staging(width, height)?,
         };
         self.staging = Some(Staging { width, height, kind });
         Ok(())
@@ -731,78 +679,6 @@ impl NvDmabufImporter {
             }
         };
         Ok(StagingKind::P010 { conv, cu_y, cu_uv })
-    }
-
-    /// RGB10-A2-Pfad: gepackte 10-bit-Staging-Textur + Pixel-Pack-Buffer.
-    ///
-    /// Die Textur ist nur Blit-Ziel (CUDA registriert GL_RGB10_A2 nicht —
-    /// s. `StagingFormat`-Doku); getragen wird der Frame vom PBO, den CUDA
-    /// als Byte-Buffer problemlos nimmt. EIN PBO fürs Leben des Stagings,
-    /// `glReadPixels` schreibt per Offset 0 hinein (GL_STREAM_READ).
-    fn create_rgb10_staging(&mut self, width: u32, height: u32) -> Result<StagingKind> {
-        unsafe {
-            let mut tex: u32 = 0;
-            (self.gl_gen_textures)(1, &mut tex);
-            (self.gl_bind_texture)(GL_TEXTURE_2D, tex);
-            (self.gl_tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            (self.gl_tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            (self.gl_tex_storage_2d)(GL_TEXTURE_2D, 1, GL_RGB10_A2, width as i32, height as i32);
-            (self.gl_bind_texture)(GL_TEXTURE_2D, 0);
-            let gl_err = (self.gl_get_error)();
-            if gl_err != GL_NO_ERROR {
-                (self.gl_delete_textures)(1, &tex);
-                return Err(anyhow!("RGB10-Staging-Textur failed (glError={gl_err:#06x})"));
-            }
-
-            let mut pbo: u32 = 0;
-            (self.gl_gen_buffers)(1, &mut pbo);
-            (self.gl_bind_buffer)(GL_PIXEL_PACK_BUFFER, pbo);
-            (self.gl_buffer_data)(
-                GL_PIXEL_PACK_BUFFER,
-                (width as usize * height as usize * 4) as isize,
-                ptr::null(),
-                GL_STREAM_READ,
-            );
-            (self.gl_bind_buffer)(GL_PIXEL_PACK_BUFFER, 0);
-            let gl_err = (self.gl_get_error)();
-            if gl_err != GL_NO_ERROR {
-                (self.gl_delete_buffers)(1, &pbo);
-                (self.gl_delete_textures)(1, &tex);
-                return Err(anyhow!("RGB10-PBO failed (glError={gl_err:#06x})"));
-            }
-
-            let cu_res = match self.register_buffer(pbo) {
-                Ok(res) => res,
-                Err(e) => {
-                    (self.gl_delete_buffers)(1, &pbo);
-                    (self.gl_delete_textures)(1, &tex);
-                    return Err(e);
-                }
-            };
-            Ok(StagingKind::Rgb10 { tex, pbo, cu_res })
-        }
-    }
-
-    /// Einen GL-Buffer bei CUDA anmelden (Pixel-Pack-Buffer des RGB10-Pfads).
-    fn register_buffer(&self, pbo: u32) -> Result<CuGraphicsResource> {
-        unsafe {
-            let r = (self.cu_ctx_push)(self.cu_ctx);
-            if r != CUDA_SUCCESS {
-                return Err(anyhow!("cuCtxPushCurrent failed (rc={r})"));
-            }
-            let mut res: CuGraphicsResource = ptr::null_mut();
-            let r = (self.cu_register_buffer)(
-                &mut res,
-                pbo,
-                CU_GRAPHICS_REGISTER_FLAGS_NONE,
-            );
-            let mut old: CuContext = ptr::null_mut();
-            (self.cu_ctx_pop)(&mut old);
-            if r != CUDA_SUCCESS {
-                return Err(anyhow!("cuGraphicsGLRegisterBuffer failed (rc={r})"));
-            }
-            Ok(res)
-        }
     }
 
     /// Eine GL-Textur bei CUDA anmelden (nur lesend).
@@ -869,16 +745,6 @@ impl NvDmabufImporter {
                     drop(conv);
                 } else {
                     std::mem::forget(conv);
-                }
-            }
-            StagingKind::Rgb10 { tex, pbo, cu_res } => {
-                unsafe {
-                    if self.unregister(cu_res) {
-                        (self.gl_delete_buffers)(1, &pbo);
-                        (self.gl_delete_textures)(1, &tex);
-                    }
-                    // unregister=false: Buffer/Textur bleiben registriert
-                    // zurück — bewusstes Leck wie im 8-bit-Zweig.
                 }
             }
         }
@@ -1008,7 +874,7 @@ impl NvDmabufImporter {
         let staging = self.staging.as_ref().expect("ensure_staging vor blit_and_copy");
         match &staging.kind {
             StagingKind::Rgba8 { tex: staging_tex, cu_res } => unsafe {
-                self.blit_rgba8(tex, *staging_tex, frame.width, frame.height, staging.width, staging.height)?;
+                self.blit_rgba8(tex, *staging_tex, frame, staging.width, staging.height)?;
                 self.cuda_copy(*cu_res, dst)
             },
             StagingKind::P010 { conv, cu_y, cu_uv } => {
@@ -1033,14 +899,6 @@ impl NvDmabufImporter {
                     )
                 }
             }
-            StagingKind::Rgb10 { tex: staging_tex, pbo, cu_res } => unsafe {
-                // Derselbe komponentenweise Blit wie im 8-bit-Pfad — nur in
-                // eine RGB10_A2-Zieltextur, der Treiber skaliert dabei
-                // 8→10 bit (255 → 1023). Danach liest glReadPixels die
-                // gepackten Wörter in den PBO, CUDA trägt sie in den Pool.
-                self.blit_rgba8(tex, *staging_tex, frame.width, frame.height, staging.width, staging.height)?;
-                self.rgb10_read_and_copy(*staging_tex, *pbo, *cu_res, dst)
-            },
         }
     }
 
@@ -1048,8 +906,7 @@ impl NvDmabufImporter {
         &self,
         tex: u32,
         staging_tex: u32,
-        src_w: u32,
-        src_h: u32,
+        frame: &DmabufFrame,
         out_w: u32,
         out_h: u32,
     ) -> Result<()> {
@@ -1074,7 +931,7 @@ impl NvDmabufImporter {
                 GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, staging_tex, 0,
             );
             (self.gl_blit_framebuffer)(
-                0, 0, src_w as i32, src_h as i32,
+                0, 0, frame.width as i32, frame.height as i32,
                 0, 0, out_w as i32, out_h as i32,
                 GL_COLOR_BUFFER_BIT, GL_LINEAR,
             );
@@ -1093,209 +950,6 @@ impl NvDmabufImporter {
             }
         }
         Ok(())
-    }
-
-    /// RGB10-Pfad: gepackte 10-bit-Wörter von der Staging-Textur in den PBO
-    /// lesen und von dort DEVICE→DEVICE in den Pool-Frame.
-    ///
-    /// Das Wortformat `GL_RGBA` + `GL_UNSIGNED_INT_2_10_10_10_REV` (erste
-    /// Komponente in den unteren Bits) ist bitgenau `x2bgr10le`: R in Bits
-    /// 0–9, G in 10–19, B in 20–29, X in 30–31. Das Map synchronisiert mit
-    /// dem vorherigen GL — dieselbe Garantie wie im Texturen-Pfad.
-    unsafe fn rgb10_read_and_copy(
-        &self,
-        tex: u32,
-        pbo: u32,
-        res: CuGraphicsResource,
-        dst: *mut AVFrame,
-    ) -> Result<()> {
-        let timing =
-            std::env::var_os("PULSE_RGB10_TIMING").as_deref() == Some(std::ffi::OsStr::new("1"));
-        // Zwei Lesewege für dieselben gepackten Wörter (x2bgr10le):
-        //
-        // * PBO (Default): GL-Buffer, den CUDA registriert hat — DEVICE→DEVICE
-        //   in den Pool, kein Host-Verkehr.
-        // * HOST (`PULSE_RGB10_HOSTREAD=1`): glReadPixels direkt in einen
-        //   Host-Puffer, dann HOST→DEVICE in den Pool-Frame.
-        //
-        // **Beide Wege sind unbenutzbar**: das gepackte 10-bit-Leseformat
-        // (GL_RGBA + GL_UNSIGNED_INT_2_10_10_10_REV aus GL_RGB10_A2) nimmt
-        // der NVIDIA-GL-Treiber per CPU-Fallback — konstant ~430-450 ms je
-        // Bild bei 2560x1440, mit und ohne PBO (gemessen 2026-09-12,
-        // `PULSE_RGB10_TIMING=1`; map/copy/sync bleiben je unter 1 ms, die
-        // ganze Zeit sitzt im glReadPixels). Der Rgb10-Pfad bleibt als Code
-        // stehen, damit die Wände dokumentiert sind; fahren tut der
-        // P010-Shader-Pfad (`nv_p010`).
-        let hostread =
-            std::env::var_os("PULSE_RGB10_HOSTREAD").as_deref() == Some(std::ffi::OsStr::new("1"));
-        unsafe {
-            let w = self.out_w.min((*dst).width.max(0) as u32);
-            let h = self.out_h.min((*dst).height.max(0) as u32);
-            let row_bytes = (w * 4) as usize;
-            if (*dst).data[0].is_null() {
-                return Err(anyhow!("Frame-Ebene 0 fehlt (falsches sw_format?)"));
-            }
-            // HOSTREAD-Weg: Empfänger der Pixel im Hauptspeicher, pro Frame
-            // frisch (14,7 MB) — ponytail: wiederverwenden würde &mut im
-            // Importer brauchen; für den A/B-Messpfad bewusst simpel.
-            let mut host: Vec<u8> = if hostread {
-                vec![0u8; row_bytes * h as usize]
-            } else {
-                Vec::new()
-            };
-
-            let t0 = std::time::Instant::now();
-            (self.gl_bind_framebuffer)(GL_READ_FRAMEBUFFER, self.fbos[1]);
-            (self.gl_framebuffer_texture_2d)(
-                GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0,
-            );
-            if !hostread {
-                (self.gl_bind_buffer)(GL_PIXEL_PACK_BUFFER, pbo);
-            }
-            (self.gl_read_pixels)(
-                0, 0, w as i32, h as i32,
-                GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV,
-                if hostread { host.as_mut_ptr() as *mut c_void } else { ptr::null_mut() },
-            );
-            if !hostread {
-                (self.gl_bind_buffer)(GL_PIXEL_PACK_BUFFER, 0);
-            }
-            (self.gl_framebuffer_texture_2d)(
-                GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0,
-            );
-            (self.gl_bind_framebuffer)(GL_FRAMEBUFFER, 0);
-            let gl_err = (self.gl_get_error)();
-            let t1 = std::time::Instant::now();
-            if timing {
-                eprintln!(
-                    "[rgb10-timing] readpixels ({}): {:?}",
-                    if hostread { "host" } else { "pbo" },
-                    t1 - t0
-                );
-            }
-            if gl_err != GL_NO_ERROR {
-                return Err(anyhow!(
-                    "glReadPixels → {} failed (glError={gl_err:#06x})",
-                    if hostread { "host" } else { "PBO" }
-                ));
-            }
-
-            let r = (self.cu_ctx_push)(self.cu_ctx);
-            if r != CUDA_SUCCESS {
-                return Err(anyhow!("cuCtxPushCurrent failed (rc={r})"));
-            }
-            let result = if hostread {
-                let result = (|| -> Result<()> {
-                    let cpy = CudaMemcpy2D {
-                        src_x_in_bytes: 0,
-                        src_y: 0,
-                        src_memory_type: CU_MEMORYTYPE_HOST,
-                        src_host: host.as_ptr() as *const c_void,
-                        src_device: 0,
-                        src_array: ptr::null_mut(),
-                        src_pitch: row_bytes,
-                        dst_x_in_bytes: 0,
-                        dst_y: 0,
-                        dst_memory_type: CU_MEMORYTYPE_DEVICE,
-                        dst_host: ptr::null_mut(),
-                        dst_device: (*dst).data[0] as u64,
-                        dst_array: ptr::null_mut(),
-                        dst_pitch: (*dst).linesize[0].max(0) as usize,
-                        width_in_bytes: row_bytes,
-                        height: h as usize,
-                    };
-                    let r = (self.cu_memcpy_2d)(&cpy);
-                    let t3 = std::time::Instant::now();
-                    if timing {
-                        eprintln!("[rgb10-timing] memcpy HtoD: {:?}", t3 - t1);
-                    }
-                    if r != CUDA_SUCCESS {
-                        return Err(anyhow!("cuMemcpy2D(host → pool) failed (rc={r})"));
-                    }
-                    // Wie im Texturen-Pfad: NVENC liest auf FFmpegs eigenem
-                    // Stream — erst wenn alles durch ist, weitergehen.
-                    let r = (self.cu_ctx_synchronize)();
-                    let t4 = std::time::Instant::now();
-                    if timing {
-                        eprintln!("[rgb10-timing] sync: {:?}", t4 - t3);
-                    }
-                    if r != CUDA_SUCCESS {
-                        return Err(anyhow!("cuCtxSynchronize failed (rc={r})"));
-                    }
-                    Ok(())
-                })();
-                result
-            } else {
-                let mut res = res;
-                let result = (|| -> Result<()> {
-                    let r = (self.cu_map_resources)(1, &mut res, ptr::null_mut());
-                    let t2 = std::time::Instant::now();
-                    if timing {
-                        eprintln!("[rgb10-timing] map: {:?}", t2 - t1);
-                    }
-                    if r != CUDA_SUCCESS {
-                        return Err(anyhow!("cuGraphicsMapResources failed (rc={r})"));
-                    }
-                    let result = (|| -> Result<()> {
-                        let mut dev_ptr: u64 = 0;
-                        let mut size: usize = 0;
-                        let r = (self.cu_get_mapped_pointer)(&mut dev_ptr, &mut size, res);
-                        if r != CUDA_SUCCESS {
-                            return Err(anyhow!(
-                                "cuGraphicsResourceGetMappedPointer failed (rc={r})"
-                            ));
-                        }
-                        if size < row_bytes * h as usize {
-                            return Err(anyhow!(
-                                "PBO gemappt mit {size} Bytes, braucht {}",
-                                row_bytes * h as usize
-                            ));
-                        }
-                        let cpy = CudaMemcpy2D {
-                            src_x_in_bytes: 0,
-                            src_y: 0,
-                            src_memory_type: CU_MEMORYTYPE_DEVICE,
-                            src_host: ptr::null(),
-                            src_device: dev_ptr,
-                            src_array: ptr::null_mut(),
-                            src_pitch: row_bytes,
-                            dst_x_in_bytes: 0,
-                            dst_y: 0,
-                            dst_memory_type: CU_MEMORYTYPE_DEVICE,
-                            dst_host: ptr::null_mut(),
-                            dst_device: (*dst).data[0] as u64,
-                            dst_array: ptr::null_mut(),
-                            dst_pitch: (*dst).linesize[0].max(0) as usize,
-                            width_in_bytes: row_bytes,
-                            height: h as usize,
-                        };
-                        let r = (self.cu_memcpy_2d)(&cpy);
-                        let t3 = std::time::Instant::now();
-                        if timing {
-                            eprintln!("[rgb10-timing] getptr+memcpy: {:?}", t3 - t2);
-                        }
-                        if r != CUDA_SUCCESS {
-                            return Err(anyhow!("cuMemcpy2D(PBO → pool) failed (rc={r})"));
-                        }
-                        let r = (self.cu_ctx_synchronize)();
-                        let t4 = std::time::Instant::now();
-                        if timing {
-                            eprintln!("[rgb10-timing] sync: {:?}", t4 - t3);
-                        }
-                        if r != CUDA_SUCCESS {
-                            return Err(anyhow!("cuCtxSynchronize failed (rc={r})"));
-                        }
-                        Ok(())
-                    })();
-                    (self.cu_unmap_resources)(1, &mut res, ptr::null_mut());
-                    result
-                })();
-                result
-            };
-            let mut old: CuContext = ptr::null_mut();
-            (self.cu_ctx_pop)(&mut old);
-            result
-        }
     }
 
     /// Alle gecachten EGLImages + Texturen zerstören (Epochenwechsel / Drop).
@@ -1322,7 +976,7 @@ impl NvDmabufImporter {
     pub fn selftest_p010(&mut self, rgba8: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
         const GL_UNSIGNED_BYTE: u32 = 0x1401;
         const GL_RGBA_FMT: u32 = 0x1908;
-        if self.staging_format != StagingFormat::P010 {
+        if !self.staging_format.is_ten_bit() {
             return Err(anyhow!("selftest_p010 braucht StagingFormat::P010"));
         }
         self.ensure_staging()?;
@@ -1372,171 +1026,6 @@ impl NvDmabufImporter {
             let luma = unsafe { self.read_plane_to_host(*cu_y, w * 2, h)? };
             let chroma = unsafe { self.read_plane_to_host(*cu_uv, uv_w * 4, uv_h)? };
             Ok((luma, chroma))
-        })();
-        unsafe { (self.gl_delete_textures)(1, &src) };
-        out
-    }
-
-    /// Selbsttest des RGB10-Pfads OHNE Capture: schiebt ein bekanntes RGBA8-
-    /// Bild durch denselben Blit (8→10 bit in die GL_RGB10_A2-Staging) und
-    /// dieselbe PBO-Kopie wie der Encoder und liefert die gepackten
-    /// 10-bit-Wörter (`x2bgr10le`, je 4 Byte). `examples/staging_format_probe.rs`
-    /// rechnet die Erwartung unabhängig nach.
-    pub fn selftest_rgb10(&mut self, rgba8: &[u8]) -> Result<Vec<u8>> {
-        const GL_UNSIGNED_BYTE: u32 = 0x1401;
-        const GL_RGBA_FMT: u32 = 0x1908;
-        if self.staging_format != StagingFormat::Rgb10 {
-            return Err(anyhow!("selftest_rgb10 braucht StagingFormat::Rgb10"));
-        }
-        self.ensure_staging()?;
-        let (w, h) = (self.out_w, self.out_h);
-        let expected = w as usize * h as usize * 4;
-        if rgba8.len() != expected {
-            return Err(anyhow!("rgba8: {} Bytes, erwartet {expected}", rgba8.len()));
-        }
-        let Some(Staging { kind: StagingKind::Rgb10 { tex, pbo, cu_res }, .. }) =
-            self.staging.as_ref()
-        else {
-            return Err(anyhow!("kein Rgb10-Staging"));
-        };
-
-        // Quelltextur in Ausgabegröße mit dem bekannten Bild füllen
-        // (im Betrieb ist es die EGLImage-Textur der Capture).
-        let src = unsafe {
-            let mut tex = 0u32;
-            (self.gl_gen_textures)(1, &mut tex);
-            (self.gl_bind_texture)(GL_TEXTURE_2D, tex);
-            (self.gl_tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            (self.gl_tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            (self.gl_tex_storage_2d)(GL_TEXTURE_2D, 1, GL_RGBA8, w as i32, h as i32);
-            (self.gl_tex_sub_image_2d)(
-                GL_TEXTURE_2D,
-                0,
-                0,
-                0,
-                w as i32,
-                h as i32,
-                GL_RGBA_FMT,
-                GL_UNSIGNED_BYTE,
-                rgba8.as_ptr() as *const c_void,
-            );
-            (self.gl_bind_texture)(GL_TEXTURE_2D, 0);
-            let err = (self.gl_get_error)();
-            if err != GL_NO_ERROR {
-                (self.gl_delete_textures)(1, &tex);
-                return Err(anyhow!("Selbsttest-Quelltextur: glError={err:#06x}"));
-            }
-            tex
-        };
-
-        let out = (|| -> Result<Vec<u8>> {
-            unsafe {
-                self.blit_rgba8(src, *tex, w, h, w, h)?;
-                // Kontrollprobe: ist die Resource direkt nach dem Map
-                // lesbar, BEVOR glReadPixels dazwischen gewesen ist?
-                {
-                    let r = (self.cu_ctx_push)(self.cu_ctx);
-                    if r != CUDA_SUCCESS {
-                        return Err(anyhow!("Kontrollprobe: push rc={r}"));
-                    }
-                    let mut res = *cu_res;
-                    let r = (self.cu_map_resources)(1, &mut res, ptr::null_mut());
-                    if r != CUDA_SUCCESS {
-                        return Err(anyhow!("Kontrollprobe: map rc={r}"));
-                    }
-                    let mut dev_ptr: u64 = 0;
-                    let mut size: usize = 0;
-                    let r = (self.cu_get_mapped_pointer)(&mut dev_ptr, &mut size, res);
-                    (self.cu_unmap_resources)(1, &mut res, ptr::null_mut());
-                    let mut old: CuContext = ptr::null_mut();
-                    (self.cu_ctx_pop)(&mut old);
-                    if r != CUDA_SUCCESS {
-                        return Err(anyhow!(
-                            "Kontrollprobe: get_mapped_pointer rc={r} (ohne GL-Read)"
-                        ));
-                    }
-                }
-                // Gepackt in den PBO lesen — wie im Betrieb, nur dass der
-                // Test danach HOST liest statt in einen Pool-Frame zu kopieren.
-                let t0 = std::time::Instant::now();
-                (self.gl_bind_framebuffer)(GL_READ_FRAMEBUFFER, self.fbos[1]);
-                (self.gl_framebuffer_texture_2d)(
-                    GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *tex, 0,
-                );
-                (self.gl_bind_buffer)(GL_PIXEL_PACK_BUFFER, *pbo);
-                (self.gl_read_pixels)(
-                    0, 0, w as i32, h as i32,
-                    GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV,
-                    ptr::null_mut(),
-                );
-                (self.gl_bind_buffer)(GL_PIXEL_PACK_BUFFER, 0);
-                (self.gl_framebuffer_texture_2d)(
-                    GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0,
-                );
-                (self.gl_bind_framebuffer)(GL_FRAMEBUFFER, 0);
-                let gl_err = (self.gl_get_error)();
-                let t1 = std::time::Instant::now();
-                eprintln!("[timing] blit+readpixels→PBO: {:?} (gl_err={gl_err:#06x})", t1 - t0);
-                if gl_err != GL_NO_ERROR {
-                    return Err(anyhow!("glReadPixels → PBO failed (glError={gl_err:#06x})"));
-                }
-
-                let mut bytes = vec![0u8; expected];
-                let r = (self.cu_ctx_push)(self.cu_ctx);
-                if r != CUDA_SUCCESS {
-                    return Err(anyhow!("cuCtxPushCurrent failed (rc={r})"));
-                }
-                let mut res = *cu_res;
-                let result = (|| -> Result<()> {
-                    let r = (self.cu_map_resources)(1, &mut res, ptr::null_mut());
-                    let t2 = std::time::Instant::now();
-                    eprintln!("[timing] map: {:?} (rc={r})", t2 - t1);
-                    if r != CUDA_SUCCESS {
-                        return Err(anyhow!("cuGraphicsMapResources failed (rc={r})"));
-                    }
-                    let result = (|| -> Result<()> {
-                        let mut dev_ptr: u64 = 0;
-                        let mut size: usize = 0;
-                        let r = (self.cu_get_mapped_pointer)(&mut dev_ptr, &mut size, res);
-                        if r != CUDA_SUCCESS {
-                            return Err(anyhow!(
-                                "cuGraphicsResourceGetMappedPointer failed (rc={r})"
-                            ));
-                        }
-                        let cpy = CudaMemcpy2D {
-                            src_x_in_bytes: 0,
-                            src_y: 0,
-                            src_memory_type: CU_MEMORYTYPE_DEVICE,
-                            src_host: ptr::null(),
-                            src_device: dev_ptr,
-                            src_array: ptr::null_mut(),
-                            src_pitch: w as usize * 4,
-                            dst_x_in_bytes: 0,
-                            dst_y: 0,
-                            dst_memory_type: CU_MEMORYTYPE_HOST,
-                            dst_host: bytes.as_mut_ptr() as *mut c_void,
-                            dst_device: 0,
-                            dst_array: ptr::null_mut(),
-                            dst_pitch: w as usize * 4,
-                            width_in_bytes: w as usize * 4,
-                            height: h as usize,
-                        };
-                        let r = (self.cu_memcpy_2d)(&cpy);
-                        let t3 = std::time::Instant::now();
-                        eprintln!("[timing] getptr+memcpy→host: {:?}", t3 - t2);
-                        if r != CUDA_SUCCESS {
-                            return Err(anyhow!("cuMemcpy2D(→host) failed (rc={r})"));
-                        }
-                        Ok(())
-                    })();
-                    (self.cu_unmap_resources)(1, &mut res, ptr::null_mut());
-                    result
-                })();
-                let mut old: CuContext = ptr::null_mut();
-                (self.cu_ctx_pop)(&mut old);
-                result?;
-                Ok(bytes)
-            }
         })();
         unsafe { (self.gl_delete_textures)(1, &src) };
         out

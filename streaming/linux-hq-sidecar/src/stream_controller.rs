@@ -637,20 +637,8 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                 // laufen wäre ein Farbfehler, kein Fehlschlag. 8 bit: RGB0
                 // (nicht BGR0), weil der GL-Blit komponentenweise BGRx→RGBA8
                 // kopiert und die Bytes danach als R,G,B,X liegen.
-                // 10 bit: standardmäßig der P010-Shader-Pfad (`nv_p010`);
-                // `PULSE_NVENC_TEN_BIT_RGB=1` schaltet auf den gepackten
-                // 10-bit-RGB-Direktpfad (`StagingFormat::Rgb10`) — NVENC
-                // bekommt `x2bgr10le` und wandelt selbst (H1 aus
-                // docs/2026-09-12-av1-10bit-encoder-last.md). Umschalter für
-                // die A/B-Messung, solange die Messakte dazu nicht steht.
                 let staging = if params.ten_bit {
-                    if std::env::var_os("PULSE_NVENC_TEN_BIT_RGB").as_deref()
-                        == Some(std::ffi::OsStr::new("1"))
-                    {
-                        nv_import::StagingFormat::Rgb10
-                    } else {
-                        nv_import::StagingFormat::P010
-                    }
+                    nv_import::StagingFormat::P010
                 } else {
                     nv_import::StagingFormat::Rgba8
                 };
