@@ -1202,6 +1202,10 @@ pub struct VideoDecoder {
     /// Name des tatsaechlich gewaehlten Decoders (fuer Diagnose und Statistik).
     pub name: String,
     pub hardware: bool,
+    /// Der hwaccel, mit dem dieser Decoder geoeffnet wurde (`None` =
+    /// Software). Trifft die Luecken-Entscheidung mit — s.
+    /// [`Self::flush_bei_luecke`].
+    hw: Option<Hwaccel>,
     /// Fuer den Neuaufbau: welcher Codec urspruenglich verlangt war.
     codec: Codec,
     /// Abgelehnte Einheiten in Folge; jede angenommene setzt zurueck.
@@ -1321,6 +1325,7 @@ impl VideoDecoder {
                         decoder,
                         name: kandidat.name.to_string(),
                         hardware,
+                        hw: kandidat.hw,
                         codec,
                         consecutive_errors: 0,
                         rebuilds: Neuaufbauten::default(),
@@ -1818,6 +1823,34 @@ impl VideoDecoder {
     /// Der Zaehler startet bei null, damit eine Luecke kurz vor dem naechsten
     /// Keyframe nicht faelschlich als "der Sender schickt keine Vollbilder"
     /// gewertet wird.
+    ///
+    /// **Seit dem 2026-09-12 entscheidet [`Self::flush_bei_luecke`] je
+    /// Geraet.** Auf VAAPI (Linux AMD/Intel) leert diese Stelle den Decoder
+    /// als VORGABE: dort haengt sich die Video-Einheit genau an solchen
+    /// Bezugsbild-Luecken weg — Kernel-Ring-Reset, Vorfall 2026-08-20 und
+    /// nachgestellt unter kontrolliertem Buendelverlust am 2026-09-12
+    /// (8 Resets ohne, 0 mit Flush;
+    /// `docs/2026-09-12-pulse-player-amd-audit.md`, Abschnitt F). NVIDIA
+    /// bleibt beim Weiterdekodieren: dessen Dekoder hat denselben Muell
+    /// klaglos verdaut, und der Flush fraß dort die Bildrate (Messung
+    /// 2026-07-28, gegen den heutigen Stand nicht wiederholt).
+    /// Leert der Decoder nach einer Luecke? Reine Funktion, damit die
+    /// Vorgabe testbar ist — die Sekundenstatistiken sehen in beiden Armen
+    /// gesund aus (Abschnitt F des AMD-Audits), ein Fehler hier waere
+    /// unsichtbar.
+    ///
+    /// Vorgabe je Geraet: **VAAPI ja, alles andere nein.** Der Schalter
+    /// `PULSE_PLAYER_GAP_WAIT_KEYFRAME` ueberschreibt in beide Richtungen:
+    /// `1` erzwingt das Leeren (Messarm b), `0` erzwingt Weiterdekodieren
+    /// (Messarm a).
+    fn flush_bei_luecke(hw: Option<Hwaccel>, schalter: Option<&str>) -> bool {
+        match schalter {
+            Some("1") => true,
+            Some("0") => false,
+            _ => hw == Some(Hwaccel::Vaapi),
+        }
+    }
+
     pub fn on_gap(&mut self) {
         // Weiterdekodieren und die Anzeige anhalten, bis das angeforderte
         // Vollbild da ist. Die Sperre versteckt die Zerfledderung — sie
@@ -1831,10 +1864,13 @@ impl VideoDecoder {
         // BLIEB eingefroren, waehrend jede Kennzahl gesund aussah. Wer sich
         // auf die Zaehler verlaesst, haelt das fuer einen Erfolg.
         //
-        // Der Decoder wird dabei NICHT geleert: ein geleerter Decoder hat gar
-        // keine Referenz mehr und kann nichts mehr rechnen. Am 2026-07-28
-        // gemessen — mit `flush` an dieser Stelle blieb die Bildrate bei 0.
-        if std::env::var("PULSE_PLAYER_GAP_WAIT_KEYFRAME").as_deref() != Ok("1") {
+        // Auf Nicht-VAAPI wird dabei NICHT geleert: ein geleerter Decoder hat
+        // gar keine Referenz mehr und kann nichts mehr rechnen. Am 2026-07-28
+        // an NVIDIA gemessen — mit `flush` an dieser Stelle blieb die
+        // Bildrate bei 0. Auf VAAPI gilt das Gegenteil (s. oben): dort leert
+        // der Flush, damit die Hardware die Luecke nie zu sehen bekommt.
+        let schalter = std::env::var("PULSE_PLAYER_GAP_WAIT_KEYFRAME").ok();
+        if !Self::flush_bei_luecke(self.hw, schalter.as_deref()) {
             let bis = std::time::Instant::now() + refresh_dauer();
             // Eine laengere Stoerung erzeugt viele Luecken hintereinander —
             // immer die spaeteste gewinnt, sonst gaebe die erste den Takt vor.
@@ -1845,9 +1881,9 @@ impl VideoDecoder {
             return;
         }
 
-        // Alter Weg (`PULSE_PLAYER_GAP_WAIT_KEYFRAME=1`): auf einen
-        // Einstiegspunkt warten. Dann den Decoder LEEREN, nicht nur aufhoeren
-        // ihn zu fuettern.
+        // Flush-Weg (auf VAAPI Vorgabe, per `PULSE_PLAYER_GAP_WAIT_KEYFRAME=
+        // 1` ueberall erzwingbar): auf einen Einstiegspunkt warten. Dann den
+        // Decoder LEEREN, nicht nur aufhoeren ihn zu fuettern.
         //
         // Das fehlte bisher, und es ist der Verdacht fuer den Segfault: nach
         // einer Luecke haelt der Decoder Referenzen auf Bilder, die nie
@@ -2854,5 +2890,29 @@ mod tests {
             0,
             "hw_ziel muss nach dem Rueckfall leer sein, haelt aber weiter {nachher} Byte"
         );
+    }
+}
+
+#[cfg(test)]
+mod flush_bei_luecke_tests {
+    use super::{Hwaccel, VideoDecoder};
+
+    #[test]
+    fn vaapi_leert_als_vorgabe() {
+        assert!(VideoDecoder::flush_bei_luecke(Some(Hwaccel::Vaapi), None));
+    }
+
+    #[test]
+    fn nvidia_windows_und_software_leeren_nicht() {
+        assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::Cuda), None));
+        assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::D3d11va), None));
+        assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::VideoToolbox), None));
+        assert!(!VideoDecoder::flush_bei_luecke(None, None));
+    }
+
+    #[test]
+    fn der_schalter_gewinnt_in_beiden_richtungen() {
+        assert!(VideoDecoder::flush_bei_luecke(Some(Hwaccel::Cuda), Some("1")));
+        assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::Vaapi), Some("0")));
     }
 }
