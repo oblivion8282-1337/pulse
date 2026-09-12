@@ -34,7 +34,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from dcc_chat_gateway.models import Channel, ChannelVoicePull, PermissionOverwrite
-from dcc_chat_gateway.permissions import OVERWRITE_TARGET_USER, Permissions
+from dcc_chat_gateway.permissions import (
+    OVERWRITE_TARGET_USER,
+    Permissions,
+    resolve_permissions,
+)
+from dcc_chat_gateway.security import AuthenticatedUser
 from dcc_chat_gateway.routes.permission_overwrites import (
     _fetch_all_overwrites,
     _overwrite_dict,
@@ -101,10 +106,17 @@ async def revoke_voice_pull(
     if manager is not None and channel is not None:
         overwrites = [_overwrite_dict(ow) for ow in await _fetch_all_overwrites(session, channel_id)]
         await _publish_perms_event(manager, session, channel_id, channel.guild_id, overwrites)
-        await manager.publish_user_event(
-            user_id,
-            ChannelHiddenEvent(guild_id=str(channel.guild_id), channel_id=str(channel_id)),
-        )
+        # ``channel_hidden`` nur, wenn der Pull-Grant die einzige Sichtbarkeit
+        # war. Konnte der Nutzer den Kanal schon vorher sehen (@everyone-/Rollen-
+        # Recht), listet der Server ihn weiterhin — ein Hidden würde die Sidebar
+        # leeren, bis ein Neuladen die Liste neu holt (Befund 2026-09-12).
+        viewer = AuthenticatedUser(id=user_id, username="", is_admin=False, payload={})
+        value = await resolve_permissions(session, viewer, channel.guild_id, channel_id=channel_id)
+        if not value & int(Permissions.VIEW_CHANNEL):
+            await manager.publish_user_event(
+                user_id,
+                ChannelHiddenEvent(guild_id=str(channel.guild_id), channel_id=str(channel_id)),
+            )
     return True
 
 
