@@ -72,9 +72,13 @@
 
   // Geräte für ALLE Communitys vorladen, sobald der Dialog öffnet —
   // Begründung samt Henne-Ei-Fall in `settings/reiterAuswahl.svelte.ts`.
+  // Um 150 ms VERZÖGERT, also erst NACH der Öffnen-Animation (duration-100):
+  // der Vorladelauf konkurrierte sonst mit Mount und Animation um den
+  // Main-Thread — das war das Ruckeln beim Einblenden (2026-09-12).
   $effect(() => {
     if (!open) return;
-    alleGeraeteVorladen();
+    const timer = setTimeout(() => alleGeraeteVorladen(), 150);
+    return () => clearTimeout(timer);
   });
 
   // Für die Teile INNERHALB des Tabs, die es wirklich nur unter Linux gibt

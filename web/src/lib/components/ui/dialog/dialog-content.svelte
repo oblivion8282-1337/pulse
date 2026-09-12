@@ -30,7 +30,13 @@
 		bind:ref
 		data-slot="dialog-content"
 		class={cn(
-			"bg-popover text-popover-foreground backdrop-blur-xl data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-border grid max-w-[calc(100%-2rem)] gap-6 rounded-2xl p-6 text-sm ring-1 shadow-2xl duration-100 sm:max-w-md fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none",
+			// Kein backdrop-filter HIER: der Overlay blurt den Hintergrund
+			// bereits, und --popover ist fast opak (0.97/0.85 Alpha) — ein
+			// Inhalts-Blur wäre reine GPU-Arbeit ohne sichtbaren Unterschied.
+			// Er zwang aber in jedem Animations-Frame (fade+zoom) zur
+			// Neu-Verwischung der gesamten Fläche dahinter und ruckelte so
+			// das Öffnen größerer Dialoge (z. B. Einstellungen).
+			"bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-border grid max-w-[calc(100%-2rem)] gap-6 rounded-2xl p-6 text-sm ring-1 shadow-2xl duration-100 sm:max-w-md fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none",
 			className
 		)}
 		{...restProps}
