@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-12.5",
+      "date": "2026-09-12",
+      "style": "Sachlich",
+      "title": "Zeitstempel verschlüsselter Nachrichten zeigt die Sendezeit",
+      "intro": "Eine Nachricht, die ankam, während die App geschlossen war, trug als Zeitstempel den Moment des App-Öffnens. Jetzt zeigt der Zeitstempel, wann die Nachricht abgeschickt wurde.",
+      "items": [
+        "Gilt für Direktnachrichten, private Gruppen und Ablage-Kanäle, einschließlich der Zeitangabe in der Übersicht der Unterhaltungen.",
+        "Der Zeitstempel stammt vom Server (Augenblick der Einlieferung) und hängt damit nicht von der Geräteuhr des Absenders ab.",
+        "Nachrichten, die vor diesem Update empfangen und bereits gespeichert wurden, behalten ihren einmal gespeicherten Zeitstempel."
+      ]
+    },
+    {
       "id": "2026-09-12.4",
       "date": "2026-09-12",
       "style": "Sachlich",
