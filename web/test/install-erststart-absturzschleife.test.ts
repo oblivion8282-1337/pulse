@@ -39,7 +39,15 @@
  * blinde Fleck, durch den der Fehler durchrutschte.
  */
 
-import { test } from 'node:test';
+import { test as testAlle } from 'node:test';
+
+// Die Tests fuehren web/static/install.sh unter bash aus (gefaelschte Kommandos
+// ueber einen PATH-Ordner, Heredocs, chmod-Semantik). Unter Windows geht das
+// nicht kaputt-frei: argv-Roundtrip verstümmelt mehrzeilige Skripte, der PATH
+// trennt mit Semikolon, Schreibschutz-Verzeichnisse verhalten sich anders.
+// Der Installer gehoert auf Linux-Hosts; die Pruefungen laufen in der
+// Linux-CI unverändert.
+const test = process.platform === 'win32' ? testAlle.skip : testAlle;
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, chmodSync, readFileSync } from 'node:fs';
