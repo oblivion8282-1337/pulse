@@ -127,9 +127,11 @@ impl Sitzung {
             .wartende_direct_params()
             .ok_or_else(|| anyhow!("kein wartender Direkt-Stream (start mit direct:true)"))?;
         // Macs StartParams trägt flache Maße (win: Overrides + Profil). Der
-        // Codec läuft durch denselben Slug-Space wie `start_whip`: nur h264
-        // und av1 sprechen den Direkt-Sendeweg (s. dortige Fallback-Begründung).
+        // Codec läuft durch denselben Slug-Space wie `start_whip`: h264, hevc
+        // und av1 sprechen den Direkt-Sendeweg (s. dortige Fallback-
+        // Begründung; alles andere ist dort schon auf h264 gefallen).
         let codec_slug: &'static str = match params.codec.as_str() {
+            "hevc" => "hevc",
             "av1" => "av1",
             _ => "h264",
         };

@@ -127,6 +127,7 @@ fn lauf_lebenszyklus() -> bool {
         enable_audio: false,
         audio_scope: AudioScope::None,
         av_offset_ms: 0,
+        direct: false,
     };
     let controller = StreamController::singleton();
     if let Err(e) = controller.start(params, vec![]) {

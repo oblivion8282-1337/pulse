@@ -108,19 +108,19 @@ export function hdrPossible(): boolean {
  * AV1 — kann diese Maschine es, UND kommt es auch heil beim Zuschauer an?
  *
  * `gpuHasAv1` allein beantwortet nur die erste Hälfte: es fragt den Encoder.
- * **Auf macOS ist die zweite Hälfte seit dem 2026-08-18 nein** (korrigiert am
- * 2026-08-19). Seit `pushProtokoll` bedingungslos WHIP liefert, geht der
- * mac-Sidecar über ffmpegs WHIP-Muxer — der trägt kein AV1, und der Sidecar
- * nimmt den Codec beim Start still auf H.264 zurück
- * (`mac-hq-sidecar/src/encode/mod.rs`). Linux und Windows bringen dafür einen
- * eigenen WebRTC-Sender mit (`src/whip/` in beiden Sidecars), macOS nicht.
+ * **Auf macOS ist die zweite Hälfte heute nein**: Das gelinkte FFmpeg (8.0.1)
+ * bringt keinen `av1_videotoolbox`-Encoder — erst M3+-Silizium UND ein
+ * FFmpeg mit dem Encoder würden AV1 möglich machen (`mac-hq-sidecar/src/caps.rs`
+ * probt genau das). Der eigene WHIP-Sender (`mac-hq-sidecar/src/whip/`, Zwilling
+ * der Linux-/Windows-Sidecars) trägt AV1 längst; seit der HEVC-Runde 2026-09-13
+ * auch HEVC.
  *
  * Ein nicht angebotener Eintrag ist besser als einer, der beim Start still
  * zurückgenommen wird: auf einem M3+ stand „AV1" im Feld, war sogar die
  * Vorbelegung, und übertragen wurde H.264 — sichtbar nirgends.
  *
- * Wer hier je das `!isMac()` entfernt, baut vorher den eigenen WHIP-Sender für
- * macOS.
+ * Wer hier je das `!isMac()` entfernt, prüft vorher gegen die echte
+ * Encoder-Probe der `health`-Antwort (video_codecs) statt gegen den Modellnamen.
  */
 export function av1Nutzbar(codecs: ReadonlyArray<string> | undefined): boolean {
   return !isMac() && gpuHasAv1(codecs);

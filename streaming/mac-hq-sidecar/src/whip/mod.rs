@@ -70,13 +70,14 @@ use rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
 use rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use rtcp::payload_feedbacks::receiver_estimated_maximum_bitrate::ReceiverEstimatedMaximumBitrate;
 use tokio::runtime::Runtime;
-use webrtc::api::media_engine::MIME_TYPE_AV1;
+use webrtc::api::media_engine::{MIME_TYPE_AV1, MIME_TYPE_HEVC};
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::media::Sample;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp::codecs::h264::H264Payloader;
+use webrtc::rtp::codecs::h265::HevcPayloader;
 use webrtc::rtp::header::Header;
 use webrtc::rtp::packet::Packet;
 use webrtc::rtp::packetizer::Payloader;
@@ -159,6 +160,40 @@ enum Paketierer {
     /// sich SPS/PPS und buendelt sie vor jedes Vollbild — deshalb liegt er
     /// mit im Spur-Zustand unter dem Lock.
     H264(H264Payloader),
+    /// webrtc-rs' HEVC-Zerleger (Annex-B → FU/AP), denselben Trick wie H264:
+    /// er haelt VPS/SPS/PPS zurueck und gibt sie vor dem naechsten Vollbild
+    /// heraus. Input ist Annex-B, wie ihn `hevc_videotoolbox` liefert.
+    Hevc(HevcPayloader),
+}
+
+/// Ein Annex-B-Zeitabschnitt in RTP-Nutzlasten zerlegen — der Weg, den H.264
+/// und HEVC gemeinsam nehmen. Der Payloader von webrtc-rs sagt nicht, ob ein
+/// Vollbild dabei war; die Bildmarke braucht es fuer die Schablone, deshalb
+/// kommt die Erkennung je Codec hier herein. Leer ist legitim: ein Paket, das
+/// nur Parameter-Saetze trug (SPS/PPS bzw. VPS/SPS/PPS), wird vom Payloader
+/// gemerkt und erst vor dem naechsten Vollbild ausgegeben.
+///
+/// Gleiche Funktion wie im Linux- und Windows-Sidecar (`whip::zerlege_annexb`)
+/// — die drei Plattform-Dateien bleiben bewusst in lockstep, damit dieselbe
+/// Lage nicht drei Formulierungen bekommt.
+fn zerlege_annexb<P: Payloader>(
+    paketierer: &mut P,
+    data: &[u8],
+    vollbild: fn(&[u8]) -> bool,
+    was: &str,
+) -> Result<Vec<(Bytes, bool, bool, bool)>> {
+    let teile = paketierer
+        .payload(av1::MTU, &Bytes::copy_from_slice(data))
+        .with_context(|| format!("{was} paketieren"))?;
+    let n = teile.len();
+    // Ein Vollbild gilt fuer den ganzen Abschnitt — einmal erkennen, nicht
+    // je RTP-Paket.
+    let ist_vollbild = vollbild(data);
+    Ok(teile
+        .into_iter()
+        .enumerate()
+        .map(|(i, b)| (b, i == 0, i + 1 == n, ist_vollbild))
+        .collect())
 }
 
 /// Die Bildspur: eigene RTP-Pakete fuer beide Codecs.
@@ -303,10 +338,10 @@ impl WhipSender {
 
         // Beide Codecs stempeln selbst; nur der Zerleger unterscheidet sich
         // (Grund und Nachweis in [`av1`] bzw. im Modulkopf).
-        let paketierer = if cap.mime_type == MIME_TYPE_AV1 {
-            Paketierer::Av1
-        } else {
-            Paketierer::H264(H264Payloader::default())
+        let paketierer = match cap.mime_type.as_str() {
+            MIME_TYPE_AV1 => Paketierer::Av1,
+            MIME_TYPE_HEVC => Paketierer::Hevc(HevcPayloader::default()),
+            _ => Paketierer::H264(H264Payloader::default()),
         };
         let video_track = Arc::new(TrackLocalStaticRTP::new(
             cap,
@@ -521,21 +556,10 @@ impl WhipSender {
                     .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
                     .collect(),
                 Paketierer::H264(p) => {
-                    // Der Payloader von webrtc-rs sagt nicht, ob ein Vollbild
-                    // dabei war; die Bildmarke braucht es fuer die Schablone.
-                    let vollbild = pulse_whip::h264::h264_ist_vollbild(data);
-                    let teile = p
-                        .payload(av1::MTU, &Bytes::copy_from_slice(data))
-                        .context("H.264 paketieren")?;
-                    // Leer ist legitim: ein Paket, das nur SPS/PPS trug, wird
-                    // vom Payloader gemerkt und erst vor dem naechsten
-                    // Vollbild ausgegeben.
-                    let n = teile.len();
-                    teile
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, b)| (b, i == 0, i + 1 == n, vollbild))
-                        .collect()
+                    zerlege_annexb(p, data, pulse_whip::h264::h264_ist_vollbild, "H.264")?
+                }
+                Paketierer::Hevc(p) => {
+                    zerlege_annexb(p, data, pulse_whip::hevc::hevc_ist_vollbild, "HEVC")?
                 }
             };
             if teile.is_empty() {
