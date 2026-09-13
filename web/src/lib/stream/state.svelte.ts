@@ -68,6 +68,10 @@ export const stream = $state({
    *  Nur der Linux-Rust-Sidecar meldet das Feld — fehlt es, bleibt es false,
    *  und die 10-bit-Einstellung wird gar nicht angeboten. */
   tenBitAvailable: false,
+  /** True iff der Sidecar 10 bit in HEVC (Main 10) encodieren kann
+   *  (`gsr.hevc_ten_bit`) — getrennt von `tenBitAvailable`, weil es
+   *  auseinanderfällt (Main 10 ab ~2015, AV1 erst ab 2022). */
+  hevcTenBitAvailable: false,
   /** True iff der Sidecar Eingaben einspielen kann (`gsr.remote_input`), also
    *  ferngesteuert werden KANN. Windows und **seit 2026-08-23 auch macOS**
    *  melden das; unter Linux gibt es das Modul nicht, und auf Wayland wäre es
@@ -226,6 +230,7 @@ export async function initStream(): Promise<() => void> {
       if (!h.ok) stream.error = 'sidecar health probe failed';
       stream.gsrAvailable = !!h.gsr?.available;
       stream.tenBitAvailable = !!h.gsr?.ten_bit;
+      stream.hevcTenBitAvailable = !!h.gsr?.hevc_ten_bit;
       stream.fernsteuerbar = !!h.gsr?.remote_input;
       // Der Grund reist mit, damit eine abgeschaltete Fernsteuerung erklaerbar
       // ist statt nur abwesend — s. `lib/remote/freigabeText.ts`.

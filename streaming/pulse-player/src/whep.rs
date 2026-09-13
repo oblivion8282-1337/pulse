@@ -61,6 +61,13 @@ const MAX_ANSWER_BYTES: usize = 256 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Codec {
     H264,
+    /// HEVC — Wiedergabe bewusst NUR über Hardware (`hevc_cuvid`/hwaccel).
+    /// Der Software-Decoder steht im gebündelten FFmpeg, wird aber
+    /// absichtlich nie als Kandidat angeboten: ein Fallback wäre eine
+    /// ausgelieferte Software-Implementierung eines patentbehafteten Codecs
+    /// (Lizenzlinie, s. `decode::candidates_mit`). Fehlt die Hardware,
+    /// scheitert die Wiedergabe laut — genau so gemeint.
+    H265,
     Av1,
     Opus,
 }
@@ -69,6 +76,7 @@ impl Codec {
     fn from_mime(mime: &str) -> Option<Self> {
         match mime.to_ascii_lowercase().as_str() {
             "video/h264" => Some(Self::H264),
+            "video/h265" => Some(Self::H265),
             "video/av1" | "video/av1x" => Some(Self::Av1),
             "audio/opus" => Some(Self::Opus),
             _ => None,
@@ -78,12 +86,13 @@ impl Codec {
     /// Traegt diese Spur Bild? Entscheidet, ob eine Luecke den Video-Decoder
     /// etwas angeht — eine Tonluecke tut das NICHT.
     pub fn is_video(self) -> bool {
-        matches!(self, Self::H264 | Self::Av1)
+        matches!(self, Self::H264 | Self::H265 | Self::Av1)
     }
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::H264 => "h264",
+            Self::H265 => "hevc",
             Self::Av1 => "av1",
             Self::Opus => "opus",
         }
@@ -938,6 +947,7 @@ mod tests {
     #[test]
     fn codec_aus_mime() {
         assert_eq!(Codec::from_mime("video/H264"), Some(Codec::H264));
+        assert_eq!(Codec::from_mime("video/H265"), Some(Codec::H265));
         assert_eq!(Codec::from_mime("video/AV1"), Some(Codec::Av1));
         assert_eq!(Codec::from_mime("audio/opus"), Some(Codec::Opus));
         assert_eq!(Codec::from_mime("video/VP9"), None);

@@ -51,6 +51,10 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         // Farbkanal encodieren (impliziert AV1)? Ältere Sidecars melden es
         // nicht — Konsumenten müssen `undefined` als false lesen.
         "ten_bit": caps.ten_bit,
+        // Dasselbe für HEVC Main 10 — getrennt gemeldet, weil es auseinander-
+        // fällt: Main-10-Encode ab ~2015, AV1-Encode erst ab 2022. `undefined`
+        // (ältere Sidecars) = false.
+        "hevc_ten_bit": caps.ten_bit_hevc,
         // Das Portal verhandelt Monitor ODER Window (`SourceType` in
         // portal.rs) — "region" hier zu bewerben hieße, einen Modus zu
         // versprechen, der still als Monitor/Window-Dialog endet.

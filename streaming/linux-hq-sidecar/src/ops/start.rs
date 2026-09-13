@@ -215,7 +215,13 @@ pub(crate) fn requested_ten_bit(overrides: Option<&Map<String, Value>>) -> bool 
 /// Anzeigen auf, und ein Diagnose-Panel darf keine Warnungen ins Log schreiben.
 /// Die Absage protokolliert der `start`-Pfad (s. [`log_ten_bit_refusal`]).
 pub(crate) fn ten_bit_possible(codec: &str) -> bool {
-    codec == "av1" && crate::caps::supports_ten_bit()
+    match codec {
+        // HEVC Main 10 seit 2026-09-13 dabei — die 10-bit-Mittelstufe für
+        // Karten ohne AV1-Encode (Main-10-HW ab ~2015, AV1 erst ab 2022).
+        "av1" => crate::caps::supports_ten_bit(),
+        "hevc" => crate::caps::supports_ten_bit_hevc(),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -243,13 +249,13 @@ mod bit_depth_tests {
 
 /// Warum aus dem 10-bit-Wunsch nichts wurde — nur im echten `start`-Pfad.
 fn log_ten_bit_refusal(codec: &str) {
-    if codec != "av1" {
+    if codec == "h264" {
         tracing::warn!(
             target: "stream", codec,
-            "10 bit nur mit AV1 (H.264-10-bit = High 10, im Browser nicht dekodierbar) → 8 bit"
+            "10 bit nur mit AV1/HEVC (H.264-10-bit = High 10, im Browser nicht dekodierbar) → 8 bit"
         );
     } else {
-        tracing::warn!(target: "stream", "10 bit von dieser Hardware nicht encodierbar → 8 bit");
+        tracing::warn!(target: "stream", codec, "10 bit von dieser Hardware nicht encodierbar → 8 bit");
     }
 }
 

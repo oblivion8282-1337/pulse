@@ -1,7 +1,9 @@
 //! Vendor-Encoder-Optionen, orientiert an GSR (`src/main.cpp` open_video_hardware).
 //!
 //! GSR nutzt selbst ffmpeg-Encoder (`h264_nvenc`/`h264_vaapi`) via av_dict —
-//! die Settings werden hier nahezu 1:1 nachgebaut. Nur H264 + AV1 (kein HEVC).
+//! die Settings werden hier nahezu 1:1 nachgebaut. HEVC (hevc_nvenc/hevc_vaapi)
+//! erbt dieselben Zweige: die NVENC- bzw. VAAPI-Optionen existieren für beide
+//! Codecs, nur `coder` ist H.264-eigen (s. unten).
 //!
 //! Rate-Control-Option-Strings unterscheiden sich pro Vendor:
 //!   NVENC:  `rc`  = constqp | vbr | cbr
@@ -13,12 +15,14 @@ use ffmpeg::Dictionary;
 
 use crate::system::drm::Vendor;
 
-/// ffmpeg-Encoder-Name für Vendor + Pulse-Codec-Id (h264/av1).
+/// ffmpeg-Encoder-Name für Vendor + Pulse-Codec-Id (h264/hevc/av1).
 pub fn encoder_name(vendor: Vendor, codec: &str) -> Option<&'static str> {
     match (vendor, codec) {
         (Vendor::Nvidia, "h264") => Some("h264_nvenc"),
+        (Vendor::Nvidia, "hevc") => Some("hevc_nvenc"),
         (Vendor::Nvidia, "av1") => Some("av1_nvenc"),
         (Vendor::Amd | Vendor::Intel, "h264") => Some("h264_vaapi"),
+        (Vendor::Amd | Vendor::Intel, "hevc") => Some("hevc_vaapi"),
         (Vendor::Amd | Vendor::Intel, "av1") => Some("av1_vaapi"),
         _ => None,
     }
@@ -27,8 +31,8 @@ pub fn encoder_name(vendor: Vendor, codec: &str) -> Option<&'static str> {
 /// av_dict-Optionen für den Encoder-Open. CBR, Ultra-Low-Latency, kein B-Ref —
 /// GSRs Performance-Tune.
 ///
-/// `codec` ist `"h264"` oder `"av1"` — gebraucht fuer die eine Option, die es
-/// nur bei H.264 gibt (Begruendung an der Stelle selbst).
+    /// `codec` ist `"h264"`, `"hevc"` oder `"av1"` — gebraucht fuer die eine
+    /// Option, die es nur bei H.264 gibt (Begruendung an der Stelle selbst).
 pub fn vendor_opts(vendor: Vendor, codec: &str) -> Dictionary<'static> {
     let mut opts = vendor_defaults(vendor, codec);
     apply_override(&mut opts);
@@ -47,9 +51,11 @@ pub fn vendor_opts(vendor: Vendor, codec: &str) -> Dictionary<'static> {
 pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
     let mut opts = Dictionary::new();
     // Entropie-Kodierer, NUR H.264. `coder` gibt es bei `h264_nvenc` und
-    // `h264_vaapi`; bei `av1_nvenc` und `av1_vaapi` existiert die Option NICHT
-    // (2026-07-30 gegen die AVOption-Tabellen beider Encoder geprüft) — AV1
-    // hat keine CABAC/CAVLC-Wahl, es kodiert immer arithmetisch.
+    // `h264_vaapi`; bei `av1_nvenc`, `av1_vaapi`, `hevc_nvenc` und
+    // `hevc_vaapi` existiert die Option NICHT (2026-07-30 gegen die
+    // AVOption-Tabellen beider Encoder geprueft, HEVC 2026-09-13
+    // nachgetragen) — AV1/HEVC haben keine CABAC/CAVLC-Wahl, sie kodieren
+    // immer arithmetisch.
     //
     // Bis 2026-07-30 stand das unbedingt in BEIDEN Zweigen und wurde bei jedem
     // AV1-Stream still verworfen. Folgenlos, aber es war eine Anweisung ohne
@@ -400,5 +406,20 @@ mod tests {
             "forced-idr fehlt — angeforderte Vollbilder waeren dann nicht zwingend IDR, \
              und niemand koennte einsteigen"
         );
+    }
+
+    /// HEVC erbt dieselben NVENC-Zusagen wie H.264 — insbesondere
+    /// `forced-idr` (NVENC macht aus einer Anforderung ohne die Option kein
+    /// IDR, ganz gleich welcher Codec). `coder` dagegen darf NICHT ankommen:
+    /// die Option kennt nur H.264, und ein still verworfener Schluessel ist
+    /// genau der Fehler, den [`warn_unknown`] sonst meldet.
+    #[test]
+    fn hevc_erhaelt_idr_zusage_und_kein_coder() {
+        let opts = vendor_opts(Vendor::Nvidia, "hevc");
+        assert_eq!(opts.get("forced-idr"), Some("1"), "forced-idr fehlt bei hevc_nvenc");
+        assert_eq!(opts.get("coder"), None, "coder gehört allein zu H.264");
+        assert_eq!(encoder_name(Vendor::Nvidia, "hevc"), Some("hevc_nvenc"));
+        assert_eq!(encoder_name(Vendor::Amd, "hevc"), Some("hevc_vaapi"));
+        assert_eq!(encoder_name(Vendor::Intel, "hevc"), Some("hevc_vaapi"));
     }
 }

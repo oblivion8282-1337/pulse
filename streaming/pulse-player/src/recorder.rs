@@ -132,8 +132,34 @@ pub(crate) fn is_keyframe(codec: Codec, data: &[u8]) -> bool {
     match codec {
         Codec::Av1 => scan_av1_for_keyframe(data),
         Codec::H264 => scan_annexb_for_idr(data),
+        Codec::H265 => scan_annexb_for_hevc_entry(data),
         Codec::Opus => true,
     }
+}
+
+/// HEVC: Einstiegspunkt über die Annex-B-Startcodes — IDR (19/20), BLA
+/// (16-18) oder CRA (21), dazu SPS (33), der dem Vollbild vorausgeht (und im
+/// Gegensatz zu VPS/PPS vom Payloader zur Ausgabe vor dem nächsten Vollbild
+/// gehalten wird). Der NAL-Typ sitzt in `(b0 >> 1) & 0x3F` (RFC 7798
+/// §1.1.4), nicht wie bei H.264 in den unteren fünf Bit.
+fn scan_annexb_for_hevc_entry(data: &[u8]) -> bool {
+    let mut i = 0;
+    while i + 4 < data.len() {
+        let lang = data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 0 && data[i + 3] == 1;
+        let kurz = data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1;
+        if lang || kurz {
+            let kopf = i + if lang { 4 } else { 3 };
+            if kopf + 1 < data.len() {
+                if matches!((data[kopf] >> 1) & 0x3F, 16..=21 | 33) {
+                    return true;
+                }
+            }
+            i = kopf;
+        } else {
+            i += 1;
+        }
+    }
+    false
 }
 
 /// Liefert den Sequence-Header-OBU (Typ 1) aus einer Zugriffseinheit, falls
@@ -289,6 +315,7 @@ impl Writer {
             let id = match codec {
                 Codec::Av1 => ffmpeg::codec::Id::AV1,
                 Codec::H264 => ffmpeg::codec::Id::H264,
+                Codec::H265 => ffmpeg::codec::Id::HEVC,
                 Codec::Opus => bail!("Opus ist keine Videospur"),
             };
             let enc = ffmpeg::encoder::find(id)
@@ -645,6 +672,23 @@ mod tests {
         assert!(is_keyframe(Codec::H264, &sps), "SPS (NAL 7)");
         let inter = [0, 0, 1, 0x41, 0x9A];
         assert!(!is_keyframe(Codec::H264, &inter), "NAL 1 ist keiner");
+    }
+
+    /// HEVC: der Typ sitzt in `(b0 >> 1) & 0x3F` — die H.264-Maske `& 0x1F`
+    /// würde aus der IDR_W_RADL (19 → 0x26) fälschlich Typ 0x13 lesen. IDR,
+    /// CRA und SPS gelten; TRAIL_R und PPS nicht.
+    #[test]
+    fn hevc_einstiegspunkte_werden_erkannt() {
+        let idr = [0, 0, 1, 0x26, 0x01];
+        assert!(is_keyframe(Codec::H265, &idr), "IDR_W_RADL (19)");
+        let cra = [0, 0, 1, 0x2A, 0x01];
+        assert!(is_keyframe(Codec::H265, &cra), "CRA (21)");
+        let sps = [0, 0, 1, 0x42, 0x01];
+        assert!(is_keyframe(Codec::H265, &sps), "SPS (33)");
+        let inter = [0, 0, 1, 0x02, 0x01];
+        assert!(!is_keyframe(Codec::H265, &inter), "TRAIL_R (1) ist kein Einstieg");
+        let pps = [0, 0, 1, 0x44, 0x01];
+        assert!(!is_keyframe(Codec::H265, &pps), "PPS (34) ist keiner");
     }
 
     /// Regression: eine Aufnahme, die mitten in einer GOP startet, darf nicht

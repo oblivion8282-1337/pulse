@@ -40,10 +40,11 @@
 
 pub mod av1;
 pub mod bandbreite;
-/// Der Direktpfad-Sender (Antworter) — Gegenstueck zum WHIP-Weg ohne Server.
+/// Der Direktpfad-Sender (Antworter) — Gegenstück zum WHIP-Weg ohne Server.
 /// Eigene Untermodule (`rtc`/`sdp`/`stun`), Begruendung im Modulkopf.
 pub mod direct;
 pub mod h264;
+pub mod hevc;
 pub mod pacer;
 pub mod sdp;
 pub mod verbindung;

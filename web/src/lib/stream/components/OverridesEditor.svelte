@@ -26,6 +26,7 @@
     persistSettings,
   } from '../settings.svelte';
   import { stream } from '../state.svelte';
+  import { gpuHasHevc } from '../settingsCatalog';
   import { sourceSize, resolutionOptions } from '../resolution';
   import { effectiveHqLimits } from '../guildLimits';
   import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -60,7 +61,11 @@
     VIDEO_MODES.filter(
       (m) =>
         (m.codec !== 'av1' || av1Nutzbar(streamSettings.gpu_info?.video_codecs)) &&
-        (!m.tenBit || stream.tenBitAvailable) &&
+        (m.codec !== 'hevc' || gpuHasHevc(streamSettings.gpu_info?.video_codecs)) &&
+        // 10 bit je Codec: AV1 und HEVC melden ihre Fähigkeit getrennt —
+        // Main 10 gibt es seit ~2015, AV1-Encode erst ab 2022.
+        (!m.tenBit ||
+          (m.codec === 'hevc' ? stream.hevcTenBitAvailable : stream.tenBitAvailable)) &&
         (!m.hdr || (isWindows() && stream.hdrAvailable)),
     ),
   );

@@ -33,6 +33,7 @@ import { effectiveHqLimits } from '$lib/stream/guildLimits';
 import {
   applyVideoMode,
   gpuHasAv1,
+  gpuHasHevc,
   clampResolution,
   type AudioMode,
   type OverrideSet,
@@ -73,7 +74,10 @@ export * from './captureSource';
  */
 export function tenBitPossible(overrides: OverrideSet = streamSettings.overrides): boolean {
   const codec = overrides.codec ?? 'h264';
-  return overrides.bit_depth === 10 && codec === 'av1' && stream.tenBitAvailable;
+  if (overrides.bit_depth !== 10) return false;
+  if (codec === 'av1') return stream.tenBitAvailable;
+  if (codec === 'hevc') return stream.hevcTenBitAvailable;
+  return false;
 }
 
 /**
@@ -192,11 +196,13 @@ export async function loadCatalogs(): Promise<void> {
     // Sidecar seine Vorgabe nimmt (`FPS_STANDARD`) — eine Vorbelegung auf 60
     // hätte den Eintrag nie sichtbar werden lassen.
     const hasAv1 = av1Nutzbar(streamSettings.gpu_info?.video_codecs);
+    const hasHevc = gpuHasHevc(streamSettings.gpu_info?.video_codecs);
     const defaults: OverrideSet = {};
     if (!streamSettings.overrides.codec) defaults.codec = hasAv1 ? 'av1' : 'h264';
     // Coerce a previously-saved codec this GPU can't encode (e.g. 'av1' carried
     // over to an H.264-only machine) back to the baseline.
     else if (streamSettings.overrides.codec === 'av1' && !hasAv1) defaults.codec = 'h264';
+    else if (streamSettings.overrides.codec === 'hevc' && !hasHevc) defaults.codec = 'h264';
     if (streamSettings.overrides.bitrate_kbps === undefined) defaults.bitrate_kbps = 4000;
     if (Object.keys(defaults).length > 0) {
       streamSettings.overrides = { ...streamSettings.overrides, ...defaults };

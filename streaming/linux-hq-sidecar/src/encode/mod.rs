@@ -41,7 +41,7 @@ pub struct AudioParams {
 #[derive(Debug, Clone)]
 pub struct EncoderConfig {
     pub vendor: Vendor,
-    pub codec: String, // "h264" | "av1"
+    pub codec: String, // "h264" | "hevc" | "av1"
     pub fps: u32,
     pub bitrate_kbps: u32,
     pub width: u32,

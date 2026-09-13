@@ -7,6 +7,7 @@
 //! Codec-Grammatik.
 
 pub mod av1;
+pub mod hevc;
 
 use bytes::{Bytes, BytesMut};
 use webrtc::rtp::codecs::h264::H264Packet;
@@ -32,6 +33,9 @@ const MAX_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
 /// Codec-abhaengiger Teil des Zusammensetzens.
 enum Kind {
     Av1(av1::Av1Assembler),
+    /// HEVC: RFC 7798 → Annex-B, dieselbe Vertragsschnittstelle wie AV1 —
+    /// Einheitenverwurf und Meldung liegen im Assembler (s. `hevc`).
+    H265(hevc::HevcAssembler),
     H264 {
         depacketizer: Box<H264Packet>,
         unit: BytesMut,
@@ -94,6 +98,7 @@ impl Assembler {
     pub fn for_codec(codec: Codec) -> Self {
         let kind = match codec {
             Codec::Av1 => Kind::Av1(av1::Av1Assembler::new()),
+            Codec::H265 => Kind::H265(hevc::HevcAssembler::neu()),
             Codec::H264 => Kind::H264 {
                 depacketizer: Box::new(H264Packet::default()),
                 unit: BytesMut::new(),
@@ -129,6 +134,7 @@ impl Assembler {
     pub fn on_gap(&mut self) {
         match &mut self.kind {
             Kind::Av1(a) => a.on_gap(),
+            Kind::H265(a) => a.on_gap(),
             Kind::H264 { depacketizer, unit, dropped, fua_bytes } => {
                 unit.clear();
                 h264_reset(depacketizer, fua_bytes);
@@ -188,6 +194,13 @@ impl Assembler {
         // Zweig die Meldung vergessen kann, ohne dass es auffaellt.
         let (verworfen, ergebnis) = match &mut self.kind {
             Kind::Av1(a) => {
+                let out = a.push(payload, marker);
+                (a.verworfen_abholen(), out)
+            }
+            // HEVC trägt dieselben Zusicherungen wie AV1: Einheitenverwurf,
+            // Deckel und Meldung liegen im Assembler, hier bleibt nur die
+            // Durchreichung (s. `hevc`).
+            Kind::H265(a) => {
                 let out = a.push(payload, marker);
                 (a.verworfen_abholen(), out)
             }

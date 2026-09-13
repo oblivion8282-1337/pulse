@@ -583,6 +583,20 @@ fn candidates_mit(codec: Codec, allow_hw: bool, cuda_aus: bool) -> Vec<Kandidat>
                 &[Kandidat::sw("h264"), Kandidat::sw("libopenh264")],
             )
         }
+        Codec::H265 => (
+            hw_liste("hevc_cuvid", "hevc", "hevc_qsv"),
+            // Bewusst LEER — Lizenzlinie, kein Versehen. HEVC läuft hier nur
+            // über Hardware: cuvid ist NVDEC (auch ohne CUDA-Gerät),
+            // `nativ_hw` ist der native Decoder mit VAAPI/D3D11VA/VideoToolbox,
+            // QSV ist Intel-Hardware. Der native SOFTWARE-Decoder (`hevc`)
+            // steckt zwar im gebündelten FFmpeg, wird aber absichtlich nie als
+            // Kandidat angeboten — als stiller Fallback wäre er eine
+            // ausgelieferte Software-Implementierung eines patentbehafteten
+            // Codecs (Begründung ausführlich am `Codec::H265` in `whep.rs`).
+            // Fehlt die Hardware, scheitert der Decoder laut statt still auf
+            // Software zu fallen.
+            &[],
+        ),
         Codec::Opus => (Vec::new(), &[Kandidat::sw("libopus"), Kandidat::sw("opus")]),
     };
     let mut out = Vec::new();
