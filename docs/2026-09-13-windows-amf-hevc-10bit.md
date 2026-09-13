@@ -59,11 +59,20 @@ Linux-E2E gemessene.
 Der Player wählt HEVC über die generische Kandidatenliste — unter Windows
 gewinnt der native Decoder mit D3D11VA (`ZUERST_NATIV_HW`), für 8 und
 10 bit; die D3D11-Zero-Copy-Brücke ist Pixelformat-getrieben (NV12/P010) und
-am 2026-08-11 über den RTX-5080-Lauf belegt. Ein Live-E2E auf dieser
-Maschine (Sender + Zuschauer auf Windows) steht noch aus — der Dev-Stack
-lief nicht. Wer ihn nachholt: `testbench/real-harness.py --codec hevc`
-(Windows-Pendant `win-hq-labor`), 8 und 10 bit, und im Player-Protokoll
-`Decoder hevc (Hardware (D3D11VA))` samt „Zero-Copy an" erwarten.
+am 2026-08-11 über den RTX-5080-Lauf belegt.
+
+**Live-E2E am selben Abend nachgeholt** (lokale Kette: Sidecar → WHIP →
+MediaMTX → WHEP, kein Dev-Stack nötig): Player-Protokoll „Vollbild #1
+empfangen … Zero-Copy an … Sitzung wirksam, Decoder hevc (Hardware)",
+RTP-Mitschnitt mit VPS/SPS/PPS-AP und IDR_N_LP-Fragmenten; derselbe
+Chromium (Electron 41) dekodiert 808 von 810 Bildern bei 1080p60.
+
+**Zur Einordnung, was VOR dem Paketierer-Fix ging und was nicht:** HEVC
+empfangen konnte der native Player schon vorher — der Linux-E2E des Branches
+(`2026-09-13-amd-780m-hevc.md`, 144 fps, Zero-Copy) lief über denselben
+alten Payloader, weil VAAPI-Vollbilder den NAL-Typ tragen, den er toleriert.
+Kaputt war die Windows-Kette allein: `hevc_amf` encodiert Vollbilder als
+IDR_N_LP, und genau den Typ warf der Payloader weg.
 
 ## Grenzen
 
@@ -81,6 +90,12 @@ lief nicht. Wer ihn nachholt: `testbench/real-harness.py --codec hevc`
   damit auf Windows-Chromium (Electron 41 / Chrome 146) nachweislich.
 - Der epaint-Panik („Dropped TexturesDelta") beim Fenster-Schließen des
   Players ist ein kosmetischer Shutdown-Artefakt, kein Bild-Weg-Fehler.
+- **Übergang alter Server:** Das `codec`-Feld im `stream-token`-Request
+  lehnt ein Server ohne den Branch-Teil mit **422** ab
+  (`StreamTokenIn` hat `extra="forbid"`) — im Electron-Dev-Fenster gegen
+  Produktion am 2026-09-13 live gesehen. HEVC-Senden braucht dafür also den
+  Server-Teil des Branches; der Codec selbst reist zum Sidecar über den
+  lokalen Start-Call, nicht über das Token.
 
 - Nur der Regelweg AMF/D3D11 (780M iGPU); `PULSE_HQ_AMD_D3D12`-Weg bleibt
   NV12-only, CPU-Weg ohne 10 bit — beide weigern den Start ehrlich
