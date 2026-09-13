@@ -78,11 +78,12 @@ export class ManagedHqStream {
    *
    * HEVC ist der Sonderfall: seit 2026-09-13 geht er ÜBERALL direkt in den
    * nativen Player. Auf Linux lässt sich der Videotrack gar nicht verhandeln
-   * (Chromium bietet H265 ohne Hardware-Dekodierung nicht an); auf Windows
-   * bietet Electron 41/Chrome 146 H265 an und assembliert trotzdem keine
-   * Frames (nachgemessen, docs/2026-09-13-windows-amf-hevc-10bit.md) — die
-   * Kachel geht deshalb direkt in den nativen Player, statt den Zuschauer
-   * den Weg selbst suchen zu lassen (`useNativePlayback`, `nurNativ`).
+   * (Chromium bietet H265 ohne Hardware-Dekodierung nicht an); auf
+   * Windows/macOS wäre der Browser-Weg inzwischen möglich (die anfängliche
+   * Gegenmessung war ein Sender-Bug — der Payloader warf die Keyframes weg,
+   * docs/2026-09-13-windows-amf-hevc-10bit.md), der Zwang bleibt aber als
+   * Qualitätsentscheidung: Zero-Copy und 10 bit gibt es nur im eigenen
+   * Fenster (`useNativePlayback`, `nurNativ`).
    */
   codec = $state<'h264' | 'hevc' | 'av1'>('h264');
   /** Kann der Streamer dieses Streams ferngesteuert werden? Aus der

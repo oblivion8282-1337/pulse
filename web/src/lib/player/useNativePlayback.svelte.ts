@@ -32,13 +32,13 @@ export interface NativePlaybackArgs {
    */
   tenBit?: boolean;
   /**
-   * Kann dieser Stream im Browser der Plattform überhaupt laufen? Der
-   * konkrete Fall seit 2026-09-13: HEVC — ÜBERALL geht es direkt in den
-   * nativen Player, nicht mehr nur auf Linux. Nachgemessen auf Windows
-   * (docs/2026-09-13-windows-amf-hevc-10bit.md): Electron 41/Chrome 146
-   * bietet H265 in der Verhandlung an und assembliert trotzdem keine
-   * Frames; Linux-Chromium ohne Hardware-Dekodierung bietet den Track gar
-   * nicht erst an. Der Zuschauer müsste den nativen Player sonst selbst
+   * Kann dieser Stream im Browser der Plattform überhaupt laufen? Konkreter
+   * Fall: HEVC. Auf Linux lässt sich der H265-Track gar nicht verhandeln
+   * (Chromium ohne Hardware-Dekodierung); auf Windows/macOS ginge der
+   * `<video>`-Weg inzwischen (Messung korrigiert am 2026-09-13: die erste
+   * Absage war ein Sender-Bug, kein Browser-Bug), aber das eigene Fenster
+   * bringt Zero-Copy und 10 bit mit — deshalb bleibt der Zwang eine
+   * Qualitätsentscheidung. Der Zuschauer müsste den Player sonst selbst
    * finden (`erzwungen`, s. unten).
    */
   nurNativ?: boolean;

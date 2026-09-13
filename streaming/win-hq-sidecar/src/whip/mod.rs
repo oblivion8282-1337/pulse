@@ -68,7 +68,6 @@ use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp::codecs::h264::H264Payloader;
-use webrtc::rtp::codecs::h265::HevcPayloader;
 use webrtc::rtp::header::Header;
 use webrtc::rtp::packet::Packet;
 use webrtc::rtp::packetizer::Payloader;
@@ -185,10 +184,12 @@ enum Paketierer {
     /// sich SPS/PPS und buendelt sie vor jedes Vollbild — deshalb liegt er
     /// mit im Spur-Zustand unter dem Lock.
     H264(H264Payloader),
-    /// webrtc-rs' HEVC-Zerleger (Annex-B → FU/AP), denselben Trick wie H264:
-    /// er haelt VPS/SPS/PPS zurück und gibt sie vor dem nächsten Vollbild
-    /// heraus. Input ist Annex-B, wie ihn `hevc_nvenc`/`hevc_amf` liefern.
-    Hevc(HevcPayloader),
+    /// Eigener HEVC-Zerleger (`pulse_whip::hevc::paketiere`, Annex-B →
+    /// FU/AP/Einzel-NAL), derselbe Trick wie H264: VPS/SPS/PPS im Puffer,
+    /// gebuendelt vor dem nächsten Vollbild. NICHT der HevcPayloader des
+    /// `rtp`-Crates — der verwirft IDR_N_LP (20), AMDs Vollbild-Typ,
+    /// lautlos (Live-Befund 2026-09-13, Begründung in `pulse-whip::hevc`).
+    Hevc(Vec<Vec<u8>>),
 }
 
 /// Soll gegen Ist des Taktgebers ins Protokoll — die Zahl, an der die erste
@@ -317,10 +318,10 @@ pub(crate) fn remb_auswerten(
 /// `pulse-whip::h264`. Hier nur noch durchgereicht, damit die Aufrufstelle
 /// unveraendert bleibt.
 use pulse_whip::h264::h264_ist_vollbild;
-use pulse_whip::hevc::hevc_ist_vollbild;
 
-/// Ein Annex-B-Zeitabschnitt in RTP-Nutzlasten zerlegen — der Weg, den H.264
-/// und HEVC gemeinsam nehmen. Der Payloader von webrtc-rs sagt nicht, ob ein
+/// Ein Annex-B-Zeitabschnitt in RTP-Nutzlasten zerlegen — heute der Weg des
+/// H.264-Arms (HEVC paketiert seit dem 2026-09-13 `pulse_whip::hevc`
+/// selbst). Der Payloader von webrtc-rs sagt nicht, ob ein
 /// Vollbild dabei war; die Bildmarke braucht es fuer die Schablone, deshalb
 /// kommt die Erkennung je Codec hier herein. Leer ist legitim: ein Paket, das
 /// nur Parameter-Saetze trug (SPS/PPS bzw. VPS/SPS/PPS), wird vom Payloader
@@ -392,7 +393,7 @@ impl WhipSender {
         // (Grund und Nachweis in [`av1`] bzw. im Modulkopf).
         let paketierer = match cap.mime_type.as_str() {
             MIME_TYPE_AV1 => Paketierer::Av1,
-            MIME_TYPE_HEVC => Paketierer::Hevc(HevcPayloader::default()),
+            MIME_TYPE_HEVC => Paketierer::Hevc(Vec::new()),
             _ => Paketierer::H264(H264Payloader::default()),
         };
         let video_track = Arc::new(TrackLocalStaticRTP::new(
@@ -630,7 +631,10 @@ impl WhipSender {
                     .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
                     .collect(),
                 Paketierer::H264(p) => zerlege_annexb(p, data, h264_ist_vollbild, "H.264")?,
-                Paketierer::Hevc(p) => zerlege_annexb(p, data, hevc_ist_vollbild, "HEVC")?,
+                Paketierer::Hevc(p) => pulse_whip::hevc::paketiere(p, data, av1::MTU)?
+                    .into_iter()
+                    .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
+                    .collect(),
             };
             if teile.is_empty() {
                 return Ok(());

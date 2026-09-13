@@ -85,19 +85,19 @@
   $effect(() => {
     if (mgr?.tenBit) tenBitGesehen = true;
   });
-  // Dasselbe Muster fuer den Codec: HEVC entscheidet ueber den Wiedergabeweg,
-  // BEVOR die Aushandlung laeuft, und zwingt UBERALL in den nativen Player
-  // (seit 2026-09-13, vormals nur Linux). Grund ist die Nachmessung auf der
-  // Windows-Kette: Electron 41/Chrome 146 bietet H265 in der Verhandlung an,
-  // empfängt die Pakete sauber (5,3 MB in 20 s, PLIs beantwortet) und
-  // assembliert trotzdem NULL Frames (`framesRecv=0`), waehrend H.264 ueber
-  // dieselbe Kette im selben Browser bei 1080p60 rendert
-  // (docs/2026-09-13-windows-amf-hevc-10bit.md). Da Pulse' Desktop-App selbst
-  // Electron ist, ist „der Browser dekodiert das schon“ dort keine Zusage
-  // mehr. Der `<video>`-Weg bleibt nur als Rueckfall, wenn es keinen nativen
-  // Player gibt (reines Web) — bei Browsern, die HEVC nicht verhandeln
-  // (Firefox, Linux+NVIDIA), bleibt das Bild schwarz — die von Anfang an
-  // dokumentierte Abwägung bei der HEVC-Wahl.
+  // Dasselbe Muster fuer den Codec: HEVC geht UEBERALL direkt in den nativen
+  // Player (seit 2026-09-13, vormals nur Linux). Auf Linux laesst sich der
+  // H265-Track im Browser gar nicht verhandeln; auf Windows/macOS waere der
+  // `<video>`-Weg inzwischen moeglich — die erste Gegenmessung („Electron
+  // dekodiert H265 nicht") war ein Messfehler am falschen Ende: Der Sender
+  // warf die Keyframes weg (IDR_N_LP-Bug des rtp-Crate-Payloaders), nach
+  // dessen Fix dekodiert derselbe Chromium 1080p60 anstandslos
+  // (docs/2026-09-13-windows-amf-hevc-10bit.md). Der Zwang bleibt trotzdem
+  // als QUALITAETSENTSCHEIDUNG stehen: Das eigene Fenster bringt Zero-Copy,
+  // 10 bit und den Einfrier-Waechter mit — der `<video>`-Weg bleibt
+  // Rueckfall, wenn es den Player nicht gibt (reines Web). Browser ohne
+  // HEVC-Verhandlung (Firefox, Linux+NVIDIA) sehen weiterhin schwarz — die
+  // von Anfang an dokumentierte Abwägung bei der HEVC-Wahl.
   let hevcGesehen = $state(false);
   $effect(() => {
     if (mgr?.codec === 'hevc') hevcGesehen = true;

@@ -32,11 +32,13 @@
 //! dieser Weg selbst, und der WERT des Zeitstempels kommt aus dem `pts`, den
 //! der Encoder mitgibt, nicht aus einem eigenen Zaehler (Begruendung an
 //! `av1::SpurZustand::zeitstempel`). Nur die ZERLEGUNG unterscheidet sich:
-//! AV1 paketiert ein eigener Paketierer (webrtc-rs' `Av1Payloader` schreibt
-//! Laengenfelder ab 128 falsch — Nachweis und Zahlen in [`av1`]), H.264 und
-//! HEVC zerlegt webrtc-rs' `H264Payloader`/`HevcPayloader` (Annex-B → FU/STAP
-//! bzw. FU/AP — daran ist nichts auszusetzen; HEVC hält dabei VPS/SPS/PPS
-//! zurück wie H264 seine SPS/PPS). **Bis 2026-08-14 lief H.264 als
+//! AV1 und HEVC paketieren eigene Paketierer (webrtc-rs' `Av1Payloader`
+//! schreibt Laengenfelder ab 128 falsch — Nachweis und Zahlen in [`av1`];
+//! sein `HevcPayloader` verwirft IDR_N_LP/CRA lautlos — Live-Befund
+//! 2026-09-13, Begründung in `pulse-whip::hevc`), H.264 zerlegt webrtc-rs'
+//! `H264Payloader` (Annex-B → FU/STAP — daran ist nichts auszusetzen; er
+//! hält SPS/PPS zurück, HEVC sein Gegenstück VPS/SPS/PPS im eigenen
+//! Paketierer). **Bis 2026-08-14 lief H.264 als
 //! Sample-Spur**, bei
 //! der webrtc-rs den Zeitstempel aus einer FESTEN Bilddauer hochzaehlte —
 //! jedes ausgelassene Bild (verspaeteter Takt, EAGAIN-Verwurf) verschob die
@@ -71,7 +73,6 @@ use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp::codecs::h264::H264Payloader;
-use webrtc::rtp::codecs::h265::HevcPayloader;
 use webrtc::rtp::header::Header;
 use webrtc::rtp::packet::Packet;
 use webrtc::rtp::packetizer::Payloader;
@@ -154,10 +155,12 @@ enum Paketierer {
     /// sich SPS/PPS und buendelt sie vor jedes Vollbild — deshalb liegt er
     /// mit im Spur-Zustand unter dem Lock.
     H264(H264Payloader),
-    /// webrtc-rs' HEVC-Zerleger (Annex-B → FU/AP), denselben Trick wie H264:
-    /// er haelt VPS/SPS/PPS zurück und gibt sie vor dem nächsten Vollbild
-    /// heraus. Input ist Annex-B, wie ihn `hevc_nvenc`/`hevc_vaapi` liefern.
-    Hevc(HevcPayloader),
+    /// Eigener HEVC-Zerleger (`pulse_whip::hevc::paketiere`, Annex-B →
+    /// FU/AP/Einzel-NAL), derselbe Trick wie H264: VPS/SPS/PPS im Puffer,
+    /// gebuendelt vor dem nächsten Vollbild. NICHT der HevcPayloader des
+    /// `rtp`-Crates — der verwirft IDR_N_LP (20) und CRA (21) lautlos
+    /// (Live-Befund 2026-09-13, Begründung in `pulse-whip::hevc`).
+    Hevc(Vec<Vec<u8>>),
 }
 
 /// Die Bildspur: eigene RTP-Pakete fuer beide Codecs.
@@ -205,7 +208,6 @@ pub struct WhipSender {
 /// `pulse-whip::h264`. Hier nur noch durchgereicht, damit die Aufrufstelle
 /// unveraendert bleibt.
 use pulse_whip::h264::h264_ist_vollbild;
-use pulse_whip::hevc::hevc_ist_vollbild;
 
 /// Ein Annex-B-Zeitabschnitt in RTP-Nutzlasten zerlegen — der Weg, den H.264
 /// und HEVC gemeinsam nehmen. Der Payloader von webrtc-rs sagt nicht, ob ein
@@ -373,7 +375,7 @@ impl WhipSender {
         // (Grund und Nachweis in [`av1`] bzw. im Modulkopf).
         let paketierer = match cap.mime_type.as_str() {
             MIME_TYPE_AV1 => Paketierer::Av1,
-            MIME_TYPE_HEVC => Paketierer::Hevc(HevcPayloader::default()),
+            MIME_TYPE_HEVC => Paketierer::Hevc(Vec::new()),
             _ => Paketierer::H264(H264Payloader::default()),
         };
         let video_track = Arc::new(TrackLocalStaticRTP::new(
@@ -599,7 +601,10 @@ impl WhipSender {
                     .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
                     .collect(),
                 Paketierer::H264(p) => zerlege_annexb(p, data, h264_ist_vollbild, "H.264")?,
-                Paketierer::Hevc(p) => zerlege_annexb(p, data, hevc_ist_vollbild, "HEVC")?,
+                Paketierer::Hevc(p) => pulse_whip::hevc::paketiere(p, data, av1::MTU)?
+                    .into_iter()
+                    .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
+                    .collect(),
             };
             if teile.is_empty() {
                 return Ok(());

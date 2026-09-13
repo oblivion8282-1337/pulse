@@ -50,9 +50,10 @@ export const HQ_BITRATE_MAX_KBPS = 10_000;
 // browser compat), AV1 (~half the bitrate at the same quality) and HEVC —
 // the mid tier for sender GPUs without AV1 encode (anything pre-2022
 // encodes HEVC in hardware). HEVC is strictly hardware end to end (NVENC/
-// VAAPI at the sender, NVDEC/hwaccel in the native player). Receiver side
+// VAAPI/AMF at the sender, hwaccel in the native player). Receiver side
 // the desktop app opens the native player directly for HEVC (since
-// 2026-09-13 — Electron 41 advertises H265 but assembles zero frames,
+// 2026-09-13 — a quality choice: zero-copy and 10 bit only exist in the
+// own window; the browser path itself works after the sender fix,
 // docs/2026-09-13-windows-amf-hevc-10bit.md); plain-web viewers remain
 // subject to browser support (Chrome 136+/Safari with hardware decode play,
 // Firefox and Linux+NVIDIA negotiate it not at all → black picture, audio

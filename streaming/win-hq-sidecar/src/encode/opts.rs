@@ -199,6 +199,19 @@ pub(crate) fn vendor_encoder_opts(
             // was er verdeckte, steht in der Messakte
             // `testbench/profiles/rueckkanal-2026-08-02-windows.json`.
             opts.set("forced_idr", "1");
+            // HEVC: Parameter-Saetze (VPS/SPS/PPS) bei JEDEM IDR in den Strom.
+            // AMFs Vorgabe (`gop`) fuegt sie nur an periodische GOP-Starts ein —
+            // ein mid-GOP erzwungenes Vollbild (die Antwort auf eine
+            // Zuschauer-PLI, bei 60 s Vollbild-Abstand der REGELfall) kaeme
+            // ohne sie, und ein neu einsteigender Zuschauer koennte nichts
+            // damit anfangen. Live-Befund 2026-09-13: 20 s Stream-Verfolgung
+            // ohne ein einziges VPS/SPS/PPS nach dem Start
+            // (docs/2026-09-13-windows-amf-hevc-10bit.md). Der eigene
+            // Paketierer puffert die Saetze zwar als Rueckfallebene — frische
+            // im Strom sind trotzdem besser als gepufferte vom Stream-Anfang.
+            if matches!(codec, VideoCodec::Hevc) {
+                opts.set("header_insertion_mode", "idr");
+            }
             // AMFs eigene Bittiefen-Option. Ohne sie liefert `av1_amf` trotz
             // P010-Eingang einen 8-bit-Strom — der P010-Pool allein genügt
             // dort also nicht. `hevc_amf` kennt den Schlüssel ebenfalls

@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use webrtc::rtp::codecs::h264::H264Payloader;
-use webrtc::rtp::codecs::h265::HevcPayloader;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 
 use crate::av1::SpurZustand;
@@ -28,11 +27,13 @@ pub fn dauer_fuer_takte(takte: u32, uhr: u32) -> Duration {
 }
 
 /// Wie ein encodiertes Bild in RTP-Nutzlasten zerfaellt. Derselbe Schnitt wie
-/// im WHIP-Sender: der eigene AV1-Paketierer, webrtc-rs' H.264-/HEVC-Zerleger.
+/// im WHIP-Sender: eigene AV1-/HEVC-Paketierer, webrtc-rs' H.264-Zerleger.
 pub(super) enum Paketierer {
     Av1,
     H264(H264Payloader),
-    Hevc(HevcPayloader),
+    /// VPS/SPS/PPS-Puffer des eigenen HEVC-Paketierers (`crate::hevc`) —
+    /// dieselbe Zustaendigkeit wie SPS/PPS im H264Payloader, unter dem Spur-Lock.
+    Hevc(Vec<Vec<u8>>),
 }
 
 /// Soll gegen Ist des Taktgebers ins Protokoll — Form und Begruendung im

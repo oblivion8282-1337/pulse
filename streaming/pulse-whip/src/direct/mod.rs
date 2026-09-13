@@ -42,7 +42,6 @@ use webrtc::api::media_engine::{MIME_TYPE_AV1, MIME_TYPE_HEVC};
 use webrtc::media::Sample;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp::codecs::h264::H264Payloader;
-use webrtc::rtp::codecs::h265::HevcPayloader;
 use webrtc::rtp::header::Header;
 use webrtc::rtp::packet::Packet;
 use webrtc::rtp::packetizer::Payloader;
@@ -56,14 +55,15 @@ use pulse_bildmarke::EXTMAP_URI;
 
 use crate::av1::{self, SpurZustand};
 use crate::h264::h264_ist_vollbild;
-use crate::hevc::hevc_ist_vollbild;
+use crate::hevc;
 use crate::pacer;
 use spur::{melde_verteilung, Bildspur, Paketierer};
 pub use spur::{dauer_fuer_takte, Konfig};
 
-/// Ein Annex-B-Zeitabschnitt in RTP-Nutzlasten zerlegen — der Weg, den H.264
-/// und HEVC gemeinsam nehmen. Dasselbe Bild wie im WHIP-Sender der Sidecars
-/// (`zerlege_annexb` dort): der Payloader sagt nicht, ob ein Vollbild dabei
+/// Ein Annex-B-Zeitabschnitt in RTP-Nutzlasten zerlegen — der Weg des
+/// H.264-Arms (HEVC paketiert seit dem 2026-09-13 `hevc::paketiere` selbst).
+/// Dasselbe Bild wie im WHIP-Sender der Sidecars (`zerlege_annexb` dort):
+/// der Payloader sagt nicht, ob ein Vollbild dabei
 /// war, die Bildmarke braucht es aber. Leer ist legitim — Parameter-Saetze
 /// werden gehalten und vor dem naechsten Vollbild gebuendelt.
 fn zerlege_annexb<P: Payloader>(
@@ -154,7 +154,7 @@ impl DirectSender {
         // (Grund und Nachweis in [`av1`] bzw. im WHIP-Sender).
         let paketierer = match cap.mime_type.as_str() {
             MIME_TYPE_AV1 => Paketierer::Av1,
-            MIME_TYPE_HEVC => Paketierer::Hevc(HevcPayloader::default()),
+            MIME_TYPE_HEVC => Paketierer::Hevc(Vec::new()),
             _ => Paketierer::H264(H264Payloader::default()),
         };
         let video_track = Arc::new(TrackLocalStaticRTP::new(
@@ -267,7 +267,10 @@ impl DirectSender {
                     .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
                     .collect(),
                 Paketierer::H264(p) => zerlege_annexb(p, daten, h264_ist_vollbild, "H.264")?,
-                Paketierer::Hevc(p) => zerlege_annexb(p, daten, hevc_ist_vollbild, "HEVC")?,
+                Paketierer::Hevc(p) => hevc::paketiere(p, daten, av1::MTU)?
+                    .into_iter()
+                    .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
+                    .collect(),
             };
             if teile.is_empty() {
                 return Ok(());
