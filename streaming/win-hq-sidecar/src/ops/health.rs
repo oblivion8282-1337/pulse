@@ -60,6 +60,10 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     // (`stream_controller::run_pipeline`, Gegenstück zu `encode::hdr::pruefen`
     // für HDR) — die Lücke ist damit geschlossen, nicht nur benannt.
     let ten_bit = vendor.is_some_and(|v| zehnbit::verfuegbar(v, &video_codecs));
+    // Dasselbe für HEVC Main 10 — seit dem 2026-09-13 getrennt gemeldet,
+    // weil es auseinanderfällt: Main-10-Encode ab ~2015, AV1-Encode erst ab
+    // 2022. `undefined` (ältere Sidecars) = false, wie bei `ten_bit`.
+    let hevc_ten_bit = vendor.is_some_and(|v| zehnbit::verfuegbar_hevc(v, &video_codecs));
     // **`hdr` ist bewusst die GERÄTE-Frage, nicht die Tages-Frage.** Ob HDR im
     // Windows-Umschalter gerade an ist, steht hier NICHT drin — sonst
     // verschwände das Kästchen aus der Oberfläche, sobald jemand HDR
@@ -77,6 +81,7 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         "capture_options": ["window", "monitor", "region"], // WGC kann alle drei
         "has_flv_patch": Value::Null,
         "ten_bit": ten_bit,
+        "hevc_ten_bit": hevc_ten_bit,
         "hdr": hdr,
         // **Kann dieser Sidecar Eingaben einspielen?** Fest `true`, weil das Op
         // `remote_input` zu diesem Programm gehoert — die Aussage ist damit

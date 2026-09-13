@@ -1848,20 +1848,33 @@ impl VideoDecoder {
     /// bleibt beim Weiterdekodieren: dessen Dekoder hat denselben Muell
     /// klaglos verdaut, und der Flush fraß dort die Bildrate (Messung
     /// 2026-07-28, gegen den heutigen Stand nicht wiederholt).
+    ///
+    /// **Seit dem 2026-09-13 leert auch D3D11VA (Windows)** — dieselbe
+    /// Fehlerklasse, derselbe Grund: `dxva2_av1.c` fuellt
+    /// `RefFrameMapTextureIndex` nur bei nicht-NULL `AVFrame*` echt, und
+    /// `ff_dxva2_get_surface_index` castet fuer D3D11 `frame->data[1]` blind
+    /// in den Slice-Index — ein geleerter, einmal belegter Slot liefert
+    /// damit Index 0, eine reale Pool-Surface. Wem sie gehoert, ist beliebig
+    /// (oft dem CURRENT-Bild selbst); die Dekodiereinheit bekommt genau die
+    /// Klasse „kaputter Bezuege", die auf VAAPI den Ring-Reset ausloeste —
+    /// hier in derselben AMD-Hardware (VCN), unter Windows als TDR sichtbar:
+    /// der GESAMTE Grafiktreiber resettet, nicht nur der Player. Der
+    /// NVIDIA-Ausschluss oben deckt das nicht: die „klaglos verdaut"-
+    /// Messung von 2026-07-28 war `libnvcuvid` unter Linux, nicht D3D11VA.
     /// Leert der Decoder nach einer Luecke? Reine Funktion, damit die
     /// Vorgabe testbar ist — die Sekundenstatistiken sehen in beiden Armen
     /// gesund aus (Abschnitt F des AMD-Audits), ein Fehler hier waere
     /// unsichtbar.
     ///
-    /// Vorgabe je Geraet: **VAAPI ja, alles andere nein.** Der Schalter
-    /// `PULSE_PLAYER_GAP_WAIT_KEYFRAME` ueberschreibt in beide Richtungen:
-    /// `1` erzwingt das Leeren (Messarm b), `0` erzwingt Weiterdekodieren
-    /// (Messarm a).
+    /// Vorgabe je Geraet: **VAAPI und D3D11VA ja, alles andere nein.** Der
+    /// Schalter `PULSE_PLAYER_GAP_WAIT_KEYFRAME` ueberschreibt in beide
+    /// Richtungen: `1` erzwingt das Leeren (Messarm b), `0` erzwingt
+    /// Weiterdekodieren (Messarm a).
     fn flush_bei_luecke(hw: Option<Hwaccel>, schalter: Option<&str>) -> bool {
         match schalter {
             Some("1") => true,
             Some("0") => false,
-            _ => hw == Some(Hwaccel::Vaapi),
+            _ => matches!(hw, Some(Hwaccel::Vaapi) | Some(Hwaccel::D3d11va)),
         }
     }
 
@@ -1878,11 +1891,12 @@ impl VideoDecoder {
         // BLIEB eingefroren, waehrend jede Kennzahl gesund aussah. Wer sich
         // auf die Zaehler verlaesst, haelt das fuer einen Erfolg.
         //
-        // Auf Nicht-VAAPI wird dabei NICHT geleert: ein geleerter Decoder hat
-        // gar keine Referenz mehr und kann nichts mehr rechnen. Am 2026-07-28
-        // an NVIDIA gemessen — mit `flush` an dieser Stelle blieb die
-        // Bildrate bei 0. Auf VAAPI gilt das Gegenteil (s. oben): dort leert
-        // der Flush, damit die Hardware die Luecke nie zu sehen bekommt.
+        // Auf Nicht-VAAPI/D3D11VA wird dabei NICHT geleert: ein geleerter
+        // Decoder hat gar keine Referenz mehr und kann nichts mehr rechnen.
+        // Am 2026-07-28 an NVIDIA gemessen — mit `flush` an dieser Stelle
+        // blieb die Bildrate bei 0. Auf VAAPI und D3D11VA gilt das Gegenteil
+        // (s. oben): dort leert der Flush, damit die Hardware die Luecke nie
+        // zu sehen bekommt.
         let schalter = std::env::var("PULSE_PLAYER_GAP_WAIT_KEYFRAME").ok();
         if !Self::flush_bei_luecke(self.hw, schalter.as_deref()) {
             let bis = std::time::Instant::now() + refresh_dauer();
@@ -1895,8 +1909,9 @@ impl VideoDecoder {
             return;
         }
 
-        // Flush-Weg (auf VAAPI Vorgabe, per `PULSE_PLAYER_GAP_WAIT_KEYFRAME=
-        // 1` ueberall erzwingbar): auf einen Einstiegspunkt warten. Dann den
+        // Flush-Weg (auf VAAPI/D3D11VA Vorgabe, per
+        // `PULSE_PLAYER_GAP_WAIT_KEYFRAME= 1` ueberall erzwingbar): auf einen
+        // Einstiegspunkt warten. Dann den
         // Decoder LEEREN, nicht nur aufhoeren ihn zu fuettern.
         //
         // Das fehlte bisher, und es ist der Verdacht fuer den Segfault: nach
@@ -2916,10 +2931,17 @@ mod flush_bei_luecke_tests {
         assert!(VideoDecoder::flush_bei_luecke(Some(Hwaccel::Vaapi), None));
     }
 
+    /// D3D11VA leert seit dem 2026-09-13 mit — dieselbe blinde
+    /// Referenz-Weitergabe wie VAAPI (`ff_dxva2_get_surface_index`, D3D11-
+    /// Zweig), unter Windows als TDR sichtbar (s. `flush_bei_luecke`).
     #[test]
-    fn nvidia_windows_und_software_leeren_nicht() {
+    fn d3d11va_leert_als_vorgabe() {
+        assert!(VideoDecoder::flush_bei_luecke(Some(Hwaccel::D3d11va), None));
+    }
+
+    #[test]
+    fn cuda_videotoolbox_und_software_leeren_nicht() {
         assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::Cuda), None));
-        assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::D3d11va), None));
         assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::VideoToolbox), None));
         assert!(!VideoDecoder::flush_bei_luecke(None, None));
     }

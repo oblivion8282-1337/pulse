@@ -49,7 +49,7 @@ fn amd_forces_d3d12() -> bool {
     crate::env::flag("PULSE_HQ_AMD_D3D12")
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoCodec {
     H264,
     Hevc,
@@ -206,18 +206,29 @@ impl VideoCodec {
     /// anderen beiden Codec-Tabellen, damit die Regel nicht als `if codec ==
     /// Av1` im Aufrufer landet und dort beim nächsten Codec vergessen wird.
     ///
-    /// Heute nur AV1, und zwar nicht aus Prinzip, sondern weil nur dieser Weg
-    /// gemessen ist — inzwischen auf **beiden** Herstellern:
+    /// Heute AV1 und HEVC (seit 2026-09-13), nicht aus Prinzip, sondern weil
+    /// nur diese Wege gemessen sind:
     ///
-    /// * **AMD** (2026-08-01, Radeon 780M): P010-Pool + `bitdepth=10` an
+    /// * **AV1/AMD** (2026-08-01, Radeon 780M): P010-Pool + `bitdepth=10` an
     ///   `av1_amf`, am Server als 10-bit-Strom bestätigt.
-    /// * **NVIDIA** (2026-08-11, RTX 5080, Treiber 610.47): P010-Pool an
+    /// * **AV1/NVIDIA** (2026-08-11, RTX 5080, Treiber 610.47): P010-Pool an
     ///   `av1_nvenc`, **ohne** Hersteller-Option — die Bittiefe folgt dort dem
     ///   Pool-Format (`opts.rs`, NVIDIA-Zweig). Belegt an beiden Enden:
     ///   `high_bitdepth = 1` im Sequenzkopf UND Bildpunkte zwischen den
     ///   8-bit-Stufen (Rest 0 bei 14,6 / 14,6 / 33,3 % über drei Läufe, gegen
     ///   100,0 % im 8-bit-Lauf desselben Aufbaus). Messakte
     ///   `testbench/profiles/nvidia-2026-08-11-windows-zehnbit.json`.
+    /// * **HEVC/AMD** (2026-09-13, Radeon 780M, Windows): P010-Eingang +
+    ///   `bitdepth=10` + `profile=main10` an `hevc_amf` — der `bitdepth`-
+    ///   Schlüssel existiert bei diesem Encoder längst (FFmpeg n8.1,
+    ///   `amfenc_hevc.c`: Optionen `bitdepth` 8/10 UND `profile`
+    ///   main/main10). Am Bitstrom `profile=Main 10` + `yuv420p10le`, und
+    ///   50,1 % der Luma-Werte des dekodierten Testmusters liegen jenseits
+    ///   der 8-bit-Stufen (Gegenprobe NV12: `Main`). Probe mit dem
+    ///   gebündelten FFmpeg (n8.1-lgpl-shared, Produktionsoptionen aus
+    ///   `opts.rs`); E2E über die echte Kette steht noch aus — der
+    ///   P010-Pool ist codec-unabhängig und am 2026-08-01 über `av1_amf`
+    ///   belegt. `hevc_nvenc` folgt wie `av1_nvenc` dem Pool-Format.
     ///
     /// **Die Antwort gilt nur für den D3D11-Zero-Copy-Weg.** Auf dem CPU- und
     /// dem D3D12-Weg gibt es 10 bit strukturell nicht (`EncoderConfig` kennt
@@ -231,20 +242,15 @@ impl VideoCodec {
     /// weil diese Funktion codec-, nicht wegabhängig antwortet und deshalb
     /// leicht als Gesamt-Zusage gelesen wird.
     ///
-    /// **Hier stand bis zum 2026-08-06 „H.264 läuft auf AMD über D3D12
-    /// (`encode_path`) und damit an diesem Pool vorbei". Das ist falsch** —
-    /// seit dem 2026-08-04 geht AMD mit JEDEM Codec über AMF und damit über
-    /// genau diesen Pool. Der Grund für das Nein bei H.264 ist ein anderer und
-    /// hat mit dem Pool nichts zu tun: 10-bit-H.264 wäre High 10, und das
-    /// dekodiert kein Browser (dieselbe Begründung wie in `encode::hdr`). Für
-    /// HEVC gibt es keinen Anlass, weil der Codec ausgebaut wird.
+    /// H.264 bleibt absichtlich Nein: 10-bit-H.264 wäre High 10, und das
+    /// dekodiert kein Browser (dieselbe Begründung wie in `encode::hdr`).
     ///
     /// Wer hier eine Zeile ergänzt, misst sie — die Kette aus Pool-Format,
     /// Farbraum am Video-Prozessor (`d3d11_scale.rs`), Hersteller-Option
     /// (`opts.rs`) und Signalisierung (`encoder_hw.rs`) muss ganz stimmen. Ein
     /// Bruch darin liefert einen dekodierbaren Strom mit falschen Farben.
     pub fn supports_ten_bit(self) -> bool {
-        matches!(self, VideoCodec::Av1)
+        matches!(self, VideoCodec::Av1 | VideoCodec::Hevc)
     }
 
     /// Umkehrung von [`slug`](Self::slug): der Kurzname aus dem `start`-Request.

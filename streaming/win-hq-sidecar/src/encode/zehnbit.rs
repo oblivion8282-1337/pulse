@@ -21,8 +21,9 @@
 //! dieselbe Stelle, an der [`super::hdr::pruefen`] sitzt, aus demselben Grund:
 //! das ist die letzte Stelle, an der alle drei Wege noch gemeinsam sichtbar
 //! sind. Was er NICHT prüft, ist die feinere Frage INNERHALB des D3D11-
-//! Zero-Copy-Wegs — ob der gewählte Codec 10 bit überhaupt trägt (nur AV1,
-//! [`VideoCodec::supports_ten_bit`]) und ob ein angemeldeter Encode-Weg einen
+//! Zero-Copy-Wegs — ob der gewählte Codec 10 bit überhaupt trägt (AV1 und
+//! HEVC, [`VideoCodec::supports_ten_bit`]) und ob ein angemeldeter Encode-Weg
+//! einen
 //! 8-bit-Pool verlangt. Die hängt schon vor diesem Modul an EINER Stelle
 //! (`bildencoder::pool_wahl`, ausgewertet in `pipeline_hw::run`, mit eigener
 //! Log-Zeile) und wird hier bewusst nicht verdoppelt — zwei Prüfungen für
@@ -78,18 +79,36 @@ pub fn pruefen(disable_zc: bool, pfad: EncodePath) -> Result<()> {
     }
 }
 
-/// Kann diese Maschine überhaupt 10 bit senden — mit mindestens einem ihrer
-/// Codecs, über den Weg, der bei dieser Kombination WIRKLICH läuft?
+/// Kann diese Maschine 10 bit in AV1 senden — über den Weg, der wirklich
+/// läuft? Antwortet `health.gsr.ten_bit`.
+pub fn verfuegbar(vendor: &str, codecs: &[String]) -> bool {
+    verfuegbar_fuer(vendor, codecs, VideoCodec::Av1)
+}
+
+/// Dasselbe für HEVC (Main 10) — Antwortet `health.gsr.hevc_ten_bit`.
 ///
-/// Das ist die Frage, die `health.gsr.ten_bit` beantwortet. **Bis zum
-/// 2026-08-11 fragte sie nur, ob es überhaupt einen FFmpeg-Encoder für
-/// (Vendor, Codec) gibt** — auf Intel gibt es `av1_qsv`, und die Antwort war
-/// `true`, obwohl Intel über die CPU-Pipeline läuft, die 10 bit strukturell
-/// nicht trägt. Die Zusage war damit auf jeder Intel-Maschine falsch. Jetzt
-/// prüft sie denselben Encode-Weg, den [`pruefen`] beim Start prüft
-/// ([`VideoCodec::encode_path`]) — dieselbe Disziplin wie `hdr::verfuegbar`
-/// nebenan, das ebenfalls fragt, welcher Weg WIRKLICH läuft statt nur, ob
-/// irgendein Encoder existiert.
+/// Getrennt geführt seit dem 2026-09-13, weil die beiden Fragen
+/// auseinanderfallen: Main-10-Encode gibt es ab ~2015 (NVENC GM206/Pascal,
+/// VCE 3.x, Skylake), AV1-Encode erst ab 2022 — wer hier nur `verfuegbar`
+/// (AV1) schaute, verlöre genau die Karten dazwischen. Das ist das
+/// Windows-Gegenstück zu `caps::ten_bit_hevc` im Linux-Sidecar; hier ist die
+/// Antwort hartkodiert über die codec-Probe (`system::codec_probe`), weil
+/// AMF/d3d12va-Open-Proben auf realer Hardware False Negatives liefern
+/// (Begründung dort).
+pub fn verfuegbar_hevc(vendor: &str, codecs: &[String]) -> bool {
+    verfuegbar_fuer(vendor, codecs, VideoCodec::Hevc)
+}
+
+/// Kann diese Maschine 10 bit in DIESEM Codec senden?
+///
+/// **Bis zum 2026-08-11 fragte sie nur, ob es überhaupt einen FFmpeg-Encoder
+/// für (Vendor, Codec) gibt** — auf Intel gibt es `av1_qsv`, und die Antwort
+/// war `true`, obwohl Intel über die CPU-Pipeline läuft, die 10 bit
+/// strukturell nicht trägt. Die Zusage war damit auf jeder Intel-Maschine
+/// falsch. Jetzt prüft sie denselben Encode-Weg, den [`pruefen`] beim Start
+/// prüft ([`VideoCodec::encode_path`]) — dieselbe Disziplin wie
+/// `hdr::verfuegbar` nebenan, das ebenfalls fragt, welcher Weg WIRKLICH
+/// läuft statt nur, ob irgendein Encoder existiert.
 ///
 /// Hier stand bis zum 2026-08-21 zusätzlich `auffrischung::verfuegbar`. Die
 /// Funktion gibt es nicht mehr — mit der Betriebsart ist auch ihre
@@ -99,10 +118,11 @@ pub fn pruefen(disable_zc: bool, pfad: EncodePath) -> Result<()> {
 ///
 /// `push_url` leer, aus demselben Grund wie dort: die Fähigkeitsmeldung kennt
 /// das Ziel noch nicht, und der Regelweg ist der ohne angemeldeten Sendeweg.
-pub fn verfuegbar(vendor: &str, codecs: &[String]) -> bool {
+fn verfuegbar_fuer(vendor: &str, codecs: &[String], codec: VideoCodec) -> bool {
     codecs.iter().any(|slug| {
-        let codec = VideoCodec::from_slug(slug);
-        codec.supports_ten_bit() && codec.encode_path(vendor, "") == EncodePath::D3d11ZeroCopy
+        VideoCodec::from_slug(slug) == codec
+            && codec.supports_ten_bit()
+            && codec.encode_path(vendor, "") == EncodePath::D3d11ZeroCopy
     })
 }
 
@@ -147,9 +167,10 @@ mod tests {
     }
 
     /// Die Faehigkeitsmeldung verlangt BEIDES: einen Codec, der 10 bit
-    /// strukturell traegt (nur AV1), UND einen Weg, der es bei diesem
-    /// Hersteller wirklich einloest. Intel hat AV1 im Angebot und trotzdem
-    /// keine Zusage — das war genau die falsche Antwort bis zum 2026-08-11.
+    /// strukturell traegt (AV1 und HEVC), UND einen Weg, der es bei diesem
+    /// Hersteller wirklich einloest. Intel hat AV1 und HEVC im Angebot und
+    /// trotzdem keine Zusage — das war genau die falsche Antwort bis zum
+    /// 2026-08-11.
     #[test]
     fn faehigkeit_verlangt_av1_und_den_zero_copy_weg() {
         assert!(verfuegbar("nvidia", &["av1".to_string()]));
@@ -158,5 +179,23 @@ mod tests {
         assert!(!verfuegbar("intel", &["av1".to_string(), "h264".to_string()]));
         // Aus einer gemischten Liste genuegt ein tragender Codec.
         assert!(verfuegbar("nvidia", &["h264".to_string(), "av1".to_string()]));
+    }
+
+    /// HEVC Main 10 seit dem 2026-09-13 dieselbe Frage mit eigenem Antwort-
+    /// feld (`health.gsr.hevc_ten_bit`): auf NVIDIA/AMD (D3D11-Weg) ja, auf
+    /// Intel (CPU-Pipeline) nein, für H.264 nie — die Fragen fallen KEINE
+    /// mehr aufeinander zurück, sonst würde eine Karte ohne AV1-Encode eine
+    /// `ten_bit`-Zusage über HEVC mitbekommen, die die UI am falschen Codec
+    /// anzeigt.
+    #[test]
+    fn hevc_faehigkeit_ist_die_getrennte_frage() {
+        assert!(verfuegbar_hevc("amd", &["hevc".to_string()]));
+        assert!(verfuegbar_hevc("nvidia", &["hevc".to_string()]));
+        assert!(!verfuegbar_hevc("intel", &["hevc".to_string()]));
+        assert!(!verfuegbar_hevc("amd", &["h264".to_string()]));
+        // Die AV1-Frage bleibt von HEVC unberührt — sie zählt nur AV1, sonst
+        // zeigte die UI das 10-bit-Kästchen für AV1 auf einer HEVC-only-Karte.
+        assert!(!verfuegbar("amd", &["hevc".to_string()]));
+        assert!(!verfuegbar("nvidia", &["hevc".to_string()]));
     }
 }

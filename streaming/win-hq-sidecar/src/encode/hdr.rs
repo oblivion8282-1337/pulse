@@ -89,21 +89,25 @@ fn traegt_hdr(encoder: &str) -> bool {
         "av1_nvenc" => true,
         // Alles andere: nein, und zwar begründet.
         //
-        // * `h264_amf`/`hevc_amf` — HDR verlangt 10 bit (s. Modul-Kopf), und
-        //   10-bit-H.264 wäre High 10, das kein Browser dekodiert; deshalb
-        //   lässt schon `VideoCodec::supports_ten_bit` nur AV1 durch. HEVC wird
-        //   ausgebaut. Es ist also keine Encoder-Grenze, sondern eine
-        //   Produktentscheidung weiter oben.
+        // * `h264_amf` — HDR verlangt 10 bit (s. Modul-Kopf), und
+        //   10-bit-H.264 wäre High 10, das kein Browser dekodiert.
+        //   `VideoCodec::supports_ten_bit` lässt es deshalb nicht durch.
+        // * `hevc_amf`/`hevc_nvenc` — **seit dem 2026-09-13 eine bewusste
+        //   Absage HIER und nicht mehr an der Bittiefe**: HEVC trägt jetzt
+        //   10 bit (Main 10), aber niemand hat auf Windows gemessen, ob die
+        //   PQ/BT.2020-Signalisierung durch `hevc_amf` in den Strom kommt —
+        //   bei `av1_amf` sind die Zahlen zwar da, aber falsch skaliert, und
+        //   genau so ein Strom unter HDR-Etikett will dieses Modul nicht
+        //   bauen. Bis zur Messung bleibt HEVC aus der HDR-Tabelle draußen;
+        //   wer sie nachholt, nimmt die zwei Encoder hier auf und misst an
+        //   den Bildpunkten, nicht am Hilfetext.
         // * `*_d3d12va` — der Weg nimmt fest BGRA auf und hat keinen
         //   Farbwandler, der scRGB annähme. Er ist seit dem 2026-08-04 ohnehin
         //   nur noch die Gegenprobe hinter `PULSE_HQ_AMD_D3D12=1`.
         // * `*_qsv` — läuft über die CPU-Pipeline, also über swscale aus einem
         //   BGRA-Puffer. Derselbe Grund.
-        // * `h264_nvenc`/`hevc_nvenc` — dieselbe Produktentscheidung wie bei
-        //   AMD: 10 bit lässt `VideoCodec::supports_ten_bit` nur bei AV1 durch.
-        //   Für HEVC ist beiläufig belegt, dass NVENC die Mastering-SEI
-        //   schreibt (s. `av1_nvenc` oben) — das ändert an der Entscheidung
-        //   nichts, HEVC wird ausgebaut.
+        // * `h264_nvenc` — 10 bit lässt `VideoCodec::supports_ten_bit`
+        //   für H.264 nicht durch.
         _ => false,
     }
 }
