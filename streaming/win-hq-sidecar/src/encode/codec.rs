@@ -228,7 +228,10 @@ impl VideoCodec {
     ///   gebündelten FFmpeg (n8.1-lgpl-shared, Produktionsoptionen aus
     ///   `opts.rs`); E2E über die echte Kette steht noch aus — der
     ///   P010-Pool ist codec-unabhängig und am 2026-08-01 über `av1_amf`
-    ///   belegt. `hevc_nvenc` folgt wie `av1_nvenc` dem Pool-Format.
+    ///   belegt. `hevc_nvenc` folgt wie `av1_nvenc` dem Pool-Format — in der
+    ///   n8.1-Quelle verifiziert: `nvenc_setup_hevc_config()` erzwingt Main10
+    ///   bei 10-Bit-Eingang (P010) ohne jede Option und scheitert laut, wenn
+    ///   die Karte kein 10-bit-HEVC encodieren kann.
     ///
     /// **Die Antwort gilt nur für den D3D11-Zero-Copy-Weg.** Auf dem CPU- und
     /// dem D3D12-Weg gibt es 10 bit strukturell nicht (`EncoderConfig` kennt

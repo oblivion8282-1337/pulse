@@ -70,8 +70,13 @@ lief nicht. Wer ihn nachholt: `testbench/real-harness.py --codec hevc`
 - Nur der Regelweg AMF/D3D11 (780M iGPU); `PULSE_HQ_AMD_D3D12`-Weg bleibt
   NV12-only, CPU-Weg ohne 10 bit — beide weigern den Start ehrlich
   (`zehnbit::pruefen`).
-- HEVC-NVIDIA-Windows ist unangetastet (Pool-Format-Trick wie `av1_nvenc`,
-  ungemessen für HEVC auf Windows; auf Linux E2E gemessen).
+- HEVC-NVIDIA-Windows ist unangetastet und strukturbelegt: NVIDIA bleibt in
+  der Codec-Probe (öffnet `hevc_nvenc` zur Laufzeit), 10 bit folgt dem
+  P010-Pool — `nvenc_setup_hevc_config()` erzwingt Main10 bei 10-Bit-Eingang
+  ohne jede Option (FFmpeg n8.1 verifiziert) und scheitert laut, wenn die
+  Karte es nicht kann. Was fehlt, ist der E2E-Lauf auf einer echten
+  Windows-NVIDIA-Maschine (hier läuft AMD); auf Linux ist HEVC/NVIDIA E2E
+  gemessen (RTX 4090).
 - HEVC-HDR bleibt bewusst zu (`hdr::traegt_hdr` hat für `hevc_amf`/
   `hevc_nvenc` ein hartes Nein, bis die PQ/BT.2020-Signalisierung gemessen
   ist).
