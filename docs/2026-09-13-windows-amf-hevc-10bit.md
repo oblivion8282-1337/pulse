@@ -67,6 +67,21 @@ lief nicht. Wer ihn nachholt: `testbench/real-harness.py --codec hevc`
 
 ## Grenzen
 
+- **Browser-Wiedergabe unter Windows ist zweiteilig (2026-09-13 nachgemessen).**
+  Echte Kette auf dieser Maschine (Win-Sidecar `hevc_amf` → WHIP → MediaMTX
+  v1.18.1 → WHEP im Chromium): Verhandlung schließt H265 Main+Main10
+  (`profile-id=1/2`), RTP fließt (5,3 MB in 20 s, PLIs beantwortet, ICE ok) —
+  aber Electron 41/Chrome 146 (ZCode-IAB, GPU sichtbar über ANGLE/D3D11)
+  assembliert **null Frames** (`framesRecv=0`, Video 0×0), während dieselbe
+  Kette mit H.264 im selben Browser bei 1080p60 rendert. Der Build bietet
+  H265 also an, dekodiert aber nichts — Pulse' eigene Desktop-App ist
+  Electron und dürfte dasselbe zeigen; der `WhepPlayer`-Kommentar „unter
+  Windows dekodiert Chromium HEVC per Hardware" gilt damit nicht
+  pauschal. Ob echtes Chrome/Edge auf derselben Maschine rendert, ist der
+  offene Gegencheck (HEVC-Decodierfähigkeit dort von Installation zu
+  Installation verschieden). Der native Player (D3D11VA) ist von all dem
+  unberührt.
+
 - Nur der Regelweg AMF/D3D11 (780M iGPU); `PULSE_HQ_AMD_D3D12`-Weg bleibt
   NV12-only, CPU-Weg ohne 10 bit — beide weigern den Start ehrlich
   (`zehnbit::pruefen`).
