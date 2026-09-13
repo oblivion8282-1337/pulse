@@ -32,11 +32,14 @@ export interface NativePlaybackArgs {
    */
   tenBit?: boolean;
   /**
-   * Kann dieser Stream im Browser dieser Plattform überhaupt laufen? Der
-   * konkrete Fall: HEVC auf Linux — Chromium bietet H265 ohne Hardware-
-   * Dekodierung nicht an, und an NVIDIA gibt es keinen VA-API-Weg. Die
-   * Kachel sähe sonst erst eine Fehlermeldung und der Zuschauer müsste den
-   * nativen Player selbst finden (`erzwungen`, s. unten).
+   * Kann dieser Stream im Browser der Plattform überhaupt laufen? Der
+   * konkrete Fall seit 2026-09-13: HEVC — ÜBERALL geht es direkt in den
+   * nativen Player, nicht mehr nur auf Linux. Nachgemessen auf Windows
+   * (docs/2026-09-13-windows-amf-hevc-10bit.md): Electron 41/Chrome 146
+   * bietet H265 in der Verhandlung an und assembliert trotzdem keine
+   * Frames; Linux-Chromium ohne Hardware-Dekodierung bietet den Track gar
+   * nicht erst an. Der Zuschauer müsste den nativen Player sonst selbst
+   * finden (`erzwungen`, s. unten).
    */
   nurNativ?: boolean;
 }

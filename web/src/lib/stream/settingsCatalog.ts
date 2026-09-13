@@ -50,11 +50,13 @@ export const HQ_BITRATE_MAX_KBPS = 10_000;
 // browser compat), AV1 (~half the bitrate at the same quality) and HEVC —
 // the mid tier for sender GPUs without AV1 encode (anything pre-2022
 // encodes HEVC in hardware). HEVC is strictly hardware end to end (NVENC/
-// VAAPI at the sender, NVDEC/hwaccel in the native player); receiver side it
-// plays in Chrome 136+/Safari with hardware decode and in the native player,
-// while Firefox and Linux+NVIDIA browsers negotiate it not at all — so a
-// viewer on those sees a black picture (audio keeps playing). Choosing it is
-// a deliberate trade, not the default.
+// VAAPI at the sender, NVDEC/hwaccel in the native player). Receiver side
+// the desktop app opens the native player directly for HEVC (since
+// 2026-09-13 — Electron 41 advertises H265 but assembles zero frames,
+// docs/2026-09-13-windows-amf-hevc-10bit.md); plain-web viewers remain
+// subject to browser support (Chrome 136+/Safari with hardware decode play,
+// Firefox and Linux+NVIDIA negotiate it not at all → black picture, audio
+// keeps playing). Choosing it is a deliberate trade, not the default.
 export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'h264', label: 'H.264' },
   { value: 'hevc', label: 'HEVC' },
