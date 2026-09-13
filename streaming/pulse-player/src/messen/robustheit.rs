@@ -133,6 +133,7 @@ fn args_lesen(argv: &[String]) -> Result<Args> {
                 a.codec = match hol(i)?.as_str() {
                     "av1" => Codec::Av1,
                     "h264" => Codec::H264,
+                    "hevc" => Codec::H265,
                     x => bail!("unbekannter Codec {x}"),
                 };
                 i += 2;

@@ -185,9 +185,9 @@ enum Paketierer {
     /// sich SPS/PPS und buendelt sie vor jedes Vollbild — deshalb liegt er
     /// mit im Spur-Zustand unter dem Lock.
     H264(H264Payloader),
-    /// webrtc-rs' HEVC-Zerleger (Annex-B → FU/AP), derselbe Trick wie H264:
-    /// er haelt VPS/SPS/PPS zurueck und gibt sie vor dem naechsten Vollbild
-    /// heraus. Input ist Annex-B, wie ihn `hevc_amf`/`hevc_nvenc` liefern.
+    /// webrtc-rs' HEVC-Zerleger (Annex-B → FU/AP), denselben Trick wie H264:
+    /// er haelt VPS/SPS/PPS zurück und gibt sie vor dem nächsten Vollbild
+    /// heraus. Input ist Annex-B, wie ihn `hevc_nvenc`/`hevc_amf` liefern.
     Hevc(HevcPayloader),
 }
 
@@ -325,6 +325,10 @@ use pulse_whip::hevc::hevc_ist_vollbild;
 /// kommt die Erkennung je Codec hier herein. Leer ist legitim: ein Paket, das
 /// nur Parameter-Saetze trug (SPS/PPS bzw. VPS/SPS/PPS), wird vom Payloader
 /// gemerkt und erst vor dem naechsten Vollbild ausgegeben.
+///
+/// Gleiche Funktion wie im Linux-Sidecar (`whip::zerlege_annexb`) — die drei
+/// Plattform-Dateien bleiben bewusst in lockstep, damit dieselbe Lage nicht
+/// drei Formulierungen bekommt.
 fn zerlege_annexb<P: Payloader>(
     paketierer: &mut P,
     data: &[u8],
