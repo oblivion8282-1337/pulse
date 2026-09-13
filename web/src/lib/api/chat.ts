@@ -613,7 +613,13 @@ export const chatApi = {
     /** Welchen Bildschirm des Hosts dieser Strom zeigt (1-basiert). Reist bis
      *  zum Zuschauer und macht dort die Zuordnung Strom -> Monitor eindeutig;
      *  der Name allein kann das bei baugleichen Geraeten nicht. */
-    monitorIndex?: number
+    monitorIndex?: number,
+    /** Welcher Codec gefahren wird. Reist bis zum Zuschauer (Token-Record →
+     *  auth-hook → stream:active → WHEP-Antwort) und entscheidet dort VOR der
+     *  Aushandlung den Wiedergabeweg — HEVC im Linux-Browser heißt: direkt der
+     *  native Player, statt erst eine Fehlermeldung. "h264"/fehlend = nichts
+     *  mitschicken (Legacy-Form bleibt byte-identisch). */
+    codec?: 'h264' | 'hevc' | 'av1'
   ): Promise<StreamTokenResponse> {
     return request<StreamTokenResponse>(`/channels/${channelId}/stream-token`, {
       method: 'POST',
@@ -623,7 +629,8 @@ export const chatApi = {
         ...(label ? { label } : {}),
         ...(tenBit ? { ten_bit: true } : {}),
         ...(remoteInput ? { remote_input: true } : {}),
-        ...(monitorIndex === undefined ? {} : { monitor_index: monitorIndex })
+        ...(monitorIndex === undefined ? {} : { monitor_index: monitorIndex }),
+        ...(codec && codec !== 'h264' ? { codec } : {})
       }
     });
   },
@@ -643,15 +650,24 @@ export const chatApi = {
    *
    *  `ten_bit` sagt, ob der Streamer mit 10 bit Farbtiefe sendet — daran
    *  entscheidet der Zuschauer den Wiedergabeweg (nur der native Player kann
-   *  mehr als 8 bit ausgeben). Ältere Server lassen das Feld weg → 8 bit. */
+   *  mehr als 8 bit ausgeben). Ältere Server lassen das Feld weg → 8 bit.
+   *  `codec` nennt denselben Grund für den Codec — HEVC im Linux-Browser
+   *  heißt: direkt der native Player. Fehlt es, gilt "h264". */
   getWhepUrl(
     channelId: string,
     userId: string,
     slot = 0
-  ): Promise<{ whep_url: string; ten_bit?: boolean; remote_input?: boolean }> {
-    return request<{ whep_url: string; ten_bit?: boolean }>(
-      `/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}&slot=${slot}`
-    );
+  ): Promise<{
+    whep_url: string;
+    ten_bit?: boolean;
+    remote_input?: boolean;
+    codec?: 'h264' | 'hevc' | 'av1' | null;
+  }> {
+    return request<{
+      whep_url: string;
+      ten_bit?: boolean;
+      codec?: 'h264' | 'hevc' | 'av1' | null;
+    }>(`/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}&slot=${slot}`);
   },
   // Live-Chat pro HQ-Stream (Twitch-style, ephemer — Server-TTL 6h, Client-State
   // pro Streamer in `streamChat.svelte.ts`).

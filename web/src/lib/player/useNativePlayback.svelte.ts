@@ -31,6 +31,14 @@ export interface NativePlaybackArgs {
    * Wahl — s. `erzwungen` unten.
    */
   tenBit?: boolean;
+  /**
+   * Kann dieser Stream im Browser dieser Plattform überhaupt laufen? Der
+   * konkrete Fall: HEVC auf Linux — Chromium bietet H265 ohne Hardware-
+   * Dekodierung nicht an, und an NVIDIA gibt es keinen VA-API-Weg. Die
+   * Kachel sähe sonst erst eine Fehlermeldung und der Zuschauer müsste den
+   * nativen Player selbst finden (`erzwungen`, s. unten).
+   */
+  nurNativ?: boolean;
 }
 
 /** `args` bleibt eine Funktion (kein Objekt), damit Aenderungen an den
@@ -86,7 +94,9 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
    */
   const verfuegbar = $derived(isElectron() && nativeAvailable);
 
-  const erzwungen = $derived(verfuegbar && !nativeFailed && args().tenBit === true);
+  const erzwungen = $derived(
+    verfuegbar && !nativeFailed && (args().tenBit === true || args().nurNativ === true)
+  );
 
   /**
    * Hat der Zuschauer DIESEN Stream ins eigene Fenster geschickt?

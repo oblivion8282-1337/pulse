@@ -29,7 +29,7 @@
   import StreamChatPanel from './StreamChatPanel.svelte';
   import TileShell from './TileShell.svelte';
   import RemoteRequestButton from '$lib/remote/components/RemoteRequestButton.svelte';
-  import { isElectron } from '$lib/platform/runtime';
+  import { isElectron, isLinux } from '$lib/platform/runtime';
   import { remoteSession } from '$lib/remote/session.svelte';
   import { darfFernsteuern } from '$lib/remote/darfSteuern';
   import { detachedStreams } from '../detach.svelte';
@@ -85,6 +85,18 @@
   $effect(() => {
     if (mgr?.tenBit) tenBitGesehen = true;
   });
+  // Dasselbe Muster fuer den Codec, und derselbe Grund: HEVC auf Linux
+  // entscheidet ueber den Wiedergabeweg, BEVOR die Aushandlung laeuft. Chromium
+  // bietet dort einen H265-Track gar nicht an (kein Hardware-Dekoder erreich-
+  // bar) — der `<video>`-Weg endete bisher in einer Fehlermeldung, und der
+  // Zuschauer musste den nativen Player von Hand finden. Mit dem Zwang geht
+  // beim Klick direkt das Fenster auf. Nur LINUX: unter Windows/macOS dekodiert
+  // Chromium HEVC per Hardware, dort bleibt es beim `<video>`-Weg.
+  let hevcGesehen = $state(false);
+  $effect(() => {
+    if (mgr?.codec === 'hevc') hevcGesehen = true;
+  });
+  const hevcNativPflicht = $derived(hevcGesehen && isLinux());
   // Dasselbe Spiel fuer die Fernsteuerbarkeit, und aus demselben Grund: sobald
   // das eigene Fenster spielt, wird `mgr` hier abgeklemmt (s. unten) — genau
   // dann zeigt die Kachel aber das `NativeWindowPanel` mit dem Anfrage-Knopf.
@@ -129,7 +141,10 @@
     // irgendetwas dekodiert ist. Steht sie noch aus, ist der Wert `false`,
     // und die Kachel startet im `<video>`-Weg; kommt danach `true`, schaltet
     // dieser abgeleitete Wert die Kachel um.
-    tenBit: tenBitGesehen
+    tenBit: tenBitGesehen,
+    // HEVC + Linux: der Browser-Weg kann den Track nicht mal verhandeln —
+    // ohne den Zwang sähe der Zuschauer nur die Fehlermeldung (s. oben).
+    nurNativ: hevcNativPflicht,
   }));
   const useNative = $derived(native.active);
 

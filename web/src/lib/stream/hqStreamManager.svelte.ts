@@ -71,6 +71,19 @@ export class ManagedHqStream {
    * heisst „8 bit oder noch nicht bekannt" — nie „bestimmt nicht".
    */
   tenBit = $state(false);
+  /**
+   * Welcher Codec läuft ("h264"|"hevc"|"av1")? Aus der WHEP-URL-Antwort, also
+   * bekannt BEVOR etwas ausgehandelt ist. „h264" heißt auch „älterer Server
+   * oder nicht bekannt".
+   *
+   * HEVC ist der Sonderfall: im Linux-Browser lässt sich der Videotrack gar
+   * nicht verhandeln (Chromium bietet H265 ohne Hardware-Dekodierung nicht an,
+   * und an NVIDIA gibt es keinen VA-API-Weg) — die Kachel muss deshalb direkt
+   * in den nativen Player, statt erst eine Fehlermeldung zu zeigen und den
+   * Zuschauer den Weg selbst suchen zu lassen (`useNativePlayback`, dort
+   * gepaart mit `isLinux()`).
+   */
+  codec = $state<'h264' | 'hevc' | 'av1'>('h264');
   /** Kann der Streamer dieses Streams ferngesteuert werden? Aus der
    *  WHEP-Antwort (`remote_input`), die ihn vom Sidecar des Streamers
    *  durchreicht. Nur der Windows-Sidecar kann Eingaben einspielen — bei allen
@@ -470,7 +483,7 @@ export class ManagedHqStream {
     if (this.#abgebrochen()) return;
     if (this.#attempt === 0) this.phase = 'connecting';
     try {
-      const { whep_url, ten_bit, remote_input } = await chatApi.getWhepUrl(
+      const { whep_url, ten_bit, remote_input, codec } = await chatApi.getWhepUrl(
         this.channelId,
         this.userId,
         this.slot,
@@ -482,6 +495,7 @@ export class ManagedHqStream {
       // erfahren, solange das eigene Fenster nicht laeuft, und genau das ist
       // die Lage, in der die Entscheidung faellt.
       this.tenBit = ten_bit === true;
+      this.codec = codec ?? 'h264';
       this.fernsteuerbar = remote_input === true;
       if (this.#abgebrochen()) return;
       // **10 bit ohne eigenes Fenster: gar nicht erst verbinden.**

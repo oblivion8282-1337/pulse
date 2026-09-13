@@ -173,6 +173,9 @@ class StreamTokenIn(BaseModel):
     # das die Frames am Ende einspielen muesste. Fehlt das Feld (Linux-Sidecar,
     # aeltere Clients), gilt ``False`` — fail-closed.
     remote_input: bool = False
+    # Welcher Codec läuft ("h264"|"hevc"|"av1")? Reist wie ``ten_bit`` bis zum
+    # Zuschauer. Fehlt das Feld (ältere Clients/Streams), gilt "h264".
+    codec: Annotated[str | None, Field(default=None, pattern=r"^(h264|hevc|av1)$")] = None
 
 
 class StreamTokenOut(BaseModel):
@@ -200,6 +203,9 @@ class WhepOut(BaseModel):
     ten_bit: bool = False
     # Siehe ``StreamTokenIn.remote_input``. Aus dem ``stream:active``-Record.
     remote_input: bool = False
+    # Siehe ``StreamTokenIn.codec``. Aus dem ``stream:active``-Record; ``None``
+    # bei älteren Streams (immer "h264" gemeint).
+    codec: str | None = None
 
 
 def _get_redis(request: Request) -> Redis:
@@ -316,6 +322,14 @@ async def issue_stream_token(
         record["ten_bit"] = True
     if payload.remote_input:
         record["remote_input"] = True
+    # Der Codec reist denselben Weg (Token-Record → auth-hook →
+    # ``stream:active`` → ``GET /whep``): die Wiedergabeseite entscheidet daran
+    # schon VOR der WHEP-Aushandlung, welcher Weg in Frage kommt — ein
+    # HEVC-Stream lässt sich im Linux-Browser gar nicht verhandeln, dort muss
+    # direkt der native Player aufgehen, statt erst eine Fehlermeldung zu
+    # zeigen. "h264" (der historische Default) bleibt aus dem Record raus.
+    if payload.codec and payload.codec != "h264":
+        record["codec"] = payload.codec
     await redis.set(
         TOKEN_KEY.format(token=token),
         json.dumps(record, separators=(",", ":")),
@@ -501,6 +515,7 @@ async def _whep_fuer_zuschauer(
         whep_url=f"{base}/{path}/whep?token={read_token}",
         ten_bit=data.get("ten_bit") is True,
         remote_input=data.get("remote_input") is True,
+        codec=data.get("codec"),
     )
 
 
