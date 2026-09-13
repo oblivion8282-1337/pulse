@@ -1922,9 +1922,9 @@ impl VideoDecoder {
         }
 
         // Flush-Weg (auf Hardware Vorgabe, per
-        // `PULSE_PLAYER_GAP_WAIT_KEYFRAME= 1` ueberall erzwingbar): auf einen
-        // Einstiegspunkt warten. Dann den
-        // Decoder LEEREN, nicht nur aufhoeren ihn zu fuettern.
+        // `PULSE_PLAYER_GAP_WAIT_KEYFRAME=1` ueberall erzwingbar): auf einen
+        // Einstiegspunkt warten. Dann den Decoder LEEREN, nicht nur
+        // aufhoeren ihn zu fuettern.
         //
         // Das fehlte bisher, und es ist der Verdacht fuer den Segfault: nach
         // einer Luecke haelt der Decoder Referenzen auf Bilder, die nie

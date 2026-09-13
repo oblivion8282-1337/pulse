@@ -339,10 +339,13 @@ fn zerlege_annexb<P: Payloader>(
         .payload(av1::MTU, &Bytes::copy_from_slice(data))
         .with_context(|| format!("{was} paketieren"))?;
     let n = teile.len();
+    // Ein Vollbild gilt fuer den ganzen Abschnitt — einmal erkennen, nicht
+    // je RTP-Paket.
+    let ist_vollbild = vollbild(data);
     Ok(teile
         .into_iter()
         .enumerate()
-        .map(|(i, b)| (b, i == 0, i + 1 == n, vollbild(data)))
+        .map(|(i, b)| (b, i == 0, i + 1 == n, ist_vollbild))
         .collect())
 }
 

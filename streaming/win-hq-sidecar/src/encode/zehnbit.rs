@@ -23,8 +23,7 @@
 //! sind. Was er NICHT prüft, ist die feinere Frage INNERHALB des D3D11-
 //! Zero-Copy-Wegs — ob der gewählte Codec 10 bit überhaupt trägt (AV1 und
 //! HEVC, [`VideoCodec::supports_ten_bit`]) und ob ein angemeldeter Encode-Weg
-//! einen
-//! 8-bit-Pool verlangt. Die hängt schon vor diesem Modul an EINER Stelle
+//! einen 8-bit-Pool verlangt. Die hängt schon vor diesem Modul an EINER Stelle
 //! (`bildencoder::pool_wahl`, ausgewertet in `pipeline_hw::run`, mit eigener
 //! Log-Zeile) und wird hier bewusst nicht verdoppelt — zwei Prüfungen für
 //! dieselbe Frage laufen irgendwann auseinander.
@@ -119,11 +118,9 @@ pub fn verfuegbar_hevc(vendor: &str, codecs: &[String]) -> bool {
 /// `push_url` leer, aus demselben Grund wie dort: die Fähigkeitsmeldung kennt
 /// das Ziel noch nicht, und der Regelweg ist der ohne angemeldeten Sendeweg.
 fn verfuegbar_fuer(vendor: &str, codecs: &[String], codec: VideoCodec) -> bool {
-    codecs.iter().any(|slug| {
-        VideoCodec::from_slug(slug) == codec
-            && codec.supports_ten_bit()
-            && codec.encode_path(vendor, "") == EncodePath::D3d11ZeroCopy
-    })
+    codec.supports_ten_bit()
+        && codec.encode_path(vendor, "") == EncodePath::D3d11ZeroCopy
+        && codecs.iter().any(|slug| VideoCodec::from_slug(slug) == codec)
 }
 
 #[cfg(test)]
