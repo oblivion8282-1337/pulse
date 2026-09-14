@@ -142,11 +142,20 @@ modules:
       # bringt `libdav1d.so.7` bereits mit.
       # `opus` fuer den Ton, `*_cuvid` fuer NVIDIA-Zuschauer.
       #
+      # `hevc` spielt dieselbe Rolle wie `av1`/`h264` fuer den VAAPI-Weg auf
+      # AMD/Intel — mit einem Unterschied: der Player bietet HEVC bewusst NIE
+      # als Software-Kandidat an (Lizenzlinie, `decode.rs`), der Name steht
+      # hier also allein fuer den Hardware-Pfad. Fehlt er, scheitern alle
+      # drei HEVC-Kandidaten mit „Decoder nicht vorhanden" — genau so am
+      # 2026-09-14: der HEVC-Merge (6a82c7a3) vergass diese Zeile, Windows
+      # und Mac bauen ohne Whitelist und fielen nicht auf. Bewacht von
+      # `zwillinge/tests/flatpak_decoder.rs`.
+      #
       # 10 bit braucht hier NICHTS Zusaetzliches: die Bittiefe steckt im
-      # `av1`-Decoder bzw. im VAAPI-hwaccel, und ob die Karte sie traegt,
-      # entscheidet der Player zur Laufzeit selbst.
+      # `av1`-/`hevc`-Decoder bzw. im VAAPI-hwaccel, und ob die Karte sie
+      # traegt, entscheidet der Player zur Laufzeit selbst.
       - --disable-decoders
-      - --enable-decoder=av1,h264,opus,libdav1d,av1_cuvid,h264_cuvid
+      - --enable-decoder=av1,h264,hevc,opus,libdav1d,av1_cuvid,h264_cuvid,hevc_cuvid
       - --enable-libdav1d
       - --enable-cuvid
       - --enable-nvdec

@@ -94,7 +94,11 @@ fn main() -> Result<()> {
         // stdout. Der Weg, auf einer fremden Maschine zu erfahren, WARUM sie
         // in Software dekodiert (`pulse-player --decoder`).
         Some("--decoder") => {
-            for codec in [whep::Codec::Av1, whep::Codec::H264] {
+            // Jeder verhandelbare Codec gehoert hierher. Ohne H.265 stand die
+            // Sonde am 2026-09-14 genau vor der Frage, die sie beantworten
+            // sollte (HEVC-Ausfall im Flatpak: Whitelist ohne hevc-Eintraege)
+            // und wusste sie nicht.
+            for codec in [whep::Codec::Av1, whep::Codec::H264, whep::Codec::H265] {
                 println!("{}:", codec.as_str());
                 for (name, art, fehler) in decode::VideoDecoder::sonde(codec) {
                     match fehler {
