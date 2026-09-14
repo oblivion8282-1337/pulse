@@ -41,6 +41,10 @@ export interface GsrHealth {
      *  Windows-Sidecar (AMF + AV1); Python und macOS lassen es weg →
      *  `undefined` heißt "nein", nie "unbekannt, probier's mal". */
     ten_bit?: boolean;
+    /** Dasselbe für HEVC Main 10 — seit 2026-09-13 getrennt gemeldet, weil
+     *  es auseinanderfällt: Main-10-Encode ab ~2015, AV1-Encode erst ab 2022.
+     *  Ältere Sidecars lassen es weg → `undefined` heißt "nein". */
+    hevc_ten_bit?: boolean;
     /** Kann dieser Rechner HDR senden — also die Bildschirmaufnahme im vollen
      *  Helligkeitsumfang holen und als PQ/BT.2020 encodieren?
      *

@@ -33,6 +33,7 @@ import { effectiveHqLimits } from '$lib/stream/guildLimits';
 import {
   applyVideoMode,
   gpuHasAv1,
+  gpuHasHevc,
   clampResolution,
   type AudioMode,
   type OverrideSet,
@@ -73,7 +74,10 @@ export * from './captureSource';
  */
 export function tenBitPossible(overrides: OverrideSet = streamSettings.overrides): boolean {
   const codec = overrides.codec ?? 'h264';
-  return overrides.bit_depth === 10 && codec === 'av1' && stream.tenBitAvailable;
+  if (overrides.bit_depth !== 10) return false;
+  if (codec === 'av1') return stream.tenBitAvailable;
+  if (codec === 'hevc') return stream.hevcTenBitAvailable;
+  return false;
 }
 
 /**
@@ -104,19 +108,19 @@ export function hdrPossible(): boolean {
  * AV1 — kann diese Maschine es, UND kommt es auch heil beim Zuschauer an?
  *
  * `gpuHasAv1` allein beantwortet nur die erste Hälfte: es fragt den Encoder.
- * **Auf macOS ist die zweite Hälfte seit dem 2026-08-18 nein** (korrigiert am
- * 2026-08-19). Seit `pushProtokoll` bedingungslos WHIP liefert, geht der
- * mac-Sidecar über ffmpegs WHIP-Muxer — der trägt kein AV1, und der Sidecar
- * nimmt den Codec beim Start still auf H.264 zurück
- * (`mac-hq-sidecar/src/encode/mod.rs`). Linux und Windows bringen dafür einen
- * eigenen WebRTC-Sender mit (`src/whip/` in beiden Sidecars), macOS nicht.
+ * **Auf macOS ist die zweite Hälfte heute nein**: Das gelinkte FFmpeg (8.0.1)
+ * bringt keinen `av1_videotoolbox`-Encoder — erst M3+-Silizium UND ein
+ * FFmpeg mit dem Encoder würden AV1 möglich machen (`mac-hq-sidecar/src/caps.rs`
+ * probt genau das). Der eigene WHIP-Sender (`mac-hq-sidecar/src/whip/`, Zwilling
+ * der Linux-/Windows-Sidecars) trägt AV1 längst; seit der HEVC-Runde 2026-09-13
+ * auch HEVC.
  *
  * Ein nicht angebotener Eintrag ist besser als einer, der beim Start still
  * zurückgenommen wird: auf einem M3+ stand „AV1" im Feld, war sogar die
  * Vorbelegung, und übertragen wurde H.264 — sichtbar nirgends.
  *
- * Wer hier je das `!isMac()` entfernt, baut vorher den eigenen WHIP-Sender für
- * macOS.
+ * Wer hier je das `!isMac()` entfernt, prüft vorher gegen die echte
+ * Encoder-Probe der `health`-Antwort (video_codecs) statt gegen den Modellnamen.
  */
 export function av1Nutzbar(codecs: ReadonlyArray<string> | undefined): boolean {
   return !isMac() && gpuHasAv1(codecs);
@@ -192,11 +196,13 @@ export async function loadCatalogs(): Promise<void> {
     // Sidecar seine Vorgabe nimmt (`FPS_STANDARD`) — eine Vorbelegung auf 60
     // hätte den Eintrag nie sichtbar werden lassen.
     const hasAv1 = av1Nutzbar(streamSettings.gpu_info?.video_codecs);
+    const hasHevc = gpuHasHevc(streamSettings.gpu_info?.video_codecs);
     const defaults: OverrideSet = {};
     if (!streamSettings.overrides.codec) defaults.codec = hasAv1 ? 'av1' : 'h264';
     // Coerce a previously-saved codec this GPU can't encode (e.g. 'av1' carried
     // over to an H.264-only machine) back to the baseline.
     else if (streamSettings.overrides.codec === 'av1' && !hasAv1) defaults.codec = 'h264';
+    else if (streamSettings.overrides.codec === 'hevc' && !hasHevc) defaults.codec = 'h264';
     if (streamSettings.overrides.bitrate_kbps === undefined) defaults.bitrate_kbps = 4000;
     if (Object.keys(defaults).length > 0) {
       streamSettings.overrides = { ...streamSettings.overrides, ...defaults };

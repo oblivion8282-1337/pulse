@@ -40,12 +40,20 @@
  * fangen — deshalb läuft der generierte Updater hier wirklich.
  */
 
-import { test } from 'node:test';
+import { test as testAlle } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
+
+// Die Tests feuern mehrzeilige Bash-Skripte an `bash -c` und faken systemd-/
+// crontab-Kommandos über einen PATH-Ordner. Unter Windows verstümmelt der
+// argv-Roundtrip über die Befehlszeile die Skripte (Heredoc-Trenner gehen
+// verloren), und der PATH trennt mit „;“ — die Fakes werden nie gefunden.
+// Der Installer selbst gehört auf Linux-Hosts; die Prüfungen laufen in der
+// Linux-CI unverändert.
+const test = process.platform === 'win32' ? testAlle.skip : testAlle;
 import { fileURLToPath } from 'node:url';
 
 const SKRIPT = join(dirname(fileURLToPath(import.meta.url)), '../static/install.sh');

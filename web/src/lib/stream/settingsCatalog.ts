@@ -46,12 +46,21 @@ export interface OverrideSet {
 export const HQ_BITRATE_MIN_KBPS = 1000;
 export const HQ_BITRATE_MAX_KBPS = 10_000;
 
-// Codec values the GSR `-k` flag accepts. The UI only offers H.264 (universal
-// browser compat) and AV1 (~half the bitrate at the same quality); the sidecar
-// still understands the HEVC / 10-bit / HDR variants, we just don't surface
-// them (this also matches the Flatpak GSR build, which only ships h264 + av1).
+// Codec values the GSR `-k` flag accepts. The UI offers H.264 (universal
+// browser compat), AV1 (~half the bitrate at the same quality) and HEVC —
+// the mid tier for sender GPUs without AV1 encode (anything pre-2022
+// encodes HEVC in hardware). HEVC is strictly hardware end to end (NVENC/
+// VAAPI/AMF at the sender, hwaccel in the native player). Receiver side
+// the desktop app opens the native player directly for HEVC (since
+// 2026-09-13 — a quality choice: zero-copy and 10 bit only exist in the
+// own window; the browser path itself works after the sender fix,
+// docs/2026-09-13-windows-amf-hevc-10bit.md); plain-web viewers remain
+// subject to browser support (Chrome 136+/Safari with hardware decode play,
+// Firefox and Linux+NVIDIA negotiate it not at all → black picture, audio
+// keeps playing). Choosing it is a deliberate trade, not the default.
 export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'h264', label: 'H.264' },
+  { value: 'hevc', label: 'HEVC' },
   { value: 'av1', label: 'AV1' },
 ];
 
@@ -83,6 +92,8 @@ export const VIDEO_MODES: ReadonlyArray<{
   hdr?: boolean;
 }> = [
   { value: 'h264', label: 'H.264', codec: 'h264', tenBit: false },
+  { value: 'hevc', label: 'HEVC 8 bit', codec: 'hevc', tenBit: false },
+  { value: 'hevc-10', label: 'HEVC 10 bit', codec: 'hevc', tenBit: true },
   { value: 'av1', label: 'AV1 8 bit', codec: 'av1', tenBit: false },
   { value: 'av1-10', label: 'AV1 10 bit', codec: 'av1', tenBit: true },
   { value: 'av1-10-hdr', label: 'AV1 10 bit HDR', codec: 'av1', tenBit: true, hdr: true },
@@ -91,8 +102,10 @@ export const VIDEO_MODES: ReadonlyArray<{
 /** Welcher Eintrag zu den aktuellen Overrides passt. */
 export function videoModeOf(o: OverrideSet): string {
   const codec = o.codec ?? 'h264';
-  if (codec !== 'av1' || o.bit_depth !== 10) return codec;
-  return o.hdr === true ? 'av1-10-hdr' : 'av1-10';
+  if (o.bit_depth !== 10) return codec;
+  if (codec === 'av1') return o.hdr === true ? 'av1-10-hdr' : 'av1-10';
+  if (codec === 'hevc') return 'hevc-10';
+  return codec;
 }
 
 /**
@@ -309,4 +322,11 @@ export function audioModeUsesDesktop(mode: string): boolean {
  *  the machine can really encode — RTX 40xx/M3+ get AV1, older GPUs / M2 don't. */
 export function gpuHasAv1(codecs: ReadonlyArray<string> | undefined): boolean {
   return (codecs ?? []).some((c) => /av1/i.test(c));
+}
+
+/** Same heuristic for HEVC (`/hevc|h265/i`) — gates the saved-setting coerce
+ *  in settings.svelte.ts so a choice made on an HEVC-capable GPU falls back
+ *  to H.264 on one without. */
+export function gpuHasHevc(codecs: ReadonlyArray<string> | undefined): boolean {
+  return (codecs ?? []).some((c) => /hevc|h265/i.test(c));
 }

@@ -101,6 +101,12 @@ class StreamTokenIn(BaseModel):
     # und ein Knopf, der beim Gegenueber nichts bewirken kann, gehoert nicht
     # angeboten.
     remote_input: bool = False
+    # Welcher Codec gefahren wird ("h264"|"hevc"|"av1")? Nur durchgereicht;
+    # media-svc fädelt es über Token-Record → auth-hook → ``stream:active``
+    # bis in die WHEP-Antwort. Daran entscheidet der Zuschauer VOR der
+    # Aushandlung den Wiedergabeweg — HEVC lässt sich im Linux-Browser nicht
+    # verhandeln, dort muss direkt der native Player aufgehen.
+    codec: Annotated[str | None, Field(default=None, pattern=r"^(h264|hevc|av1)$")] = None
 
 
 class StreamTokenOut(BaseModel):
@@ -117,6 +123,12 @@ class WhepOut(BaseModel):
     ten_bit: bool = False
     # Ebenso: kann dieser Streamer ferngesteuert werden?
     remote_input: bool = False
+    # Ebenso: welcher Codec läuft ("h264"|"hevc"|"av1")? ``None`` bei älteren
+    # Streams (immer "h264" gemeint). Der Zuschauer entscheidet daran vor der
+    # WHEP-Aushandlung, welcher Wiedergabeweg in Frage kommt — HEVC lässt sich
+    # im Linux-Browser gar nicht verhandeln, dort muss direkt der native
+    # Player aufgehen, statt erst eine Fehlermeldung zu zeigen.
+    codec: str | None = None
 
 
 # --- media-svc client (thin; tests monkeypatch these two) -------------------
@@ -234,6 +246,8 @@ async def issue_stream_token(
         token_body["ten_bit"] = True
     if payload.remote_input:
         token_body["remote_input"] = True
+    if payload.codec:
+        token_body["codec"] = payload.codec
     try:
         resp = await _media_svc_request(
             "POST",

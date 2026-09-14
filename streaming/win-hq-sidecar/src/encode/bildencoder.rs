@@ -327,8 +327,9 @@ pub(crate) unsafe fn baue_mit_rueckfall(
         // **Keine Rückfälle, wenn eine Betriebsart daran hängt.** HDR und
         // 10 bit überleben KEINEN der beiden Rückfälle darunter: der
         // D3D12-Weg hat nur NV12 und keinen Farbwandler, und der AV1→H.264-
-        // Griff nimmt HDR schon deshalb mit, weil `supports_ten_bit` nur AV1
-        // durchlässt. Dieselbe Linie wie bei `auffrischung` und `hdr::pruefen`
+        // Griff nimmt die Bittiefe mit, weil `supports_ten_bit` für H.264
+        // Nein bleibt. Dieselbe Linie wie bei `auffrischung` und
+        // `hdr::pruefen`
         // — unerfüllbar heisst Startverweigerung, nicht still etwas anderes
         // fahren. Muss VOR beiden Rückfällen stehen.
         Err(e) if betriebsart_ohne_rueckfall(cfg).is_some() => {

@@ -157,7 +157,7 @@ return 1
 async def _consume_token_and_mark_active(
     redis: Redis, token: str, channel_id: str, user_id: str, slot: str, path: str,
     label: str | None = None, ten_bit: bool = False, remote_input: bool = False,
-    monitor_index: int | None = None,
+    monitor_index: int | None = None, codec: str | None = None,
 ) -> bool:
     """Atomically consume the token and write the publisher-active record.
 
@@ -194,6 +194,12 @@ async def _consume_token_and_mark_active(
     # Nur bei True schreiben: der Record bleibt im Normalfall byte-identisch.
     if ten_bit:
         active["ten_bit"] = True
+    # Der Codec reist wie ``ten_bit`` bis zum Zuschauer: die Wiedergabeseite
+    # entscheidet daran vor der WHEP-Aushandlung, welcher Weg in Frage kommt
+    # (HEVC im Linux-Browser -> direkt der native Player). Fehlt das Feld im
+    # Token-Record (aeltere Clients bzw. "h264"), bleibt es hier weg.
+    if isinstance(codec, str) and codec:
+        active["codec"] = codec
     # Ebenso ``remote_input``: sagt dem Zuschauer, ob dieser Streamer ueberhaupt
     # ferngesteuert werden KANN (nur der Windows-Sidecar spielt Eingaben ein).
     # Ohne die Weitergabe erschiene der Anfrage-Knopf auch bei Streamern, bei
@@ -283,6 +289,7 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
             rec.get("ten_bit") is True,
             rec.get("remote_input") is True,
             monitor_index,
+            rec.get("codec"),
         ):
             raise _deny("publish_token_already_consumed", path=req.path)
         log.info(

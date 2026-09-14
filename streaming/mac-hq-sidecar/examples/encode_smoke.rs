@@ -15,6 +15,8 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "/tmp/pulse_smoke.mp4".into());
     // Pass "audio" as the 2nd arg to also capture system audio.
     let with_audio = std::env::args().nth(2).as_deref() == Some("audio");
+    // Pass the codec as the 3rd arg ("h264" default, "hevc").
+    let codec = std::env::args().nth(3).unwrap_or_else(|| "h264".into());
     let (w, h, fps) = (1280u32, 720u32, 30u32);
 
     let bildpost = Arc::new(Postfach::neu());
@@ -30,7 +32,7 @@ fn main() -> anyhow::Result<()> {
         bildpost.clone(),
         if with_audio { Some(atx) } else { None },
     )?;
-    let mut enc = VideoEncoder::start(&out, w, h, fps, 4000, "h264", with_audio)?;
+    let mut enc = VideoEncoder::start(&out, w, h, fps, 4000, &codec, with_audio)?;
 
     let start = Instant::now();
     let mut n = 0usize;

@@ -2,9 +2,12 @@
 //!
 //! Unter Linux gibt es **zwei** Bruecken, und welche greift, entscheidet allein
 //! das Pixelformat des dekodierten Bildes: `Pixel::CUDA` (NVIDIA, ueber
-//! `av1_cuvid`/`h264_cuvid`) geht ueber [`super::linux`], `Pixel::VAAPI` (AMD,
+//! `av1_cuvid`/`hevc_cuvid`/`h264_cuvid`) geht ueber [`super::linux`],
+//! `Pixel::VAAPI` (AMD,
 //! Intel) ueber [`super::vaapi`]. Beides zugleich kann in einer Sitzung nicht
 //! vorkommen — der Decoder wird einmal geoeffnet und liefert eines von beiden.
+//! HEVC braucht dafür keine eigene Zeile: die Weiche haengt am Pixelformat,
+//! nicht am Codec.
 //!
 //! **Warum die Weiche hier steht und nicht in `decode.rs` oder `render/`:**
 //! dort steht ueberall genau ein Typ (`Option<Arc<GpuBild>>`, `Bruecke`), und

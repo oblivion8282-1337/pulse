@@ -583,6 +583,20 @@ fn candidates_mit(codec: Codec, allow_hw: bool, cuda_aus: bool) -> Vec<Kandidat>
                 &[Kandidat::sw("h264"), Kandidat::sw("libopenh264")],
             )
         }
+        Codec::H265 => (
+            hw_liste("hevc_cuvid", "hevc", "hevc_qsv"),
+            // Bewusst LEER — Lizenzlinie, kein Versehen. HEVC läuft hier nur
+            // über Hardware: cuvid ist NVDEC (auch ohne CUDA-Gerät),
+            // `nativ_hw` ist der native Decoder mit VAAPI/D3D11VA/VideoToolbox,
+            // QSV ist Intel-Hardware. Der native SOFTWARE-Decoder (`hevc`)
+            // steckt zwar im gebündelten FFmpeg, wird aber absichtlich nie als
+            // Kandidat angeboten — als stiller Fallback wäre er eine
+            // ausgelieferte Software-Implementierung eines patentbehafteten
+            // Codecs (Begründung ausführlich am `Codec::H265` in `whep.rs`).
+            // Fehlt die Hardware, scheitert der Decoder laut statt still auf
+            // Software zu fallen.
+            &[],
+        ),
         Codec::Opus => (Vec::new(), &[Kandidat::sw("libopus"), Kandidat::sw("opus")]),
     };
     let mut out = Vec::new();
@@ -1203,8 +1217,8 @@ pub struct VideoDecoder {
     pub name: String,
     pub hardware: bool,
     /// Der hwaccel, mit dem dieser Decoder geoeffnet wurde (`None` =
-    /// Software). Trifft die Luecken-Entscheidung mit — s.
-    /// [`Self::flush_bei_luecke`].
+    /// Software). Trifft zusammen mit [`Self::hardware`] die Luecken-
+    /// Entscheidung — s. [`Self::flush_bei_luecke`].
     hw: Option<Hwaccel>,
     /// Fuer den Neuaufbau: welcher Codec urspruenglich verlangt war.
     codec: Codec,
@@ -1830,24 +1844,48 @@ impl VideoDecoder {
     /// Bezugsbild-Luecken weg — Kernel-Ring-Reset, Vorfall 2026-08-20 und
     /// nachgestellt unter kontrolliertem Buendelverlust am 2026-09-12
     /// (8 Resets ohne, 0 mit Flush;
-    /// `docs/2026-09-12-pulse-player-amd-audit.md`, Abschnitt F). NVIDIA
-    /// bleibt beim Weiterdekodieren: dessen Dekoder hat denselben Muell
-    /// klaglos verdaut, und der Flush fraß dort die Bildrate (Messung
-    /// 2026-07-28, gegen den heutigen Stand nicht wiederholt).
+    /// `docs/2026-09-12-pulse-player-amd-audit.md`, Abschnitt F).
+    ///
+    /// **Windows-Seite desselben Grundes**: `dxva2_av1.c` fuellt
+    /// `RefFrameMapTextureIndex` nur bei nicht-NULL `AVFrame*` echt, und
+    /// `ff_dxva2_get_surface_index` castet fuer D3D11 `frame->data[1]` blind
+    /// in den Slice-Index — ein geleerter, einmal belegter Slot liefert damit
+    /// Index 0, eine reale Pool-Surface (oft die des CURRENT-Bilds). Dieselbe
+    /// Klasse „kaputter Bezuege an die Video-Einheit“, in derselben AMD-
+    /// Hardware (VCN), unter Windows als TDR sichtbar: der GESAMTE
+    /// Grafiktreiber resettet, nicht nur der Player.
     /// Leert der Decoder nach einer Luecke? Reine Funktion, damit die
     /// Vorgabe testbar ist — die Sekundenstatistiken sehen in beiden Armen
     /// gesund aus (Abschnitt F des AMD-Audits), ein Fehler hier waere
     /// unsichtbar.
     ///
-    /// Vorgabe je Geraet: **VAAPI ja, alles andere nein.** Der Schalter
+    /// Vorgabe je Geraet: **Hardware ja, Software nein** (bis zum
+    /// 2026-09-12 VAAPI allein). Der Schalter
     /// `PULSE_PLAYER_GAP_WAIT_KEYFRAME` ueberschreibt in beide Richtungen:
     /// `1` erzwingt das Leeren (Messarm b), `0` erzwingt Weiterdekodieren
     /// (Messarm a).
-    fn flush_bei_luecke(hw: Option<Hwaccel>, schalter: Option<&str>) -> bool {
+    ///
+    /// **Seit dem 2026-09-13 leert JEDE Hardware (Vorgabe), Software
+    /// weiter.** Der alte Grund, NVIDIA vom Flush auszunehmen — „der Flush
+    /// fraß dort die Bildrate“ (Messung 2026-07-28) — hielt einer
+    /// Wiederholung gegen den heutigen Stand nicht stand: gemessen mit
+    /// `hevc_cuvid` und kontrolliertem Buendelverlust (150 ms netem-Verzoegerung
+    /// + 5 % Buendelverlust, FlexFEC aus) blieb im Flush-Arm der Zeichentakt
+    /// bei 58–66 Bildern/s, waehrend der Weiter-dekodieren-Arm wiederholt fuer
+    /// SEKUNDEN auf 0 fiel (Anzeige-Sperre plus danach unbrauchbare
+    /// Referenzketten; Logs `testbench/ansehen-player-arm1-flush.log` und
+    /// `ansehen-player-arm2-noflush.log`). Die alte Messung stamm aus dem
+    /// Intra-Refresh-Zeitalter: damals kam nach dem Flush KEIN Vollbild mehr
+    /// nach, seit dem 2026-08-18 liefert der Sender auf Anforderung sofort
+    /// eines (`forced-idr`) — genau das, womit der Flush-Arm seine schnelle
+    /// Erholung faehrt. Software-Decoder dekodieren weiter: sie weisen
+    /// kaputte Einheiten selbst zurueck (Neuaufbau greift) statt sie still
+    /// zu verschlucken.
+    fn flush_bei_luecke(hardware: bool, schalter: Option<&str>) -> bool {
         match schalter {
             Some("1") => true,
             Some("0") => false,
-            _ => hw == Some(Hwaccel::Vaapi),
+            _ => hardware,
         }
     }
 
@@ -1864,13 +1902,15 @@ impl VideoDecoder {
         // BLIEB eingefroren, waehrend jede Kennzahl gesund aussah. Wer sich
         // auf die Zaehler verlaesst, haelt das fuer einen Erfolg.
         //
-        // Auf Nicht-VAAPI wird dabei NICHT geleert: ein geleerter Decoder hat
-        // gar keine Referenz mehr und kann nichts mehr rechnen. Am 2026-07-28
-        // an NVIDIA gemessen — mit `flush` an dieser Stelle blieb die
-        // Bildrate bei 0. Auf VAAPI gilt das Gegenteil (s. oben): dort leert
-        // der Flush, damit die Hardware die Luecke nie zu sehen bekommt.
+        // Auf Software wird dabei NICHT geleert: sie weist kaputte Einheiten
+        // selbst zurueck (Neuaufbau greift), ein Leeren kaeme einem Start von
+        // Null gleich. Auf Hardware gilt das Gegenteil (s.
+        // `flush_bei_luecke`): dort leert der Flush, damit die Einheit die
+        // Luecke nie zu sehen bekommt — die alte „Flush frisst die Bildrate“-
+        // Messung an NVIDIA stamm aus dem Intra-Refresh-Zeitalter und hielt
+        // der Wiederholung nicht stand.
         let schalter = std::env::var("PULSE_PLAYER_GAP_WAIT_KEYFRAME").ok();
-        if !Self::flush_bei_luecke(self.hw, schalter.as_deref()) {
+        if !Self::flush_bei_luecke(self.hardware, schalter.as_deref()) {
             let bis = std::time::Instant::now() + refresh_dauer();
             // Eine laengere Stoerung erzeugt viele Luecken hintereinander —
             // immer die spaeteste gewinnt, sonst gaebe die erste den Takt vor.
@@ -1881,9 +1921,10 @@ impl VideoDecoder {
             return;
         }
 
-        // Flush-Weg (auf VAAPI Vorgabe, per `PULSE_PLAYER_GAP_WAIT_KEYFRAME=
-        // 1` ueberall erzwingbar): auf einen Einstiegspunkt warten. Dann den
-        // Decoder LEEREN, nicht nur aufhoeren ihn zu fuettern.
+        // Flush-Weg (auf Hardware Vorgabe, per
+        // `PULSE_PLAYER_GAP_WAIT_KEYFRAME=1` ueberall erzwingbar): auf einen
+        // Einstiegspunkt warten. Dann den Decoder LEEREN, nicht nur
+        // aufhoeren ihn zu fuettern.
         //
         // Das fehlte bisher, und es ist der Verdacht fuer den Segfault: nach
         // einer Luecke haelt der Decoder Referenzen auf Bilder, die nie
@@ -2895,24 +2936,26 @@ mod tests {
 
 #[cfg(test)]
 mod flush_bei_luecke_tests {
-    use super::{Hwaccel, VideoDecoder};
+    use super::VideoDecoder;
 
     #[test]
-    fn vaapi_leert_als_vorgabe() {
-        assert!(VideoDecoder::flush_bei_luecke(Some(Hwaccel::Vaapi), None));
+    fn hardware_leert_als_vorgabe() {
+        assert!(VideoDecoder::flush_bei_luecke(true, None));
     }
 
+    /// Seit dem 2026-09-13 leert auch NVIDIA (und D3D11VA/VideoToolbox) — die
+    /// alte „Flush fraß die Bildrate“-Messung hielt der Wiederholung mit
+    /// hevc_cuvid nicht stand (Arm-1/Arm-2-Logs in testbench/). Software
+    /// dekodiert weiter: sie weist Kaputtes selbst zurueck.
     #[test]
-    fn nvidia_windows_und_software_leeren_nicht() {
-        assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::Cuda), None));
-        assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::D3d11va), None));
-        assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::VideoToolbox), None));
-        assert!(!VideoDecoder::flush_bei_luecke(None, None));
+    fn hardware_und_software_leeren_nicht_gleich() {
+        assert!(VideoDecoder::flush_bei_luecke(true, None));
+        assert!(!VideoDecoder::flush_bei_luecke(false, None));
     }
 
     #[test]
     fn der_schalter_gewinnt_in_beiden_richtungen() {
-        assert!(VideoDecoder::flush_bei_luecke(Some(Hwaccel::Cuda), Some("1")));
-        assert!(!VideoDecoder::flush_bei_luecke(Some(Hwaccel::Vaapi), Some("0")));
+        assert!(VideoDecoder::flush_bei_luecke(false, Some("1")));
+        assert!(!VideoDecoder::flush_bei_luecke(true, Some("0")));
     }
 }

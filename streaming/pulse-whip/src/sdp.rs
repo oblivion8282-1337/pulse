@@ -22,7 +22,7 @@
 
 use anyhow::{bail, Context, Result};
 use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_AV1, MIME_TYPE_H264, MIME_TYPE_OPUS};
+use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_AV1, MIME_TYPE_HEVC, MIME_TYPE_H264, MIME_TYPE_OPUS};
 use webrtc::api::APIBuilder;
 use webrtc::interceptor::registry::Registry;
 use webrtc::rtp_transceiver::rtp_codec::{
@@ -38,10 +38,14 @@ use crate::av1;
 /// sind die, die `register_default_codecs` demselben Codec gab — die Nummer ist
 /// frei waehlbar (ihre Bedeutung steht im `a=rtpmap` desselben Angebots), aber
 /// AV1 und Opus gingen vorher unter genau diesen Nummern hinaus, und fuer die
-/// beiden Wege soll sich auf der Leitung gar nichts aendern. Eine Kollision
-/// kann es nicht geben: ausser diesen dreien ist nichts angemeldet.
+/// Wege soll sich auf der Leitung gar nichts aendern. Eine Kollision kann es
+/// nicht geben: ausser diesen vieren ist nichts angemeldet.
 const PT_H264: PayloadType = 102;
 const PT_AV1: PayloadType = 41;
+/// HEVC — dieselbe Nummer, die `register_default_codecs` an H265 vergibt
+/// (126 liegt hier frei, weil wir ohne Vorgabeliste registrieren); die
+/// Bedeutung steht im `a=rtpmap` desselben Angebots.
+const PT_H265: PayloadType = 126;
 const PT_OPUS: PayloadType = 111;
 
 /// Rueckmeldungen, die wir zu jeder Bildspur anbieten.
@@ -157,6 +161,19 @@ pub fn codec_capability(
             sdp_fmtp_line: "profile-id=0".to_owned(),
             ..Default::default()
         }),
+        // `profile-id=1` — Main, das einzige Profil, das unsere Encoder fahren
+        // (NVENC/VAAPI ohne Rext/Range-Extensions). HEVC trägt seine Stufe
+        // NICHT in der fmtp-Zeile — die Level-Logik von [`h264_stufe`] hat hier
+        // kein Gegenstück, RFC 7798 kennt auch keinen packetization-mode. Was
+        // übrig bleibt, ist die Profilzusage; alles andere entscheidet der
+        // Empfaenger an der Bildgroesse im Strom selbst.
+        "hevc" => Ok(RTCRtpCodecCapability {
+            mime_type: MIME_TYPE_HEVC.to_owned(),
+            clock_rate: av1::RTP_TAKT_HZ,
+            rtcp_feedback: video_rtcp_feedback(),
+            sdp_fmtp_line: "profile-id=1".to_owned(),
+            ..Default::default()
+        }),
         andere => bail!("WHIP: Codec {andere} nicht unterstuetzt"),
     }
 }
@@ -179,7 +196,11 @@ pub(super) fn register_codecs(
     video: &RTCRtpCodecCapability,
     audio: &RTCRtpCodecCapability,
 ) -> Result<()> {
-    let video_pt = if video.mime_type == MIME_TYPE_AV1 { PT_AV1 } else { PT_H264 };
+    let video_pt = match video.mime_type.as_str() {
+        MIME_TYPE_AV1 => PT_AV1,
+        MIME_TYPE_HEVC => PT_H265,
+        _ => PT_H264,
+    };
     for (fassung, pt, typ) in [
         (video, video_pt, RTPCodecType::Video),
         (audio, PT_OPUS, RTPCodecType::Audio),
@@ -330,7 +351,7 @@ mod fassung_tests {
     /// Vollbild — und genau dafuer gibt es diesen Sendeweg ueberhaupt.
     #[test]
     fn bildspur_bietet_die_vollbild_anforderung_an() {
-        for codec in ["h264", "av1"] {
+        for codec in ["h264", "hevc", "av1"] {
             let cap = codec_capability(codec, 2560, 1440, 60).unwrap();
             let paare: Vec<(String, String)> = cap
                 .rtcp_feedback
@@ -344,6 +365,15 @@ mod fassung_tests {
                 );
             }
         }
+    }
+
+    /// HEVC verspricht Main (`profile-id=1`) — und keine H.264-Stufe. Die
+    /// Zusage geht an die Spur und ins Angebot; wiche sie auseinander, fände
+    /// die Spur ihren Codec beim Binden nicht.
+    #[test]
+    fn hevc_angebot_nennt_main() {
+        let cap = codec_capability("hevc", 2560, 1440, 60).unwrap();
+        assert_eq!(cap.sdp_fmtp_line, "profile-id=1");
     }
 }
 

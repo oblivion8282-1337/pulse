@@ -18,6 +18,19 @@ from __future__ import annotations
 import pathlib
 import shutil
 import subprocess
+import sys
+
+import pytest
+
+# Die sed-Aufrufe werden unter bash ausgeführt, wie sie im Container stehen.
+# Unter Windows läuft Git-Bash mit anderem sed-Stand und anderer Pfad-/Umgebungs-
+# Semantik — die Ergebnisse sagen dort nichts über den Container aus. Die
+# Prüfungen laufen unverändert in der Linux-CI.
+if sys.platform == "win32":
+    pytest.skip(
+        "sed-Unter-Bash-Prüfungen sind Linux-CI-Sache — s. Modul-Docstring",
+        allow_module_level=True,
+    )
 
 S6 = pathlib.Path(__file__).resolve().parents[1] / "s6"
 TEMPLATE = S6 / "etc/caddy/Caddyfile.template"

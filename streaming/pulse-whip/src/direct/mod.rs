@@ -38,7 +38,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bytes::Bytes;
-use webrtc::api::media_engine::MIME_TYPE_AV1;
+use webrtc::api::media_engine::{MIME_TYPE_AV1, MIME_TYPE_HEVC};
 use webrtc::media::Sample;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp::codecs::h264::H264Payloader;
@@ -55,9 +55,36 @@ use pulse_bildmarke::EXTMAP_URI;
 
 use crate::av1::{self, SpurZustand};
 use crate::h264::h264_ist_vollbild;
+use crate::hevc;
 use crate::pacer;
 use spur::{melde_verteilung, Bildspur, Paketierer};
 pub use spur::{dauer_fuer_takte, Konfig};
+
+/// Ein Annex-B-Zeitabschnitt in RTP-Nutzlasten zerlegen — der Weg des
+/// H.264-Arms (HEVC paketiert seit dem 2026-09-13 `hevc::paketiere` selbst).
+/// Dasselbe Bild wie im WHIP-Sender der Sidecars (`zerlege_annexb` dort):
+/// der Payloader sagt nicht, ob ein Vollbild dabei
+/// war, die Bildmarke braucht es aber. Leer ist legitim — Parameter-Saetze
+/// werden gehalten und vor dem naechsten Vollbild gebuendelt.
+fn zerlege_annexb<P: Payloader>(
+    paketierer: &mut P,
+    daten: &[u8],
+    vollbild: fn(&[u8]) -> bool,
+    was: &str,
+) -> Result<Vec<(Bytes, bool, bool, bool)>> {
+    let teile = paketierer
+        .payload(av1::MTU, &Bytes::copy_from_slice(daten))
+        .with_context(|| format!("{was} paketieren"))?;
+    let n = teile.len();
+    // Ein Vollbild gilt fuer den ganzen Abschnitt — einmal erkennen, nicht
+    // je RTP-Paket.
+    let ist_vollbild = vollbild(daten);
+    Ok(teile
+        .into_iter()
+        .enumerate()
+        .map(|(i, b)| (b, i == 0, i + 1 == n, ist_vollbild))
+        .collect())
+}
 
 /// Eigene Laufzeit des Direktpfads — bewusst getrennt von anderen Wegen,
 /// dieselbe Begründung wie beim WHIP-Sender des Sidecars: ein hängender
@@ -123,12 +150,12 @@ impl DirectSender {
                 .context("PeerConnection des Direktpfads")?,
         );
 
-        // Beide Codecs stempeln selbst; nur der Zerleger unterscheidet sich
+        // Alle Codecs stempeln selbst; nur der Zerleger unterscheidet sich
         // (Grund und Nachweis in [`av1`] bzw. im WHIP-Sender).
-        let paketierer = if cap.mime_type == MIME_TYPE_AV1 {
-            Paketierer::Av1
-        } else {
-            Paketierer::H264(H264Payloader::default())
+        let paketierer = match cap.mime_type.as_str() {
+            MIME_TYPE_AV1 => Paketierer::Av1,
+            MIME_TYPE_HEVC => Paketierer::Hevc(Vec::new()),
+            _ => Paketierer::H264(H264Payloader::default()),
         };
         let video_track = Arc::new(TrackLocalStaticRTP::new(
             cap,
@@ -239,20 +266,11 @@ impl DirectSender {
                     .into_iter()
                     .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
                     .collect(),
-                Paketierer::H264(p) => {
-                    let vollbild = h264_ist_vollbild(daten);
-                    let teile = p
-                        .payload(av1::MTU, &Bytes::copy_from_slice(daten))
-                        .context("H.264 paketieren")?;
-                    // Leer ist legitim: SPS/PPS wird gehalten und vor dem
-                    // nächsten Vollbild gebündelt.
-                    let n = teile.len();
-                    teile
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, b)| (b, i == 0, i + 1 == n, vollbild))
-                        .collect()
-                }
+                Paketierer::H264(p) => zerlege_annexb(p, daten, h264_ist_vollbild, "H.264")?,
+                Paketierer::Hevc(p) => hevc::paketiere(p, daten, av1::MTU)?
+                    .into_iter()
+                    .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
+                    .collect(),
             };
             if teile.is_empty() {
                 return Ok(());

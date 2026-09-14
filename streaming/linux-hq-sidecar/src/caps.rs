@@ -11,7 +11,12 @@
 //! verfügbar — so verschwindet AV1 auf Karten ohne AV1-Encode (RTX 30xx, ältere
 //! AMD-iGPUs) automatisch aus der UI, statt beim Streamen zu crashen. Ergebnis
 //! wird einmal pro Prozess gecacht (die Probe legt CUDA/VAAPI-Kontexte an).
-//! HEVC wird auf Linux nicht angeboten (Nutzerentscheidung: nur H264 + AV1).
+//! HEVC ist seit dem 2026-09-13 dabei — bewusst als REINE Hardware-Route
+//! (`hevc_nvenc`/`hevc_vaapi`): die Patentpools lizenzieren die
+//! Implementierung, und die sitzt im Chip; wer nur Bitstreams in NVENC/VAAPI
+//! füttert, vertreibt keinen Codec (dieselbe Linie, auf der RustDesk/Parsec
+//! HEVC anbieten und Chrome es hardwareonly schaltet). Ein Software-Fallback
+//! wäre genau der Ritt über diese Linie — deshalb gibt es keinen.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -19,8 +24,10 @@ use std::time::{Duration, Instant};
 use crate::encode;
 use crate::system::drm::{self, Vendor};
 
-/// Kandidaten in Präferenzordnung (kein HEVC).
-const CANDIDATES: &[&str] = &["h264", "av1"];
+/// Kandidaten in Präferenzordnung. HEVC ist die Mittelstufe: Encoder-Hardware
+/// seit ~2015/16 (Pascal/VCE 3.x/Skylake), wo AV1 erst ab 2022 anfängt —
+/// Karten dazwischen fielen bisher auf H.264 mit doppelter Bitrate zurück.
+const CANDIDATES: &[&str] = &["h264", "hevc", "av1"];
 
 /// Was diese Maschine per Hardware encodieren kann.
 #[derive(Debug, Clone, Default)]
@@ -32,6 +39,12 @@ pub struct Caps {
     /// läuft aber über `<video>`. Heute nur der NVENC-Pfad (s.
     /// `encode::probe_encoder`).
     pub ten_bit: bool,
+    /// Dasselbe für HEVC (Main 10) — seit dem 2026-09-13 getrennt geführt,
+    /// weil HEVC die Mittelstufe für Karten ist, die gerade KEIN AV1
+    /// encodieren: Main-10-Encode gibt es ab ~2015 (NVENC GM206/Pascal, VCE
+    /// 3.x, Skylake), AV1-Encode erst ab 2022. Wer hier nur `ten_bit`
+    /// schaute, verlöre genau diese Karten.
+    pub ten_bit_hevc: bool,
 }
 
 /// Hardware-encodierbare Video-Codecs auf dieser Maschine, in Präferenzordnung.
@@ -107,25 +120,32 @@ fn probe_all() -> (Caps, bool) {
             }
         }
     }
-    // 10 bit nur proben, wenn AV1 überhaupt geht (H.264-10-bit wird bewusst
-    // nicht angeboten, s. `Caps::ten_bit`) — sonst ist die Antwort schon nein.
-    let ten_bit = out.contains(&"av1")
-        && match encode::probe_encoder(vendor, &render_node, "av1", true) {
+    // 10 bit je Codec proben, aber NUR wenn der Codec überhaupt geht — sonst
+    // ist die Antwort schon nein. AV1 und HEVC getrennt: ihre 10-bit-Fähigkeit
+    // fällt auseinander (Main 10 seit ~2015, AV1-Encode erst ab 2022).
+    let mut zehn_bit_probe = |codec: &str| {
+        if !out.contains(&codec) {
+            return false;
+        }
+        match encode::probe_encoder(vendor, &render_node, codec, true) {
             Ok(v) => v,
             Err(e) => {
                 definitive = false;
                 tracing::warn!(
-                    target: "stream",
+                    target: "stream", codec,
                     "10-bit-Probe fehlgeschlagen ({e:#}) — konservativ nicht anbieten"
                 );
                 false
             }
-        };
+        }
+    };
+    let ten_bit = zehn_bit_probe("av1");
+    let ten_bit_hevc = zehn_bit_probe("hevc");
     tracing::info!(
-        target: "stream", vendor = vendor.slug(), codecs = ?out, ten_bit,
+        target: "stream", vendor = vendor.slug(), codecs = ?out, ten_bit, ten_bit_hevc,
         "HW-Encode-Probe abgeschlossen"
     );
-    (Caps { codecs: out, ten_bit }, definitive)
+    (Caps { codecs: out, ten_bit, ten_bit_hevc }, definitive)
 }
 
 /// Kann diese Maschine den Pulse-Codec (h264/av1) per Hardware encodieren?
@@ -133,9 +153,14 @@ pub fn supports_codec(codec_id: &str) -> bool {
     available_video_codecs().contains(&codec_id)
 }
 
-/// Kann diese Maschine 10 bit encodieren (impliziert AV1)?
+/// Kann diese Maschine 10 bit in AV1 encodieren?
 pub fn supports_ten_bit() -> bool {
     probe().ten_bit
+}
+
+/// Kann diese Maschine 10 bit in HEVC (Main 10) encodieren?
+pub fn supports_ten_bit_hevc() -> bool {
+    probe().ten_bit_hevc
 }
 
 /// Welchen Codec dieser Stream wirklich fahren kann — geprüft an der ECHTEN
@@ -186,11 +211,12 @@ pub fn codec_fuer_aufloesung(
     if breite <= MAX_SICHER_BREITE && hoehe <= MAX_SICHER_HOEHE {
         return gewuenscht.to_string();
     }
-    // 10 bit ist an AV1 gebunden (s. [`Caps::ten_bit`]) — der Ausweich-Codec
-    // muss deshalb ohne geprüft werden, sonst testet die Probe eine
-    // Kombination, die ohnehin nie laufen soll.
+    // 10 bit hängt am WUNSCH-Codec — der Start hat den Wunsch schon gegen die
+    // Fähigkeiten geprüft, hier gilt er also für genau diesen Codec. Der
+    // Ausweich-Codec wird ohne 10 bit probiert: der kann es evtl. nicht, und
+    // die Kombination soll ohnehin nie laufen.
     let traegt = |c: &str| {
-        let zehn = ten_bit && c == "av1";
+        let zehn = ten_bit && c == gewuenscht;
         matches!(encode::probe_encoder_at(vendor, node, c, zehn, breite, hoehe), Ok(true))
     };
     if traegt(gewuenscht) {

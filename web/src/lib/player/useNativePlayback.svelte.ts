@@ -31,6 +31,17 @@ export interface NativePlaybackArgs {
    * Wahl — s. `erzwungen` unten.
    */
   tenBit?: boolean;
+  /**
+   * Kann dieser Stream im Browser der Plattform überhaupt laufen? Konkreter
+   * Fall: HEVC. Auf Linux lässt sich der H265-Track gar nicht verhandeln
+   * (Chromium ohne Hardware-Dekodierung); auf Windows/macOS ginge der
+   * `<video>`-Weg inzwischen (Messung korrigiert am 2026-09-13: die erste
+   * Absage war ein Sender-Bug, kein Browser-Bug), aber das eigene Fenster
+   * bringt Zero-Copy und 10 bit mit — deshalb bleibt der Zwang eine
+   * Qualitätsentscheidung. Der Zuschauer müsste den Player sonst selbst
+   * finden (`erzwungen`, s. unten).
+   */
+  nurNativ?: boolean;
 }
 
 /** `args` bleibt eine Funktion (kein Objekt), damit Aenderungen an den
@@ -86,7 +97,9 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
    */
   const verfuegbar = $derived(isElectron() && nativeAvailable);
 
-  const erzwungen = $derived(verfuegbar && !nativeFailed && args().tenBit === true);
+  const erzwungen = $derived(
+    verfuegbar && !nativeFailed && (args().tenBit === true || args().nurNativ === true)
+  );
 
   /**
    * Hat der Zuschauer DIESEN Stream ins eigene Fenster geschickt?

@@ -85,6 +85,24 @@
   $effect(() => {
     if (mgr?.tenBit) tenBitGesehen = true;
   });
+  // Dasselbe Muster fuer den Codec: HEVC geht UEBERALL direkt in den nativen
+  // Player (seit 2026-09-13, vormals nur Linux). Auf Linux laesst sich der
+  // H265-Track im Browser gar nicht verhandeln; auf Windows/macOS waere der
+  // `<video>`-Weg inzwischen moeglich — die erste Gegenmessung („Electron
+  // dekodiert H265 nicht") war ein Messfehler am falschen Ende: Der Sender
+  // warf die Keyframes weg (IDR_N_LP-Bug des rtp-Crate-Payloaders), nach
+  // dessen Fix dekodiert derselbe Chromium 1080p60 anstandslos
+  // (docs/2026-09-13-windows-amf-hevc-10bit.md). Der Zwang bleibt trotzdem
+  // als QUALITAETSENTSCHEIDUNG stehen: Das eigene Fenster bringt Zero-Copy,
+  // 10 bit und den Einfrier-Waechter mit — der `<video>`-Weg bleibt
+  // Rueckfall, wenn es den Player nicht gibt (reines Web). Browser ohne
+  // HEVC-Verhandlung (Firefox, Linux+NVIDIA) sehen weiterhin schwarz — die
+  // von Anfang an dokumentierte Abwägung bei der HEVC-Wahl.
+  let hevcGesehen = $state(false);
+  $effect(() => {
+    if (mgr?.codec === 'hevc') hevcGesehen = true;
+  });
+  const hevcNativPflicht = $derived(hevcGesehen);
   // Dasselbe Spiel fuer die Fernsteuerbarkeit, und aus demselben Grund: sobald
   // das eigene Fenster spielt, wird `mgr` hier abgeklemmt (s. unten) — genau
   // dann zeigt die Kachel aber das `NativeWindowPanel` mit dem Anfrage-Knopf.
@@ -129,7 +147,10 @@
     // irgendetwas dekodiert ist. Steht sie noch aus, ist der Wert `false`,
     // und die Kachel startet im `<video>`-Weg; kommt danach `true`, schaltet
     // dieser abgeleitete Wert die Kachel um.
-    tenBit: tenBitGesehen
+    tenBit: tenBitGesehen,
+    // HEVC + Linux: der Browser-Weg kann den Track nicht mal verhandeln —
+    // ohne den Zwang sähe der Zuschauer nur die Fehlermeldung (s. oben).
+    nurNativ: hevcNativPflicht,
   }));
   const useNative = $derived(native.active);
 

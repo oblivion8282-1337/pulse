@@ -199,10 +199,26 @@ pub(crate) fn vendor_encoder_opts(
             // was er verdeckte, steht in der Messakte
             // `testbench/profiles/rueckkanal-2026-08-02-windows.json`.
             opts.set("forced_idr", "1");
-            // AMFs eigene Bittiefen-Option. Ohne sie liefert der Encoder trotz
+            // HEVC: Parameter-Saetze (VPS/SPS/PPS) bei JEDEM IDR in den Strom.
+            // AMFs Vorgabe (`gop`) fuegt sie nur an periodische GOP-Starts ein —
+            // ein mid-GOP erzwungenes Vollbild (die Antwort auf eine
+            // Zuschauer-PLI, bei 60 s Vollbild-Abstand der REGELfall) kaeme
+            // ohne sie, und ein neu einsteigender Zuschauer koennte nichts
+            // damit anfangen. Live-Befund 2026-09-13: 20 s Stream-Verfolgung
+            // ohne ein einziges VPS/SPS/PPS nach dem Start
+            // (docs/2026-09-13-windows-amf-hevc-10bit.md). Der eigene
+            // Paketierer puffert die Saetze zwar als Rueckfallebene — frische
+            // im Strom sind trotzdem besser als gepufferte vom Stream-Anfang.
+            if matches!(codec, VideoCodec::Hevc) {
+                opts.set("header_insertion_mode", "idr");
+            }
+            // AMFs eigene Bittiefen-Option. Ohne sie liefert `av1_amf` trotz
             // P010-Eingang einen 8-bit-Strom — der P010-Pool allein genügt
-            // also nicht. Nur `av1_amf` kennt den Schlüssel; bei H.264 über
-            // diesen Zweig gibt es ohnehin kein 10 bit.
+            // dort also nicht. `hevc_amf` kennt den Schlüssel ebenfalls
+            // (FFmpeg n8.1, `amfenc_hevc.c`: `bitdepth` 8/10; ohne Option
+            // folgt die Bittiefe auch dort dem P010-Eingang) — ausdrücklich
+            // gesetzt, damit es nicht an der Eingangsformate-Runde hängt.
+            // Bei H.264 über diesen Zweig gibt es ohnehin kein 10 bit.
             //
             // **Das ist eine Aussage über AMF, nicht über Encoder im
             // Allgemeinen** — bei NVENC genügt der Pool sehr wohl, am
@@ -212,6 +228,14 @@ pub(crate) fn vendor_encoder_opts(
             // Stelle weiter.
             if ten_bit {
                 opts.set("bitdepth", "10");
+                // HEVC kennt zwei Fassungen — Main (8 bit) und Main10. Ohne
+                // Zutun bliebe der Encoder bei Main (FFmpeg setzt nur das
+                // AVContext-Profil vor die Option), und 10 bit unter
+                // `profile=main` ist keine gültige HEVC-Kombination. Hier
+                // fest verdrahten, statt es der AMF-Runtime zu überlassen.
+                if matches!(codec, VideoCodec::Hevc) {
+                    opts.set("profile", "main10");
+                }
             }
             // **Die Fassung ausdrücklich setzen, weil wir sie ausdrücklich
             // zusagen.** `whip::sdp` schreibt `profile-level-id=6400xx` ins

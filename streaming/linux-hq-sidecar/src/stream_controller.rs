@@ -736,10 +736,10 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
             ),
         });
     }
-    // 10 bit ist an AV1 gebunden. Faellt der Codec gerade auf H.264 zurueck,
-    // muss die Bittiefe mitfallen — sonst stuende sie im Encoder-Config, waehrend
-    // der Codec sie nicht traegt.
-    let ten_bit = params.ten_bit && codec == "av1";
+    // 10 bit ist an AV1 oder HEVC (Main 10) gebunden. Faellt der Codec gerade
+    // auf H.264 zurueck, muss die Bittiefe mitfallen — sonst stuende sie im
+    // Encoder-Config, waehrend der Codec sie nicht traegt.
+    let ten_bit = params.ten_bit && crate::ops::start::ten_bit_possible(&codec);
     emit(Event::Log {
         line: format!(
             "[stream] Encode-Pfad: {} auf {} ({}, {} bit)",

@@ -71,6 +71,21 @@ export class ManagedHqStream {
    * heisst „8 bit oder noch nicht bekannt" — nie „bestimmt nicht".
    */
   tenBit = $state(false);
+  /**
+   * Welcher Codec läuft ("h264"|"hevc"|"av1")? Aus der WHEP-URL-Antwort, also
+   * bekannt BEVOR etwas ausgehandelt ist. „h264" heißt auch „älterer Server
+   * oder nicht bekannt".
+   *
+   * HEVC ist der Sonderfall: seit 2026-09-13 geht er ÜBERALL direkt in den
+   * nativen Player. Auf Linux lässt sich der Videotrack gar nicht verhandeln
+   * (Chromium bietet H265 ohne Hardware-Dekodierung nicht an); auf
+   * Windows/macOS wäre der Browser-Weg inzwischen möglich (die anfängliche
+   * Gegenmessung war ein Sender-Bug — der Payloader warf die Keyframes weg,
+   * docs/2026-09-13-windows-amf-hevc-10bit.md), der Zwang bleibt aber als
+   * Qualitätsentscheidung: Zero-Copy und 10 bit gibt es nur im eigenen
+   * Fenster (`useNativePlayback`, `nurNativ`).
+   */
+  codec = $state<'h264' | 'hevc' | 'av1'>('h264');
   /** Kann der Streamer dieses Streams ferngesteuert werden? Aus der
    *  WHEP-Antwort (`remote_input`), die ihn vom Sidecar des Streamers
    *  durchreicht. Nur der Windows-Sidecar kann Eingaben einspielen — bei allen
@@ -470,7 +485,7 @@ export class ManagedHqStream {
     if (this.#abgebrochen()) return;
     if (this.#attempt === 0) this.phase = 'connecting';
     try {
-      const { whep_url, ten_bit, remote_input } = await chatApi.getWhepUrl(
+      const { whep_url, ten_bit, remote_input, codec } = await chatApi.getWhepUrl(
         this.channelId,
         this.userId,
         this.slot,
@@ -482,6 +497,7 @@ export class ManagedHqStream {
       // erfahren, solange das eigene Fenster nicht laeuft, und genau das ist
       // die Lage, in der die Entscheidung faellt.
       this.tenBit = ten_bit === true;
+      this.codec = codec ?? 'h264';
       this.fernsteuerbar = remote_input === true;
       if (this.#abgebrochen()) return;
       // **10 bit ohne eigenes Fenster: gar nicht erst verbinden.**

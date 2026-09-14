@@ -110,14 +110,19 @@ impl VideoEncoder {
 
         let format_hint = url_format_hint(push_url);
 
-        // Der eigene WHIP-Sender traegt H.264 UND AV1 (anders als ffmpegs
-        // WHIP-Muxer, der nur H.264 kennt) — nur HEVC faellt weiterhin auf
-        // H.264 zurueck, weil `whip::sdp::codec_capability` es nicht anbietet.
-        // Der Direkt-Sendeweg teilt dieselbe Sprachwahl (Zwilling win
-        // `direct/mod.rs`: codec_slug nur h264/av1).
+        // Der eigene WHIP-Sender traegt H.264, HEVC und AV1 (anders als ffmpegs
+        // WHIP-Muxer, der nur H.264 kennt) — seit der HEVC-Runde 2026-09-13
+        // auch auf dem Mac (Zwillinge: Linux/Windows-Sidecar, gemeinsame
+        // Bauteile in `pulse-whip`). Der Direkt-Sendeweg teilt dieselbe
+        // Sprachwahl. Zero-Copy bleibt erhalten: `hevc_videotoolbox` nimmt die
+        // BGRA-HW-Bilder aus `VtHwContext` wie `h264_videotoolbox` und
+        // konvertiert auf der GPU — 10 bit (Main 10) gäbe es auf diesem Weg
+        // nicht, weil ScreenCaptureKit BGRA liefert und eine 10-bit-Kette eine
+        // Umfärbung bräuchte; `hevc_ten_bit` meldet die `health` deshalb nicht.
         let codec_id =
             if (format_hint == Some("whip") || format_hint == Some("direct"))
                 && codec_id != "h264"
+                && codec_id != "hevc"
                 && codec_id != "av1"
             {
                 eprintln!("[encode] Codec '{codec_id}' über WebRTC nicht verfügbar → Fallback auf h264");

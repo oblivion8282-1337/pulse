@@ -2,6 +2,29 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-13.1",
+      "date": "2026-09-13",
+      "style": "Sachlich",
+      "title": "HQ-Streaming optional in HEVC — schärferes Bild bei gleicher Bitrate",
+      "intro": "Beim Starten eines HQ-Streams steht mit HEVC ein zusätzlicher Bildcodec zur Auswahl, auf Windows, Linux und macOS. Er liefert bei gleicher Datenrate ein deutlicher saubereres Bild, besonders bei feinen Strukturen wie Text und Code.",
+      "items": [
+        "Wählbar in den Stream-Einstellungen als „HEVC 8 bit“ und — wo Grafikkarte und Zuschauer-Seite es hergeben — „HEVC 10 bit“ für feinere Abstufungen in dunklen und hellen Bildbereichen.",
+        "Auf Windows läuft HEVC wie bisher H.264 und AV1 als direkter Grafikkarten-Weg ohne Umweg über den Arbeitsspeicher; Latenz und Last bleiben damit auf gewohntem Niveau.",
+        "Zuschauer brauchen keine Einstellung: Kann ihr Gerät HEVC dekodieren, erscheint der Stream einfach; andernfalls bleibt der Stream wie bisher in H.264 oder AV1 empfangbar.",
+        "Auf Linux- und Windows-Rechnern mit HEVC-Fähigkeit öffnet sich der Stream im eigenen Zuschau-Fenster direkt, ohne Umweg über den Browser-Player."
+      ]
+    },
+    {
+      "id": "2026-09-13.2",
+      "date": "2026-09-13",
+      "style": "Sachlich",
+      "title": "Zuschauen erholt sich schneller von Verbindungsabbrüchen auf NVIDIA",
+      "intro": "Nach einer kurzen Verbindungspause im HQ-Stream konnte das Bild auf Rechnern mit NVIDIA-Grafikkarte hängen bleiben, weil beschädigte Bilder nach der Lücke noch verarbeitet wurden. Das Verhalten ist jetzt auf allen Grafikkarten gleich: Beschädigte Bilder werden verworfen, das nächste vollständige Bild läuft nach.",
+      "items": [
+        "Der Zusammenschluss mit dem bereits bestehenden Verhalten auf Linux-AMD-Rechnern; Nutzer merken nur, dass das Bild nach einer Lücke zuverlässig zurückkommt."
+      ]
+    },
+    {
       "id": "2026-09-12.8",
       "date": "2026-09-12",
       "style": "Sachlich",

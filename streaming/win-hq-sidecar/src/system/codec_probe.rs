@@ -26,9 +26,8 @@
 //! HEVC/AV1-Support ist generationsstabil (AMD Polaris+ HEVC / RDNA3+ AV1; Intel
 //! Skylake+ HEVC / Arc+ AV1) → die Hardcode-Liste spiegelt, was die Encoder-Pfade
 //! wirklich leisten. Restrisiko: ältere Intel-iGPUs ohne AV1-Engine sehen AV1 in der
-//! UI — das Frontend bietet ohnehin nur H.264 + AV1 (HEVC nie), und der AV1→H.264-
-//! Runtime-Fallback fängt es ab. NVIDIA bleibt probe-gesteuert (Turing-AV1-False-
-//! Positive war NVIDIA-spezifisch).
+//! UI — der AV1→H.264-Runtime-Fallback fängt es ab. NVIDIA bleibt probe-gesteuert
+//! (Turing-AV1-False-Positive war NVIDIA-spezifisch).
 
 use std::sync::OnceLock;
 

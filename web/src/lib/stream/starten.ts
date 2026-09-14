@@ -102,6 +102,12 @@ export async function streamStarten(
         // Dieselbe Nummer, die `resolveStreamLabel` schon fuer die eigene
         // Statuszeile aufgeloest hat — kein zweiter Aufloese-Weg noetig.
         aufgeloest.monitorIndex,
+        // Derselbe Codec-Wunsch, den `buildStartArgs` unten an den Sidecar
+        // schickt — dieselbe Quelle (Profil beim Standplatz, sonst der eigene
+        // Store), damit Zuschauer-Ansage und Realität nicht auseinanderlaufen.
+        // Reist bis zum Zuschauer: HEVC + Linux-Browser = direkt nativer Player.
+        ((standplatz ? standplatz.uebersteuerung.codec : streamSettings.overrides.codec) ??
+          'h264') as 'h264' | 'hevc' | 'av1',
       );
     } catch (fehler) {
       return { ok: false, stufe: 'token', fehler };

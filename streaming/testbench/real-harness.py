@@ -141,7 +141,7 @@ def main() -> int:
     ap.add_argument("--bits", type=int, default=10)
     # H.264 kann bei NVENC kein 10 bit — mit `--codec h264` gehoert `--bits 8`
     # dazu, sonst verfaellt die Tiefe still (ten_bit_possible im Sidecar).
-    ap.add_argument("--codec", default="av1", help="av1 oder h264")
+    ap.add_argument("--codec", default="av1", help="av1, hevc oder h264")
     ap.add_argument("--kbps", type=int, default=25000)
     ap.add_argument("--quality", action="store_true",
                     help="Bildqualitaet: Rohmitschnitt im Sender + Aufnahme im Player")
