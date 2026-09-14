@@ -259,6 +259,10 @@ impl VideoEncoder {
             params.width,
             params.height,
             params.bitrate_kbps,
+            // macOS encodiert heute 8 bit — VideoToolbox liefert Main, und das
+            // Angebot nennt dafür `profile-id=1`. Baut macOS den 10-bit-Weg,
+            // gehört hier die echte Tiefe her (Linux/Windows reichen sie durch).
+            false,
         )
         .with_context(|| format!("WHIP-Aufbau zu {}", crate::redact::redact_url(push_url)))?;
 
