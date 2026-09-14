@@ -135,6 +135,11 @@ impl DirectSender {
             konfig.breite,
             konfig.hoehe,
             konfig.fps,
+            // ponytail: Der Direktweg encodiert 8 bit — seine Konfiguration
+            // kennt keine Bittiefe. Fährt er je 10 bit, braucht `Konfig` ein
+            // Feld und dieser Aufruf den echten Wert (dann steht hier das
+            // HEVC-Angebot auf Main 10, profile-id=2, falsch etikettiert).
+            false,
         )?;
         let audio_cap = crate::sdp::opus_capability();
         let fps = konfig.fps.max(1);

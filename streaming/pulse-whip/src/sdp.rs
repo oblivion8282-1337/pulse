@@ -112,6 +112,7 @@ pub fn codec_capability(
     breite: u32,
     hoehe: u32,
     fps: u32,
+    zehn_bit: bool,
 ) -> Result<RTCRtpCodecCapability> {
     match codec {
         "h264" => Ok(RTCRtpCodecCapability {
@@ -146,7 +147,9 @@ pub fn codec_capability(
         }),
         // `profile-id=0` — Main, das einzige Profil, das unsere Encoder fahren.
         // AV1 traegt die Stufe nicht in der fmtp-Zeile, hier ist also nichts
-        // aus der Bildgroesse zu rechnen.
+        // aus der Bildgroesse zu rechnen. Und anders als bei HEVC unten haengt
+        // das Profil NICHT an der Bittiefe: AV1-Main (0) traegt 8 und 10 bit —
+        // `zehn_bit` aendert hier also nichts.
         //
         // Bis 2026-08-12 stand hier, die Fassung muesse Wort fuer Wort zu der
         // passen, die `register_default_codecs` anmeldet. Der Zusammenhang
@@ -161,17 +164,26 @@ pub fn codec_capability(
             sdp_fmtp_line: "profile-id=0".to_owned(),
             ..Default::default()
         }),
-        // `profile-id=1` — Main, das einzige Profil, das unsere Encoder fahren
-        // (NVENC/VAAPI ohne Rext/Range-Extensions). HEVC trägt seine Stufe
-        // NICHT in der fmtp-Zeile — die Level-Logik von [`h264_stufe`] hat hier
-        // kein Gegenstück, RFC 7798 kennt auch keinen packetization-mode. Was
-        // übrig bleibt, ist die Profilzusage; alles andere entscheidet der
-        // Empfaenger an der Bildgroesse im Strom selbst.
+        // `profile-id` — Main (1) oder Main 10 (2), je Bittiefe des Stroms
+        // (RFC 7781-Profil-IDs). HEVC trägt seine Stufe NICHT in der fmtp-Zeile
+        // — die Level-Logik von [`h264_stufe`] hat hier kein Gegenstück, RFC
+        // 7798 kennt auch keinen packetization-mode. Was übrig bleibt, ist die
+        // Profilzusage; alles andere entscheidet der Empfaenger an der
+        // Bildgroesse im Strom selbst.
+        //
+        // **Bis zum 2026-09-14 stand hier pauschal `profile-id=1`** mit der
+        // Behauptung, Main sei das einzige Profil unserer Encoder — seit dem
+        // 10-bit-Weg (6a82c7a3) falsch. Ein Main-10-Strom unter Main-Etikett
+        // ist genau die Sorte „das Angebot sagt etwas anderes als der Strom
+        // schickt", gegen die der H.264-Arm oben mit der gerechneten Stufe
+        // gebaut ist. MediaMTX und der eigene Player werten die Angabe heute
+        // nicht aus — jede strenge Gegenseite (Safari-WebRTC, Gateways) aber
+        // schon.
         "hevc" => Ok(RTCRtpCodecCapability {
             mime_type: MIME_TYPE_HEVC.to_owned(),
             clock_rate: av1::RTP_TAKT_HZ,
             rtcp_feedback: video_rtcp_feedback(),
-            sdp_fmtp_line: "profile-id=1".to_owned(),
+            sdp_fmtp_line: if zehn_bit { "profile-id=2" } else { "profile-id=1" }.to_owned(),
             ..Default::default()
         }),
         andere => bail!("WHIP: Codec {andere} nicht unterstuetzt"),
@@ -330,7 +342,7 @@ mod fassung_tests {
     /// nennen.
     #[test]
     fn angebot_nennt_high_und_die_richtige_stufe() {
-        let cap = codec_capability("h264", 2560, 1440, 60).unwrap();
+        let cap = codec_capability("h264", 2560, 1440, 60, false).unwrap();
         assert!(
             cap.sdp_fmtp_line.contains("profile-level-id=640033"),
             "unerwartet: {}",
@@ -341,9 +353,12 @@ mod fassung_tests {
 
     /// AV1 traegt seine Fassung nicht in der fmtp-Zeile — dort darf sich nichts
     /// geaendert haben, sonst findet die Spur beim Binden ihren Codec nicht.
+    /// Auch 10 bit aendert das nicht: AV1-Main (0) traegt beide Tiefen.
     #[test]
     fn av1_angebot_bleibt_unveraendert() {
-        let cap = codec_capability("av1", 7680, 4320, 60).unwrap();
+        let cap = codec_capability("av1", 7680, 4320, 60, false).unwrap();
+        assert_eq!(cap.sdp_fmtp_line, "profile-id=0");
+        let cap = codec_capability("av1", 7680, 4320, 60, true).unwrap();
         assert_eq!(cap.sdp_fmtp_line, "profile-id=0");
     }
 
@@ -352,7 +367,7 @@ mod fassung_tests {
     #[test]
     fn bildspur_bietet_die_vollbild_anforderung_an() {
         for codec in ["h264", "hevc", "av1"] {
-            let cap = codec_capability(codec, 2560, 1440, 60).unwrap();
+            let cap = codec_capability(codec, 2560, 1440, 60, false).unwrap();
             let paare: Vec<(String, String)> = cap
                 .rtcp_feedback
                 .iter()
@@ -367,13 +382,17 @@ mod fassung_tests {
         }
     }
 
-    /// HEVC verspricht Main (`profile-id=1`) — und keine H.264-Stufe. Die
-    /// Zusage geht an die Spur und ins Angebot; wiche sie auseinander, fände
-    /// die Spur ihren Codec beim Binden nicht.
+    /// HEVC verspricht sein Profil je Bittiefe — Main (`profile-id=1`) für
+    /// 8 bit, Main 10 (`profile-id=2`) für 10 bit — und keine H.264-Stufe.
+    /// Die Zusage geht an die Spur und ins Angebot; wiche sie auseinander,
+    /// fände die Spur ihren Codec beim Binden nicht. Bis zum 2026-09-14 stand
+    /// hier pauschal `1`, auch vor Main-10-Strömen.
     #[test]
-    fn hevc_angebot_nennt_main() {
-        let cap = codec_capability("hevc", 2560, 1440, 60).unwrap();
+    fn hevc_angebot_nennt_das_profil_der_tiefe() {
+        let cap = codec_capability("hevc", 2560, 1440, 60, false).unwrap();
         assert_eq!(cap.sdp_fmtp_line, "profile-id=1");
+        let cap = codec_capability("hevc", 2560, 1440, 60, true).unwrap();
+        assert_eq!(cap.sdp_fmtp_line, "profile-id=2");
     }
 }
 
@@ -393,8 +412,8 @@ mod angebot_tests {
 
     /// Baut das Angebot fuer diese Bildgroesse — ohne Netz: `create_offer`
     /// sammelt keine Kandidaten, es schreibt nur auf, was angemeldet ist.
-    async fn angebot(codec: &str, breite: u32, hoehe: u32, fps: u32) -> String {
-        let video = codec_capability(codec, breite, hoehe, fps).unwrap();
+    async fn angebot(codec: &str, breite: u32, hoehe: u32, fps: u32, zehn_bit: bool) -> String {
+        let video = codec_capability(codec, breite, hoehe, fps, zehn_bit).unwrap();
         let audio = opus_capability();
         let api = baue_api(&video, &audio).unwrap();
         let pc = api.new_peer_connection(RTCConfiguration::default()).await.unwrap();
@@ -418,8 +437,8 @@ mod angebot_tests {
     /// fuer Zeichen gleich.
     #[tokio::test]
     async fn die_gerechnete_stufe_steht_im_angebot() {
-        let s1440 = angebot("h264", 2560, 1440, 60).await;
-        let s4k = angebot("h264", 3840, 2160, 60).await;
+        let s1440 = angebot("h264", 2560, 1440, 60, false).await;
+        let s4k = angebot("h264", 3840, 2160, 60, false).await;
         assert!(s1440.contains("profile-level-id=640033"), "1440p60:\n{s1440}");
         assert!(s4k.contains("profile-level-id=640034"), "4K60:\n{s4k}");
         assert!(!s1440.contains("640034"));
@@ -431,7 +450,7 @@ mod angebot_tests {
     /// (Baseline) waehlen, waehrend wir High mit CABAC senden.
     #[tokio::test]
     async fn keine_fremden_fassungen_mehr_im_angebot() {
-        let sdp = angebot("h264", 2560, 1440, 60).await;
+        let sdp = angebot("h264", 2560, 1440, 60, false).await;
         for fremd in ["42001f", "42e01f", "640028", "640029", "64002a", "640032"] {
             assert!(!sdp.contains(fremd), "{fremd} steht noch im Angebot:\n{sdp}");
         }
@@ -444,7 +463,7 @@ mod angebot_tests {
     /// der Empfaenger nach RFC 7587 auf mono — hoerbar, anders als die Stufe.
     #[tokio::test]
     async fn stereo_zusage_steht_im_angebot() {
-        let sdp = angebot("h264", 1280, 720, 60).await;
+        let sdp = angebot("h264", 1280, 720, 60, false).await;
         assert!(sdp.contains("stereo=1"), "{sdp}");
         assert!(sdp.contains("sprop-stereo=1"), "{sdp}");
         assert!(sdp.contains("opus/48000/2"), "{sdp}");
@@ -454,9 +473,22 @@ mod angebot_tests {
     /// dieser Weg paketiert selbst und war vorher in Ordnung.
     #[tokio::test]
     async fn av1_angebot_bleibt_wie_es_war() {
-        let sdp = angebot("av1", 2560, 1440, 60).await;
+        let sdp = angebot("av1", 2560, 1440, 60, false).await;
         assert!(sdp.contains("a=rtpmap:41 AV1/90000"), "{sdp}");
         assert!(sdp.contains("a=fmtp:41 profile-id=0"), "{sdp}");
         assert!(!sdp.contains("H264"), "{sdp}");
+    }
+
+    /// Das HEVC-Profil der Bittiefe steht WIRKLICH im Angebot — nicht nur in
+    /// der gerechneten Fassung (derselbe Unterschied wie bei der H.264-Stufe
+    /// oben: gerechnet war immer recht, angekommen ist lange das Falsche).
+    #[tokio::test]
+    async fn hevc_profil_steht_wirklich_im_angebot() {
+        let s8 = angebot("hevc", 2560, 1440, 60, false).await;
+        let s10 = angebot("hevc", 2560, 1440, 60, true).await;
+        assert!(s8.contains("profile-id=1"), "8 bit:\n{s8}");
+        assert!(!s8.contains("profile-id=2"), "8 bit nennt Main 10:\n{s8}");
+        assert!(s10.contains("profile-id=2"), "10 bit:\n{s10}");
+        assert!(!s10.contains("profile-id=1"), "10 bit nennt Main:\n{s10}");
     }
 }

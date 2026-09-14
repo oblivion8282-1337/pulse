@@ -89,6 +89,9 @@ pub struct SenkenAuftrag<'a> {
     /// der Bandbreitenschätzung der Gegenseite eine Aussage („die Leitung
     /// trägt das Ziel nicht"). `0` = unbekannt, die Wacht bleibt dann stumm.
     pub bitrate_kbps: u32,
+    /// Bittiefe des encodierten Stroms — HEVC verspricht im Angebot Main (1)
+    /// oder Main 10 (2) je nachdem (s. `whip::sdp`). AV1/H.264 ignorieren es.
+    pub zehn_bit: bool,
 }
 
 /// Baut die Sitzung auf. **Läuft erst, wenn die Encoder offen sind** — würde

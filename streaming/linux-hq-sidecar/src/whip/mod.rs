@@ -342,8 +342,9 @@ impl WhipSender {
         breite: u32,
         hoehe: u32,
         bitrate_kbps: u32,
+        zehn_bit: bool,
     ) -> Result<Self> {
-        let cap = sdp::codec_capability(codec, breite, hoehe, fps)?;
+        let cap = sdp::codec_capability(codec, breite, hoehe, fps, zehn_bit)?;
         let fps = fps.max(1);
         runtime().block_on(async move { Self::connect_async(url, cap, fps, bitrate_kbps).await })
     }

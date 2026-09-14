@@ -187,6 +187,13 @@ impl FfmpegHwEncoder {
         encoder.set_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
         encoder.set_max_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
         encoder.set_gop(crate::keyframe::abstand_bilder(cfg.fps));
+        // Keine B-Bilder — gesetzt statt den Encoder-Defaults vertraut: Der
+        // Decoder des Zuschauers öffnet mit LOW_DELAY und die Zusammensetzer
+        // nehmen keine Umordnungen an. `usage=ultralowlatency` (AMF) und die
+        // NVENC-Defaults liefern heute ohnehin 0 — ändert sich der Encoder,
+        // bricht diese Annahme sonst still. D3D12-, Linux- und macOS-Zwilling
+        // setzen es längst ausdrücklich.
+        encoder.set_max_b_frames(0);
         if global_header {
             encoder.set_flags(codec::Flags::GLOBAL_HEADER);
         }
@@ -281,6 +288,7 @@ impl FfmpegHwEncoder {
                     breite: cfg.dst_w,
                     hoehe: cfg.dst_h,
                     bitrate_kbps: cfg.bitrate_kbps,
+                    zehn_bit: cfg.ten_bit,
                 })
                 .context("fremden Sendeweg aufbauen")?;
                 // **Sagen, welcher Weg genommen wurde.** Die beiden Wege sind
