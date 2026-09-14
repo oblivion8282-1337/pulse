@@ -115,8 +115,11 @@
      Abstand schon selbst mit (`m-2`) — zusammen waren es 16 px, also doppelt
      so viel wie zwischen Stream-Statusleiste und Sprachleiste darüber (8 px
      aus `mt-2`). Die Leiste sass dadurch sichtbar zu hoch. -->
+<!-- `bg-bg-input` voll nur mobil (Karten-Design); am Rechner wieder /60 wie vor
+     dem Karten-Commit — die solide Fläche las die Leiste im Panel wie ein
+     helleres Overlay über den Knöpfen wirken (Nutzerbericht 2026-09-14). -->
 <div
-  class="border-border bg-bg-input mx-2 mb-2 mt-2 rounded-[14px] border p-2 md:mb-0 md:p-1.5"
+  class="border-border bg-bg-input mx-2 mb-2 mt-2 rounded-[14px] border p-2 md:mb-0 md:bg-bg-input/60 md:p-1.5"
   data-testid="voice-control-bar"
 >
   <div class="flex items-center gap-1.5 px-1 pb-1.5 text-base md:text-xs">
