@@ -127,6 +127,23 @@
   // Prepend-Pfad) schaltet es kurzzeitig true.
   let prependShift = $state(false);
 
+  // Mess-Sperre nach dem Öffnen: virtua misst Zeilen erst, wenn sie im
+  // Sichtfenster liegen — bis dahin zählt jede ungemessene Zeile mit dem
+  // 48px-Schätzwert (`itemSize`) zur Scrollhöhe. Kurze Folgezeilen sind real
+  // ~30px, die Scrollhöhe ist anfangs also zu groß, und das Rad kann UNTER
+  // die letzte Nachricht in den Leerraum scrollen (nachgemessen: +373px auf
+  // einem 50-Zeilen-Kanal; der Initial-Pin landete 103px unterhalb des
+  // echten Endes). Erst wenn die ResizeObserver der Endzeilen geliefert
+  // haben, schrumpft der Spacer und der Browser klemmt die Position zurück
+  // („die Nachricht geht wieder nach unten"). Für diese Phase liegt der
+  // Viewport still: overflow-y:hidden blockt NUR Nutzer-Gesten (Rad,
+  // Leiste, Tasten) — das programmatische scrollTo des Pins wirkt weiter.
+  // Freigabe, sobald die Scrollhöhe nach der gelandeten Anfangs-Fahrt einen
+  // Frame stabil bleibt, hart begrenzt auf 300ms.
+  let messSperre = $state(false);
+  let messRaf = 0;
+  let messTimer: ReturnType<typeof setTimeout> | null = null;
+
   function handleVirtuaScroll(offset: number) {
     if (!vlist) return;
     // Wessen Scroll das ist, entscheidet die Rechnung: während einer eigenen
@@ -187,9 +204,45 @@
           // gleiten — die bestehenden Nachrichten wandern sanft hoch statt
           // hart umzusetzen.
           pinToEnd(!unbedingt);
+          // Erst JETZT (nach der gelandeten Fahrt) auf ruhige Scrollhöhe
+          // warten — die Endzeilen werden durch den Sprung erst gemountet
+          // und gemessen; vorher wäre die Höhe oft schon „stabil falsch".
+          if (unbedingt) messphaseFreigebenWennRuhig();
         })
       )
     );
+  }
+
+  function messphaseFreigeben() {
+    if (messRaf) cancelAnimationFrame(messRaf);
+    if (messTimer) clearTimeout(messTimer);
+    messRaf = 0;
+    messTimer = null;
+    messSperre = false;
+  }
+
+  function messphaseSperren() {
+    messSperre = true;
+    if (messTimer) clearTimeout(messTimer);
+    messTimer = setTimeout(messphaseFreigeben, 300);
+  }
+
+  /** Freigabe, sobald die Scrollhöhe einen Frame unverändert bleibt — dann
+   *  stehen die gemessenen Höhen der Endzeilen im Spacer. Ohne diesen Abbruch
+   *  würde die Sperre bei nachladenden Bildern/Avataren Sekunden halten. */
+  function messphaseFreigebenWennRuhig() {
+    if (!messSperre) return;
+    if (messRaf) cancelAnimationFrame(messRaf);
+    let letzteGroesse = -1;
+    const schritt = () => {
+      messRaf = 0;
+      if (!messSperre) return;
+      const groesse = vlist?.getScrollSize() ?? 0;
+      if (groesse > 0 && groesse === letzteGroesse) return messphaseFreigeben();
+      letzteGroesse = groesse;
+      messRaf = requestAnimationFrame(schritt);
+    };
+    messRaf = requestAnimationFrame(schritt);
   }
 
   // Ältere Historie via ?before=<älteste-id> nachladen und vorne einfügen.
@@ -256,6 +309,7 @@
       loadingOlder = false;
       freshKey = null;
       if (freshTimer) clearTimeout(freshTimer);
+      messphaseFreigeben();
       vlist?.scrollToIndex(0);
     });
   });
@@ -278,6 +332,7 @@
       const shouldScroll = isInitialLoad || klebe.klebt;
       lastCount = count;
       lastSeenId = lastId;
+      if (isInitialLoad) messphaseSperren();
       if (shouldScroll) pinToEndWhenMeasured(isInitialLoad);
       if (gewachsen && !isInitialLoad && count > 0) {
         markiereFrisch(messages[count - 1].nonce ?? lastId);
@@ -304,7 +359,11 @@
     // Hochroll-Versuch wieder nach unten reißen. Die Geste beendet auch eine
     // laufende eigene Fahrt; bleibt der User doch unten, stellt der
     // Scroll-Handler das Kleben im selben Zug wieder scharf.
-    const unpin = () => { klebe = nachNutzergeste(klebe); };
+    // Während der Mess-Sperre hat die Geste keine Wirkung (der gesperrte
+    // Viewport scrollt nicht) — sie darf das Kleben dann auch nicht lösen.
+    const unpin = () => {
+      if (!messSperre) klebe = nachNutzergeste(klebe);
+    };
     // Nur nach oben: ein Rad-Tick nach unten führt ohnehin ans Ende.
     const onWheel = (e: WheelEvent) => { if (e.deltaY < 0) unpin(); };
     // Touch braucht denselben Richtungsfilter wie das Rad. Ein richtungsloses
@@ -603,7 +662,7 @@
         shift={prependShift}
         itemSize={48}
         bufferSize={800}
-        style="height:100%"
+        style={`height:100%${messSperre ? ';overflow-y:hidden' : ''}`}
       >
         {#snippet children(item)}
           {#if item.kind === 'divider'}
