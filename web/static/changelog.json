@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-14.1",
+      "date": "2026-09-14",
+      "style": "Sachlich",
+      "title": "HEVC-Wiedergabe auf der Linux-App repariert",
+      "intro": "Auf Linux-Rechnern ließ sich seit der HEVC-Einführung vom Vortag kein HEVC-Stream im eigenen Zuschau-Fenster öffnen; die Kachel blieb schwarz, obwohl die Grafikkarte HEVC beherrscht. Das ist behoben.",
+      "items": [
+        "Betroffen war ausschließlich die Linux-App; Windows und macOS haben HEVC vom ersten Tag an dekodiert.",
+        "Nach dem Update öffnen sich HEVC-Streams auf Linux-Rechnern mit NVIDIA-, AMD- oder Intel-Grafikkarte wie angekündigt im eigenen Zuschau-Fenster."
+      ]
+    },
+    {
       "id": "2026-09-13.1",
       "date": "2026-09-13",
       "style": "Sachlich",
