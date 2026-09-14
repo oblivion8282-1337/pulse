@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-14.2",
+      "date": "2026-09-14",
+      "style": "Kurz",
+      "title": "Weniger nach unten scrollbar als gedacht: Leerraum unter der letzten Nachricht entfernt",
+      "intro": "Frisch geöffnete Gespräche ließen sich kurzzeitig über die letzte Nachricht hinaus scrollen. Das Fenster ist geschlossen.",
+      "items": [
+        "Scrollen endet jetzt immer an der letzten Nachricht, auch sofort nach dem Öffnen."
+      ]
+    },
+    {
       "id": "2026-09-14.1",
       "date": "2026-09-14",
       "style": "Sachlich",
