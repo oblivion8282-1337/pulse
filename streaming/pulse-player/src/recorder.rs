@@ -318,7 +318,15 @@ impl Writer {
                 Codec::H265 => ffmpeg::codec::Id::HEVC,
                 Codec::Opus => bail!("Opus ist keine Videospur"),
             };
+            // Remuxen braucht nur die Codec-BESCHREIBUNG, kein Encoder —
+            // geschrieben wird nichts. AV1 und HEVC haben in Vanilla-FFmpeg
+            // ohnehin keinen nativen Encoder (nur externe Bauten), während der
+            // native Decoder in jeder Fassung sitzt; ohne den Rückfall scheiterte
+            // der Mitschnitt dieser Codecs schon beim Anlegen der Spur („Muxer
+            // kennt AV1 nicht", 2026-09-15 gegen einen ffmpeg-Bau ohne AV1-
+            // Encoder gemessen).
             let enc = ffmpeg::encoder::find(id)
+                .or_else(|| ffmpeg::decoder::find(id))
                 .ok_or_else(|| anyhow!("Muxer kennt {id:?} nicht"))?;
             let index = add_stream(&mut output, id, enc, |p| unsafe {
                 (*p).codec_type = ffmpeg::ffi::AVMediaType::AVMEDIA_TYPE_VIDEO;
@@ -727,6 +735,29 @@ mod tests {
         let mut r = Recorder::default();
         let err = r.start(&crate::ablage::temp("pulse-player-test.mkv"));
         assert!(err.is_err(), "ohne bekannte Bildgroesse darf nicht gestartet werden");
+    }
+
+    /// Regression (2026-09-15): „Muxer kennt AV1 nicht". Der Writer verlangte
+    /// für die Mux-Spur einen ENCODER-Eintrag — zum Remuxen gehört keiner, und
+    /// gegen eine FFmpeg-Fassung ohne AV1-Encoder (oder mit abweichenden
+    /// Codec-IDs) scheiterte jeder AV1-Mitschnitt bereits beim Start. Die
+    /// Spur darf den Decoder-Eintrag tragen.
+    #[test]
+    fn av1_aufnahme_muxt_ohne_encoder() {
+        let mut r = Recorder::default();
+        r.note_dimensions(640, 360);
+        // Sequence-Header + Vollbild: gilt als Keyframe und liefert zugleich
+        // die Grundlage für den AV1CodecConfigurationRecord (Matroska-Extradata).
+        let mut key = obu(1, 0xAA).to_vec();
+        key.extend(obu(6, VOLLBILD));
+        r.push(Codec::Av1, puffer(&key), 0);
+
+        let ziel = r.start(&crate::ablage::temp("pulse-player-av1-mux")).expect("AV1-Start");
+        assert_eq!(ziel.extension().and_then(|e| e.to_str()), Some("mkv"), "AV1 nach Matroska");
+
+        r.push(Codec::Av1, puffer(&key), 1000);
+        assert!(r.written_units > 0, "AV1-Einheiten muessen geschrieben werden");
+        r.stop().expect("Abschluss mit Trailer");
     }
 
     /// Zerlegt einen Annex-B-Strom in Zugriffseinheiten: jede beginnt mit dem
