@@ -248,7 +248,11 @@
             </div>
           {/if}
         </div>
-        <div class="flex items-center gap-1 text-sm md:text-xs">
+        <!-- Name allein in seiner Reihe → bleibt garantiert mittig unter dem
+             Bild. Status-Zeile darunter mit fester Mindesthöhe: Mute-Icons
+             und Lautstärke-Prozent dürfen weder Kachelbreite noch Name
+             verschieben. -->
+        <div class="flex flex-col items-center gap-1 text-sm md:text-xs">
           <!-- Fester Namens-Slot: der Bold-Wechsel beim Sprechen darf die
                Kachel nicht verbreitern, sonst zentriert das Grid sie neu und
                das Icon zittert. -->
@@ -261,31 +265,33 @@
           >
             {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
           </span>
-          {#if showMicOff}
-            <VoiceMuteIcon
-              kind="mic"
-              forced={isForceMuted}
-              label={isForceMuted ? m.voice_participant_tile_force_muted() : m.voice_participant_tile_mic_muted()}
-              testid={isForceMuted ? 'voice-participant-force-muted' : 'voice-participant-mic-muted'}
-            />
-          {/if}
-          {#if showDeafened}
-            <VoiceMuteIcon
-              kind="headphone"
-              forced={isForceDeafened}
-              label={isForceDeafened ? m.voice_participant_tile_force_deafened() : m.voice_participant_tile_deafened()}
-              testid={isForceDeafened ? 'voice-participant-force-deafened' : 'voice-participant-deafened'}
-            />
-          {/if}
-          {#if canAdjustVolume && volumePct !== 100}
-            <span
-              class="text-text-muted ml-1 font-mono text-2xs"
-              title={m.voice_participant_tile_volume_title()}
-              data-testid="voice-participant-volume-badge"
-            >
-              {volumePct}%
-            </span>
-          {/if}
+          <div class="flex min-h-4 items-center justify-center gap-1">
+            {#if showMicOff}
+              <VoiceMuteIcon
+                kind="mic"
+                forced={isForceMuted}
+                label={isForceMuted ? m.voice_participant_tile_force_muted() : m.voice_participant_tile_mic_muted()}
+                testid={isForceMuted ? 'voice-participant-force-muted' : 'voice-participant-mic-muted'}
+              />
+            {/if}
+            {#if showDeafened}
+              <VoiceMuteIcon
+                kind="headphone"
+                forced={isForceDeafened}
+                label={isForceDeafened ? m.voice_participant_tile_force_deafened() : m.voice_participant_tile_deafened()}
+                testid={isForceMuted ? 'voice-participant-force-deafened' : 'voice-participant-deafened'}
+              />
+            {/if}
+            {#if canAdjustVolume && volumePct !== 100}
+              <span
+                class="text-text-muted font-mono text-2xs"
+                title={m.voice_participant_tile_volume_title()}
+                data-testid="voice-participant-volume-badge"
+              >
+                {volumePct}%
+              </span>
+            {/if}
+          </div>
         </div>
       </button>
     {/snippet}
@@ -337,7 +343,7 @@
         </Avatar.Fallback>
       </Avatar.Root>
     </div>
-    <div class="flex items-center gap-1 text-sm md:text-xs">
+    <div class="flex flex-col items-center gap-1 text-sm md:text-xs">
       <span
         class="text-text-bright w-28 text-center truncate transition-[font-weight] duration-200 ease-out {p.isSpeaking
           ? 'font-bold'
@@ -346,51 +352,53 @@
       >
         {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
       </span>
-      {#if istGast}
-        <span
-          class="text-2xs border-amber-500/60 bg-amber-500/10 text-amber-500 shrink-0 rounded-full border px-1.5 py-0.5 uppercase"
-          data-testid="voice-participant-guest"
-        >
-          {m.gast_abzeichen()}
-        </span>
-      {/if}
-      {#if hasCam}
-        <!-- Das EINZIGE Aktivitaets-Abzeichen in diesem Zweig, und zwar
-             zwingend: ein Gast darf seine Kamera senden (das LiveKit-Token
-             laesst die Quelle ausdruecklich zu). Ohne diesen Knopf koennte
-             sein Bild niemand oeffnen — die erlaubte Kamera waere eine
-             Funktion, die es nur auf dem Papier gibt. Die uebrigen Abzeichen
-             (LIVE/PARTY) bleiben weg: die haengen an Server-Praesenz, die es
-             ohne Nutzer-ID nicht gibt. Beides hier laeuft ueber die
-             LiveKit-Identitaet und braucht kein Profil. -->
-        <span
-          role="button"
-          tabindex="0"
-          class="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-badge-cam px-2 py-0.5 text-2xs font-bold uppercase text-white shadow-sm hover:bg-badge-cam-hover active:scale-95"
-          data-testid="voice-participant-cam-badge"
-          title={m.voice_participant_tile_open_webcam()}
-          aria-label={m.voice_participant_tile_open_webcam_aria({ name: resolvedName })}
-          onclick={(e) => {
-            e.stopPropagation();
-            openCam();
-          }}
-          onkeydown={badgeKeydown(openCam)}
-        ><span class="size-1.5 rounded-full bg-white/80"></span>CAM</span>
-      {/if}
-      {#if showMicOff}
-        <VoiceMuteIcon
-          kind="mic"
-          forced={isForceMuted}
-          label={isForceMuted ? m.voice_participant_tile_force_muted() : m.voice_participant_tile_mic_muted()}
-        />
-      {/if}
-      {#if showDeafened}
-        <VoiceMuteIcon
-          kind="headphone"
-          forced={isForceDeafened}
-          label={isForceDeafened ? m.voice_participant_tile_force_deafened() : m.voice_participant_tile_deafened()}
-        />
-      {/if}
+      <div class="flex min-h-4 items-center justify-center gap-1">
+        {#if istGast}
+          <span
+            class="text-2xs border-amber-500/60 bg-amber-500/10 text-amber-500 shrink-0 rounded-full border px-1.5 py-0.5 uppercase"
+            data-testid="voice-participant-guest"
+          >
+            {m.gast_abzeichen()}
+          </span>
+        {/if}
+        {#if hasCam}
+          <!-- Das EINZIGE Aktivitaets-Abzeichen in diesem Zweig, und zwar
+               zwingend: ein Gast darf seine Kamera senden (das LiveKit-Token
+               laesst die Quelle ausdruecklich zu). Ohne diesen Knopf koennte
+               sein Bild niemand oeffnen — die erlaubte Kamera waere eine
+               Funktion, die es nur auf dem Papier gibt. Die uebrigen Abzeichen
+               (LIVE/PARTY) bleiben weg: die haengen an Server-Praesenz, die es
+               ohne Nutzer-ID nicht gibt. Beides hier laeuft ueber die
+               LiveKit-Identitaet und braucht kein Profil. -->
+          <span
+            role="button"
+            tabindex="0"
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-badge-cam px-2 py-0.5 text-2xs font-bold uppercase text-white shadow-sm hover:bg-badge-cam-hover active:scale-95"
+            data-testid="voice-participant-cam-badge"
+            title={m.voice_participant_tile_open_webcam()}
+            aria-label={m.voice_participant_tile_open_webcam_aria({ name: resolvedName })}
+            onclick={(e) => {
+              e.stopPropagation();
+              openCam();
+            }}
+            onkeydown={badgeKeydown(openCam)}
+          ><span class="size-1.5 rounded-full bg-white/80"></span>CAM</span>
+        {/if}
+        {#if showMicOff}
+          <VoiceMuteIcon
+            kind="mic"
+            forced={isForceMuted}
+            label={isForceMuted ? m.voice_participant_tile_force_muted() : m.voice_participant_tile_mic_muted()}
+          />
+        {/if}
+        {#if showDeafened}
+          <VoiceMuteIcon
+            kind="headphone"
+            forced={isForceDeafened}
+            label={isForceDeafened ? m.voice_participant_tile_force_deafened() : m.voice_participant_tile_deafened()}
+          />
+        {/if}
+      </div>
     </div>
   </button>
 {/if}
