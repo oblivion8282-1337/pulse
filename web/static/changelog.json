@@ -6,9 +6,10 @@
       "date": "2026-09-15",
       "style": "Kurz",
       "title": "Sprachkanal: Zitternde Profilbilder beruhigt",
-      "intro": "Bei manchen Leuten zitterte das Profilbild hin und her, solange sie sprachen. Es steht jetzt still.",
+      "intro": "Bei manchen Leuten zitterte das Profilbild hin und her, solange sie sprachen. Es steht jetzt still, und alle Kacheln im Sprachkanal haben jetzt dieselbe Größe.",
       "items": [
-        "Der fette Name beim Sprechen bleibt als Anzeige erhalten."
+        "Der fette Name beim Sprechen bleibt als Anzeige erhalten.",
+        "Die Prozent-Anzeige für verstellte Lautstärke sitzt jetzt unter dem Namen, damit er mittig unter dem Bild bleibt."
       ]
     },
     {
