@@ -241,44 +241,76 @@ export function onPlayerOptionEvent(cb: (ev: PlayerOptionEvent) => void): () => 
 }
 
 /**
- * Aufnahme und Clip liefern denselben Umschlag: `ok` plus den Zielpfad, den
- * der Hauptprozess bestimmt hat. `null` heisst "hat nicht geklappt" — auch
- * hier ist ein Fehlschlag kein Ausnahmefall, den der Aufrufer fangen muss.
+ * Aufnahme-Wunsch aus der Bedienleiste des Player-Fensters. Das Fenster
+ * zeichnet nur den Knopf und seinen Zustand (aus `stats.recording`) — wer den
+ * Zielpfad bestimmt und die Operation wirklich schaltet, ist die App: der
+ * Hauptprozess wählt den Pfad, der Renderer löst über
+ * `startRecording`/`stopRecording` aus. `on` sagt, was gewünscht ist.
  */
-async function recordingPath(
+export function onPlayerRecordRequest(cb: (session: number, on: boolean) => void): () => void {
+  const p = api();
+  if (!p) return () => {};
+  return p.onEvent((raw) => {
+    const ev = raw as { ev?: string; session?: unknown; on?: unknown };
+    if (ev?.ev !== 'player:recordRequest' || typeof ev.session !== 'number') return;
+    cb(ev.session, ev.on === true);
+  });
+}
+
+/** Clip-Wunsch aus der Bedienleiste — dieselbe Teilung wie die Aufnahme. */
+export function onPlayerClipRequest(cb: (session: number) => void): () => void {
+  const p = api();
+  if (!p) return () => {};
+  return p.onEvent((raw) => {
+    const ev = raw as { ev?: string; session?: unknown };
+    if (ev?.ev !== 'player:clipRequest' || typeof ev.session !== 'number') return;
+    cb(ev.session);
+  });
+}
+
+/**
+ * Ergebnis einer Aufnahme-Operation: `ok` plus — bei Erfolg — den Zielpfad,
+ * den der Hauptprozess bestimmt hat, bei Fehlschlag die URSCHE aus dem Player
+ * (z. B. „nichts aufgenommen", weil zwischen Start und Stopp kein Keyframe
+ * ankam — meist lief der Strom gar nicht). Der Renderer zeigt sie direkt an,
+ * statt einen Grund zu raten.
+ */
+export interface RecordingResult {
+  ok: boolean;
+  path?: string;
+  error?: string;
+}
+
+async function recordingResult(
   what: string,
   call: () => Promise<PulsePlayerResult> | undefined,
-): Promise<string | null> {
+): Promise<RecordingResult> {
   try {
     const res = await call();
     if (!res?.ok) {
-      console.warn(`[player] ${what} fehlgeschlagen:`, res?.error);
-      return null;
+      const error = typeof res?.error === 'string' ? res.error : undefined;
+      console.warn(`[player] ${what} fehlgeschlagen:`, error ?? res?.error);
+      return { ok: false, error };
     }
-    return typeof res.path === 'string' ? res.path : null;
+    return { ok: true, path: typeof res.path === 'string' ? res.path : undefined };
   } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
     console.warn(`[player] ${what} warf:`, e);
-    return null;
+    return { ok: false, error };
   }
 }
 
 /**
  * Startet einen Mitschnitt. Der Zielpfad wird vom Hauptprozess bestimmt —
  * der Renderer darf keinen vorgeben, sonst waere das ein Schreibzugriff an
- * beliebige Stelle. Liefert den Pfad zurueck oder `null` bei Fehlschlag.
+ * beliebige Stelle.
  */
-export function startRecording(session: number): Promise<string | null> {
-  return recordingPath('Aufnahme', () => api()?.record(session));
+export function startRecording(session: number): Promise<RecordingResult> {
+  return recordingResult('Aufnahme', () => api()?.record(session));
 }
 
-export async function stopRecording(session: number): Promise<boolean> {
-  try {
-    const res = await api()?.stopRecord(session);
-    if (!res?.ok) console.warn('[player] Stopp fehlgeschlagen:', res?.error);
-    return res?.ok === true;
-  } catch {
-    return false;
-  }
+export async function stopRecording(session: number): Promise<RecordingResult> {
+  return recordingResult('Stopp', () => api()?.stopRecord(session));
 }
 
 /**
@@ -286,6 +318,6 @@ export async function stopRecording(session: number): Promise<boolean> {
  * Der Schnitt beginnt am letzten Keyframe davor, der Clip wird also etwas
  * laenger als angefordert.
  */
-export function saveClip(session: number, seconds = 30): Promise<string | null> {
-  return recordingPath('Clip', () => api()?.clip(session, seconds));
+export function saveClip(session: number, seconds = 30): Promise<RecordingResult> {
+  return recordingResult('Clip', () => api()?.clip(session, seconds));
 }

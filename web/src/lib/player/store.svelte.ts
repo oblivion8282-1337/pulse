@@ -19,11 +19,13 @@ import { errText } from '$lib/utils/errText';
  * nativen Weg WILL; der Keep-Alive weiss nur, wann eine Kachel weg ist.
  */
 import { SvelteMap } from 'svelte/reactivity';
+import { toast } from 'svelte-sonner';
 
 import { chatApi } from '$lib/api/chat';
 import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
 import { getStreamVolume, setStreamVolume } from '$lib/stream/streamVolume';
 import { loadAll, saveAll } from '$lib/stream/persistence';
+import { m } from '$lib/paraglide/messages.js';
 import {
   keyOf,
   merkerAufraeumen,
@@ -33,11 +35,16 @@ import {
 import {
   closePlayer,
   focusPlayer,
+  onPlayerClipRequest,
   onPlayerEvent,
   onPlayerOptionEvent,
+  onPlayerRecordRequest,
   onPlayerWindowRequest,
   openPlayer,
+  saveClip,
   setPlayerOptions,
+  startRecording,
+  stopRecording,
   type PlayerStateEvent,
 } from './client';
 
@@ -137,6 +144,11 @@ export class NativePlayerSession {
   #unlisten: (() => void) | null = null;
   #unlistenOptions: (() => void) | null = null;
   #unlistenWindow: (() => void) | null = null;
+  #unlistenRecord: (() => void) | null = null;
+  #unlistenClip: (() => void) | null = null;
+  /** Pfad der laufenden Aufnahme, wie ihn der Hauptprozess bestätigt hat —
+   *  für die Meldung beim Beenden (`stop_record` selbst nennt keinen Pfad). */
+  #aufnahmePfad: string | null = null;
   /**
    * Wird gerufen, wenn im Fenster „Schliessen" gedrueckt wurde — die Kachel
    * soll weg. Als Rueckruf statt eines Imports, damit dieses Modul nichts von
@@ -162,6 +174,14 @@ export class NativePlayerSession {
     this.#modus = modus;
     this.#unlisten = onPlayerEvent((ev) => this.#onEvent(ev));
     this.#unlistenOptions = onPlayerOptionEvent((ev) => this.#onOptionEvent(ev));
+    this.#unlistenRecord = onPlayerRecordRequest((session, on) => {
+      if (session !== this.#session) return;
+      void this.#mitschnitt(on);
+    });
+    this.#unlistenClip = onPlayerClipRequest((session) => {
+      if (session !== this.#session) return;
+      void this.#clip();
+    });
     this.#unlistenWindow = onPlayerWindowRequest((kind, session) => {
       if (session !== this.#session) return;
       if (kind === 'chat') {
@@ -331,6 +351,54 @@ export class NativePlayerSession {
     void setPlayerOptions(this.#session, { volume: percent / 100 });
   }
 
+  /**
+   * Aufnahme-Wunsch aus der Leiste des Fensters ausführen.
+   *
+   * Das Fenster zeigt nur den Knopf — ob das Aufnehmen wirklich klappt und
+   * wohin die Datei geht, erfährt der Nutzer hier, als Meldung in der App.
+   * Der Pfad-Toast beim Start ist dabei die Transparenz, die die Aufnahme
+   * überhaupt erst höflich macht: der Zuschauer sieht (und der Gesendete
+   * kann es später nachvollziehen), dass und wohin mitgeschnitten wird.
+   * Der Grund eines Fehlschlags reist mit in die Meldung — „nichts
+   * aufgenommen" heißt meist: der Strom lief gar nicht.
+   */
+  async #mitschnitt(on: boolean): Promise<void> {
+    if (this.#session === null) return;
+    if (on) {
+      const start = await startRecording(this.#session);
+      if (this.#disposed) return;
+      if (!start.ok) {
+        toast.error(m.player_record_failed(), { description: start.error });
+        return;
+      }
+      this.#aufnahmePfad = start.path ?? null;
+      toast.info(m.player_record_started(), { description: start.path });
+      return;
+    }
+    const stop = await stopRecording(this.#session);
+    if (this.#disposed) return;
+    if (!stop.ok) {
+      toast.error(m.player_record_failed(), { description: stop.error });
+      return;
+    }
+    toast.success(m.player_record_stopped(), {
+      description: this.#aufnahmePfad ?? undefined,
+    });
+    this.#aufnahmePfad = null;
+  }
+
+  /** Clip-Wunsch aus der Leiste — derselbe Weg, Vorgabe 30 Sekunden. */
+  async #clip(): Promise<void> {
+    if (this.#session === null) return;
+    const clip = await saveClip(this.#session, 30);
+    if (this.#disposed) return;
+    if (!clip.ok) {
+      toast.error(m.player_clip_failed(), { description: clip.error });
+      return;
+    }
+    toast.success(m.player_clip_saved(), { description: clip.path });
+  }
+
   /** Die Sitzungsnummer IM Player-Prozess. `null`, solange kein Fenster offen
    *  ist. Die Fernsteuerung braucht sie, um die Eingabe-Erfassung in genau
    *  diesem Fenster zu schalten. */
@@ -365,6 +433,10 @@ export class NativePlayerSession {
     this.#unlistenOptions = null;
     this.#unlistenWindow?.();
     this.#unlistenWindow = null;
+    this.#unlistenRecord?.();
+    this.#unlistenRecord = null;
+    this.#unlistenClip?.();
+    this.#unlistenClip = null;
   }
 
   close(): void {

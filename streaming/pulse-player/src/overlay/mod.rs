@@ -459,7 +459,7 @@ impl Overlay {
             if !visible {
                 return;
             }
-            self.build_controls(ctx, is_fullscreen, &mut actions);
+            self.build_controls(ctx, is_fullscreen, stats.recording, &mut actions);
         });
 
         self.input_pending = false;

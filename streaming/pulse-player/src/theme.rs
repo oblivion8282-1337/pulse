@@ -222,6 +222,18 @@ pub mod icon {
     pub fn stats() -> ImageSource<'static> {
         svg!("activity")
     }
+    /// Aufnahme — der Kreis als das allgemein verständliche Aufnahme-Zeichen;
+    /// läuft die Aufnahme, zeigt der Knopf [`Self::record_stop`].
+    pub fn record() -> ImageSource<'static> {
+        svg!("circle")
+    }
+    pub fn record_stop() -> ImageSource<'static> {
+        svg!("square")
+    }
+    /// Clip der letzten Sekunden aus dem Ringpuffer — die Uhr mit Rückwärtspfeil.
+    pub fn clip() -> ImageSource<'static> {
+        svg!("history")
+    }
     /// „Fernsteuerung anfragen" — dasselbe Symbol wie der Knopf in der Kachel
     /// (`RemoteRequestButton`), damit beide als derselbe Weg lesbar sind.
     pub fn remote_request() -> ImageSource<'static> {

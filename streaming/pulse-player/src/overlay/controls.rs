@@ -163,11 +163,13 @@ impl Overlay {
         }
     }
 
-    /// Bedienleiste unten.
+    /// Bedienleiste unten. `recording` ist der Zustand der Sitzung — er steht
+    /// im Statistik-Feld (`StatsView::recording`) und schaltet denselben Knopf.
     pub(super) fn build_controls(
         &mut self,
         ctx: &egui::Context,
         is_fullscreen: bool,
+        recording: bool,
         actions: &mut Vec<OverlayAction>,
     ) {
         egui::Area::new(egui::Id::new("pulse-controls"))
@@ -182,7 +184,9 @@ impl Overlay {
                         // stand dadurch hoeher als die Knoepfe daneben.
                         // `Align::Center` legt alles auf eine Mittellinie.
                         let layout = egui::Layout::left_to_right(egui::Align::Center);
-                        ui.with_layout(layout, |ui| self.controls_row(ui, is_fullscreen, actions));
+                        ui.with_layout(layout, |ui| {
+                            self.controls_row(ui, is_fullscreen, recording, actions)
+                        });
                     });
             });
     }
@@ -192,6 +196,7 @@ impl Overlay {
         &mut self,
         ui: &mut egui::Ui,
         is_fullscreen: bool,
+        recording: bool,
         actions: &mut Vec<OverlayAction>,
     ) {
         // Wer hier streamt — links, wie in der App.
@@ -203,6 +208,27 @@ impl Overlay {
         }
 
         self.volume_group(ui, actions);
+
+        // Mitschnitt und Clip neben der Lautstaerke — beide gehoeren zum reinen
+        // Zuschauen, nicht zur Diagnose. Der Zustand kommt je Durchgang frisch
+        // aus der Sitzung (`stats.recording`): schlägt der Start fehl, springt
+        // der Knopf von selbst zurueck, statt einen Zustand zu behaupten.
+        Self::action_button(
+            ui,
+            actions,
+            if recording { theme::icon::record_stop() } else { theme::icon::record() },
+            if recording { "Aufnahme beenden" } else { "Aufnahme starten" },
+            recording,
+            OverlayAction::Record(!recording),
+        );
+        Self::action_button(
+            ui,
+            actions,
+            theme::icon::clip(),
+            "Clip der letzten 30 Sekunden sichern",
+            false,
+            OverlayAction::Clip,
+        );
 
         Self::action_button(
             ui,

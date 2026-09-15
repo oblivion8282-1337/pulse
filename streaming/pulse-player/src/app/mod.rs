@@ -1271,6 +1271,23 @@ impl App {
                     serde_json::json!({ "session": id }),
                 ));
             }
+            // Mitschnitt und Clip laufen in der App: nur der Electron-Haupt-
+            // prozess bestimmt den Zielpfad (Videos-Ordner), und nur er kennt
+            // ihn. Hier wird nur der Wunsch gemeldet — dieselbe Teilung wie
+            // beim Chat. Dass die Aufnahme wirklich läuft, liest die Leiste
+            // zurück über `stats.recording`; eine Antwort-Event gibt es nicht.
+            OverlayAction::Record(on) => {
+                self.stdout.send(&Event::new(
+                    "player:recordRequest",
+                    serde_json::json!({ "session": id, "on": on }),
+                ));
+            }
+            OverlayAction::Clip => {
+                self.stdout.send(&Event::new(
+                    "player:clipRequest",
+                    serde_json::json!({ "session": id }),
+                ));
+            }
             OverlayAction::ToggleStats => {
                 let Some(session) = self.sessions.get_mut(&id) else { return };
                 if let Some(overlay) = session.overlay.as_mut() {
