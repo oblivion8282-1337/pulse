@@ -15,7 +15,6 @@ Dienst-Geheimnis einen Generalschlüssel für jede Identität.
 
 from __future__ import annotations
 
-import hmac
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
@@ -25,7 +24,7 @@ from dcc_shared.gaeste import TICKET_MAX_TTL_S
 
 from dcc_auth import config as _config
 from dcc_auth.routes import _check_rate
-from dcc_auth.security import get_signer
+from dcc_auth.security import constant_time_eq, get_signer
 
 router = APIRouter()
 
@@ -69,7 +68,7 @@ async def _check_internal_secret(request: Request, provided: str | None) -> None
             status.HTTP_401_UNAUTHORIZED,
             detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
         )
-    if not provided or not hmac.compare_digest(provided, expected):
+    if not provided or not constant_time_eq(provided, expected):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret"
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hmac
 import time
 import uuid
 from dataclasses import dataclass
@@ -52,6 +53,18 @@ def verify_dummy_password(plaintext: str) -> None:
 
 def needs_rehash(hashed: str) -> bool:
     return _hasher.check_needs_rehash(hashed)
+
+
+def constant_time_eq(candidate: str, expected: str) -> bool:
+    """Constant-time string comparison, UTF-8-safe.
+
+    ``hmac.compare_digest`` raises ``TypeError`` on non-ASCII ``str`` — and
+    header-/Basic-Auth-derived candidates are attacker-controlled UTF-8, so a
+    raw call turns "send a non-ASCII secret" into an unhandled 500 instead of
+    a 401. Encoding both sides keeps the comparison constant-time and fails
+    closed with a clean rejection.
+    """
+    return hmac.compare_digest(candidate.encode(), expected.encode())
 
 
 def _b64url_uint(value: int) -> str:

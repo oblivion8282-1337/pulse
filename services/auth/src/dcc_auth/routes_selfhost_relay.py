@@ -20,6 +20,7 @@ from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import RegisteredInstance
 from dcc_auth.relay import hash_relay_token
 from dcc_auth.routes import _check_rate
+from dcc_auth.security import constant_time_eq
 from dcc_auth.routes_admin_instances import _require_cloud
 
 router = APIRouter(tags=["self-host"], dependencies=[Depends(_require_cloud)])
@@ -45,7 +46,7 @@ def _check_internal_secret(provided: str | None) -> None:
             status.HTTP_401_UNAUTHORIZED,
             detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
         )
-    if not provided or not hmac.compare_digest(provided, expected):
+    if not provided or not constant_time_eq(provided, expected):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret")
 
 

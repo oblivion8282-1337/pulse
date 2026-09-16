@@ -32,7 +32,12 @@ from dcc_auth.passkeys import (
     issue_challenge_ticket,
     load_user_credentials,
 )
-from dcc_auth.recovery import claim_ticket_jti, generate_backup_codes, hash_token
+from dcc_auth.recovery import (
+    SingleUseNichtPruefbar,
+    claim_ticket_jti,
+    generate_backup_codes,
+    hash_token,
+)
 from dcc_auth.routes import _check_rate, _get_current_user, _signer_dep
 from dcc_auth.schemas import (
     MessageOut,
@@ -147,13 +152,20 @@ async def webauthn_register_verify(
     # abgefangener verify-Request nicht innerhalb der Challenge-TTL erneut
     # eingespielt werden kann, um eine weitere Passkey-Enrollment zu erschleichen.
     # Erst NACH erfolgreicher Attestation geclaimt → ein fehlgeschlagener Versuch
-    # verbrennt das Ticket nicht. Fail-open bei fehlendem Redis/jti.
-    if not await claim_ticket_jti(
-        settings.redis_url,
-        "webauthn:challenge:used:",
-        challenge_jti,
-        settings.webauthn_challenge_ttl_seconds,
-    ):
+    # verbrennt das Ticket nicht. Fail-closed bei unpruefbarem Store (Redis weg):
+    # 503 statt unhandled 500 — exakt der Login-Pfad (Bughunt 2026-09-16, R. 2).
+    try:
+        ticket_frisch = await claim_ticket_jti(
+            settings.redis_url,
+            "webauthn:challenge:used:",
+            challenge_jti,
+            settings.webauthn_challenge_ttl_seconds,
+        )
+    except SingleUseNichtPruefbar as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="single-use store unavailable"
+        ) from exc
+    if not ticket_frisch:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired challenge"
         )
