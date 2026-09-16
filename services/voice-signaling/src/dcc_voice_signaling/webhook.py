@@ -422,6 +422,26 @@ async def livekit_webhook(request: Request) -> None:
     redis = _get_redis(request)
     kind = event.event
 
+    # Replay-Schutz (Bughunt 2026-09-16, Runde 2): Signatur + Body-Hash machen
+    # einen abgefangenen Webhook-POST verifizierbar, aber nicht un-wiederholbar —
+    # LiveKit setzt im Webhook-JWT kein exp, ein Nonce-Cache existierte nicht.
+    # Die Event-ID ist pro Event eine UUID: SET NX EX darauf, ein Treffer heißt
+    # Replay → ignorieren. TTL 1 h: danach ist der Präsenz-Zustand ohnehin vom
+    # Reconcile-Laufen überholt. Redis-Fehler beim Dedup → Event verarbeiten
+    # (fail-open): ein verschlucktes Legitim-Event wäre schlimmer als der
+    # theoretische Replay in genau dem Fenster, in dem Redis gerade stottert.
+    if event.id:
+        try:
+            frisch = await redis.set(
+                f"webhook:gesehen:{event.id}", "1", ex=3600, nx=True
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("webhook_dedup_fehler", event_id=event.id)
+            frisch = True
+        if not frisch:
+            log.info("webhook_replay_ignoriert", event_id=event.id)
+            return
+
     log.info("webhook_event", kind=kind, room=room_name, channel_id=channel_id)
 
     if kind == "room_finished":

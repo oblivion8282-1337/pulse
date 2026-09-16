@@ -118,12 +118,13 @@ async def set_voice_override(
         if next_state["muted"]:
             # Strip "microphone" from the user's cached sources; keep
             # the rest (camera, screen_share) intact so a non-mic
-            # publish isn't collateral damage.
-            base = cached_sources if cached_sources is not None else [
-                "camera",
-                "screen_share",
-                "screen_share_audio",
-            ]
+            # publish isn't collateral damage. Missing cache (e.g. Redis
+            # flush during the mute) → conservative microphone-only fallback:
+            # strip leaves nothing publishable. The old fallback here granted
+            # camera+screen_share LIVE — rights the user's token never had
+            # (Bughunt 2026-09-16, Runde 2); the mute's purpose is to take
+            # publish rights away, not to invent them.
+            base = cached_sources if cached_sources is not None else ["microphone"]
             new_sources = [s for s in base if s != "microphone"]
         else:
             # Restore exactly what the user was permitted to publish at
