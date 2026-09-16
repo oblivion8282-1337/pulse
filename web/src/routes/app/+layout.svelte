@@ -276,6 +276,10 @@
         // Dev sessions / Electron without SW — fine, push falls back to no-op.
       }
       _swMessageHandler = (ev: MessageEvent) => {
+        // Security-Audit 2026-09-16: nur Botschaften vom EIGENEN Origin
+        // befolgen (Defense in depth — ein fremder Frame/Worker soll über
+        // diesen Kanal keine Navigation anstoßen können).
+        if (ev.origin !== location.origin) return;
         const data = ev.data as { type?: string; channel_id?: string; guild_id?: string | null };
         if (data?.type === 'navigateTo' && data.channel_id) {
           navigateToFromNotification(data.channel_id, data.guild_id ?? null);
