@@ -380,14 +380,18 @@ async def gast_whep(
         + f"/gast/whep?channel_id={gast.channel_id}&user_id={user_id}&slot={slot}"
     )
     http = getattr(request.app.state, "media_svc_http", None)
+    # Internal-Secret wie bei jedem media-svc-Aufruf (Audit 2026-09-16): die
+    # Route dort nimmt ohne ihn nichts mehr an.
+    headers = {
+        "Authorization": f"Bearer {bearer}",
+        "X-Pulse-Internal-Secret": settings.internal_service_secret or "",
+    }
     try:
         if http is not None:
-            resp = await http.get(url, headers={"Authorization": f"Bearer {bearer}"})
+            resp = await http.get(url, headers=headers)
         else:
             async with httpx.AsyncClient(timeout=settings.media_svc_timeout_s) as client:
-                resp = await client.get(
-                    url, headers={"Authorization": f"Bearer {bearer}"}
-                )
+                resp = await client.get(url, headers=headers)
     except httpx.HTTPError as exc:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, detail="media service unavailable"

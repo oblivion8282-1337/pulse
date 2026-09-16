@@ -44,6 +44,9 @@ _TEST_SETTINGS = media_cfg.Settings(
     mediamtx_api_url="http://mediamtx.test:9997/v3/paths/list",
     mediamtx_ingest_host="ingest.test",
     mediamtx_public_base="http://stream.test:8889",
+    # Member-Routen verlangen den Internal-Secret-Header (Audit 2026-09-16);
+    # der Client fixture schickt ihn mit, ein Gate-Test hebt ihn gezielt ab.
+    internal_service_secret="test-internal-secret",
 )
 
 
@@ -111,6 +114,18 @@ async def app(_isolate_settings, redis):
 
 @pytest_asyncio.fixture
 async def client(app) -> AsyncIterator[httpx.AsyncClient]:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"X-Pulse-Internal-Secret": _TEST_SETTINGS.internal_service_secret},
+    ) as c:
+        yield c
+
+
+@pytest_asyncio.fixture
+async def client_ohne_secret(app) -> AsyncIterator[httpx.AsyncClient]:
+    """Client OHNE Internal-Secret — für die Gate-Tests (Audit 2026-09-16)."""
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

@@ -188,8 +188,9 @@ bash -c "cd services/chat-gateway && env $pg_env $common_env $internal_env $uplo
 # aufrufen kann (sonst bleibt ein Voice-Pull-Grant beim Verlassen stehen).
 bash -c "cd services/voice-signaling && env $common_env $lk_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_voice_signaling.app:app --host 127.0.0.1 --port 8003 --reload > /tmp/dcc-voice.log 2>&1 < /dev/null &"
 
-# media-svc (8004)
-bash -c "cd services/media-svc && env $common_env MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list setsid nohup uv run uvicorn dcc_media_svc.app:app --host 127.0.0.1 --port 8004 --reload > /tmp/dcc-media.log 2>&1 < /dev/null &"
+# media-svc (8004) — INTERNAL_SERVICE_SECRET noetig seit dem Member-Routen-Gate
+# (Audit 2026-09-16): ohne Header nimmt media-svc Proxy-Aufrufe nicht mehr an.
+bash -c "cd services/media-svc && env $common_env $internal_env MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list setsid nohup uv run uvicorn dcc_media_svc.app:app --host 127.0.0.1 --port 8004 --reload > /tmp/dcc-media.log 2>&1 < /dev/null &"
 
 # mediamtx-auth-hook (8005)
 bash -c "cd services/mediamtx-auth-hook && env $common_env setsid nohup uv run uvicorn dcc_mediamtx_auth_hook.app:app --host 127.0.0.1 --port 8005 --reload > /tmp/dcc-authhook.log 2>&1 < /dev/null &"

@@ -12,9 +12,10 @@ Modul-Globale deshalb bei jedem Aufruf, nicht importzeitgebunden.
 
 from __future__ import annotations
 
+import secrets as _secrets
 from typing import Annotated, Any
 
-from fastapi import Depends, Header
+from fastapi import Depends, Header, HTTPException, status
 from dcc_shared.token_verify import (
     AuthenticatedUser,
     _extract_bearer,
@@ -34,6 +35,7 @@ __all__ = [
     "get_current_user",
     "get_settings",
     "install_static_jwks",
+    "require_internal",
     "reset_cache",
 ]
 
@@ -72,3 +74,31 @@ async def get_current_gast(
 
 
 CurrentGast = Annotated[GastClaims, Depends(get_current_gast)]
+
+
+async def require_internal(
+    x_pulse_internal_secret: str | None = Header(default=None),
+) -> None:
+    """Member-Routen duerfen nur der chat-gateway-Proxy rufen (Audit 2026-09-16).
+
+    Bisher prueften diese Routen NUR den Bearer — die Kanal-Autorisierung
+    (Mitgliedschaft, STREAM, VIEW_CHANNEL) lag komplett beim vorgeschalteten
+    chat-gateway. Wer media-svc direkt erreichte (Dev-Port, falscher
+    Reverse-Proxy — die Selfhost-Caddy-Exposition war real, siehe Kommentar in
+    ``routes.py``), bekam Publish- und Lese-Token fuer JEDESKANAL. Das Shared
+    Secret hier macht die Proxy-Annahme zur erzwungenen Eigenschaft: ohne
+    korrekten Header gibt es 503, fail-closed auch wenn das Secret ungesetzt
+    ist. Der Bearer bleibt daneben stehen — media-svc leitet daraus die
+    Nutzer-Identitaet ab (``sub``), das Secret sagt nur: dieser Aufruf kam
+    durch die Pruefung des Gateways.
+    """
+    expected = get_settings().internal_service_secret
+    if not expected:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="internal routes disabled"
+        )
+    given = x_pulse_internal_secret or ""
+    if not _secrets.compare_digest(given.encode(), expected.encode()):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="internal routes disabled"
+        )

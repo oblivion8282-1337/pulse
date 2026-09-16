@@ -28,7 +28,7 @@ from time import monotonic
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 
@@ -38,7 +38,7 @@ from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
 
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.poller import _parse_state, _publish_event
-from dcc_media_svc.security import CurrentGast, CurrentUser
+from dcc_media_svc.security import CurrentGast, CurrentUser, require_internal
 from dcc_shared.streaming import read_cache_key
 from dcc_media_svc.streamkeys import (
     CHANNEL_STATE_KEY,
@@ -240,7 +240,11 @@ def _push_url(path: str, protocol: str, token: str) -> str:
     )
 
 
-@router.post("/channels/{channel_id}/stream-token", response_model=StreamTokenOut)
+@router.post(
+    "/channels/{channel_id}/stream-token",
+    response_model=StreamTokenOut,
+    dependencies=[Depends(require_internal)],
+)
 async def issue_stream_token(
     channel_id: ChannelId,
     payload: StreamTokenIn,
@@ -355,7 +359,11 @@ async def issue_stream_token(
     )
 
 
-@router.get("/channels/{channel_id}/stream", response_model=StreamStateOut)
+@router.get(
+    "/channels/{channel_id}/stream",
+    response_model=StreamStateOut,
+    dependencies=[Depends(require_internal)],
+)
 async def get_stream_state(
     channel_id: ChannelId,
     user: CurrentUser,
@@ -519,7 +527,7 @@ async def _whep_fuer_zuschauer(
     )
 
 
-@router.get("/gast/whep", response_model=WhepOut)
+@router.get("/gast/whep", response_model=WhepOut, dependencies=[Depends(require_internal)])
 async def get_whep_url_gast(
     channel_id: ChannelId,
     user_id: UserIdQuery,
@@ -557,7 +565,11 @@ async def get_whep_url_gast(
     )
 
 
-@router.get("/channels/{channel_id}/whep", response_model=WhepOut)
+@router.get(
+    "/channels/{channel_id}/whep",
+    response_model=WhepOut,
+    dependencies=[Depends(require_internal)],
+)
 async def get_whep_url(
     channel_id: ChannelId,
     user_id: UserIdQuery,
@@ -573,10 +585,11 @@ async def get_whep_url(
     live publisher for that user; the WhepPlayer treats that the same as a
     publisher-not-up situation and keeps retrying.
 
-    ``user`` (the verified bearer) is required even though the VIEW_CHANNEL
-    check lives in chat-gateway: without it, a deployment that exposes
-    media-svc directly (the self-host Caddy used to) hands the nonce'd WHEP
-    URL to unauthenticated callers.
+    ``user`` (the verified bearer) identifies the viewer; the VIEW_CHANNEL
+    check lives in chat-gateway, and ``require_internal`` on this route makes
+    that proxy assumption enforced: a deployment that exposes media-svc
+    directly (the self-host Caddy used to) gets 503, not the nonce'd WHEP
+    URL (Audit 2026-09-16).
     """
     return await _whep_fuer_zuschauer(
         request,
@@ -587,7 +600,11 @@ async def get_whep_url(
     )
 
 
-@router.delete("/channels/{channel_id}/stream", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/channels/{channel_id}/stream",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_internal)],
+)
 async def stop_stream(
     channel_id: ChannelId,
     user: CurrentUser,
@@ -785,9 +802,6 @@ async def kill_gast_sessions(
                 )
             except Exception:  # noqa: BLE001 — siehe oben
                 log.warning("whep_session_list_failed", page=seiten)
-                break
-            items = (data.get("items") or []) if isinstance(data, dict) else []
-            if not items:
                 break
             items = (data.get("items") or []) if isinstance(data, dict) else []
             if not items:
