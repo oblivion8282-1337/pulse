@@ -65,7 +65,9 @@
   // --- Dropbox OAuth ---
 
   function zufallsState(): string {
-    return `ablage-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Kryptografisch (nicht Date.now/Math.random): der State ist der CSRF-
+    // Nachweis des OAuth-Flows — ratbar wäre er wertlos.
+    return `ablage-${crypto.randomUUID()}`;
   }
 
   // Wird nach dem OAuth-Redirect aufgerufen: Dropbox schickt ?code=...&state=...
@@ -81,6 +83,18 @@
     }
     if (anbieter !== 'dropbox') return;
 
+    // State-Abgleich (Bughunt 2026-09-16, Runde 2): der state wurde beim
+    // Redirect-Start erzeugt und gespeichert, aber nie gegengeprüft. PKCE
+    // fängt Code-Injection bereits ab — der Check hier ist die zweite Schicht
+    // und verhindert, dass ein untergeschobener code dieser Session überhaupt
+    // zum Tausch vorgelegt wird.
+    const erwartet = sessionStorage.getItem('ablage_oauth_state');
+    const bekommen = params.get('state');
+    if (!erwartet || bekommen !== erwartet) {
+      fehler = 'Verbindung abgelehnt: Ungültiger OAuth-Status — bitte erneut verbinden.';
+      return;
+    }
+
     const verifier = sessionStorage.getItem('ablage_pkce_verifier') ?? '';
     const anbindung: DropboxAnbindung = { kundenId: DROPBOX_KEY };
     tauscheCodeAus(anbindung, code, { pruefer: verifier, herausforderung: '' })
@@ -90,6 +104,12 @@
       })
       .catch((e) => {
         fehler = `Token-Tausch fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`;
+      })
+      // Einmal-Values raus: Verifier und State dürfen nach dem Tauschversuch
+      // nicht im sessionStorage liegen (Replay/Reuse über offene Tabs).
+      .finally(() => {
+        sessionStorage.removeItem('ablage_pkce_verifier');
+        sessionStorage.removeItem('ablage_oauth_state');
       });
   });
 
