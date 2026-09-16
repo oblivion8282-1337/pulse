@@ -1,40 +1,44 @@
 /**
- * Token storage abstraction. We keep both tokens in localStorage; under the
- * Electron shell this could later be swapped for `window.pulse.store.*` (see
- * `$lib/platform/runtime.ts` / `$lib/stream/persistence.ts`), but localStorage
- * works fine for both the browser and the Electron renderer today.
+ * Token storage abstraction (Security-Audit 2026-09-16):
  *
- * SECURITY TRADEOFF — XSS-stealable credentials: both `access_token` and the
- * longer-lived `refresh_token` live in same-origin-readable localStorage. Any
- * stored/reflected XSS on the origin can exfiltrate both and ride the refresh
- * rotation for indefinite account takeover. Mitigations in place: strict
- * DOMPurify/{@html} hygiene, refresh-token rotation + token-reuse family-revoke
- * + single-flight Web Lock in `client.ts`. The proper fix is to move the
- * refresh token into an HttpOnly + SameSite=Strict cookie issued by auth-svc
- * (the browser-session cookie machinery already exists in
- * `services/auth/.../browser_sessions.py`) and keep only the short-lived access
- * token in JS — but that is a cross-service change (auth-svc /login + /refresh,
- * proxy cookie forwarding, and `client.ts`' doRefresh/loadTokens), not a
- * single-file edit here. See audit findings 108 / 147.
+ * - `access_token` (15 min) bleibt in localStorage — kurzlebig, JS braucht
+ *   ihn für jeden Authorization-Header.
+ * - `refresh_token` (30 Tage) wird NICHT mehr dauerhaft gespeichert. Er reist
+ *   im HttpOnly-`pulse_rt`-Cookie des auth-svc (Rotation setzt ihn bei jedem
+ *   /refresh neu). Ein XSS kann ihn damit weder lesen noch exfiltrieren —
+ *   es verliert mit dem Schließen der Seite den dauerhaften Zugriff.
+ *
+ * Migration: Alt-Clients haben noch einen refresh_token in localStorage. Der
+ * wird beim nächsten /refresh einmal im Body mitschickt (Server setzt dabei
+ * den Cookie) und danach hier gelöscht.
  */
 
 import type { Tokens } from './types';
 
 const ACCESS_KEY = 'dcc.tokens.access';
+/** Nur noch Migration — nach dem ersten Cookie-Refresh wird der Schlüssel gelöscht. */
 const REFRESH_KEY = 'dcc.tokens.refresh';
 
 export function loadTokens(): Tokens | null {
   if (typeof window === 'undefined') return null;
   const a = window.localStorage.getItem(ACCESS_KEY);
-  const r = window.localStorage.getItem(REFRESH_KEY);
-  if (!a || !r) return null;
+  if (!a) return null;
+  const r = window.localStorage.getItem(REFRESH_KEY) ?? '';
   return { access_token: a, refresh_token: r, token_type: 'bearer' };
 }
 
 export function saveTokens(t: Tokens): void {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(ACCESS_KEY, t.access_token);
-  window.localStorage.setItem(REFRESH_KEY, t.refresh_token);
+  if (t.refresh_token) {
+    // Noch Body-Modus (Alt-Server oder Migration) — speichern, damit der
+    // nächste Refresh wieder funktioniert.
+    window.localStorage.setItem(REFRESH_KEY, t.refresh_token);
+  } else {
+    // Cookie-Modus: nichts Persistes. Ein eventuell noch vorhandener Alt-
+    // Token wird jetzt entwertet — der Cookie hat ihn ersetzt.
+    window.localStorage.removeItem(REFRESH_KEY);
+  }
 }
 
 export function clearTokens(): void {

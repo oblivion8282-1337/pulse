@@ -38,7 +38,9 @@ class LoginIn(BaseModel):
 
 
 class RefreshIn(BaseModel):
-    refresh_token: Annotated[str, Field(max_length=4096)]
+    # Leer erlaubt (Audit 2026-09-16): der Client darf das Refresh-Token im
+    # HttpOnly-Cookie mitschicken statt im Koerper — dann steht hier "".
+    refresh_token: Annotated[str, Field(max_length=4096)] = ""
 
 
 

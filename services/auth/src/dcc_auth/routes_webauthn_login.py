@@ -33,7 +33,12 @@ from dcc_auth.passkeys import (
     issue_challenge_ticket,
     load_user_credentials,
 )
-from dcc_auth.recovery import claim_mfa_ticket, claim_ticket_jti, decode_mfa_ticket
+from dcc_auth.recovery import (
+    SingleUseNichtPruefbar,
+    claim_mfa_ticket,
+    claim_ticket_jti,
+    decode_mfa_ticket,
+)
 from dcc_auth.routes import _check_rate, _client_ip, _hash_ip, _issue_tokens, _signer_dep
 from dcc_auth.schemas import (
     TokensOut,
@@ -189,24 +194,38 @@ async def webauthn_login_verify(
     # replay guard for BOTH paths — and the only one for passwordless, where there
     # is no mfa_ticket. Claimed only after the assertion verified, so a failed
     # attempt never burns a legitimate ticket. Same error shape as a bad ticket.
-    if not await claim_ticket_jti(
-        settings.redis_url,
-        "webauthn:challenge:used:",
-        challenge_jti,
-        settings.webauthn_challenge_ttl_seconds,
-    ):
+    try:
+        claimed = await claim_ticket_jti(
+            settings.redis_url,
+            "webauthn:challenge:used:",
+            challenge_jti,
+            settings.webauthn_challenge_ttl_seconds,
+        )
+    except SingleUseNichtPruefbar as exc:
+        # Fail-closed (Audit 2026-09-16) — wie bei den MFA-Tickets.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="single-use store unavailable"
+        ) from exc
+    if not claimed:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired challenge"
         )
 
     # On the 2FA path additionally burn the password-step mfa_ticket's jti, so a
     # captured mfa_ticket can't be replayed across /login/totp and this endpoint.
-    if not passwordless and not await claim_mfa_ticket(
-        settings.redis_url, mfa_jti, settings.mfa_ticket_ttl_seconds
-    ):
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
-        )
+    if not passwordless:
+        try:
+            claimed = await claim_mfa_ticket(
+                settings.redis_url, mfa_jti, settings.mfa_ticket_ttl_seconds
+            )
+        except SingleUseNichtPruefbar as exc:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, detail="single-use store unavailable"
+            ) from exc
+        if not claimed:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
+            )
 
     row.sign_count = verified.new_sign_count
     row.last_used_at = datetime.now(UTC)
@@ -233,6 +252,7 @@ async def webauthn_login_verify(
         user_agent=user_agent,
         ip_hash=_hash_ip(request),
         session_id=sid,
+        response=response,
     )
     await session.commit()
     set_session_cookie(response, sid)

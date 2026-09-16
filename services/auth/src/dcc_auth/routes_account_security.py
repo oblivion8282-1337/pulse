@@ -124,6 +124,7 @@ async def change_password(
         user_agent=user_agent,
         ip_hash=_hash_ip(request),
         session_id=sid,
+        response=response,
     )
     await session.commit()
     set_session_cookie(response, sid)

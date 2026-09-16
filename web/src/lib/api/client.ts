@@ -192,12 +192,21 @@ async function doRefresh(intendedRefreshToken: string): Promise<Tokens | null> {
   const fresh = loadTokens();
   if (!fresh) return null;
   if (fresh.refresh_token !== intendedRefreshToken) return fresh;
+  // Cookie-Modus (Audit 2026-09-16): kein gespeicherter Token → Authentifiziert
+  // wird der HttpOnly-`pulse_rt`-Cookie, den fetch same-origin von selbst
+  // mitschickt. Ein Alt-Token im Speicher wird einmal im Body mitgegeben
+  // (Migration) — der Server setzt dabei den Cookie und wir löschen den
+  // Speicher über saveTokens (refresh_token leer in der Antwort).
+  const hatStoredRefresh = fresh.refresh_token.length > 0;
   let resp: Response;
   try {
     resp = await fetch(`${AUTH_BASE}/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: fresh.refresh_token }),
+      credentials: 'same-origin',
+      body: JSON.stringify(
+        hatStoredRefresh ? { refresh_token: fresh.refresh_token } : {}
+      ),
     });
   } catch {
     // auth-svc gar nicht erreichbar (offline, DNS, oder mitten im Deploy ohne
@@ -431,31 +440,12 @@ export function currentAccessToken(): string | null {
   return loadTokens()?.access_token ?? null;
 }
 
-/**
- * Baue eine vollständige Browser-Navigations-URL für einen Download-Endpoint,
- * dessen Auth via ``?token=`` query-Param läuft. ``window.location.href`` /
- * ``<a download>`` können keinen ``Authorization``-Header mitsenden, daher
- * hängen wir den Bearer (gleiche Auflösung wie ``request`` inkl. Refresh/
- * Re-Auth) als Query-Parameter an — derselbe Pattern wie der WS-Endpoint.
- *
- * ``path`` ist der Endpoint-relative Pfad inkl. eigener Query-Params
- * (z.B. ``/guilds/123/download-archive?entry_ids=1,2``); das ``token`` wird
- * ergänzt.
- */
-export async function chatDownloadUrl(
-  endpoint: ApiEndpoint,
-  path: string,
-  route: RequestRoute = {}
-): Promise<string> {
-  const { server, url, isSelfHost } = resolveRoute(endpoint, path, route);
-  const bearer = await bearerWithReauth(server, isSelfHost);
-  if (!bearer) {
-    if (isSelfHost) throw new SessionExpiredError(server!.id);
-    throw new ApiError(401, null, 'not authenticated');
-  }
-  const sep = url.includes('?') ? '&' : '?';
-  return `${url}${sep}token=${encodeURIComponent(bearer)}`;
-}
+// Security-Audit 2026-09-16: `chatDownloadUrl` (Bearer als ``?token=`` in einer
+// navigierbaren Download-URL → Browser-History/Proxy-Logs) ist ENTFERNT. Der
+// einzige Verbraucher (`dropbox.archiveUrl`) rief einen Endpunkt an, den der
+// Server nie hatte — toter Code. Soll je ein authentifizierter Download per
+// Navigation nötig werden: kurzlebiges Einmal-Ticket mitten lassen (Bearer-
+// Header beim Minten, ``?ticket=`` beim Abruf), nie den Account-Bearer in die URL.
 
 /** Same auth + refresh + 401-retry handling as `request`, but for
  * multipart/form-data uploads (avatar, guild icon, etc.). Letting the browser
