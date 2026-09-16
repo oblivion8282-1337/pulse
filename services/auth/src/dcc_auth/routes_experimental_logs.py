@@ -154,10 +154,11 @@ async def submit_experimental_log(
             detail="entweder report oder log_text muss gesetzt sein",
         )
 
-    fwd = request.headers.get("x-forwarded-for", "")
-    client_ip = fwd.split(",")[0].strip() or (
-        request.client.host if request.client else None
-    )
+    # Security-Audit 2026-09-16: statt des rohen XFF (client-kontrolliert,
+    # spoofbare Attribution) dieselbe Trusted-Proxy-Auflösung wie überall.
+    from dcc_auth.routes import _client_ip  # noqa: PLC0415
+
+    client_ip = _client_ip(request)
 
     entry = ExperimentalLog(
         id=next_id(),
