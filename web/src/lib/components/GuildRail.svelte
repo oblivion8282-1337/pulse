@@ -633,7 +633,11 @@
           </ContextMenu.Trigger>
           {#if isActiveServer}
             <ContextMenu.Content>
-              {#if canManageRoles || isOwner}
+              <!-- Einstieg, sobald IRGENDEIN Dialog-Tab sichtbar wäre:
+                   Rollen / Guild-Verwaltung (Sounds, Plugins, …) / Mod-Queue /
+                   Ownership — sonst landen MANAGE_GUILD- oder Mod-Inhaber
+                   vor einer verschlossenen Tür. -->
+              {#if canManageRoles || canManageGuild || canModerate || isOwner}
                 <ContextMenu.Item
                   onSelect={() => openSettings(g)}
                   data-testid="guild-settings"
