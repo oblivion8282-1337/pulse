@@ -53,7 +53,7 @@ import { wirePower } from './power';
 import { wireClipboard } from './clipboard';
 import { startUpdater } from './updater';
 import { wireGlobalShortcuts } from './shortcuts';
-import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
+import { handleDeepLink, extractPulseUrl, takePendingInvite, isValidFqdn } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
 import { ContainerBackendManager, resolveImage } from './localBackend/containerBackendManager';
@@ -1184,6 +1184,23 @@ function wirePlayer(): void {
 // Fehlschlag als denselben `TypeError: Failed to fetch` — Node kann die Kette
 // einzeln abgehen (netdiag.ts). Rein lesend: der Aufruf öffnet keinen Datenweg
 // und trifft keine Vertrauensentscheidung, er beschreibt nur, was er vorfindet.
+// Security-Audit 2026-09-16 — Schranken für den netdiag-IPC-Kanal.
+// Interne Ziele nach Konvention (keine hart garantierte Grenze — PTR/Split-
+// Horizon kann intern trotzdem aufgelöst werden; Decke dokumentiert am Aufruf).
+const INTERNE_SUFFIXE = [
+  'localhost',
+  '.local',
+  '.lan',
+  '.internal',
+  '.localdomain',
+  '.home',
+  '.corp',
+  '.intranet',
+];
+function _istInternesZiel(host: string): boolean {
+  return INTERNE_SUFFIXE.some((s) => host === s || host.endsWith(s));
+}
+
 function wireNetdiag(): void {
   ipcMain.handle('netdiag:check', async (_e, hostname: unknown) => {
     if (typeof hostname !== 'string' || hostname.length > 255) return null;
@@ -1191,6 +1208,21 @@ function wireNetdiag(): void {
     // Ohne die Schranke wäre der Kanal ein Werkzeug, mit dem der Renderer den
     // Hauptprozess zu beliebigen Verbindungen bewegt.
     if (!/^https?:\/\//i.test(hostname)) return null;
+    // Security-Audit 2026-09-16: der Hostname muss einem FQDN/IP-Literal
+    // entsprechen (denselben Regeln wie Deep-Links) und KEIN internes Ziel
+    // nennen — sonst wäre der Kanal eine Portscan-/SSRF-Primitive gegen das
+    // eigene Netz (Docker-Bridge, Router, Cloud-Metadaten). ponytail: geprüft
+    // wird das LITERAL; ein öffentlicher Name, der per DNS auf eine private
+    // IP zeigt (Rebinding), geht durch — Aufstieg wäre Resolve-then-check in
+    // netdiag.ts vor jedem tcpConnect.
+    let host: string;
+    try {
+      host = new URL(hostname).hostname.toLowerCase();
+    } catch {
+      return null;
+    }
+    if (!isValidFqdn(host)) return null;
+    if (_istInternesZiel(host)) return null;
     try {
       return await diagnostiziere(hostname);
     } catch {
@@ -1328,11 +1360,20 @@ const ALLOWED_STORE_KEYS = new Set([
  *  beim Boot) offen. (Schreibseitig ist der Key gar nicht erst in der Allowlist.) */
 const RENDERER_BLOCKED_STORE_KEYS = new Set(['pulse.host.creds']);
 
-/** Kopie ohne die renderer-gesperrten Schlüssel — für die store:getAll(Sync)-Kanäle. */
+/** Kopie ohne die renderer-gesperrten Schlüssel — für die store:getAll(Sync)-Kanäle.
+ *
+ * Security-Audit 2026-09-16: zusätzlich auf die Renderer-eigenen Schlüssel
+ * (ALLOWED_STORE_KEYS, sonst nur die Schreibseite) begrenzt. Zuvor sah getAll
+ * den GESAMTEN Tresor — ein kompromittierter Renderer-Origin erhielt damit
+ * jede Main-Prozess-Einstellung gratis mit. get(key) bleibt bewusst
+ * unverändert (expliziter Schlüssel = Absicht), der Bulk-Weg ist der
+ * Angriffspfad, den dieser Deckel schließt. */
 function stripBlockedKeys(all: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(all)) {
-    if (!RENDERER_BLOCKED_STORE_KEYS.has(k)) out[k] = v;
+    if (RENDERER_BLOCKED_STORE_KEYS.has(k)) continue;
+    if (!ALLOWED_STORE_KEYS.has(k)) continue;
+    out[k] = v;
   }
   return out;
 }

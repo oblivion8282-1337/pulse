@@ -17,7 +17,7 @@ const INVITE_CODE_RE = /^[A-Za-z0-9_-]{6,64}$/;
  *  octal 0177.0.0.1) so a malicious link can't trick the renderer into hitting a
  *  private/loopback address. Self-Host muss FQDN haben (LE-Cert Pflicht für TLS)
  *  — IP-Direkt-Connect ist nie ein legitimer Pulse-Use-Case. */
-function isValidFqdn(hostname: string): boolean {
+export function isValidFqdn(hostname: string): boolean {
   // Block decimal IPv4 (e.g. 192.168.1.1).
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) return false;
   // Block hex-encoded IPv4 (e.g. 0x7f.0.0.1 → 127.0.0.1).
