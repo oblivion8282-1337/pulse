@@ -397,7 +397,6 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
             await fan_out_dm_push(
                 recipient_id=recipient_id,
                 author_name=user.username,
-                content=content,
                 channel_id=cid_int,
                 message_id=persisted.id,
             )

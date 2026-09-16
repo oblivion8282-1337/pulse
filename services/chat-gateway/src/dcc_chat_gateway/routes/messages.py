@@ -344,7 +344,6 @@ async def post_message(
             await fan_out_dm_push(
                 recipient_id=recipient_id,
                 author_name=current.username,
-                content=payload.content,
                 channel_id=channel_id,
                 message_id=msg.id,
             )
