@@ -354,7 +354,6 @@ async def fan_out_dm_push(
     *,
     recipient_id: int,
     author_name: str,
-    content: str,
     channel_id: int,
     message_id: int,
 ) -> None:
@@ -364,11 +363,16 @@ async def fan_out_dm_push(
     covers the tab-closed case. ``guild_id: None`` makes the SW route the
     click to ``/app/@me/<channel_id>``. DND is honoured SW-side; the per-type
     ``onDM`` toggle gates the in-page path (matching mention push).
+
+    Security-Audit 2026-09-16: ``body`` ist inhaltsfrei. Der Push-Dienst
+    (Drittanbieter) sah bisher den Klartext der DM — dieselbe Information wie
+    im verschlüsselten Postfach-Weg (``fan_out_dm_push_encrypted``), das
+    Absender und Kanal nennt, aber nie Inhalt.
     """
     payload = {
         "type": "dm",
         "title": author_name or "Pulse",
-        "body": _make_snippet(content),
+        "body": "Neue Direktnachricht",
         "channel_id": str(channel_id),
         "message_id": str(message_id),
         "guild_id": None,

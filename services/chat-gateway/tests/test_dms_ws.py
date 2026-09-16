@@ -232,7 +232,9 @@ async def test_ws_dm_send_triggers_web_push(ws_app, _auth_signer, monkeypatch):
             assert len(calls) == 1
             call = calls[0]
             assert call["recipient_id"] == uid_b
-            assert call["content"] == "push me"
+            # Security-Audit 2026-09-16: der Push ist inhaltsfrei — der
+            # Inhalt reist nicht mehr bis zum Push-Dienst.
+            assert "content" not in call
             assert call["channel_id"] == int(dm_id)
 
     await asyncio.to_thread(_run)
