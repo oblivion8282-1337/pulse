@@ -245,6 +245,24 @@ async def test_smtp(
             ok=False, error="Host und Absender-Adresse müssen gesetzt sein."
         )
 
+    # Security-Audit 2026-09-16: der Test-Endpoint verbindet zu beliebigem
+    # Host:Port — für einen Admin legitim, aber interne Ziele (Redis, Postgres,
+    # Metadaten-Dienste) sind nie SMTP-Relays. Blockt die Netz-Scan-Primitive
+    # auf die DNS-Namen der internen Netze. ponytail: geprüft wird nur, ob der
+    # Name selbst ein IP-Literal in einem internen Netz ist; ein DNS-Name, der
+    # auf intern auflöst, geht durch (Auflösung hängt am Resolver des Hosts).
+    import ipaddress  # noqa: PLC0415
+    from dcc_auth.selfhost_probe import INTERNE_NETZE  # noqa: PLC0415
+
+    try:
+        ziel_ip = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        ziel_ip = None
+    if ziel_ip is not None and any(ziel_ip in netz for netz in INTERNE_NETZE):
+        return SmtpTestOut(
+            ok=False, error="Interne Adressen sind als SMTP-Ziel gesperrt."
+        )
+
     cfg = SmtpConfig(
         host=host,
         port=port,

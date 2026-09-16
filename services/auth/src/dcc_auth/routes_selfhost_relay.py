@@ -52,10 +52,18 @@ def _check_internal_secret(provided: str | None) -> None:
 @router.post("/selfhost/relay/auth", response_model=RelayAuthOut)
 async def relay_auth(
     body: RelayAuthIn,
+    request: Request,
     db: SessionDep,
     x_pulse_internal_secret: Annotated[str | None, Header()] = None,
 ) -> RelayAuthOut:
-    """Validiert eine Tunnel-Anmeldung des Relay-Dienstes."""
+    """Validiert eine Tunnel-Anmeldung des Relay-Dienstes.
+
+    Security-Audit 2026-09-16: rate-limitiert (wie der tls-check daneben) —
+    das Secret-Gate allein drosselt keine Bruteforce-Serien, wenn das Plugin
+    erreichbar ist. Die 401-Detailtexte sind absichtlich identisch: ``unknown
+    relay subdomain`` vs. ``invalid relay token`` verriete sonst, ob eine
+    Subdomain existiert (Enumeration)."""
+    await _check_rate(request, "relay_auth", get_settings().rate_limit_relay_tls_check)
     _check_internal_secret(x_pulse_internal_secret)
 
     inst = (
@@ -66,10 +74,11 @@ async def relay_auth(
         )
     ).scalar_one_or_none()
 
-    if inst is None or inst.relay_tunnel_token_hash is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="unknown relay subdomain")
-    if not hmac.compare_digest(hash_relay_token(body.token), inst.relay_tunnel_token_hash):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid relay token")
+    token_ok = inst is not None and inst.relay_tunnel_token_hash is not None and (
+        hmac.compare_digest(hash_relay_token(body.token), inst.relay_tunnel_token_hash)
+    )
+    if not token_ok:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid relay credentials")
     if inst.status != "active":
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="instance is not available")
 
