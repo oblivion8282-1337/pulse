@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -133,13 +134,27 @@ class DirectPathCorsMiddleware:
         self.app = app
         self.allowed_origins = allowed_origins
 
+    @staticmethod
+    def _sauberer_origin(origin: str) -> bool:
+        """Nur absolute http(s)-Ursprünge spiegeln (Audit 2026-09-16).
+
+        ``Origin: null`` (sandoboxed iframe, data:-URL) und unparsebares
+        Zeug werden NICHT gespiegelt — die Spiegelung mit Credentials ist
+        bewusst grosszuegig (Self-Host-Domaenen sind nicht enumerierbar),
+        aber sie soll wenigstens nur echte Web-Ursprünge bedienen.
+        """
+        if origin == "null":
+            return False
+        teile = urlsplit(origin)
+        return teile.scheme in ("http", "https") and bool(teile.hostname)
+
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or not _DIRECT_PATH_RE.match(scope.get("path", "")):
             return await self.app(scope, receive, send)
 
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         origin = headers.get("origin")
-        if not origin:
+        if not origin or not self._sauberer_origin(origin):
             return await self.app(scope, receive, send)
 
         cors_headers = [
@@ -185,7 +200,19 @@ class DirectPathCorsMiddleware:
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="dcc-auth", version="0.1.0", lifespan=lifespan)
+    # Security-Audit 2026-09-16: Schema-/Routen-Enumeration (/docs, /redoc,
+    # /openapi.json) ist Recon-Hilfe für Unbeteiligte — default ZU, per
+    # PULSE_DOCS=1 für Entwicklung wieder an.
+    _docs = "/docs" if __import__("os").environ.get("PULSE_DOCS") == "1" else None
+    _openapi = "/openapi.json" if _docs else None
+    app = FastAPI(
+        title="dcc-auth",
+        version="0.1.0",
+        lifespan=lifespan,
+        docs_url=_docs,
+        redoc_url=None,
+        openapi_url=_openapi,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,

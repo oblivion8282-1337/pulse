@@ -137,13 +137,20 @@ async def claim_ticket_jti(
     never burns the ticket. Uses ``SET NX EX`` (atomic) so two parallel replays of
     the same ticket can never both win.
 
-    Fail-open by design: this service treats Redis as optional (unit tests run
-    SQLite-only), and a missing ``jti`` (legacy ticket) or an
-    unreachable Redis must not lock users out. Production always has Redis, so the
-    single-use guard is live where it matters.
+    Fail-CLOSED seit dem Security-Audit 2026-09-16: früher erlaubte ein
+    ausgefallener Redis das WEITERE Nutzen eines bereits konsumierten Tickets
+    (Replay-Fenster über die Ticket-TTL) — ein abgefangenes MFA-/Challenge-
+    Ticket wäre dann innerhalb seiner 5 Minuten wiederspielbar gewesen. Ein
+    Login-Moment Verspätung ist der bessere Kompromiss als ein offener
+    Single-Use-Schutz. Ein fehlender ``jti`` (Legacy-Ticket) bleibt erlaubt —
+    daran hängt kein Single-Use-Versprechen. Statt still zu erlauben wirft
+    die Funktion ``SingleUseNichtPruefbar``; die Aufrufer melden 503.
     """
-    if not jti or not redis_url:
+    if not jti:
         return True
+    if not redis_url:
+        log.error("ticket single-use claim impossible (no redis URL); denying")
+        raise SingleUseNichtPruefbar("kein Redis für Ticket-Single-Use konfiguriert")
     try:
         from redis.asyncio import Redis
 
@@ -152,9 +159,14 @@ async def claim_ticket_jti(
             # ticket's own lifetime (no point keeping it past expiry).
             claimed = await r.set(f"{key_prefix}{jti}", "1", nx=True, ex=ttl_seconds)
             return bool(claimed)
-    except Exception:  # noqa: BLE001 — Redis down must not break login (fail-open)
-        log.warning("ticket single-use claim failed (Redis); allowing", exc_info=True)
-        return True
+    except Exception as exc:  # noqa: BLE001 — Redis down muss sperren, nicht öffnen
+        log.error("ticket single-use claim failed (Redis); denying", exc_info=True)
+        raise SingleUseNichtPruefbar("Ticket-Single-Use nicht prüfbar (Redis)") from exc
+
+
+class SingleUseNichtPruefbar(Exception):
+    """Der Single-Use-Claim konnte nicht durchgesetzt werden — Aufrufer muss
+    die Anmeldung mit 503 verweigern, statt das Ticket schlau weiterzureichen."""
 
 
 async def claim_mfa_ticket(redis_url: str | None, jti: str | None, ttl_seconds: int) -> bool:
