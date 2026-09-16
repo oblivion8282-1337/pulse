@@ -447,6 +447,7 @@ async def _read_token_fuer(
     channel_id: str,
     user_id: str,
     slot: int,
+    ttl_max_s: int | None = None,
 ) -> str:
     """Das WHEP-Lese-Token fuer genau ein (Zuschauer, Kanal, Streamer, Platz).
 
@@ -465,6 +466,9 @@ async def _read_token_fuer(
     hier herauskommt, muss der Bann in chat-gateway finden koennen.
     """
     s = get_settings()
+    ttl = s.read_token_ttl_s
+    if ttl_max_s is not None:
+        ttl = min(ttl, ttl_max_s)
     # Form in `dcc_shared.streaming` — chat-gateway loescht diese Schluessel
     # beim Bann, und zwei Fassungen davon waeren eine stille Fehlerquelle.
     cache_key = read_cache_key(viewer_id, channel_id, user_id, slot)
@@ -485,7 +489,7 @@ async def _read_token_fuer(
             cache_key,
             _TOKEN_PRAEFIX,
             read_record,
-            str(s.read_token_ttl_s),
+            str(ttl),
             secrets.token_urlsafe(32),
         )
     )
@@ -498,13 +502,15 @@ async def _whep_fuer_zuschauer(
     channel_id: str,
     user_id: str,
     slot: int,
+    ttl_max_s: int | None = None,
 ) -> WhepOut:
     """Der gemeinsame Rumpf beider WHEP-Routen (Mitglied und Gast).
 
     Der Zuschauer taucht nur als Schluessel-Bestandteil des Lese-Tokens auf
     (``read_cache_key``); ob dort eine Nutzer-ID oder eine Gast-Kennung steht,
     ist dieser Ebene gleich. Deshalb EIN Rumpf statt zweier Kopien, die beim
-    naechsten Nonce-/Pfad-Umbau auseinanderliefen.
+    naechsten Nonce-/Pfad-Umbau auseinanderliefen. ``ttl_max_s`` nutzt nur der
+    Gast-Weg, um das Lese-Token an die Ticket-Restlaufzeit zu ketten.
     """
     redis = _get_redis(request)
     raw = await redis.get(active_key(channel_id, user_id, slot))
@@ -517,7 +523,9 @@ async def _whep_fuer_zuschauer(
     if not isinstance(path, str) or not path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
     s = get_settings()
-    read_token = await _read_token_fuer(redis, zuschauer_id, channel_id, user_id, slot)
+    read_token = await _read_token_fuer(
+        redis, zuschauer_id, channel_id, user_id, slot, ttl_max_s=ttl_max_s
+    )
     base = s.mediamtx_public_base.rstrip("/")
     return WhepOut(
         whep_url=f"{base}/{path}/whep?token={read_token}",
@@ -556,12 +564,21 @@ async def get_whep_url_gast(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="ticket is for another channel")
     if await ist_gesperrt(_get_redis(request), gast.gast_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="removed from the meeting")
+    # Lese-Token an die Ticket-Restlaufzeit ketten (Bughunt 2026-09-16,
+    # Runde 2): mit der fixen 1-h-TTL ueberlebte die WHEP-URL das Ticket um
+    # bis zu eine Stunde — /gast/token klemmt genau so, dieser Weg tat es
+    # nicht. Restlaufzeit <= 0 (Race zwischen exp-Check und hier): nichts
+    # mehr ausstellen.
+    restlaufzeit = gast.exp - int(time.time())
+    if restlaufzeit <= 0:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="ticket expired")
     return await _whep_fuer_zuschauer(
         request,
         zuschauer_id=gast.gast_id,
         channel_id=channel_id,
         user_id=user_id,
         slot=slot,
+        ttl_max_s=restlaufzeit,
     )
 
 
