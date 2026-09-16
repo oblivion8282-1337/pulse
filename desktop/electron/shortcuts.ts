@@ -26,13 +26,37 @@ import { ipcMain, globalShortcut, BrowserWindow } from 'electron';
 
 type Binding = { id: string; accelerator: string };
 
+/** Security-Audit 2026-09-16: Accelerator-Form erzwingen, bevor irgendetwas
+ *  registriert wird. Die Renderer-Seite wandelt Combos selbst um
+ *  (`web/src/lib/shortcuts/format.ts::comboToAccelerator`), aber der Kanal
+ *  nimmt beliebige Strings an. Diese Gestalt-Prüfung ist das exakte Abbild
+ *  dessen, was der Renderer erzeugen kann — wer sie erweitert, erweitert
+ *  BEIDE Seiten (dort ACCEL_KEY/punctuation, hier TASTE). */
+const MODIFIERS = new Set([
+  'CommandOrControl', 'CmdOrCtrl', 'Command', 'Cmd', 'Meta', 'Super',
+  'Control', 'Ctrl', 'Alt', 'Option', 'Shift',
+]);
+const TASTE = /^(F(1[0-9]|2[0-4]|[1-9])|[A-Z0-9]|[,./;'`[\]\=+\-]|Space|Tab|CapsLock|NumLock|ScrollLock|Backspace|Delete|Insert|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|Pause|PrintScreen|ContextMenu|Backquote|Numpad[0-9]|NumpadAdd|NumpadSubtract|NumpadMultiply|NumpadDivide|NumpadDecimal|NumpadEnter)$/;
+
+function istGueltigerAccelerator(acc: string): boolean {
+  const teile = acc.split('+').map((t) => t.trim()).filter(Boolean);
+  if (teile.length === 0 || teile.length > 4) return false;
+  const taste = teile[teile.length - 1];
+  if (!TASTE.test(taste)) return false;
+  return teile.slice(0, -1).every((m) => MODIFIERS.has(m));
+}
+
 function sanitise(list: unknown): Binding[] {
   if (!Array.isArray(list)) return [];
   const out: Binding[] = [];
   for (const item of list) {
     if (!item || typeof item !== 'object') continue;
     const { id, accelerator } = item as Record<string, unknown>;
-    if (typeof id === 'string' && typeof accelerator === 'string' && accelerator.length > 0) {
+    if (
+      typeof id === 'string' &&
+      typeof accelerator === 'string' &&
+      istGueltigerAccelerator(accelerator)
+    ) {
       out.push({ id, accelerator });
     }
   }
