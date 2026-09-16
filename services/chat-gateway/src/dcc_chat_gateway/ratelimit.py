@@ -22,6 +22,10 @@ _RULES: dict[str, tuple[int, float]] = {
     "friend_request": (10, 3600.0), # 10 friend requests / hour
     "community_invite": (30, 3600.0), # 30 community invites / hour (per inviter)
     "member_invite": (10, 3600.0),  # 10 Nutzername-Einladungen / Stunde (pro Absender)
+    # Klassische Invite-Codes (Bughunt 2026-09-16, Runde 2): jeder Call legt
+    # eine DB-Zeile OHNE Aufräum-Pfad an, und CREATE_INVITES ist Default-
+    # Permission — ohne Bremse fuellt ein Member-Skript guild_invites endlos.
+    "invite": (30, 3600.0),         # 30 Invite-Codes / Stunde (pro Erzeuger)
     "report": (10, 3600.0),         # 10 reports / hour
     # 20 Gast-Links / Stunde (pro Erzeuger). MOVE_MEMBERS haelt nur, wem man
     # ohnehin vertraut — die Bremse steht gegen ein durchgedrehtes Skript,

@@ -20,6 +20,7 @@ from dcc_chat_gateway.models import (
     GuildMember,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import publish_guild_event
 from dcc_chat_gateway.schemas import (
     CreateInviteIn,
@@ -201,6 +202,11 @@ async def create_invite(
     session: SessionDep,
     current: CurrentUser,
 ):
+    # Bremse vor den Permission-Checks (Muster: member_invites) — jeder Call
+    # schreibt eine DB-Zeile ohne Aufräum-Pfad, und das Recht hat jeder Member
+    # per Default (Bughunt 2026-09-16, Runde 2).
+    if not ratelimit_check("invite", current.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded")
     await check_permission(
         session, current, guild_id, Permissions.CREATE_INVITES
     )
