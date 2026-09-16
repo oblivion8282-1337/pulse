@@ -39,29 +39,13 @@
       })();
     </script>
     <!--
-      CSP for dev/SPA. In production, set this via Caddy response headers instead
-      (more flexible and not bypassable by meta-tag injection).
-      style-src unsafe-inline: required by Tailwind v4 + shadcn-svelte inline styles.
-      script-src unsafe-inline + unsafe-eval: required by Vite dev HMR and SvelteKit SSR bootstrap.
-      script-src blob:: the RNNoise noise-suppression AudioWorklet is loaded from a blob: URL
-      (AudioWorklet module loading falls back to script-src/script-src-elem in Chrome).
-      script-src + frame-src youtube.com / twitch.tv: watch-party players load
-      https://www.youtube.com/iframe_api and https://embed.twitch.tv/embed/v1.js
-      on the parent page and embed iframes from the same origins (Twitch sandboxes
-      its player on https://player.twitch.tv).
-      media-src https: http://localhost:* http://127.0.0.1:*: NativeVideoPlayer attaches
-      cross-origin mp4/webm/m3u8 URLs to <video src>; the per-guild sound-override presigned
-      URLs point at the local MinIO (dev: http://localhost:9000). In prod the override
-      URLs are signed against the https: MediaMTX (already covered), so the http://localhost:*
-      entries are dev-only — the Caddy-set prod CSP can drop them.
-      connect-src http://localhost:* http://127.0.0.1:*: the HQ-stream WHEP player POSTs its
-      SDP offer to the local MediaMTX (dev: http://localhost:8889/channel-<id>/whep). In prod
-      that endpoint is https://stream.unicutmedia.com (already covered by https:), so these
-      http://localhost:* entries are dev-only — the Caddy-set prod CSP can drop them.
-      connect-src stun:/turn:: WebRTC ICE servers for the WHEP RTCPeerConnection.
-      In production, tighten via Caddy response headers (nonce/hash, drop unsafe-* and the http://localhost:* dev entries).
+      CSP-Hinweis (Security-Audit 2026-09-16): es gibt KEIN Meta-CSP mehr hier.
+      Produktion: header aus infra/prod/security-headers.inc (bzw. Self-Host-
+      Caddy) — ohne 'unsafe-inline'/'unsafe-eval' für Scripte; der FOUC-Inline-
+      Script oben läuft dort unter seinem sha256-Hash. Dev: vite.config.ts
+      setzt server.headers mit der grosszuegigeren Policy (Vite HMR braucht
+      unsafe-eval). Erläuterungen zu blob:/youtube/twitch/stun: stehen dort.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://www.youtube.com https://www.youtube-nocookie.com https://embed.twitch.tv; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https: http://localhost:* http://127.0.0.1:* stun: turn:; font-src 'self' data:; media-src 'self' blob: https: http://localhost:* http://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
     <title>Pulse</title>
     %sveltekit.head%
   </head>
