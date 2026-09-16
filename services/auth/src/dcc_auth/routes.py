@@ -8,22 +8,25 @@ import hashlib
 import ipaddress
 import uuid
 from datetime import UTC, datetime
-from time import monotonic
+from time import monotonic, time
 
 import jwt
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from dcc_shared.snowflake import INT64_MAX, INT64_MIN
 
 from dcc_auth.browser_sessions import (
     COOKIE_NAME,
+    REFRESH_COOKIE_NAME,
+    clear_refresh_cookie,
     clear_session_cookie,
     create_session,
+    set_refresh_cookie,
     set_session_cookie,
     user_and_session_from_cookie,
 )
@@ -145,6 +148,7 @@ async def _issue_tokens(
     ip_hash: str | None = None,
     session_id: uuid.UUID | str | None = None,
     vorgaenger: RefreshToken | None = None,
+    response: "Response | None" = None,
 ) -> TokensOut:
     """Zugriffs- + Refresh-Token ausstellen und die Refresh-Zeile schreiben.
 
@@ -165,6 +169,11 @@ async def _issue_tokens(
     Jeder ANDERE Aufrufer ist ein frischer Anmeldevorgang und laesst den
     Vorgaenger weg: dann beginnt hier eine neue Kette. Genau das ist der Punkt,
     an dem die Geraete eines Nutzers voneinander getrennt werden.
+
+    ``response`` gesetzt → der frische Refresh-Token wandert ZUSAETZLICH in den
+    HttpOnly-Refresh-Cookie (Audit 2026-09-16). Der Token im Antwort-Koerper
+    bleibt fuer Alt-Clients (Migration, Desktop) erhalten; der Klient hoert
+    neu auf, ihn dauerhaft zu speichern.
     """
     blocked = await _email_gate_blocked(session, user)
     access = signer.issue_access(
@@ -193,6 +202,9 @@ async def _issue_tokens(
     if vorgaenger is not None:
         vorgaenger.replaced_by = jti
     await session.flush()
+    if response is not None:
+        ttl = int(exp_ts - time())
+        set_refresh_cookie(response, refresh, ttl)
     return TokensOut(access_token=access, refresh_token=refresh)
 
 
@@ -245,8 +257,6 @@ async def _get_current_user(
     # --- Cookie path ---
     user, _row = await user_and_session_from_cookie(request, session)
     return user
-
-    raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
 
 
 @router.post("/register", response_model=TokensOut, status_code=status.HTTP_201_CREATED)
@@ -372,10 +382,16 @@ async def register(
     # so the server operator has a path into ``/app/admin`` without
     # needing to SQL-promote themselves. Counts include the row we just
     # flushed; ==1 means we are the only user in the database.
-    # Race-mode (two concurrent registrations both seeing count==1) is
-    # accepted — same trade-off Mastodon / Gitea / Forgejo make. On a
-    # public-facing first-deploy the operator registers in the same
-    # second as the docker stack comes up, so this is fine in practice.
+    # Security-Audit 2026-09-16: der Race zweier gleichzeitiger Erst-
+    # Registrierungen (beide sehen count==1 → zwei Admins) ist kein
+    # akzeptierter Trade-off mehr. Ein transaktions-lokaler Advisory-Lock
+    # serialisiert die Zählung atomar (Postgres; migrationsfrei). Auf dem
+    # SQLite-Test-Backend ist der Lock ein No-Op — dort ist alles Single-
+    # Writer, der Advisory-Lock-Kanal existiert schlicht nicht.
+    try:
+        await session.execute(text("SELECT pg_advisory_xact_lock(724011)"))
+    except Exception:  # noqa: BLE001 — SQLite u. a.: kein Advisory-Lock-Kanal
+        pass
     user_count = await session.scalar(select(func.count()).select_from(User))
     if user_count == 1:
         user.is_admin = True
@@ -404,6 +420,7 @@ async def register(
         user_agent=user_agent,
         ip_hash=_hash_ip(request),
         session_id=sid,
+        response=response,
     )
 
     # Auto-fire the verify-email so the new user finds a fresh link in their
@@ -509,6 +526,7 @@ async def login(
         user_agent=user_agent,
         ip_hash=_hash_ip(request),
         session_id=sid,
+        response=response,
     )
     await session.commit()
     set_session_cookie(response, sid)
@@ -624,17 +642,51 @@ async def _strongest_session_context(
     return amr, acr
 
 
+def _refresh_cookie_loeschen_401(detail: str) -> HTTPException:
+    """401, die den Refresh-Cookie im gleichen Zug löscht.
+
+    FastAPI verwirft bei ``HTTPException`` die Header des injizierten
+    ``Response``-Objekts — das ``Set-Cookie`` muss deshalb in der Exception
+    selbst reisen, sonst bliebe ein toter ``pulse_rt`` im Browser stehen.
+    """
+    toeter = Response()
+    clear_refresh_cookie(toeter)
+    cookie_header = toeter.headers.get("set-cookie", "")
+    headers = {"Set-Cookie": cookie_header} if cookie_header else None
+    return HTTPException(status.HTTP_401_UNAUTHORIZED, detail=detail, headers=headers)
+
+
 @router.post("/refresh", response_model=TokensOut)
 async def refresh(
     payload: RefreshIn,
     request: Request,
+    response: Response,
     session: SessionDep,
     signer: JwtSigner = Depends(get_signer),
     user_agent: str | None = Header(default=None, alias="User-Agent"),
 ):
+    # Zwei Wege zum selben Ausweis (Audit 2026-09-16): der Refresh-Token im
+    # Anfrage-Koerper (Alt-Klienten, Desktop) oder im HttpOnly-Cookie
+    # ``pulse_rt`` (Browser speichert ihn nicht mehr in JS-lesbarem Speicher).
+    # Der Cookie-Weg ist der bestmoegliche: JS kann den Token nicht lesen und
+    # ihn deshalb auch nicht exfiltrieren.
+    body_token = (payload.refresh_token or "").strip()
+    credential = body_token or request.cookies.get(REFRESH_COOKIE_NAME, "")
+    via_cookie = not body_token
+    if not credential:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="missing refresh credential"
+        )
     try:
-        decoded = signer.decode(payload.refresh_token, expected_type="refresh")
+        decoded = signer.decode(credential, expected_type="refresh")
     except jwt.PyJWTError as exc:
+        # Abgelaufener/ungueltiger Cookie: auch den Cookie selbst toeten,
+        # sonst reitet der Browser mit einem toten Ausweis jeden Request hier
+        # gegen die Wand. Bei HTTPException verwirft FastAPI die Header des
+        # injizierten Response-Objekts — das Loeschen reist deshalb IN der
+        # Exception.
+        if via_cookie:
+            raise _refresh_cookie_loeschen_401("invalid token") from exc
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
 
     try:
@@ -697,6 +749,35 @@ async def refresh(
                 rt, jetzt=now, nachgereicht=nachfolger.nachgereicht, ua_jetzt=user_agent
             )
             await session.commit()
+            nachfolger_token = signer.reissue_refresh(
+                user.id,
+                nachfolger.jti,
+                int(
+                    (
+                        nachfolger.expires_at
+                        if nachfolger.expires_at.tzinfo is not None
+                        else nachfolger.expires_at.replace(tzinfo=UTC)
+                    ).timestamp()
+                ),
+            )
+            # Cookie-Weg: der Token reist NUR im HttpOnly-Cookie — ein XSS im
+            # Ursprung kann Anfragen stellen, solange es laeuft, aber keinen
+            # dauerhaft nutzbaren Ausweis aus der Antwort exfiltrieren.
+            set_refresh_cookie(
+                response,
+                nachfolger_token,
+                ttl_s=max(
+                    1,
+                    int(
+                        (
+                            nachfolger.expires_at
+                            if nachfolger.expires_at.tzinfo is not None
+                            else nachfolger.expires_at.replace(tzinfo=UTC)
+                        ).timestamp()
+                    )
+                    - int(time()),
+                ),
+            )
             return TokensOut(
                 access_token=signer.issue_access(
                     user.id,
@@ -705,17 +786,7 @@ async def refresh(
                     is_owner=user.is_owner,
                     email_blocked=await _email_gate_blocked(session, user),
                 ),
-                refresh_token=signer.reissue_refresh(
-                    user.id,
-                    nachfolger.jti,
-                    int(
-                        (
-                            nachfolger.expires_at
-                            if nachfolger.expires_at.tzinfo is not None
-                            else nachfolger.expires_at.replace(tzinfo=UTC)
-                        ).timestamp()
-                    ),
-                ),
+                refresh_token="" if via_cookie else nachfolger_token,
             )
         # Nichts nachzureichen: entweder ist der Nachfolger im Umlauf und zwei
         # Parteien haben denselben Ausweis, oder diese Zeile wurde nie rotiert
@@ -734,7 +805,11 @@ async def refresh(
             ereignis=befund.ereignis,
         )
         await session.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
+        # Die Kette ist tot — ein Refresh-Cookie, der auf sie zeigt, muss mit
+        # sterben, sonst haemmert der Browser bei jedem Request gegen 401.
+        # (Header-IN-der-Exception, s. oben — das injizierte Response-Objekt
+        # ueberlebt eine HTTPException nicht.)
+        raise _refresh_cookie_loeschen_401("refresh token not active")
 
     # Rotate: revoke old, issue new — only now that the row is locked. The
     # rotated-out row keeps its original ``last_used_at`` (audit trail); the
@@ -753,8 +828,13 @@ async def refresh(
         ip_hash=_hash_ip(request),
         session_id=rt.session_id,
         vorgaenger=rt,
+        response=response,
     )
     await session.commit()
+    if via_cookie:
+        # Der frische Token steht im HttpOnly-Cookie (setzt _issue_tokens);
+        # im Koerper bleibt er weg — gleiche Begruendung wie beim Nachreichen.
+        tokens.refresh_token = ""
     return tokens
 
 
@@ -767,10 +847,15 @@ async def logout(
     signer: JwtSigner = Depends(get_signer),
 ):
     # --- Revoke refresh token (JWT path, optional) ---
+    # Ohne Body-Token (Browser im Cookie-Modus, Audit 2026-09-16) gilt der
+    # Ausweis aus dem Refresh-Cookie als der abzumeldende.
+    refresh_credential = (payload.refresh_token or "").strip() or request.cookies.get(
+        REFRESH_COOKIE_NAME, ""
+    )
     decoded = None
-    if payload.refresh_token:
+    if refresh_credential:
         try:
-            decoded = signer.decode(payload.refresh_token, expected_type="refresh")
+            decoded = signer.decode(refresh_credential, expected_type="refresh")
         except jwt.PyJWTError:
             decoded = None
 
@@ -814,6 +899,7 @@ async def logout(
         await session.commit()
 
     clear_session_cookie(response)
+    clear_refresh_cookie(response)
     return MessageOut(detail="ok")
 
 

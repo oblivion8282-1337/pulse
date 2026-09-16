@@ -324,3 +324,88 @@ async def test_batch_users_no_email_in_response(client):
     body = r.json()
     assert len(body) == 1
     assert "email" not in body[0]
+
+
+# --- Refresh-Cookie (Security-Audit 2026-09-16) -----------------------------
+# Der 30-Tage-Refresh-Token reist im HttpOnly-``pulse_rt``-Cookie statt im
+# localStorage des Browsers. Geprüft: Cookie bei Anmeldung gesetzt, /refresh
+# akzeptiert ihn als Credential (Token im Koerper bleibt dann LEER — nichts
+# Exfiltrierbares in der Antwort), tote Kette löscht den Cookie, Logout ohne
+# Body-Token widerruft die Cookie-Kette.
+
+
+@pytest.mark.asyncio
+async def test_login_setzt_refresh_cookie(client):
+    tokens = (await client.post("/register", json=REG_PAYLOAD)).json()
+    # Register schließt den Login ein — der Cookie muss am Response hängen.
+    # (Der Test-Client läuft http://,Secure-Cookies werden also nicht automatisch
+    # mitgeschickt — deshalb überall der explizite Cookie-Header wie bei den
+    # pulse_session-Tests.)
+    setc = client.cookies.get("pulse_rt", "")
+    assert setc, "pulse_rt-Cookie fehlt nach der Anmeldung"
+    # Und der Cookie ist genau der Token aus dem Koerper (dieser Pfad liefert
+    # ihn noch aus — Alt-Klienten-Migration).
+    assert setc == tokens["refresh_token"]
+
+
+def _cookie_header(client, name: str) -> dict[str, str]:
+    wert = client.cookies.get(name, "")
+    return {"Cookie": f"{name}={wert}"} if wert else {}
+
+
+@pytest.mark.asyncio
+async def test_refresh_mit_cookie_ohne_body_token(client):
+    await client.post("/register", json=REG_PAYLOAD)
+    cookie_token = client.cookies.get("pulse_rt")
+    assert cookie_token
+
+    r = await client.post("/refresh", json={}, headers=_cookie_header(client, "pulse_rt"))
+    assert r.status_code == 200, r.text
+    data = r.json()
+    # Cookie-Weg: der neue Token steht NUR im (rotierten) Cookie, nicht im
+    # Koerper — ein XSS kann ihn aus der Antwort nicht abgreifen.
+    assert data["refresh_token"] == ""
+    assert data["access_token"]
+    # Der Cookie wurde rotiert: der alte Wert ist als Credential verbraucht.
+    neu = client.cookies.get("pulse_rt")
+    assert neu not in (None, "", cookie_token)
+    # Ein zweiter Versuch mit dem ALTEN Wert im Body ist die Wiedervorlage-
+    # Logik (Nachreichen desselben Nachfolgers) — KEIN frischer Doppelzugriff.
+    r2 = await client.post("/refresh", json={"refresh_token": cookie_token})
+    assert r2.status_code == 200
+    assert r2.json()["refresh_token"] == client.cookies.get("pulse_rt")
+
+
+@pytest.mark.asyncio
+async def test_refresh_ohne_alles_401(client):
+    await client.post("/register", json=REG_PAYLOAD)
+    r = await client.post("/refresh", json={})
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_logout_ohne_body_widerruft_cookie_kette(client):
+    await client.post("/register", json=REG_PAYLOAD)
+    cookie_token = client.cookies.get("pulse_rt")
+    assert cookie_token
+
+    r = await client.post("/logout", json={}, headers=_cookie_header(client, "pulse_rt"))
+    assert r.status_code == 200
+    # Cookie weg ...
+    assert not client.cookies.get("pulse_rt")
+    # ... und die Kette hinter dem Cookie ist tot: der Token aus dem Cookie
+    # (im Body vorgelegt, wie ein Dieb es täte) kommt nicht mehr durch.
+    r2 = await client.post("/refresh", json={"refresh_token": cookie_token})
+    assert r2.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_kaputter_cookie_loescht_cookie(client):
+    await client.post("/register", json=REG_PAYLOAD)
+    r = await client.post(
+        "/refresh", json={}, headers={"Cookie": "pulse_rt=kein.jwt"}
+    )
+    assert r.status_code == 401
+    # Der Server fordert den Browser per Max-Age=0 zum Löschen auf.
+    alle = r.headers.get_list("set-cookie") if hasattr(r.headers, "get_list") else [r.headers.get("set-cookie", "")]
+    assert any("pulse_rt" in h and ("Max-Age=0" in h or "max-age=0" in h) for h in alle), alle

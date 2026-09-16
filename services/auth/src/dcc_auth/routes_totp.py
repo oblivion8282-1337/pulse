@@ -37,6 +37,7 @@ from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import BackupCode, User, WebAuthnCredential
 from dcc_auth.recovery import (
+    SingleUseNichtPruefbar,
     claim_mfa_ticket,
     decode_mfa_ticket,
     generate_backup_codes,
@@ -320,9 +321,17 @@ async def login_totp(
     # ticket can't be replayed (with the next valid TOTP code) to mint a second
     # token pair within the 5-min TTL. Claimed only after the factor verified, so
     # a mistyped code never burns the legitimate user's ticket.
-    if not await claim_mfa_ticket(
-        settings.redis_url, ticket_jti, settings.mfa_ticket_ttl_seconds
-    ):
+    try:
+        claimed = await claim_mfa_ticket(
+            settings.redis_url, ticket_jti, settings.mfa_ticket_ttl_seconds
+        )
+    except SingleUseNichtPruefbar as exc:
+        # Fail-closed (Audit 2026-09-16): ohne Redis kein Replay-Schutz —
+        # Anmeldung verweigern statt das Ticket weitergehen lassen.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="single-use store unavailable"
+        ) from exc
+    if not claimed:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
         )
@@ -354,6 +363,7 @@ async def login_totp(
         user_agent=user_agent,
         ip_hash=_hash_ip(request),
         session_id=sid,
+        response=response,
     )
     await session.commit()
     set_session_cookie(response, sid)

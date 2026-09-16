@@ -180,6 +180,44 @@ def clear_session_cookie(response: Response) -> None:
     )
 
 
+# ---- Refresh-Cookie (Security-Audit 2026-09-16) ---------------------------
+#
+# Der langlebige Refresh-Token gehoerte bis dato in den localStorage des Browsers
+# — jedes XSS konnte ihn exfiltrieren und die Rotation unbegrenzt reiten
+# (Audit 108/147, im Quelltext selbst dokumentiert). Er reist jetzt zusaetzlich/
+# stattdessen in einem eigenen HttpOnly-Cookie: JS kann ihn nicht lesen, und
+# ``/refresh`` rotiert ihn bei jedem Aufruf (Set-Cookie in der Antwort). Der
+# 30-Minuten-``pulse_session`` bleibt unangetastet — seine kurze Lebensdauer
+# ist ein bewusstes Step-up-Sicherheitsmerkmal und darf nicht mit der
+# 30-Tage-Refresh-Haltbarkeit vermischt werden.
+
+REFRESH_COOKIE_NAME = "pulse_rt"
+
+
+def set_refresh_cookie(response: Response, token: str, ttl_s: int) -> None:
+    """Den Refresh-Token als HttpOnly-Cookie setzen (Rotation/Anmeldung)."""
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=token,
+        max_age=ttl_s,
+        path="/",
+        httponly=True,
+        samesite="strict",
+        secure=True,
+    )
+
+
+def clear_refresh_cookie(response: Response) -> None:
+    """Den Refresh-Cookie löschen (Logout / tote Kette)."""
+    response.delete_cookie(
+        key=REFRESH_COOKIE_NAME,
+        path="/",
+        httponly=True,
+        samesite="strict",
+        secure=True,
+    )
+
+
 # ---- Cookie-Validierung -----------------------------------------------
 
 
