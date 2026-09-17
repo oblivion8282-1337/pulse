@@ -40,7 +40,14 @@ _DEV_SECRET = "devsecretdevsecretdevsecretdevsecret"
 # Placeholder aus infra/prod/.env.example — wer das File 1:1 deployed, darf
 # nicht still mit einem öffentlich bekannten "Secret" starten.
 _PLACEHOLDER_SECRET = "__CHANGE_ME__"
-_LOCAL_LIVEKIT_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
+# KEIN host.docker.internal hier (Bughunt 2026-09-16, Runde 2): der Eintrag
+# liess Custom-Deployments, in denen voice-signaling im Container lief und
+# LiveKit auf dem Host, still mit den oeffentlichen Dev-Keys starten — jeder
+# Kenner konnte Webhook-Signaturen faelschen. Offizielle Wege pruefen sich
+# als unberuehrt: dev-up.fish nutzt localhost, Self-Host rendert echte Keys
+# und wss://<hostname>/livekit. Wer containerized dev macht, setzt ein
+# eigenes Key-Paar in BEIDE Dienste (eine Env-Zeile).
+_LOCAL_LIVEKIT_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 from dcc_voice_signaling.routes import router
 from dcc_voice_signaling.webhook import router as webhook_router
 

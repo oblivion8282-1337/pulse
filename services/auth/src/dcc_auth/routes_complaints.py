@@ -11,7 +11,6 @@ Schemas + lookup/enrichment helpers live in ``complaints_support.py``.
 
 from __future__ import annotations
 
-import hmac
 import logging
 import smtplib
 from datetime import UTC, datetime
@@ -23,7 +22,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from dcc_auth.security import JwtSigner, get_signer
+from dcc_auth.security import JwtSigner, constant_time_eq, get_signer
 
 from dcc_auth import config as _config
 from dcc_auth.complaints_support import (
@@ -71,7 +70,7 @@ def _check_internal_secret(provided: str | None) -> None:
             status.HTTP_401_UNAUTHORIZED,
             detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
         )
-    if not provided or not hmac.compare_digest(provided, expected):
+    if not provided or not constant_time_eq(provided, expected):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret"
         )

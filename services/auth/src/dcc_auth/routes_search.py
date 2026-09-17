@@ -17,7 +17,6 @@ mirror that keeps ``auth.users.discoverable`` in sync with
 
 from __future__ import annotations
 
-import hmac
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -28,6 +27,7 @@ import dcc_auth.config as _config
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.routes import _check_rate, _get_current_user
+from dcc_auth.security import constant_time_eq
 from dcc_auth.schemas import UserSummary
 
 router = APIRouter()
@@ -126,7 +126,7 @@ async def _check_internal_secret(request: Request, provided: str | None) -> None
             status.HTTP_401_UNAUTHORIZED,
             detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
         )
-    if not provided or not hmac.compare_digest(provided, expected):
+    if not provided or not constant_time_eq(provided, expected):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret"
         )

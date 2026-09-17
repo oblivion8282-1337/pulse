@@ -132,13 +132,19 @@ async def disconnect_from_voice(
         # sperren und ihm das Zuschauen kappen. Der Gast-Hash nennt den
         # Kanal seines Tickets; weicht er vom Pfad-Kanal ab, ist der
         # Aufrufer nicht in dem Kanal, in dem der Gast sitzt → abweisen.
+        # Fail-closed auch bei FEHLENDEM Hash (Bughunt 2026-09-16, Runde 2):
+        # der Hash lebt genau so lange wie das Ticket — fehlt er, ist das
+        # Ticket abgelaufen (der Gast kommt eh nicht mehr rein) oder Redis
+        # war geflusht. Beides darf keine globale 4-h-Sperre von fremden
+        # Mods erlauben; ein legitimer Kick betrifft stets einen Gast mit
+        # laufendem Ticket, und der hat den Hash.
         ticket_kanal = await redis.hget(
             gaeste.GAST_KEY.format(gast_id=user_id), "channel_id"
         )
         ticket_kanal = (
             ticket_kanal.decode() if isinstance(ticket_kanal, bytes) else ticket_kanal
         )
-        if ticket_kanal is not None and ticket_kanal != channel_id:
+        if ticket_kanal != channel_id:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 detail="guest is in another channel",
