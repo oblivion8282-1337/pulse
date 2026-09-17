@@ -72,6 +72,24 @@ describe('Ablage-Nutzlast: Wire wird Bestand', () => {
 		assert.deepEqual(gelesen, nachricht);
 	});
 
+	it('trägt die kanonische kryptoId durch den Rundlauf — und lässt sie absent, wenn fehlt', () => {
+		// Mit krypto_id: das Merkmal überlebt Kodieren und Lesen — ohne es
+		// erkennt der Wiederherstellungs-Leser die Kopie des anderen Geräts
+		// nicht und die Nachricht erscheint doppelt (Frischgerät + Sicherung).
+		const mit = ausWire(wireNachricht({ krypto_id: 'kanon-42' }));
+		assert.equal(mit.kryptoId, 'kanon-42');
+		const gelesen = leseNachricht(kodiereNachricht(mit));
+		assert.equal(gelesen.kryptoId, 'kanon-42');
+
+		// Ohne krypto_id: Feld bleibt absent, und der JSON-Bestand ist
+		// byte-identisch mit dem Stand vor der Erweiterung (Fassung 1).
+		const ohne = ausWire(wireNachricht());
+		assert.ok(!('kryptoId' in ohne));
+		const bytes = kodiereNachricht(ohne);
+		assert.ok(!new TextDecoder().decode(bytes).includes('kryptoId'));
+		assert.ok(!('kryptoId' in leseNachricht(bytes)));
+	});
+
 	it('stößt fremde Fassungen und unvollständige Sätze raus', () => {
 		const fremd = kodiereNachricht({ ...ausWire(wireNachricht()), fassung: 99 });
 		assert.throws(() => leseNachricht(fremd), NutzlastFehler);

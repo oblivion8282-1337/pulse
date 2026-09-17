@@ -39,6 +39,13 @@ export interface AblageNachricht {
 	 *  Der Stein trägt nur die Id — Inhalt/Autor bleiben leer. Ältere Container
 	 *  kennen das Feld nicht; der Parser liest es tolerant. */
 	geloescht?: boolean;
+	/** Die geraeteuebergreifende Autor-ID (`Message.krypto_id`). Jedes Gerät
+	 *  legt dieselbe logische Nachricht unter seiner EIGENEN lokalen Id ab
+	 *  (Autor-Id bzw. Zustellungs-Id) — ohne dieses Merkmal erkennt der
+	 *  Wiederherstellungs-Leser die Kopie des anderen Geräts nicht und die
+	 *  Nachricht erscheint doppelt. Tolerant gelesen wie `geloescht`; Bestände
+	 *  vor der Erweiterung tragen das Feld nicht (Fassung bleibt 1). */
+	kryptoId?: string;
 }
 
 export class NutzlastFehler extends Error {
@@ -68,6 +75,7 @@ export function ausWire(m: Message): AblageNachricht {
 			mime: dauerhaft.mime,
 			groesse: dauerhaft.size,
 		})),
+		...(m.krypto_id ? { kryptoId: m.krypto_id } : {}),
 	};
 }
 
@@ -86,6 +94,9 @@ export function kodiereNachricht(n: AblageNachricht): Uint8Array {
 			// Nur der Grabstein trägt das Feld — normaler Bestand bleibt
 			// byte-identisch zum Feldstand vor der Grabstein-Erweiterung.
 			geloescht: n.geloescht ? true : undefined,
+			// Dasselbe Spiel: absent bleibt absent, das JSON alter Bestände
+			// wird um kein Byte verändert.
+			kryptoId: n.kryptoId || undefined,
 		}),
 	);
 }
@@ -115,6 +126,9 @@ export function leseNachricht(bytes: Uint8Array): AblageNachricht {
 	if (roh.geloescht !== undefined && typeof roh.geloescht !== 'boolean') {
 		throw new NutzlastFehler('geloescht ist kein Boolean');
 	}
+	if (roh.kryptoId !== undefined && typeof roh.kryptoId !== 'string') {
+		throw new NutzlastFehler('kryptoId ist kein String');
+	}
 	const anhaenge = roh.anhaenge.map((a) => {
 		const anhang = a as Record<string, unknown>;
 		if (typeof anhang.id !== 'string' || typeof anhang.groesse !== 'number') {
@@ -142,5 +156,6 @@ export function leseNachricht(bytes: Uint8Array): AblageNachricht {
 		// Absent bleibt absent (weder `false` noch ein undefined-Schlüssel) —
 		// der Rundlauf einer normalen Nachricht ergibt wieder dasselbe Objekt.
 		...(roh.geloescht === true ? { geloescht: true } : {}),
+		...(typeof roh.kryptoId === 'string' ? { kryptoId: roh.kryptoId } : {}),
 	};
 }

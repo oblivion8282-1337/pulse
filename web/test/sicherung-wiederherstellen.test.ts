@@ -178,3 +178,40 @@ test('beschädigtes Segment — wird übersprungen, Rest der Kette bleibt lesbar
 		'die lesbaren Segmente überleben',
 	);
 });
+
+test('zwei Geräte spiegeln dieselbe Nachricht — die kryptoId-Verngabelung liefert sie EINMAL', async () => {
+	const kanalId = 'kanal-a';
+	const dek = erzeugeDek();
+	const basis = speicherAdapter();
+	// Dasselbe Wort, gespiegelt von ZWEI Geräten: je eigene lokale Id
+	// (Empfangs-Id bzw. Autor-Id), dieselbe kanonische `kryptoId`.
+	const kopieA = ausWire({
+		id: '6001',
+		author_id: '100',
+		content: 'dasselbe Wort',
+		created_at: '2026-09-17T09:00:00Z',
+		edited_at: null,
+		reply_to_id: null,
+		attachments: [],
+		krypto_id: 'kanon-1',
+	} as unknown as Parameters<typeof ausWire>[0]);
+	const kopieB = { ...kopieA, id: '6002' };
+	const spiegelA = new SicherungsSpiegel(ordnerAdapter(basis, kanalId), dek, 'dev-aaaa1111-', {
+		verzoegerungMs: 10,
+		schwelle: 50,
+	});
+	const spiegelB = new SicherungsSpiegel(ordnerAdapter(basis, kanalId), dek, 'dev-bbbb2222-', {
+		verzoegerungMs: 10,
+		schwelle: 50,
+	});
+	spiegelA.aufnehmen(kanalId, [kopieA]);
+	spiegelB.aufnehmen(kanalId, [kopieB]);
+	await spiegelA.jetztSpuelen();
+	await spiegelB.jetztSpuelen();
+	spiegelA.beenden();
+	spiegelB.beenden();
+
+	const seite = await leseSicherungKanalSeite(ordnerAdapter(basis, kanalId), dek, {}, 50);
+	assert.equal(seite.eintraege.length, 1, 'eine logische Nachricht = ein Eintrag');
+	assert.equal(seite.eintraege[0]!.nachricht.kryptoId, 'kanon-1');
+});
