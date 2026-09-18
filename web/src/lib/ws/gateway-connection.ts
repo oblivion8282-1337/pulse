@@ -171,6 +171,8 @@ export class GatewayConnection {
   private forceRefreshNext = false;
   private _readyDone = false;
   private _preReadyBuffer: ServerEvent[] = [];
+  /** Ein `profile_statement_rejected`-Retry je Socket (s. profilStatementErneuern). */
+  private _profilRetryVersucht = false;
   private _readyPromise: Promise<void> | null = null;
   private _readyResolve: (() => void) | null = null;
   /** Letzter empfangener (roher) `ready`-Frame dieser Connection. Gecached für
@@ -290,6 +292,38 @@ export class GatewayConnection {
    */
   requestResync(): void {
     if (this._readyDone) this._sendRaw({ op: 'resync' });
+  }
+
+  /** Nach `profile_statement_rejected` (Server hat das mitgeschickte
+   *  Profil-Statement abgelehnt — typischerweise Signatur eines vor einer
+   *  Cloud-Schluesselerneuerung ausgestellten Statements, beobachtet
+   *  2026-09-18): frisches Statement von der Cloud holen, den Store ersetzen
+   *  und EINMAL auf DIESEM Socket nachschieben.
+   *
+   *  Schleifen-Schutz: ein Retry je Socket (`_profilRetryVersucht`, wird im
+   *  open-Pfad zurückgesetzt). Schlägt auch das neue Statement fehl, ist die
+   *  lokale Identität das Problem — der nächste Cert-Rotationszyklus bzw.
+   *  eine Neu-Anmeldung ist der Weg, nicht ein Retry-Sturm. */
+  async profilStatementErneuern(): Promise<void> {
+    if (this._profilRetryVersucht || this.state !== 'open') return;
+    this._profilRetryVersucht = true;
+    try {
+      const [{ getProfileStatement }, { profileStatementStore, parseStatementClaims }] =
+        await Promise.all([
+          import('$lib/api/credentials'),
+          import('$lib/identity/profile-statement.svelte'),
+        ]);
+      const resp = await getProfileStatement();
+      const claims = parseStatementClaims(resp.token);
+      if (!claims) return;
+      await profileStatementStore.setStatement({ raw: resp.token, claims });
+      if (this.state === 'open') {
+        this._sendRaw({ op: 'profile_statement', jwt: resp.token });
+      }
+    } catch {
+      // Best-effort — ohne frisches Statement bleibt der Profil-Cache
+      // des Servers halt alt; der naechste Connect versucht es erneut.
+    }
   }
 
   on(listener: WsListener): () => void {
@@ -450,10 +484,12 @@ export class GatewayConnection {
         for (const cid of this.subs) {
           this._sendRaw({ op: 'subscribe', channel_id: cid });
         }
-        // F19: Cloud-signiertes Profile-Statement pushen, damit der Server (v.a.
+        // F19: Cloud-signiertes Profile-Statement pushen damit der Server (v.a.
         // Self-Hosts) unseren Anzeige-Namen cachen kann (CachedUserProfile) —
         // sonst zeigt die Member-Liste/Voice-Kachel nur die rohe user-<id>.
-        // Best-effort; dyn. Import vermeidet einen Import-Zyklus.
+        // Best-effort; dyn. Import vermeidet einen Import-Zyklus. Der Retry-
+        // Guard für `profile_statement_rejected` wird je Socket zurückgesetzt.
+        this._profilRetryVersucht = false;
         void import('$lib/identity/profile-statement.svelte').then(({ profileStatementStore }) => {
           const raw = profileStatementStore.statement?.raw;
           if (raw && this.ws === ws) this._sendRaw({ op: 'profile_statement', jwt: raw });

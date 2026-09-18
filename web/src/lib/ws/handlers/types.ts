@@ -143,6 +143,7 @@ export type ServerEvent =
   | { op: 'channel_updated'; channel: ChannelPayload }
   | { op: 'channel_deleted'; guild_id: string; channel_id: string }
   | { op: 'channel_revealed'; channel: ChannelPayload }
+  | { op: 'profile_statement_rejected'; reason: string }
   | { op: 'channel_hidden'; guild_id: string; channel_id: string }
   | {
       op: 'channel_bump';
