@@ -218,8 +218,8 @@ export const chatApi = {
   },
 
   // Members
-  listMembers(guildId: string): Promise<Member[]> {
-    return request<Member[]>(`/guilds/${guildId}/members`);
+  listMembers(guildId: string, route: { serverId?: string } = {}): Promise<Member[]> {
+    return request<Member[]>(`/guilds/${guildId}/members`, {}, route);
   },
   /** Direct invite-by-id: adds a user to the guild by their numeric user ID.
    *  Backend gates on MANAGE_INVITES and rejects banned users. Idempotent. */
@@ -516,13 +516,17 @@ export const chatApi = {
   // Invites
   createInvite(
     guildId: string,
-    opts: { expiresInSeconds?: number; maxUses?: number; channelId?: string } = {}
+    opts: { expiresInSeconds?: number; maxUses?: number; channelId?: string } = {},
+    // ``route``: Server der Community — ohne ihn läuft der Invite-Mint auf den
+    // aktiven Server. Für das Freunde-Menü (Cross-Server: Community auf einem
+    // anderen Server als der gerade aktive) Pflicht, sonst 404.
+    route: { serverId?: string } = {}
   ): Promise<Invite> {
     const body: Record<string, unknown> = {};
     if (opts.expiresInSeconds !== undefined) body.expires_in_seconds = opts.expiresInSeconds;
     if (opts.maxUses !== undefined) body.max_uses = opts.maxUses;
     if (opts.channelId !== undefined) body.channel_id = opts.channelId;
-    return request<Invite>(`/guilds/${guildId}/invites`, { method: 'POST', body });
+    return request<Invite>(`/guilds/${guildId}/invites`, { method: 'POST', body }, route);
   },
   listInvites(guildId: string): Promise<Invite[]> {
     return request<Invite[]>(`/guilds/${guildId}/invites`);
