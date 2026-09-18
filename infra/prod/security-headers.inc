@@ -20,13 +20,13 @@
 # brauchen es nicht — nur Vite-HMR tat es). 'wasm-unsafe-eval' ist dafür neu
 # nötig: pulse-krypto läuft als WebAssembly, und CSP bindet WASM-Kompilierung
 # an script-src (das schlanke CSP3-Schlüsselwort dafür, nicht eval).
-# 'unsafe-inline' bleibt:
-# ponytail: SvelteKit bettet einen Bootstrap-Inline-Script ein, dessen
-# Hash sich mit JEDEM Build ändert (App-ID + Entry-Dateinamen); ein
-# statischer Hash im Header bräche bei jedem Deploy, und CSP ignoriert
-# 'unsafe-inline' komplett, sobald IRGENDEIN Hash daneben steht. Decke:
-# ein injectiertes Inline-Script läuft. Aufstieg: den Bootstrap-Hash beim
-# Build berechnen und in diesen Header templaten (Dockerfile/nginx-Step).
+# 'unsafe-inline' ist NUR in dieser Repo-Fassung drin: der Docker-Build
+# (web/Dockerfile, Stage builder) ersetzt es per web/scripts/csp-hash.mjs
+# gegen die sha256-Hashes der Inline-Scripts (FOUC-Guard + SvelteKit-
+# Bootstrap) aus dem jeweils frischen index.html — der Hash wandert also
+# mit jedem Build automatisch in den Header. Image-Fassung = ohne
+# 'unsafe-inline'. Wer diese Datei ohne den Templating-Schritt deployed,
+# fällt auf die Repo-Fassung zurück (Stand vor dem Security-Scan 2026-09-18).
 add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://www.youtube.com https://www.youtube-nocookie.com https://embed.twitch.tv; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https: stun: turn:; font-src 'self' data:; media-src 'self' blob: https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
 
 add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
