@@ -22,6 +22,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+from collections import defaultdict, deque
+from time import monotonic
 from typing import Any
 
 import httpx
@@ -59,9 +61,13 @@ async def bremse(redis: Any, schluessel: str, limit: int, fenster_s: int) -> boo
     Nutzer-ID und lebt im Prozess. Die Gast-Routen haben keine Nutzer-ID, und
     hinter mehreren Instanzen wäre ein Prozess-Zähler ein Zähler pro Instanz.
 
-    Fail-open bei Redis-Ausfall — wie die übrige Präsenzschicht. Eine
-    Ratenbremse, die bei Störung die Tür zumauert, verwandelt einen
-    Redis-Ausfall in einen Totalausfall der Besprechungen.
+    Fail-open nur noch, wenn GAR KEIN Redis konfiguriert ist (``None`` =
+    bewusste Dev-Konfiguration — wie die übrige Präsenzschicht; eine Bremse,
+    die bei Störung die Tür zumauert, verwandelt einen Redis-Ausfall in einen
+    Totalausfall der Besprechungen). Bei einem TRANSPORTFEHLER unterwegs
+    übernimmt stattdessen ein In-Prozess-Fenster dieselben Limits
+    (Security-Scan 2026-09-18): Der Ausfall darf Verfügbarkeit kosten, nicht
+    die Drossel der anonymen Code-Routen.
     """
     if redis is None:
         return True
@@ -79,7 +85,30 @@ async def bremse(redis: Any, schluessel: str, limit: int, fenster_s: int) -> boo
         await redis.expire(schluessel, fenster_s, nx=True)
         return n <= limit
     except Exception:  # noqa: BLE001 — Redis-Transportfehler
-        return True
+        return _bremse_lokal(schluessel, limit, fenster_s)
+
+
+# In-Prozess-Fallback für ``bremse`` (nur aktiv, während Redis down ist).
+# ponytail: Decke = prozesslokal, greift erst NACH dem Redis-Fehler — während
+# des Ausfalls neu startende Fenster sind weicher als sonst; Aufstieg = die
+# Gast-Routen an den Redis-Limiter anbinden, sobald es einen gibt.
+_fallback_zeiten: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _bremse_lokal(schluessel: str, limit: int, fenster_s: int) -> bool:
+    # Grobe Speicherdecke: der Schlüssel enthält Code-Hashes/IPs; im Ausfall-
+    # betrieb lieber alles verwerfen als endlos wachsen (fail-open ist der
+    # Zustand, aus dem der Fallback gerade rettet — ein Reset ist verkraftbar).
+    if len(_fallback_zeiten) > 4096:
+        _fallback_zeiten.clear()
+    fenster = _fallback_zeiten[schluessel]
+    jetzt = monotonic()
+    while fenster and jetzt - fenster[0] > fenster_s:
+        fenster.popleft()
+    if len(fenster) >= limit:
+        return False
+    fenster.append(jetzt)
+    return True
 
 
 async def erzeugung_bremse(redis: Any, user_id: int) -> bool:

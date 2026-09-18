@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
+from dcc_shared.singleworker import assert_single_worker
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.poller import run_poller
 from dcc_media_svc.routes import router
@@ -20,6 +21,9 @@ log = structlog.get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Security-Scan 2026-09-18: s. dcc_shared/singleworker.py — die Gast-Bremsen
+    # auf den internal-Routen leben in Prozess.
+    assert_single_worker("media-svc")
     settings = get_settings()
     redis: Redis | None = None
     poller_task: asyncio.Task | None = None

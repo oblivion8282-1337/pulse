@@ -36,6 +36,7 @@ from dcc_chat_gateway.routes.attachments import reaper_loop as attachments_reape
 from dcc_chat_gateway.suspend_poller import suspend_poller_loop
 from dcc_chat_gateway.voice_pull_cleanup import voice_pull_reaper_loop
 from dcc_shared.logging_setup import konfiguriere_logging
+from dcc_shared.singleworker import assert_single_worker
 
 log = logging.getLogger(__name__)
 
@@ -164,6 +165,9 @@ def _enforce_s3_secret_guard(settings) -> None:  # noqa: ANN001
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Security-Scan 2026-09-18: s. dcc_shared/singleworker.py — der chat-gateway
+    # trägt die meisten In-Prozess-Limiter (messages, invites, ablage …).
+    assert_single_worker("chat-gateway")
     settings = get_settings()
     # Fail fast: a self-host must have PULSE_INSTANCE_ID set to a non-zero value.
     # Without it every instance would compute the same pairwise-subs (DE 11 A.13).

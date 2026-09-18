@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 from dcc_voice_signaling.config import get_settings
 from dcc_voice_signaling.routes import chat_gateway as _chat_gateway
 from dcc_shared.logging_setup import konfiguriere_logging
+from dcc_shared.singleworker import assert_single_worker
 
 log = structlog.get_logger(__name__)
 
@@ -96,6 +97,9 @@ def _enforce_secret_guards(settings) -> None:  # noqa: ANN001
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Security-Scan 2026-09-18: s. dcc_shared/singleworker.py — der Token-Mint-
+    # Limiter lebt in Prozess.
+    assert_single_worker("voice-signaling")
     from livekit import api as lk
 
     settings = get_settings()

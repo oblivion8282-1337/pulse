@@ -7,6 +7,7 @@ import time
 import uuid
 
 import pytest
+from dcc_mediamtx_auth_hook import routes as hook_routes
 from dcc_mediamtx_auth_hook.shared import ACTIVE_KEY, TOKEN_KEY, active_key
 
 
@@ -496,3 +497,21 @@ async def test_null_string_fields_tolerated(client, redis):
         assert r.status_code == 200
     finally:
         await redis.delete(TOKEN_KEY.format(token=token))
+
+
+@pytest.mark.asyncio
+async def test_auth_endpoint_rate_limited(client):
+    """Security-Scan 2026-09-18: der Endpoint authentifiziert den Aufrufer
+    nicht (Loopback-Konvention) — wie beim relay-frps-plugin drosselt ein
+    In-Prozess-Fenster je Quell-IP die Flut (120/60s). Ab dem 121. Request
+    in derselben Minute kommt 429 statt eines weiteren Redis-Rounds."""
+    hook_routes._hook_zeiten.clear()  # Fenster ist Modul-Global — Isolation
+    try:
+        status = []
+        for _ in range(hook_routes._HOOK_LIMIT + 1):
+            r = await client.post("/", json=_body("api", ""))
+            status.append(r.status_code)
+        assert status[: hook_routes._HOOK_LIMIT] == [200] * hook_routes._HOOK_LIMIT
+        assert status[-1] == 429
+    finally:
+        hook_routes._hook_zeiten.clear()  # Folge-Tests starten mit leerem Fenster
