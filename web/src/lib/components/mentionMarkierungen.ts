@@ -32,3 +32,20 @@ export function parseMentionMarkers(content: string): Mention[] {
   if (/@(everyone|here)\b/.test(content)) add(2, '0');
   return out;
 }
+
+/** Die Mention-Hrefs, die der Server (beim verschluesselten Weg: der lokale
+ *  `parseMentionMarkers`-Parse) fuer DIESE Nachricht bestaetigt hat — der
+ *  DOMPurify-Hook in `messageRender.ts` pill-ifiziert NUR diese
+ *  (Security-Scan 2026-09-18): Ohne diese Menge erzeugt manuell getipptes
+ *  Markdown wie `[Admin](mention:user:123 "self")` eine echte Erwaehnungs-
+ *  Pille mit Angreifer-Text und self-Highlight. Rein wie
+ *  `parseMentionMarkers` oben, damit pruefbar. */
+export function bestaetigteMentionHrefs(mentions: Mention[]): Set<string> {
+  const hrefs = new Set<string>();
+  for (const m of mentions) {
+    if (m.type === 0) hrefs.add(`mention:user:${m.id}`);
+    else if (m.type === 1) hrefs.add(`mention:role:${m.id}`);
+    else hrefs.add('mention:everyone:0');
+  }
+  return hrefs;
+}
