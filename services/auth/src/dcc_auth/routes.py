@@ -944,14 +944,22 @@ async def jwks(signer: JwtSigner = Depends(get_signer)) -> dict:
 @router.get("/users", response_model=list[UserSummary])
 async def batch_users(
     ids: str,
+    request: Request,
     session: SessionDep,
     current: User = Depends(_get_current_user),
 ):
     """Batch-lookup users by Snowflake IDs (comma-separated, max 100).
 
     Returns only id/username/display_name/avatar_url — no email exposed.
-    Unknown IDs are silently omitted.
+    Unknown IDs are silently omitted. Rate-limited wie ``/users/search``
+    (Security-Scan 2026-09-18): ohne Drossel wäre das komplette
+    Nutzerverzeichnis per Snowflake-Walking harvestbar. Kein
+    ``discoverable``-Filter — siehe config.rate_limit_user_batch.
     """
+    settings = get_settings()
+    await _check_rate(
+        request, "user_batch", settings.rate_limit_user_batch, account=str(current.id)
+    )
     raw_ids = [s.strip() for s in ids.split(",") if s.strip()]
     if len(raw_ids) > 100:
         raise HTTPException(400, detail="too many ids (max 100)")
