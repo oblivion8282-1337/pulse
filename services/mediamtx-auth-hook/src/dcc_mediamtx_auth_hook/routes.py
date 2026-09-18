@@ -33,7 +33,9 @@ Policy:
 from __future__ import annotations
 
 import json
+from collections import defaultdict, deque
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -55,6 +57,26 @@ router = APIRouter()
 
 _EXCLUDED_ACTIONS = frozenset({"api", "metrics", "pprof"})
 _READ_ACTIONS = frozenset({"read", "playback"})
+
+# Security-Scan 2026-09-18: der authHTTP-Endpoint authentifiziert den Aufrufer
+# nicht (Loopback ist Konvention) und jeder Request löst Redis-GETs aus —
+# spiegelbildlich zum relay-frps-plugin (Bughunt Runde 2) drosselt ein
+# In-Prozess-Schiebefenster je Quell-IP die Flut. Per-Prozess genügt: der Hook
+# läuft als einzelner Uvicorn-Worker neben MediaMTX.
+_HOOK_LIMIT = 120       # Requests je Fenster
+_HOOK_FENSTER_S = 60.0
+_hook_zeiten: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _rate_ok(ip: str) -> bool:
+    jetzt = monotonic()
+    fenster = _hook_zeiten[ip]
+    while fenster and jetzt - fenster[0] > _HOOK_FENSTER_S:
+        fenster.popleft()
+    if len(fenster) >= _HOOK_LIMIT:
+        return False
+    fenster.append(jetzt)
+    return True
 
 
 class AuthRequest(BaseModel):
@@ -334,6 +356,8 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
 @router.post("/", status_code=status.HTTP_200_OK)
 @router.post("/auth", status_code=status.HTTP_200_OK)
 async def authenticate(req: AuthRequest, request: Request) -> Response:
+    if not _rate_ok(request.client.host if request.client else "?"):
+        raise HTTPException(status_code=429, detail="rate limited")
     redis = _get_redis(request)
     await _handle(req, redis)
     return Response(status_code=status.HTTP_200_OK)

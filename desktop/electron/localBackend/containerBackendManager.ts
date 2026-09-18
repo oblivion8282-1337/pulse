@@ -16,6 +16,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { app } from 'electron';
+
 import type { BootstrapCreds } from './pairing.ts';
 import { detectRuntime, ensureMachine, rtExec, type ContainerRuntime } from './containerRuntime.ts';
 import { waitFor, httpHealth } from './health.ts';
@@ -26,13 +28,23 @@ export const DEFAULT_IMAGE = 'registry.howispulse.com/pulse-allinone:edge';
 
 /** Dev/Test-Seam: `PULSE_HOST_IMAGE` zeigt auf ein lokal gebautes Image —
  *  dann entfallen Registry-Login + Pull (Dev-Instanz-Creds existieren im
- *  Prod-Registry-Realm nicht). Prod-Pfad bleibt der Default. */
+ *  Prod-Registry-Realm nicht). Prod-Pfad bleibt der Default.
+ *
+ *  Security-Scan 2026-09-18: Der Override greift NUR in ungepackten Builds
+ *  (Muster wie PULSE_URL in main.ts) — mit Env-Kontrolle über einen gepackten
+ *  Build liefe sonst ein Angreifer-Image als `pulse-host` und empfinge
+ *  Bootstrap-Creds/Relay-Token direkt in seinem Environment
+ *  (siehe `renderContainerEnv`). */
 export function resolveImage(env: Record<string, string | undefined> = process.env): {
   image: string;
   local: boolean;
 } {
   const override = env.PULSE_HOST_IMAGE;
-  return override ? { image: override, local: true } : { image: DEFAULT_IMAGE, local: false };
+  if (override && !app.isPackaged) return { image: override, local: true };
+  if (override) {
+    console.warn('[host] PULSE_HOST_IMAGE ignored in packaged build (developer-only override).');
+  }
+  return { image: DEFAULT_IMAGE, local: false };
 }
 
 /** Host-Port für den behind-proxy-HTTP des Containers (nur 127.0.0.1 —

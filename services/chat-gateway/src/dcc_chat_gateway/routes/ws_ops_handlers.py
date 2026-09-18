@@ -562,5 +562,20 @@ async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> Non
         # turned any verification failure into a reconnect→re-push→disconnect
         # loop and made the instance unusable, e.g. on a transient JWKS mismatch.)
         log.warning("profile_statement: invalid for user=%s: %s", ctx.user.id, exc)
+        # Dem Client die Ablehnung MELDEN. Ohne diese Rueckmeldung reichte
+        # derselbe Klient bei jeder (Re-)Verbindung dasselbe ungueltige
+        # Statement an — beobachtet 2026-09-18: ein Nutzer hing nach
+        # Cloud-Schluesselwechsel stundenlang auf einem vor der Rotation
+        # signierten Statement (~1 stumme Ablehnung je Reconnect; der
+        # 4h-Refresh aus DE 11 A.2 ist clientseitig noch nicht gebaut).
+        # Der Client invalidiert daraufhin, holt ein frisches Statement von
+        # der Cloud und schiebt einmal nach
+        # (gateway-connection.profilStatementErneuern).
+        try:
+            await ctx.websocket.send_json(
+                {"op": "profile_statement_rejected", "reason": "invalid_statement"}
+            )
+        except Exception:  # noqa: BLE001 — Socket im Abbau, Cue egal
+            pass
     except Exception:  # noqa: BLE001
         log.exception("profile_statement: unexpected error for user=%s", ctx.user.id)

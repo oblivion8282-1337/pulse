@@ -307,6 +307,23 @@ async def test_batch_users_too_many_ids(client):
 
 
 @pytest.mark.asyncio
+async def test_batch_users_rate_limited(client):
+    # Security-Scan 2026-09-18: /users?ids= war ungedrosselt — Snowflake-
+    # Walking hätte das Nutzerverzeichnis en masse harvesten können.
+    # 30/min pro IP wie user_search; der 429 darf auch vom engeren
+    # per-Account-Bucket (rate_limit_per_account, 10/min) kommen.
+    reg = (await client.post("/register", json=REG_PAYLOAD)).json()
+    token = reg["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    r = None
+    for _ in range(31):
+        r = await client.get("/users?ids=1", headers=headers)
+        if r.status_code == 429:
+            break
+    assert r is not None and r.status_code == 429
+
+
+@pytest.mark.asyncio
 async def test_batch_users_no_email_in_response(client):
     # Register two users, look up the second from the first's perspective.
     r1 = (await client.post("/register", json=REG_PAYLOAD)).json()

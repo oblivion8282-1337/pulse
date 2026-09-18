@@ -349,6 +349,65 @@ async def test_nur_ersteller_darf_die_adresse_ersetzen(client, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_owner_darf_besetzte_adresse_uebernehmen(client, _auth_signer):
+    """Security-Scan 2026-09-18: Das erste PUT gehoert design-gemaess dem,
+    der zuerst kommt — aber ein besetztes Laufwerk muss LOESBAR bleiben. Ein
+    Mitglieds-PUT „squat-tet“ den Kanal, der Guild-Owner darf uebersteuern
+    (und uebernimmt die Ersteller-Rolle); andere Mitglieder bleiben draussen."""
+    t_owner, _ = await _register_user(_auth_signer)
+    t_mitglied, uid_mitglied = await _register_user(_auth_signer)
+    t_dritter, uid_dritter = await _register_user(_auth_signer)
+
+    g = (await client.post("/guilds", json={"name": "g"}, headers=auth(t_owner))).json()
+    for uid in (uid_mitglied, uid_dritter):
+        r = await client.post(
+            f"/guilds/{g['id']}/members",
+            json={"user_id": str(uid)},
+            headers=auth(t_owner),
+        )
+        assert r.status_code in (200, 201), r.text
+    c = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "ablage-raum", "ablage": True},
+            headers=auth(t_owner),
+        )
+    ).json()
+
+    # Mitglied squat-t das Laufwerk (design-gemaess: erstes PUT gewinnt)
+    r = await client.put(
+        f"/channels/{c['id']}/ablage/laufwerk",
+        json={"freigabe_adresse": BASIS},
+        headers=auth(t_mitglied),
+    )
+    assert r.status_code == 204, r.text
+
+    # Ein anderes Mitglied darf nicht ersetzen
+    r = await client.put(
+        f"/channels/{c['id']}/ablage/laufwerk",
+        json={"freigabe_adresse": "https://andere.example/pub"},
+        headers=auth(t_dritter),
+    )
+    assert r.status_code == 403
+
+    # Der Owner uebersteuert und uebernimmt die Ersteller-Rolle …
+    r = await client.put(
+        f"/channels/{c['id']}/ablage/laufwerk",
+        json={"freigabe_adresse": "https://cloud.example/pub2"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 204, r.text
+
+    # … damit ist der Squatter raus
+    r = await client.put(
+        f"/channels/{c['id']}/ablage/laufwerk",
+        json={"freigabe_adresse": "https://andere.example/pub"},
+        headers=auth(t_mitglied),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_laufwerk_route_lehnt_nicht_ablage_kanal_ab(client, _auth_signer):
     t_owner, _ = await _register_user(_auth_signer)
     g = (await client.post("/guilds", json={"name": "g"}, headers=auth(t_owner))).json()

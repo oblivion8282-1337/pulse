@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { dev } from '$app/environment';
   import { onMount, onDestroy } from 'svelte';
+  import { istInAppZiel } from '$lib/notifications/pushZiel';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
@@ -111,8 +112,10 @@
     targetUrl?: string | null
   ): void {
     // Friend events carry an explicit in-app target (/app/friends); chat
-    // events build the channel URL from the ids.
-    if (targetUrl) {
+    // events build the channel URL from the ids. target_url comes from the
+    // push payload — validated as a same-origin in-app path before goto()
+    // (Security-Scan 2026-09-18, s. $lib/notifications/pushZiel.ts).
+    if (targetUrl && istInAppZiel(targetUrl)) {
       void goto(targetUrl);
       return;
     }

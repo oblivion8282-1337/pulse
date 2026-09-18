@@ -200,6 +200,19 @@ class Settings(BaseSettings):
     # ``users.discoverable`` (opt-out) so the limit is the second line of
     # defence, not the first.
     rate_limit_user_search: str = "30/minute"
+    # Batch-Aufloesung ``GET /users?ids=`` (Security-Scan 2026-09-18: war
+    # komplett ungedrosselt). Gleiches Budget wie user_search — drosselt
+    # ID-Walking (Snowflakes sind zeitgeordnet => Verzeichnis-Harvest).
+    # Bewusst KEIN discoverable-Filter wie bei der Suche: der Endpoint
+    # resolved im Frontend die Autoren-IDs aus geteilten Gilden/DMs fuer
+    # die Anzeige (userCache) — wer show_in_search abgewaehlt hat, darf
+    # dort weiter namentlich erscheinen. Das kontextlos-offene Pendant
+    # ist die Chat-CachedUserProfile-Route (gleiche Entscheidung).
+    # ponytail: Decke = 100 IDs/Request * 30/min pro IP (plus 10/min pro
+    # Account via rate_limit_per_account) — verlangsamt Ernte, verhindert
+    # sie nicht; Aufstieg = kontextgebundene Aufloesung (nur IDs aus
+    # gemeinsamen Gilden/DMs zulassen, Auth-svc kennt Memberships nicht).
+    rate_limit_user_batch: str = "30/minute"
     # Docker-Registry-Token-Realm (``GET /registry/token``). Der Docker-Daemon
     # holt pro Pull ein frisches Token (TTL 5 min) — 30/min/Instanz deckt
     # Pull-Spikes locker, blockt aber Brute-Force auf client_secrets.

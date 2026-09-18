@@ -235,7 +235,7 @@ const TARGET_ORIGIN = new URL(TARGET_URL).origin;
 // DevTools no longer pop open on launch. Set PULSE_DEVTOOLS=1 to auto-open them
 // (detached); otherwise Ctrl+Shift+I / F12 toggle them via the before-input-event
 // handler in createWindow (the default-menu accelerator is gone — menu removed).
-const OPEN_DEVTOOLS = process.env.PULSE_DEVTOOLS === '1';
+const OPEN_DEVTOOLS = process.env.PULSE_DEVTOOLS === '1' && !app.isPackaged;
 
 let mainWindow: BrowserWindow | null = null;
 // Discord-style: closing the window hides it (the tray stays). The only path
@@ -324,21 +324,31 @@ function createWindow(): void {
     }
     // Allow — no preload (browser-like popup, see did-create-window), but lift
     // the autoplay gate so a detached watch-party plays immediately, like the
-    // main window.
+    // main window. `preload: null` ERZWINGT „browser-like" ab sofort: Electron-
+    // Popups erben die webPreferences inklusive contextBridge-Preload — der
+    // frühere Kommentar nahm das Gegenteil an. Explicit null strips the bridge,
+    // damit ein Kind-Fenster nie `window.pulse` bekommt (Security-Scan
+    // 2026-09-18). Typing sagt `preload?: string` — die Runtime nimmt null als
+    // „kein Preload", der Cast umgeht nur die lückenhafte Typing.
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
-        webPreferences: { autoplayPolicy: 'no-user-gesture-required' },
+        webPreferences: {
+          autoplayPolicy: 'no-user-gesture-required',
+          preload: null as unknown as string,
+        },
       },
     };
   });
   // Electron creates the allowed popup at about:blank and — in this
   // Electron/Chromium build — does NOT auto-navigate it to the requested URL,
   // so detached stream/watch windows stayed blank (white). Force the load here.
-  // We deliberately do NOT give the child the contextBridge preload: the
-  // detached viewer needs nothing from `window.pulse`, and running it as a
-  // plain (browser-like, `isElectron()===false`) window matches the path that
-  // already works in a real browser. Re-apply the off-origin nav guard though.
+  // The child deliberately runs WITHOUT the contextBridge preload (stripped
+  // via `preload: null` in the window-open override above — Security-Scan
+  // 2026-09-18): the detached viewer needs nothing from `window.pulse`, and
+  // running it as a plain (browser-like, `isElectron()===false`) window
+  // matches the path that already works in a real browser. Re-apply the
+  // off-origin nav guard though.
   mainWindow.webContents.on('did-create-window', (child, { url }) => {
     if (url) void child.loadURL(url);
     child.webContents.on('will-navigate', (e, navUrl) => {
@@ -381,7 +391,10 @@ function createWindow(): void {
   // Reload + DevTools accelerators used to come from Electron's default menu,
   // which we remove (setApplicationMenu(null)) to hide the menu bar. Re-add just
   // those shortcuts via before-input-event so the bar stays gone but F5 / reload
-  // and the DevTools toggle work again.
+  // and the DevTools toggle work again. DevTools-Shortcuts NUR in ungepackten
+  // Builds (Security-Scan 2026-09-18): im Produktiv-Build gibt es kein F12/
+  // Ctrl+Shift+I — sonst inspiziert jeder lokale Nutzer (oder Renderer-
+  // Social Engineering) die `window.pulse`-Bridge per Tastendruck.
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     const wc = mainWindow?.webContents;
@@ -400,9 +413,10 @@ function createWindow(): void {
       event.preventDefault();
       wc.reloadIgnoringCache();
     } else if (
-      key === 'f12' ||
-      (mod && input.shift && key === 'i') || // Ctrl/Cmd+Shift+I (win/linux)
-      (input.meta && input.alt && key === 'i') // Cmd+Alt+I (macOS)
+      !app.isPackaged &&
+      (key === 'f12' ||
+        (mod && input.shift && key === 'i') || // Ctrl/Cmd+Shift+I (win/linux)
+        (input.meta && input.alt && key === 'i')) // Cmd+Alt+I (macOS)
     ) {
       event.preventDefault();
       wc.toggleDevTools();
@@ -1211,10 +1225,10 @@ function wireNetdiag(): void {
     // Security-Audit 2026-09-16: der Hostname muss einem FQDN/IP-Literal
     // entsprechen (denselben Regeln wie Deep-Links) und KEIN internes Ziel
     // nennen — sonst wäre der Kanal eine Portscan-/SSRF-Primitive gegen das
-    // eigene Netz (Docker-Bridge, Router, Cloud-Metadaten). ponytail: geprüft
-    // wird das LITERAL; ein öffentlicher Name, der per DNS auf eine private
-    // IP zeigt (Rebinding), geht durch — Aufstieg wäre Resolve-then-check in
-    // netdiag.ts vor jedem tcpConnect.
+    // eigene Netz (Docker-Bridge, Router, Cloud-Metadaten). Security-Scan
+    // 2026-09-18: auch das DNS-Rebinding-Loch ist zu — netdiag.ts prüft nach
+    // der Auflösung jede Adresse auf private Ranges (Resolve-then-check) und
+    // pinnt TLS/HTTP danach auf genau die geprüfte IP.
     let host: string;
     try {
       host = new URL(hostname).hostname.toLowerCase();

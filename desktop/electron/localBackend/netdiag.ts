@@ -60,6 +60,37 @@ function pruefeTcp(adresse: string, port: number): Promise<DiagSchritt> {
   });
 }
 
+/** True für Adressen, die nie Ziel der Diagnose sein dürfen (SSRF-Schutz).
+ *
+ * Security-Scan 2026-09-18 — resolve-then-check: der IPC-Kanal `netdiag:check`
+ * prüft im main.ts nur das LITERAL gegen interne Namen. Ein öffentlicher FQDN,
+ * der per DNS auf eine private IP zeigt (Rebinding, nip.io, Attacker-DNS),
+ * ging durch. Nach der Auflösung greift diese Prüfung auf JEDER Adresse des
+ * Ergebnisses. Exportiert für den Test (netbefund-Testmuster).
+ */
+export function istPrivateAdresse(adresse: string): boolean {
+  const ip = adresse.toLowerCase();
+  // v4-mapped (::ffff:10.0.0.1) auf das eingebettete v4 zurückführen
+  if (ip.startsWith('::ffff:')) return istPrivateAdresse(ip.slice('::ffff:'.length));
+  if (ip === '::1' || ip === '::') return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(ip)) return true; // fc00::/7 — Unique Local
+  if (/^fe[89ab][0-9a-f]:/.test(ip)) return true; // fe80::/10 — Link-Local
+  const teile = ip.split('.').map(Number);
+  if (teile.length === 4 && teile.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+    const [a, b] = teile;
+    return (
+      a === 0 || // "this network" — nie ein Server
+      a === 10 || // 10/8 privat
+      a === 127 || // Loopback
+      (a === 100 && b >= 64 && b <= 127) || // 100.64/10 CGNAT
+      (a === 169 && b === 254) || // Link-Local (Cloud-Metadaten!)
+      (a === 172 && b >= 16 && b <= 31) || // 172.16/12 privat
+      (a === 192 && b === 168) // 192.168/16 privat
+    );
+  }
+  return false;
+}
+
 /**
  * Liest das Zertifikat, ohne es zu akzeptieren.
  *
@@ -70,10 +101,14 @@ function pruefeTcp(adresse: string, port: number): Promise<DiagSchritt> {
  * Byte Nutzdaten; sie wird sofort geschlossen. Der HTTP-Schritt darunter läuft
  * mit voller Prüfung, und er ist der, dessen Ergebnis zählt.
  */
-function pruefeTls(host: string, port: number): Promise<DiagSchritt> {
+function pruefeTls(name: string, adresse: string, port: number): Promise<DiagSchritt> {
   return new Promise((resolve) => {
+    // Security-Scan 2026-09-18: verbunden wird auf die GEPRÜFTE Adresse
+    // (resolve-then-check in `diagnostiziere`), nicht erneut auf den Namen —
+    // sonst klaffe zwischen Prüfung und Handschlag ein zweites DNS-Query
+    // (Rebinding-Fenster). `servername` hält SNI und Validierung beim Namen.
     const sock = tlsConnect(
-      { host, port, servername: host, rejectUnauthorized: false, timeout: FRIST_MS },
+      { host: adresse, port, servername: name, rejectUnauthorized: false, timeout: FRIST_MS },
       () => {
         const zert = sock.getPeerCertificate() as {
           subject?: { CN?: string };
@@ -83,13 +118,13 @@ function pruefeTls(host: string, port: number): Promise<DiagSchritt> {
         const namen = zertifikatsNamen(zert);
         const bis = zert.valid_to ? Date.parse(zert.valid_to) : NaN;
         const befund = deuteZertifikat(
-          host,
+          name,
           {
             namen,
             gueltigBis: Number.isNaN(bis) ? null : bis,
             // `authorizationError` trägt den Code, den eine PRÜFENDE
             // Verbindung geliefert hätte — genau die Auskunft, die uns der
-            // abgebrochene Handschlag sonst vorenthielte.
+            // abgebrochene Handschlag sonst vorenthält.
             fehler: (sock.authorizationError as unknown as string) || null,
           },
           Date.now(),
@@ -107,12 +142,21 @@ function pruefeTls(host: string, port: number): Promise<DiagSchritt> {
   });
 }
 
-/** Vollständig geprüfter HTTPS-Abruf — das ist der Schritt, dessen Ergebnis zählt. */
-function pruefeHttp(hostname: string): Promise<DiagSchritt> {
+/** Vollständig geprüfter HTTPS-Abruf — das ist der Schritt, dessen Ergebnis
+ * zählt. Verbunden wird auf die geprüfte Adresse (Rebinding-Fenster zu, s.
+ * `pruefeTls`); SNI, Validierung und Host-Header bleiben beim Namen. */
+function pruefeHttp(url: URL, adresse: string, port: number): Promise<DiagSchritt> {
   return new Promise((resolve) => {
     const req = httpsRequest(
-      `${hostname}/health`,
-      { method: 'GET', timeout: FRIST_MS },
+      {
+        method: 'GET',
+        timeout: FRIST_MS,
+        hostname: adresse,
+        port,
+        servername: url.hostname,
+        path: '/health',
+        headers: { host: url.host },
+      },
       (res) => {
         res.resume(); // Körper verwerfen, sonst bleibt der Socket offen
         resolve({ schritt: 'http', ok: (res.statusCode ?? 0) < 400, status: res.statusCode });
@@ -155,21 +199,33 @@ export async function diagnostiziere(hostname: string): Promise<DiagSchritt[]> {
   schritte.push(dns);
   if (!dns.ok || dns.adressen.length === 0) return schritte;
 
+  // Security-Scan 2026-09-18 — resolve-then-check (löst den ponytail:-
+  // Aufstieg im main.ts-Handler ein): löst IRGENDEINE Adresse des Namens auf
+  // eine private Range auf, wird das Ziel wie ein internes behandelt und
+  // nicht mehr angefasst. Alle folgenden Schritte verbinden auf genau die
+  // geprüfte erste Adresse — ein zweites DNS-Query zwischen Prüfung und
+  // Verbindung gibt es nicht mehr.
+  const adresse = dns.adressen[0];
+  if (dns.adressen.some(istPrivateAdresse)) {
+    schritte.push({ schritt: 'tcp', ok: false, adresse, port, fehler: 'PRIVATE_ADDR' });
+    return schritte;
+  }
+
   // Nur die erste Adresse: eine zweite, die anders antwortet, ist ein eigenes
   // (seltenes) Thema und würde die Ausgabe hier nur verdoppeln.
-  const tcp = (await mitFrist(pruefeTcp(dns.adressen[0], port), FRIST_MS)) ?? {
-    schritt: 'tcp' as const, ok: false, adresse: dns.adressen[0], port, fehler: 'ETIMEDOUT',
+  const tcp = (await mitFrist(pruefeTcp(adresse, port), FRIST_MS)) ?? {
+    schritt: 'tcp' as const, ok: false, adresse, port, fehler: 'ETIMEDOUT',
   };
   schritte.push(tcp);
   if (!tcp.ok) return schritte;
 
   schritte.push(
-    (await mitFrist(pruefeTls(host, port), FRIST_MS)) ?? {
+    (await mitFrist(pruefeTls(host, adresse, port), FRIST_MS)) ?? {
       schritt: 'tls' as const, ok: false, befund: 'unbekannter-fehler', namen: [],
     },
   );
   schritte.push(
-    (await mitFrist(pruefeHttp(hostname), FRIST_MS)) ?? {
+    (await mitFrist(pruefeHttp(url, adresse, port), FRIST_MS)) ?? {
       schritt: 'http' as const, ok: false, fehler: 'ETIMEDOUT',
     },
   );

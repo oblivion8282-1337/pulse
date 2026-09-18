@@ -53,6 +53,7 @@ from dcc_auth.routes_totp import router as totp_router
 from dcc_auth.routes_webauthn import router as webauthn_router
 from dcc_auth.routes_webauthn_login import router as webauthn_login_router
 from dcc_shared.logging_setup import konfiguriere_logging
+from dcc_shared.singleworker import assert_single_worker
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +67,10 @@ konfiguriere_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Security-Scan 2026-09-18: ein zweiter Worker/Prozess würde alle
+    # In-Prozess-Rate-Limits (auch Login/TOTP-Brute-Force-Budgets) still
+    # vervielfachen — deshalb laut verweigern statt still verwässern.
+    assert_single_worker("auth")
     app.state.rate_buckets = {}
     settings = get_settings()
     # Fail-fast: der .env.example-Platzhalter ist öffentlich bekannt — damit zu

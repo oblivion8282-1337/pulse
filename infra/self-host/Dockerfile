@@ -178,6 +178,12 @@ COPY plugins/ plugins/
 COPY --from=wasm-build /build/krypto/pulse-krypto/pkg krypto/pulse-krypto/pkg
 RUN pnpm --filter @dcc/web build
 
+# CSP-Härtung (Security-Scan 2026-09-18): wie web/Dockerfile — das Caddyfile-
+# Template bekommt die Inline-Script-Hashes des frischen Builds statt
+# script-src 'unsafe-inline' (Details im Kopf von web/scripts/csp-hash.mjs).
+COPY infra/self-host/s6/etc/caddy/Caddyfile.template /tmp/Caddyfile.template
+RUN node web/scripts/csp-hash.mjs web/build/index.html /tmp/Caddyfile.template
+
 # ── Stage 2b ───────────────────────────────────────────────────────────────
 # direct-adapter (Rust): Direktpfad der Server-App — STUN-Discovery +
 # Telefonbuch-Heartbeat, später WebRTC-DataChannel⇄HTTP-Brücke.
@@ -399,6 +405,9 @@ COPY plugins/ /opt/pulse/plugins/
 
 # s6-overlay service definitions + cont-init scripts
 COPY infra/self-host/s6/ /
+# Caddyfile-Template mit den CSP-Script-Hashes aus dem Web-Build überlagern
+# (das s6-COPY darüber legt sonst die ungehashte Repo-Fassung ab).
+COPY --from=web-build /tmp/Caddyfile.template /etc/caddy/Caddyfile.template
 # Phase 6.B-Marker: Caddyfile + livekit.yaml templates + healthcheck script
 # will be populated by phase 6.B. For now we ship placeholder paths the s6
 # longrun-units reference (cont-init guards against missing config).

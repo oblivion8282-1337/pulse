@@ -22,7 +22,7 @@ import { userCache } from '$lib/stores/users.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { memberRoles } from '$lib/stores/memberRoles.svelte';
-import { parseMentionMarkers } from './mentionMarkierungen';
+import { parseMentionMarkers, bestaetigteMentionHrefs } from './mentionMarkierungen';
 
 // Re-Export fuer bestehende Aufrufer (`+page.svelte`-Optimistic-Echo,
 // `krypto/senden.ts`/`empfangen.ts`) — die eigentliche, testbare Rechnung
@@ -38,6 +38,15 @@ const ALLOWED_ATTR = ['href', 'title', 'target', 'rel', 'data-mention-type', 'da
 // One-time hook setup — DOMPurify is a singleton; we use removeAllHooks
 // instead of removeHook(name) so re-imports during HMR don't stack
 // duplicate hooks that all rewrite the same node.
+// Hrefs, deren Mention-Pille für den LAUFENDEN Render bestätigt ist — der
+// Hook prüft dagegen. Security-Scan 2026-09-18: Vorher pill-ifizierte der
+// Hook JEDE `mention:`-Verknüpfung, auch manuell getipptes Markdown wie
+// `[Admin](mention:user:123 "self")` — gefälschte Admin-/everyone-Erwähnung
+// inkl. self-Highlight. DOMPurify-Hooks sind Singleton-global, deshalb der
+// Modul-Zustand rund um den SYNCHRONEN sanitize()-Aufruf (Single-Threaded,
+// keine Überschneidung); im finally wieder geleert.
+let _erlaubteMentionHrefs: ReadonlySet<string> = new Set();
+
 let _hooksInstalled = false;
 function installHooks() {
   if (_hooksInstalled) return;
@@ -47,6 +56,12 @@ function installHooks() {
     if (node.tagName === 'A') {
       const href = node.getAttribute('href') ?? '';
       if (href.startsWith('mention:')) {
+        if (!_erlaubteMentionHrefs.has(href)) {
+          // Keine bestätigte Erwähnung: keine Pille, kein klickbares href,
+          // keine self-Markierung — der Link-Text bleibt als schlichter Text.
+          node.replaceWith(node.ownerDocument!.createTextNode(node.textContent ?? ''));
+          return;
+        }
         // Replace `<a href="mention:user:123">@name</a>` with a self-contained
         // `<span class="mention …">@name</span>`. We mutate in place because
         // DOMPurify hooks operate on the live DOM tree.
@@ -124,31 +139,31 @@ function isSelfMention(m: Mention): boolean {
  * them into `<span class="mention …">` pills.
  */
 function rewriteMentions(content: string, mentions: Mention[]): string {
-  // Build a lookup so we know which ids are *actually* mentions on the wire
-  // — anyone could type `<@123>` in their message; only the server-parsed
-  // list gets the pill treatment.
-  const userSet = new Set(mentions.filter((m) => m.type === 0).map((m) => m.id));
-  const roleSet = new Set(mentions.filter((m) => m.type === 1).map((m) => m.id));
-  const hasEveryone = mentions.some((m) => m.type === 2);
+  // Eine Quelle der Wahrheit für „ist das eine bestätigte Erwähnung": die
+  // Href-Menge. anyone could type `<@123>` in their message; only the
+  // server-parsed list gets the pill treatment — und der DOMPurify-Hook
+  // prüft dieselbe Menge noch einmal gegen manuell getippte
+  // `[text](mention:…)`-Links (Security-Scan 2026-09-18).
+  const erlaubt = bestaetigteMentionHrefs(mentions);
 
   let out = content;
   // Users: `<@123>`
   out = out.replace(/<@(\d+)>/g, (full, id: string) => {
-    if (!userSet.has(id)) return full;
+    if (!erlaubt.has(`mention:user:${id}`)) return full;
     const label = userMentionLabel(id);
     const self = isSelfMention({ type: 0, id }) ? ' "self"' : '';
     return `[${mdEscape(label)}](mention:user:${id}${self})`;
   });
   // Roles: `<@&456>`
   out = out.replace(/<@&(\d+)>/g, (full, id: string) => {
-    if (!roleSet.has(id)) return full;
+    if (!erlaubt.has(`mention:role:${id}`)) return full;
     const label = roleMentionLabel(id);
     const self = isSelfMention({ type: 1, id }) ? ' "self"' : '';
     return `[${mdEscape(label)}](mention:role:${id}${self})`;
   });
   // Everyone / here literals — only treat as mention pills if the server
   // confirmed the everyone-mention on this message.
-  if (hasEveryone) {
+  if (erlaubt.has('mention:everyone:0')) {
     out = out.replace(/@(everyone|here)\b/g, (_full, w: string) => {
       return `[${mdEscape('@' + w)}](mention:everyone:0 "self")`;
     });
@@ -196,19 +211,24 @@ export function renderMessage(content: string, mentions?: Mention[]): string {
   const pre = mentions && mentions.length > 0
     ? rewriteMentions(content, mentions)
     : content;
-  // marked emits `<p>…</p>`; `breaks: true` so single line-breaks become
-  // `<br>`, matching the legacy renderer's behaviour.
-  const html = marked.parse(pre, { breaks: true }) as string;
-  const withFlag = promoteSelfTitleToDataAttr(html);
-  return DOMPurify.sanitize(withFlag, {
-    ALLOWED_TAGS,
-    ALLOWED_ATTR,
-    // DOMPurify's built-in URI regexp drops the `mention:` scheme *before*
-    // the afterSanitizeAttributes hook runs, so the hook would always see a
-    // null href and never build a mention pill. Extend the default allow-list
-    // with `mention:` (everything else matches DOMPurify's default).
-    ALLOWED_URI_REGEXP:
-      /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|mention):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
-    FORCE_BODY: true
-  });
+  _erlaubteMentionHrefs = mentions ? bestaetigteMentionHrefs(mentions) : new Set();
+  try {
+    // marked emits `<p>…</p>`; `breaks: true` so single line-breaks become
+    // `<br>`, matching the legacy renderer's behaviour.
+    const html = marked.parse(pre, { breaks: true }) as string;
+    const withFlag = promoteSelfTitleToDataAttr(html);
+    return DOMPurify.sanitize(withFlag, {
+      ALLOWED_TAGS,
+      ALLOWED_ATTR,
+      // DOMPurify's built-in URI regexp drops the `mention:` scheme *before*
+      // the afterSanitizeAttributes hook runs, so the hook would always see a
+      // null href and never build a mention pill. Extend the default allow-list
+      // with `mention:` (everything else matches DOMPurify's default).
+      ALLOWED_URI_REGEXP:
+        /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|mention):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+      FORCE_BODY: true
+    });
+  } finally {
+    _erlaubteMentionHrefs = new Set();
+  }
 }
