@@ -188,6 +188,16 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
 
   // WS reconnect: messages.clearChannel() may empty the loaded set. Re-fetch
   // if we're still parked on this DM.
+  //
+  // Security-/Bughunt-Nachtrag 2026-09-18 (live am Cross-Server-Szenario
+  // reproduziert): das setInitial hier trug NUR die Server-Antwort — und die
+  // kennt bei E2E-DMs die neuere Nachrichten NICHT (der Server löscht den
+  // Umschlag nach der Quittung; sie leben im lokalen Verlauf). Nach einem
+  // Serverwechsel (messages.clear() durch resetServerScopedStores, während
+  // prevDM === cid bleibt) warf dieser Pfad die lokale Ansicht weg und
+  // ersetzte sie durch den alten Klartext-Stand — „plötzlich andere PMs von
+  // derselben Person", heilbar nur per Reload. Deshalb derselbe Merge wie in
+  // switchTo: lokal + Server.
   function nachladenWennNoetig(cid: string) {
     if (!cid || messages.loadedChannels[cid]) return;
     if (prevDM !== cid) return;
@@ -198,11 +208,12 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     if (!directMessages.byId[cid]) return;
     void chatApi
       .listMessages(cid, {}, cloudRoute)
-      .then((history) => {
-        if (untrack(() => prevDM) === cid) {
-          messages.setInitial(cid, history);
-          void verlaufSpeichern(cid, history);
-        }
+      .then(async (history) => {
+        if (untrack(() => prevDM) !== cid) return;
+        const lokal = await verlaufLesen(cid, { anzahl: 50 });
+        if (untrack(() => prevDM) !== cid) return;
+        messages.setInitial(cid, verlaufMergen(lokal, history));
+        void verlaufSpeichern(cid, history);
       })
       .catch(() => {
         /* user-driven retry via navigation */
