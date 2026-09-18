@@ -23,7 +23,8 @@ import * as http from 'node:http';
 const FRIST_MS = 5 * 60_000;
 
 let server: http.Server | null = null;
-let wartende: Array<(url: string) => void> = [];
+type Wartender = { state: string; erloest: (url: string) => void };
+let wartende: Wartender[] = [];
 
 function starteZuhörer(): Promise<number> {
   return new Promise((resolve, ablehnen) => {
@@ -35,9 +36,18 @@ function starteZuhörer(): Promise<number> {
           '<h2>Google verbunden</h2><p>Dieses Fenster kannst du schließen und in Pulse weitermachen.</p>' +
           '</body></html>',
       );
-      const erlöst = wartende;
-      wartende = [];
-      for (const erledige of erlöst) erledige(adresse.toString());
+      // Security-Scan 2026-09-18: Nur eine Rückgabe mit ERWARTETEM state
+      // erlöst ihren Wartenden. Vorher löste JEDE Anfrage auf dem (dynamischen,
+      // aber auffindbaren) Port alle Wartenden aus — ein lokaler Fremdprozess
+      // konnte selbstgebaute OAuth-Rückgaben injizieren. Der state stammt aus
+      // der Anmelde-Adresse (der Renderer validiert ihn zusätzlich noch einmal
+      // gegen seinen eigenen Zustand, googleClient.ts).
+      const state = adresse.searchParams.get('state');
+      if (!state) return;
+      const treffer = wartende.find((w) => w.state === state);
+      if (!treffer) return;
+      wartende = wartende.filter((w) => w !== treffer);
+      treffer.erloest(adresse.toString());
     });
     zuhörer.on('error', ablehnen);
     zuhörer.listen(0, '127.0.0.1', () => {
@@ -68,6 +78,15 @@ export function wireSicherungRuecklauf(): void {
     if (typeof adresse !== 'string' || !adresse.startsWith('https://accounts.google.com/')) {
       throw new Error('Unerwartete Anmelde-Adresse');
     }
+    // Der state gehört zum Start der Anmeldung — ohne ihn kann der Zuhörer
+    // Rückgaben später niemandem zuordnen (fail-closed, s. Zuhörer-Kommentar).
+    let state: string;
+    try {
+      state = new URL(adresse).searchParams.get('state') ?? '';
+    } catch {
+      state = '';
+    }
+    if (!state) throw new Error('Anmelde-Adresse ohne state-Parameter');
     if (server === null) await starteZuhörer();
     const rueckgabe = new Promise<string>((resolve, ablehnen) => {
       const erledige = (url: string): void => {
@@ -75,11 +94,11 @@ export function wireSicherungRuecklauf(): void {
         resolve(url);
       };
       const frist = setTimeout(() => {
-        wartende = wartende.filter((w) => w !== erledige);
+        wartende = wartende.filter((w) => w.erloest !== erledige);
         ablehnen(new Error('Zeit abgelaufen — bitte erneut verbinden.'));
       }, FRIST_MS);
       frist.unref();
-      wartende.push(erledige);
+      wartende.push({ state, erloest: erledige });
     });
     await shell.openExternal(adresse);
     return rueckgabe;

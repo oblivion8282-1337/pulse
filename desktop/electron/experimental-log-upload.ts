@@ -27,7 +27,8 @@
  * Datei hoch; der Server-Endpoint (`POST /experimental-logs`, auth-Service)
  * begrenzt zusätzlich und ist rate-limited.
  *
- * Endpoint überschreibbar via `$PULSE_EXPERIMENTAL_LOG_URL` (Dev/Test).
+ * Endpoint überschreibbar via `$PULSE_EXPERIMENTAL_LOG_URL` (Dev/Test — nur in
+ * ungepackten Builds; siehe `ENDPOINT` unten, Security-Scan 2026-09-18).
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -40,8 +41,20 @@ import { getSidecar } from './sidecar';
 import { logSidecar } from './sidecar-log';
 import { storeGet, storeSet } from './store';
 
-const ENDPOINT =
-  process.env.PULSE_EXPERIMENTAL_LOG_URL ?? 'https://howispulse.com/api/experimental-logs';
+// Security-Scan 2026-09-18: Der Env-Override ist wie PULSE_URL/PULSE_DEV_URL
+// (main.ts) auf ungepackte Builds begrenzt — sonst lenkt eine bösartige
+// .desktop-Datei/wrapper mit `Env=` die Diagnose-Uploads (sidecar.log-Schwanz
+// inkl. Rechnernamen, GPU-Infos) an einen Angreifer-Server.
+const ENDPOINT = (() => {
+  const override = process.env.PULSE_EXPERIMENTAL_LOG_URL;
+  if (override && !app.isPackaged) return override;
+  if (override) {
+    console.warn(
+      '[diagnostics] PULSE_EXPERIMENTAL_LOG_URL ignored in packaged build (developer-only override).',
+    );
+  }
+  return 'https://howispulse.com/api/experimental-logs';
+})();
 
 /** Muss zum Server-`MAX_LOG_CHARS` (routes_experimental_logs.py) passen. */
 const MAX_LOG_BYTES = 512 * 1024;
