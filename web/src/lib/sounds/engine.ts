@@ -184,6 +184,15 @@ class SoundEngine {
         // Signatur ist wahrscheinlich abgelaufen. Store frisch holen,
         // der nächste Play bekommt eine neue Signatur und klappt.
         void guildSounds.refresh(gid);
+        // Aber DIESER Play bleibt nicht stumm: auf das gebündelte Default
+        // ausweichen — derselbe Degradationsgrad wie der Alters-Guard in
+        // guildSounds.urlFor (>8 min → einmalig Default). Vorher starb der
+        // Cue lautlos, wenn eine Signatur trotz Guard alt war (z. B.
+        // replayReadyForActivation seedet alte URLs mit frischem
+        // fetchedAt — Security-/Bug-Nachfrage 2026-09-18, Stream-Start-
+        // Sound nach Serverwechsel).
+        const fallback = defaultUrls(id).find((u) => !this.#missing.has(u));
+        if (fallback) this.#start(id, fallback, gain, false);
         return;
       }
       this.#missing.add(url);
@@ -278,6 +287,10 @@ class SoundEngine {
         // the next play rebuilds a fresh one, which re-decodes cleanly.
         const neverLoaded = a.readyState < 2; // < HAVE_CURRENT_DATA
         if (a.error?.code === 4 && neverLoaded) {
+          // Das tote Element in JEDEM Fall entsorgen — sonst bleibt es in
+          // liegen im Pool und jeder Play versucht dieselbe kaputte Quelle
+          // erneut (Overrides: abgelaufene Presign-Signatur).
+          this.#discard(url, a);
           // Override-URLs nicht blacklist(en) — die sind nur kurzlebig
           // signiert, der Store-Refresh heilt sie (siehe onLoadFail).
           if (!this.#overrideGuild.has(url)) this.#missing.add(url);
