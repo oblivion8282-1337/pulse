@@ -39,8 +39,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # v4 noetig seit Google das Legacy-'tools'-Paket aus dem SDK-Repo entfernt
+      # hat — v3 stirbt im Setup an 'Failed to find package tools' (fixt in
+      # setup-android v4.0.2, 2026-09-17).
       - name: Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       # cap sync schreibt die capacitor.config + Plugin-Verdrahtung nach
       # android/. Braucht die mobile/-Dependencies. Best-effort: bei einem reinen
