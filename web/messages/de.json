@@ -843,6 +843,7 @@
   "delete_account_credentials_deleting": "Löschen…",
   "delete_account_credentials_description": "Bestätige mit deinem Passwort, um den Account {username} zu löschen.",
   "delete_account_credentials_description_totp": "Bestätige mit deinem Passwort und 2FA-Code, um den Account {username} zu löschen.",
+  "delete_account_credentials_description_passkey": "Best\u00e4tige mit deinem Passwort und einem Wiederherstellungscode, um den Account {username} zu l\u00f6schen.",
   "delete_account_credentials_password_label": "Passwort",
   "delete_account_credentials_submit": "Account endgültig löschen",
   "delete_account_credentials_title": "Account endgültig löschen",

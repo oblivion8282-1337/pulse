@@ -18,6 +18,7 @@ from PIL import Image, UnidentifiedImageError
 # expand to >1 GB in RAM. 16 MP is more than enough for profile pictures.
 Image.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
 
+from dcc_auth.routes_profile import _invalidate_statement_cache
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.routes import _get_current_user
@@ -99,6 +100,11 @@ async def upload_avatar(
     # Upload macht die URL eindeutig — der GET-Endpoint ignoriert Query-Params.
     current.avatar_url = f"/api/auth/avatars/{current.id}.webp?v={secrets.token_urlsafe(6)}"
     current.avatar_hash = avatar_hash
+    # Bughunt Runde 4: das signierte Profil-Statement trägt den avatar_hash —
+    # ohne Invalidierung spielten die Caches (bis zu 24 h) das ALTE Bild auf
+    # jedem Self-Host weiter aus. Derselbe Ruf wie bei update_profile/
+    # change_username.
+    _invalidate_statement_cache(current.id)
     session.add(current)
     await session.commit()
     await session.refresh(current)
@@ -120,6 +126,9 @@ async def delete_avatar(
     # the user is what stops self-hosts from resolving the (now-deleted) avatar.
     current.avatar_url = None
     current.avatar_hash = None
+    # Siehe upload_avatar: Statement-Cache fällt lassen, sonst hängt das
+    # gelöschte Bild bis zu 24 h in den Mitgliederlisten.
+    _invalidate_statement_cache(current.id)
     session.add(current)
     await session.commit()
 

@@ -47,6 +47,7 @@
     avatarRemoving = true;
     try {
       await deleteAvatar();
+      void forceProfileRefresh();
       if (auth.user) {
         auth.setUser({ ...auth.user, avatar_url: null });
         userCache.seed([

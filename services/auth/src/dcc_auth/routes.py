@@ -939,6 +939,16 @@ async def me(session: SessionDep, current: User = Depends(_get_current_user)):
     out = UserPublic.model_validate(current)
     # Computed (not a column): drives the frontend's hard verification gate.
     out.email_verification_pending = await _email_gate_blocked(session, current)
+    # Ebenso computed: der Konto-Lösch-Dialog leitet daraus, ob ein zweiter
+    # Faktor fällig ist — bei Passkey-only-Konten ohne TOTP sonst unsichtbar
+    # (Bughunt Runde 4).
+    out.has_passkey = bool(
+        await session.scalar(
+            select(func.count())
+            .select_from(WebAuthnCredential)
+            .where(WebAuthnCredential.user_id == current.id)
+        )
+    )
     return out
 
 

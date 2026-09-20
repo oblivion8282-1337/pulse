@@ -843,6 +843,7 @@
   "delete_account_credentials_deleting": "Deleting…",
   "delete_account_credentials_description": "Confirm with your password to delete the account {username}.",
   "delete_account_credentials_description_totp": "Confirm with your password and 2FA code to delete the account {username}.",
+  "delete_account_credentials_description_passkey": "Confirm with your password and a backup code to delete account {username}.",
   "delete_account_credentials_password_label": "Password",
   "delete_account_credentials_submit": "Permanently delete account",
   "delete_account_credentials_title": "Permanently delete account",

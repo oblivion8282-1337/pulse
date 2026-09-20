@@ -75,6 +75,12 @@ class UserPublic(BaseModel):
     # "verify your email" banner and the "2FA enabled" badge on /me.
     email_verified_at: datetime | None = None
     totp_enabled: bool = False
+    # Computed server-side in ``me()`` (NOT a column): true iff das Konto
+    # mindestens einen Passkey trägt. Bughunt Runde 4: der Account-Lösch-
+    # Dialog braucht das, um bei Passkey-only-Konten das Backup-Code-Feld
+    # anzuzeigen — der Server verlangt für JEDEN MFA-Faktor einen zweiten
+    # Faktor, vorher lief die UI in eine 401-Schleife ohne Eingabemöglichkeit.
+    has_passkey: bool = False
     created_at: datetime
     # Computed server-side (NOT a column): true iff SMTP is configured AND the
     # account is still unverified — i.e. the hard email-verification gate is

@@ -26,6 +26,9 @@ export type User = {
   email_verification_pending?: boolean;
   /** True iff TOTP-based 2FA is set up + confirmed for this account. */
   totp_enabled?: boolean;
+  /** Server-computed (nur /me): mind. ein Passkey vorhanden — auch ohne TOTP
+   *  verlangt der Server dann einen zweiten Faktor (Backup-Code). */
+  has_passkey?: boolean;
   /** Hash-Pointer auf das hochgeladene Profilbild (Avatar). null wenn der
    *  Default-Avatar zeigen soll. Update läuft über POST /me/profile. */
   avatar_hash?: string | null;
