@@ -913,11 +913,11 @@ fn take_keyframe_request(fps: u32) -> bool {
 /// Radeon 780M bei 4K und scheitert bei 8K mit `Invalid argument`, während
 /// `av1_vaapi` beides trägt (gemessen 2026-08-03). Der Startpfad probt deshalb
 /// ein zweites Mal mit der ECHTEN Auflösung — s.
-/// `stream_controller::codec_fuer_aufloesung`.
+/// `caps::codec_fuer_aufloesung`.
 const PROBE_W: u32 = 1280;
 const PROBE_H: u32 = 720;
 
-/// Kann DIESE Hardware den Encoder für `codec` (`h264`/`av1`) wirklich öffnen?
+/// Kann DIESE Hardware den Encoder für `codec` (`h264`/`hevc`/`av1`) wirklich öffnen?
 ///
 /// Der EINZIGE verlässliche Test: HW-Frames-Kontext bauen + Encoder öffnen.
 /// Dass `find_by_name` den Encoder findet, sagt NICHTS über die GPU — FFmpeg
@@ -966,8 +966,8 @@ pub fn probe_encoder_at(
 
     let kind = hw::kind_for(vendor);
     let (dev_arg, sw) = match vendor {
-        // Eingangsformat wie der echte Pfad: NVENC RGB0 (Blit-Ergebnis) bzw.
-        // X2BGR10LE im 10-bit-Pfad, VAAPI NV12 (scale_vaapi-Ausgang).
+        // Eingangsformat wie der echte Pfad: NVENC RGB0 (8-bit-Blit) bzw.
+        // P010 im 10-bit-Pfad, VAAPI NV12 (scale_vaapi-Ausgang) bzw. P010.
         Vendor::Nvidia if ten_bit => (None, AVPixelFormat::AV_PIX_FMT_P010LE),
         Vendor::Nvidia => (None, AVPixelFormat::AV_PIX_FMT_RGB0),
         Vendor::Amd | Vendor::Intel if ten_bit => {

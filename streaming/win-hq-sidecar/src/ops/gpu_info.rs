@@ -1,10 +1,17 @@
 //! `gpu_info` — DXGI-Adapter-Enum.
 //!
 //! Linux-Form: `{ok, vendor, card_path, display_server, video_codecs}` für
-//! **eine** GPU (die GSR aktiv nutzt). Auf Windows machen wir's sprechender:
-//! `vendor` + `video_codecs` zeigen den HIGH_PERFORMANCE-Adapter (= das was die
-//! Encode-Pipeline tatsächlich verwenden wird), `adapters` listet zusätzlich
-//! alle Hardware-Adapter (für Diagnose-Page / Stats-Overlay).
+//! **eine** GPU. Auf Windows machen wir's sprechender: `vendor` +
+//! `video_codecs` zeigen den ersten Adapter der HIGH_PERFORMANCE-Enumeration
+//! (im `EnumAdapters1`-Fallback: den Default-Adapter, i. d. R. die iGPU),
+//! `adapters` listet zusätzlich alle Hardware-Adapter (Diagnose-Page /
+//! Stats-Overlay).
+//!
+//! **Nicht dieselbe GPU wie die Encode-Pipeline zwingend:** `pipeline_hw`
+//! wählt ihren Vendor nach dem WGC-Device der Anzeige-GPU — auf Optimus-
+//! Laptops (Intel-Display + NVIDIA-dGPU) meldet dieses Op die NVIDIA-Probe,
+//! während der Encode vendorseitig auf Intel läuft. Die Codecs beschreiben
+//! dann eine andere GPU als die, die encodiert.
 //!
 //! `card_path` gibt's auf Windows nicht — Linux meint damit `/dev/dri/cardN`.
 //! Wir setzen das Feld auf null (Renderer toleriert das).

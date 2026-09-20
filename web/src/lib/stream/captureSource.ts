@@ -19,16 +19,20 @@ import { isMac, isWindows } from '$lib/platform/runtime';
 import { quelleFuerStart, vorgabeFuerPlatz, wahlBleibt } from './monitorZuordnung';
 import { gsr } from './gsr';
 import { streamSettings } from './settingsState.svelte';
+import { runningStreamSlots, streamForSlot } from './state.svelte';
 import {
   APP_AUDIO_PREFIX,
   MONITOR_CAPTURE_PREFIX,
   WINDOW_CAPTURE_PREFIX,
+  tonVorgabeFuerPlatz,
 } from './settingsCatalog';
 
 /**
- * Die GEMERKTE Wahl dieses Platzes (0 = erster Stream).
+ * Die gewählte Quelle dieses Platzes (0 = erster Stream) in der laufenden
+ * Dialog-Sitzung — bei jedem Öffnen wieder auf die Vorgabe zurückgesetzt
+ * (`platzZuruecksetzen`), nichts wird darüber hinaus gemerkt.
  *
- * Bewusst die gemerkte und nicht die gerade mögliche: fehlt ihr Bildschirm
+ * Bewusst die gewählte und nicht die gerade mögliche: fehlt ihr Bildschirm
  * gerade, soll der Nutzer trotzdem sehen, was er gewählt hat. Womit wirklich
  * aufgenommen wird, sagt {@link aktiveQuelleFuerSlot}.
  */
@@ -74,14 +78,66 @@ export function setCaptureSourceForSlot(slot: number, value: string): void {
 /**
  * Linux: alle Slots zurück auf den Portal-Dialog.
  *
- * Nicht nur Kosmetik — die Einstellungen können von einer Windows-Sitzung
- * desselben Nutzers stammen (gleiches Konto, anderer Rechner). Ein dort
- * gemerkter `Monitor: 2` läge hier sonst weiter in den gespeicherten Werten,
- * wo er nichts bedeutet.
+ * Nicht nur Kosmetik — ein hier noch stehender `Monitor: 2` bedeutete auf
+ * Linux nichts (die Quelle wählt der Portal-Dialog beim Start).
  */
 export function resetCaptureSourcesToPortal(): void {
   streamSettings.capture_source = 'portal';
   streamSettings.capture_sources = {};
+}
+
+/**
+ * Quelle dieses Platzes auf die Monitor-Vorgabe zurücksetzen — der Teil von
+ * {@link platzZuruecksetzen}, der die Monitorliste braucht. Bewusst ohne Ton:
+ * Der braucht keine Kataloge, und der Nachlauf-`$effect` im `StreamPanel`
+ * dürfte eine in der Ladephase getroffene Ton-Wahl nicht wegreißen.
+ *
+ * Ohne Monitorliste (Sidecar noch nicht geantwortet) wird GAR NICHT
+ * geschrieben: ein `portal`-Eintrag in der Slot-Karte würde den Vorgabe-
+ * Fallback ({@link captureSourceForSlot}) umgehen. Linux: nichts zu tun —
+ * dort bleibt die Quelle `'portal'`.
+ */
+export function quelleAufVorgabe(slot: number): void {
+  if (!(isWindows() || isMac())) return;
+  if (streamForSlot(slot).running) return; // Begründung: platzZuruecksetzen
+  if (streamSettings.available_monitors.length === 0) return;
+  setCaptureSourceForSlot(
+    slot,
+    vorgabeFuerPlatz(Math.max(slot, 0), streamSettings.available_monitors),
+  );
+}
+
+/**
+ * Quelle und Ton dieses Platzes auf die Vorgabe zurücksetzen — aufgerufen beim
+ * Öffnen des Stream-Dialogs (`StreamPanel`); beides wird seit dem 2026-09-20
+ * nicht mehr persistiert. Quelle: Windows/macOS der Bildschirm der Reihe
+ * (`vorgabeFuerPlatz`, der Hauptbildschirm zuerst — Platz 0 öffnet also auf
+ * dem ersten Monitor), Linux der Portal-Wert. Ton: `tonVorgabeFuerPlatz` —
+ * erster Stream „Desktop", jeder weitere „Aus"; `audio_app` wird mitgeleert,
+ * damit „Spezifische App" aus der FRISCHEN App-Liste wählt (die der Picker
+ * beim Betreten des Modus neu lädt).
+ *
+ * **Laufende Streams bleiben unangetastet.** Der Status-Chip öffnet den
+ * Dialog gerade FÜR laufende Slots, und der Auto-Neustart (`autoRestart.ts`,
+ * z. B. nach `capture_size_changed`) liest Quelle und Ton LIVE aus diesen
+ * Feldern — ein Reset hier würde den Neustart still auf Hauptmonitor und
+ * Desktop-Ton umschalten (Privacy: ein Fenster-Stream würde zum ganzen
+ * Bildschirm). Der Dialog eines laufenden Slots zeigt darum dessen
+ * Lauf-Konfiguration. Und weil der Ton EIN geteiltes Feld für alle Slots
+ * ist, bleibt er auch dann weg, wenn nur ein ANDERER Slot streamt, während
+ * ein freier Platz konfiguriert wird — der Picker zeigt den Wert, und wer
+ * am neuen Stream einen anderen Ton will, stellt ihn dort um.
+ */
+export function platzZuruecksetzen(slot: number): void {
+  if (streamForSlot(slot).running) return;
+  if (isWindows() || isMac()) {
+    quelleAufVorgabe(slot);
+  } else {
+    setCaptureSourceForSlot(slot, 'portal');
+  }
+  if (runningStreamSlots().length > 0) return;
+  streamSettings.audio_mode = tonVorgabeFuerPlatz(slot);
+  streamSettings.audio_app = '';
 }
 
 /**
@@ -91,9 +147,8 @@ export function resetCaptureSourcesToPortal(): void {
  * Bewusst eine feste Kopplung ohne Ausnahmen — wer ein Fenster teilt, meint
  * fast immer dessen Ton, und die Auswahl steht sichtbar im Dialog, bevor der
  * Stream startet. Wer etwas anderes will (oder gar keinen Ton), stellt es
- * danach um; das überlebt, weil hier NUR beim aktiven Klick auf eine Quelle
- * aufgerufen wird — nicht aus `verfalleneWahlErsetzen`, das beim Öffnen des
- * Dialogs läuft und sonst jedes Mal die gespeicherte Ton-Wahl überschriebe.
+ * danach um; der Ton wird nicht persistiert, die Kopplung wirkt nur auf die
+ * laufende Dialog-Sitzung.
  *
  * Der Prozessname passt ohne Übersetzung: `list_windows` liefert `app`
  * ("chrome.exe"), die Audio-Seite erwartet `App: chrome.exe`. Dass die App
@@ -103,12 +158,11 @@ export function resetCaptureSourcesToPortal(): void {
  *
  * **Jeder weitere Stream-Slot → Ton aus.** Zwei gleichzeitige Streams würden
  * sonst denselben Ton doppelt übertragen; der Zuschauer, der beide Kacheln
- * offen hat, hört alles zweimal. Der Ton ist eine EINZIGE, geteilte Einstellung
- * für alle Slots (s. `buildStartArgs`) — „aus" gilt hier also global, nicht nur
- * für den gerade eingestellten Slot. In der Praxis passt das, weil der erste
- * Stream typischerweise schon läuft (ein laufender Stream übernimmt spätere
- * Änderungen nicht mehr). Wer den Ton doch am zweiten Stream will, stellt ihn
- * danach wieder ein.
+ * offen hat, hört alles zweimal. Das ist die Vorgabe beim Öffnen
+ * (`tonVorgabeFuerPlatz`), kein Lock — am Dialog lässt sich der Ton danach
+ * frei umstellen. Achtung dabei: Der Auto-Neustart eines laufenden Streams
+ * (`autoRestart.ts`) liest Quelle und Ton live — bewusste Änderungen am
+ * geteilten Ton-Feld greifen in dessen nächsten Neustart.
  */
 export function applyAudioForCaptureSource(value: string, slot = 0): void {
   if (slot !== 0) {

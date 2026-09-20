@@ -13,9 +13,10 @@
   (System-Audio minus diese Apps; GSR `app-inverse:`).
   Bei "Spezifische App": Pills der laufenden Audio-Apps (live aus
   `gpu-screen-recorder --list-application-audio`) — Auswahl wird als
-  `audio_mode = "App: <name>"` gespeichert → Sidecar macht `-a "app:<name>"`.
+  `audio_mode = "App: <name>"` gesetzt → Sidecar macht `-a "app:<name>"`.
 
-  Die Refresh-Buttons laden die App-Liste neu.
+  Die App-Liste lädt beim Betreten des App-Modus automatisch neu; die
+  Refresh-Buttons holen sie zusätzlich auf Klick.
 -->
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
@@ -64,7 +65,8 @@
   // "System + Mikrofon" braucht den Stage-7-Mixer, den der Windows-Sidecar
   // nicht hat (`AudioSource::DesktopPlusMicrophone` = TODO-Stub). Dort nur
   // "Nur Mikrofon" anbieten — ein verhungernder Audio-Stream crasht sonst den
-  // Muxer (s. settings.svelte.ts::applyPersisted für den persistierten Wert).
+  // Muxer. Da der Ton nicht persistiert wird, kann der Wert ohnehin nur aus
+  // dieser UI stammen.
   const SECONDARY_MODES: AudioMode[] = isWindows()
     ? ['Mikrofon']
     : ['Mikrofon', 'Desktop + Mikrofon'];
@@ -110,11 +112,24 @@
     persistSettings();
   }
 
-  function onAppModeClick() {
-    const app = streamSettings.audio_app || streamSettings.available_audio_apps[0] || '';
-    if (app) streamSettings.audio_app = app;
-    streamSettings.audio_mode = APP_AUDIO_PREFIX + app;
+  async function onAppModeClick() {
+    // Sofort in den Modus schalten (UI-Feedback), dann die Liste neu laden:
+    // „Spezifische App" soll das Jetzt zeigen, nicht den Stand vom
+    // Dialog-Öffnen. Erst danach ggf. die erste der frischen Liste vorwählen
+    // — `audio_app` ist beim Öffnen geleert, eine alte Vorauswahl gibt es nicht.
+    streamSettings.audio_mode = APP_AUDIO_PREFIX + streamSettings.audio_app;
     persistSettings();
+    await onRefresh();
+    // Hat der Nutzer den Modus während des Refreshs verlassen („Aus",
+    // „System" …), ist seine Wahl heilig — der Nachlauf lässt sie dann.
+    if (!isAppAudioMode(streamSettings.audio_mode)) return;
+    if (streamSettings.audio_app) return;
+    const app = streamSettings.available_audio_apps[0] || '';
+    if (app) {
+      streamSettings.audio_app = app;
+      streamSettings.audio_mode = APP_AUDIO_PREFIX + app;
+      persistSettings();
+    }
   }
 
   function onAppPick(app: string) {

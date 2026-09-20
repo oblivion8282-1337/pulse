@@ -12,40 +12,31 @@
 
 import type { GsrGpuInfo, GsrMonitor, GsrWindow } from './gsr';
 import { debounce, loadAll, saveAll } from './persistence';
-import { isWindows } from '$lib/platform/runtime';
-import {
-  APP_AUDIO_PREFIX,
-  AUDIO_MODES,
-  RESOLUTION_VALUES,
-  type OverrideSet,
-} from './settingsCatalog';
+import { RESOLUTION_VALUES, type OverrideSet } from './settingsCatalog';
 
 // ── Reactive state ──────────────────────────────────────────────────────────
 
+// Auswahlfelder. Persistiert davon nur `profile_name` — Quelle und Ton sind
+// Sitzungszustand (bei jedem Dialog-Öffnen Vorgabe, `platzZuruecksetzen`);
+// die übrigen persistenten Felder stehen weiter unten.
 export const streamSettings = $state({
-  // Selections (persisted)
   profile_name: '',
   capture_source: 'portal' as 'portal' | string,
   // Quelle jedes WEITEREN Streams (Slot ≥ 1), als `{ "<slot>": "<quelle>" }`.
-  //
-  // **Bis zum 2026-08-12 waren das zwei feste Felder** (`capture_source` +
-  // `capture_source_1`), und alles ab Slot 2 fiel auf das Feld von Slot 0
-  // zurück: wer beim dritten Stream einen Monitor wählte, stellte damit
-  // unbemerkt die Quelle des ERSTEN um. Mit vier möglichen Streams war das eine
-  // Randnotiz, mit 99 ein echter Fehler.
-  //
-  // Eine Karte statt eines Feldes je Slot, und Slot 0 bleibt ausdrücklich
-  // draußen: sein Feld ist der alte, unveränderte Speicherplatz (eine ältere
-  // Version findet ihre Quelle also weiter), und die Karte trägt nur, was der
-  // Nutzer wirklich gewählt hat. Ein Eintrag je MÖGLICHEM Slot wären 98
-  // gespeicherte Zeilen für jemanden, der einen Schirm teilt — die Vorgabe für
-  // einen unbelegten Slot rechnet `captureSourceForSlot()` stattdessen beim
-  // Lesen aus.
+  // Sitzungszustand, kein Speicherplatz: seit dem 2026-09-20 steht die Quelle
+  // bei jedem Öffnen des Stream-Dialogs wieder auf der Monitor-Vorgabe
+  // (`platzZuruecksetzen`) — die Karte trägt nur die Wahl der laufenden
+  // Dialog-Sitzung.
   capture_sources: {} as Record<string, string>,
-  // One of AUDIO_MODES, or `"App: <name>"` (capture a specific running app).
+  // 'Aus' | 'Desktop' | 'Mikrofon' | 'Desktop + Mikrofon' oder `"App: <name>"`
+  // (capture a specific running app).
+  // Bewusst NICHT mehr persistent (2026-09-20): eine gemerkte App-Wahl
+  // überlebte ihre App und startete den nächsten Stream stumm bzw. ohne Ton.
+  // Jeder Dialog-Öffnen beginnt bei `tonVorgabeFuerPlatz`.
   audio_mode: 'Desktop' as string,
   // Remembers the last app picked for the "App: …" mode, so toggling away and
-  // back keeps the selection.
+  // back keeps the selection — innerhalb der Dialog-Sitzung; beim Öffnen
+  // geleert, damit „Spezifische App" aus der frischen Liste wählt.
   audio_app: '' as string,
   excluded_apps: [] as string[],
   overrides: {} as OverrideSet,
@@ -76,15 +67,14 @@ export const streamSettings = $state({
 // ── Persistence ─────────────────────────────────────────────────────────────
 
 // Which fields get persisted. Order doesn't matter; the keys are stable.
+//
+// Quelle (`capture_source`/`capture_sources`) und Ton (`audio_mode`/
+// `audio_app`) stehen hier bewusst NICHT mehr (2026-09-20): beides resettiert
+// `platzZuruecksetzen` bei jedem Öffnen des Stream-Dialogs auf die Vorgabe.
+// Ein gemerkter Wert wäre genau der tote Zustand, den das ablösen sollte —
+// eine App-Wahl, die ihre App überlebt, startet stumm bzw. ohne Ton.
 const PERSIST_KEYS = [
   'profile_name',
-  'capture_source',
-  // `capture_source_1` steht hier NICHT mehr — sein Inhalt wandert beim Laden
-  // einmalig nach `capture_sources['1']` (s. `applyPersisted`). Der alte
-  // Schlüssel wird nur noch gelesen, nie wieder geschrieben.
-  'capture_sources',
-  'audio_mode',
-  'audio_app',
   'excluded_apps',
   'overrides',
   'use_overrides',
@@ -125,59 +115,10 @@ export async function loadPersisted(): Promise<void> {
   streamSettings.persisted_loaded = true;
 }
 
-/**
- * Die gespeicherten Quellen der Slots ≥ 1 übernehmen — inklusive der alten
- * Form.
- *
- * Bis zum 2026-08-12 lag die Quelle des zweiten Streams in einem eigenen Feld
- * `capture_source_1`. Wer die App aktualisiert, hat genau das auf der Platte
- * liegen, und ohne diese Übernahme stünde sein zweiter Stream danach wieder auf
- * dem vorgeschlagenen Monitor statt auf dem gewählten — also unter Umständen
- * auf dem falschen Schirm, ohne dass er es vor dem Losstreamen merkt.
- *
- * Der alte Wert verliert gegen einen bereits vorhandenen Eintrag in der neuen
- * Karte. Das macht den Schritt wiederholbar: nach dem ersten Speichern trägt
- * die Karte die '1', der alte Schlüssel liegt nur noch als toter Rest daneben
- * und wird nie wieder herangezogen.
- */
-function applyPersistedCaptureSources(data: Record<string, unknown>): void {
-  const next: Record<string, string> = {};
-  const raw = data.capture_sources;
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-      // Nur echte Slot-Nummern ≥ 1: ein '0' hier hätte zwei Speicherplätze für
-      // dieselbe Quelle, und die beiden könnten auseinanderlaufen.
-      if (typeof value === 'string' && /^[1-9]\d*$/.test(key)) next[key] = value;
-    }
-  }
-  if (next['1'] === undefined && typeof data.capture_source_1 === 'string') {
-    next['1'] = data.capture_source_1;
-  }
-  streamSettings.capture_sources = next;
-}
-
 function applyPersisted(data: Record<string, unknown>): void {
   // Plain string fields: accept any string, no further validation.
-  for (const key of ['profile_name', 'capture_source', 'audio_app'] as const) {
-    if (typeof data[key] === 'string') streamSettings[key] = data[key];
-  }
+  if (typeof data.profile_name === 'string') streamSettings.profile_name = data.profile_name;
 
-  applyPersistedCaptureSources(data);
-
-  if (
-    typeof data.audio_mode === 'string' &&
-    ((AUDIO_MODES as ReadonlyArray<string>).includes(data.audio_mode) ||
-      data.audio_mode.startsWith(APP_AUDIO_PREFIX))
-  ) {
-    streamSettings.audio_mode = data.audio_mode;
-  }
-  // "Desktop + Mikrofon" hat auf dem Windows-Sidecar keinen Mixer (Stage-7-
-  // TODO). Die UI blendet den Modus dort aus (AudioModePicker) — einen
-  // alt-persistierten Wert hier auf "Desktop" zurücksetzen, sonst streamt der
-  // Windows-Sidecar mit einem verhungernden Audio-Stream und crasht den Muxer.
-  if (isWindows() && streamSettings.audio_mode === 'Desktop + Mikrofon') {
-    streamSettings.audio_mode = 'Desktop';
-  }
   if (Array.isArray(data.excluded_apps)) {
     streamSettings.excluded_apps = data.excluded_apps.filter((x): x is string => typeof x === 'string');
   }

@@ -20,7 +20,7 @@
 
   import { isWindows, isMac } from '$lib/platform/runtime';
   import { gsr, type GsrHealth } from '../gsr';
-  import { loadCatalogs, setCaptureSourceForSlot, streamSettings } from '../settings.svelte';
+  import { loadCatalogs, platzZuruecksetzen, quelleAufVorgabe, captureSourceForSlot, streamSettings } from '../settings.svelte';
 
   import { m } from '$lib/paraglide/messages.js';
   import OverridesEditor from './OverridesEditor.svelte';
@@ -53,15 +53,36 @@
   onMount(() => {
     // Always stream into the current voice channel; the codec/resolution/
     // bitrate/fps come straight from the editor below ("Custom" profile = use
-    // the explicit values). Capture source: Linux uses the Wayland portal;
-    // Windows + macOS resolve a concrete monitor in `loadCatalogs()` (a
-    // persisted choice is honoured), so don't clobber it here.
-    if (!hasSourcePicker) setCaptureSourceForSlot(slot, 'portal');
+    // the explicit values). Quelle und Ton beginnen bei jedem Öffnen auf der
+    // Vorgabe (Windows/macOS erster Monitor bzw. je Platz Desktop/Aus, Linux
+    // Portal) — nichts davon wird über Dialog-Öffnungen hinweg gemerkt.
+    // Laufende Slots werden nicht angefasst (Begründung: platzZuruecksetzen).
+    platzZuruecksetzen(slot);
+    quelleNachReset = captureSourceForSlot(slot);
+    bereit = true;
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     if (!gsr.available()) return;
     void gsr.health().then((h) => { health = h; }).catch((e) => { healthError = String(e); });
     void loadCatalogs();
+  });
+
+  // Erster Dialog einer Sitzung: Die Monitorliste kommt erst mit der
+  // Sidecar-Antwort — `platzZuruecksetzen` hat die Quelle dann übergangen.
+  // Sobald Monitore da sind (via loadCatalogs oder den Picker-Refresh),
+  // nachziehen — aber nur, wenn der Nutzer seither nichts selbst gewählt hat,
+  // und ohne den Ton: der braucht keine Kataloge, und eine in der Ladephase
+  // gewählte Ton-Quelle würde sonst still verschwinden. `bereit` stellt
+  // sicher, dass der Vergleichsstand VOM Mount-Reset stammt, nicht von davor.
+  let bereit = $state(false);
+  let quelleNachgezogen = false;
+  let quelleNachReset = '';
+  $effect(() => {
+    if (!bereit || quelleNachgezogen || !hasSourcePicker) return;
+    if (streamSettings.available_monitors.length === 0) return;
+    quelleNachgezogen = true;
+    if (captureSourceForSlot(slot) !== quelleNachReset) return;
+    quelleAufVorgabe(slot);
   });
 
   let gsrAvailable = $derived(!!health?.gsr?.available);
