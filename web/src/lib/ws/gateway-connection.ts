@@ -459,6 +459,11 @@ export class GatewayConnection {
       this.state = 'closed';
       return;
     }
+    // Sign-Out kann während der Token-Auflösung dazwischengekommen sein.
+    if (!this.wantConnected) {
+      this.state = 'idle';
+      return;
+    }
     let ws: SocketLike;
     try {
       ws = await this._openSocket(token);
@@ -469,6 +474,16 @@ export class GatewayConnection {
       this.state = 'closed';
       if (this.wantConnected) this._scheduleReconnect();
       throw e;
+    }
+    if (!this.wantConnected) {
+      // disconnect()/closeAll() liefen während der Socket-Anbahnung (der
+      // Direct-Weg handelt Sekunden lang aus) — this.ws war da noch null,
+      // disconnect() konnte den Socket also nicht schließen. Hier nachziehen,
+      // sonst überlebt ein Zombie-Socket den Sign-Out und sein ready-Frame
+      // füllt die geleerten Stores mit dem alten Konto wieder auf.
+      try { ws.close(); } catch { /* noop */ }
+      this.state = 'idle';
+      return;
     }
     this.ws = ws;
 

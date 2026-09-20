@@ -23,6 +23,10 @@ import {
 class DirectMessageStore {
   byId = $state<Record<string, DMChannel>>({});
   loaded = $state(false);
+  // Zählt clear()-Aufrufe. Ein hydrate(), dessen Antwort NACH einem clear()
+  // eintrudelt (Sign-Out/Account-Wechsel während des Flugs), darf den
+  // geleerten Store nicht mit dem Vorgänger-Konto wiederauffüllen.
+  #generation = 0;
 
   // Most-recently-active first. DMs mit letzter Nachricht oben (neueste
   // zuerst); DMs ohne Nachricht (last_message_id null) darunter, nach
@@ -40,7 +44,9 @@ class DirectMessageStore {
   );
 
   async hydrate(): Promise<void> {
+    const generation = this.#generation;
     const dms = await chatApi.listDMChannels();
+    if (generation !== this.#generation) return;
     const next: Record<string, DMChannel> = {};
     for (const d of dms) next[d.id] = d;
     this.byId = next;
@@ -216,6 +222,7 @@ class DirectMessageStore {
   }
 
   clear(): void {
+    this.#generation++;
     this.byId = {};
     this.loaded = false;
   }

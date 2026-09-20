@@ -85,6 +85,13 @@ class PrivateGruppenStore {
 
   clear(): void {
     this.byId = {};
+    // Neues Gate aufspannen: nach dem Leeren (Sign-Out/Account-Wechsel) muss
+    // der nächste Seed wieder abwartbar sein — das alte Promise ist längst
+    // aufgelöst, ein Aufrufer würde sonst den leeren Anfangszustand für die
+    // Wahrheit halten (derselbe Bug, dem `bereit` ursprünglich galt).
+    this.bereit = new Promise((res) => {
+      this.#bereitAufloesen = res;
+    });
   }
 }
 
