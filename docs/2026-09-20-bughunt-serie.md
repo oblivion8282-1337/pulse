@@ -218,14 +218,14 @@ Kondensiert je Fix (Details im Commit-Log):
 | Runde | Linse | Status |
 |-------|-------|--------|
 | 33 | Logging & Secrets (Redaction, Log-Injection, Debug-Wege) | erledigt — 4 Fixes (Renew-Race, Invite-Codes in Logs, 422-Roh-Echo, tote Diagnose-Zeile) |
-| 34 | Cookies & CSRF (Flags, SameSite, Browser-Reachable Mutations) | offen |
-| 35 | WS-Ops im Einzelnen (resync/typing/device/watch/token_refresh) | offen |
-| 36 | Postfach & Key-Bundle-Flows (Refill, Grants, Fallback) | offen |
-| 37 | Upload-/Medien-Pipeline (PIL, MIME, Thumbnails, Presign-TTL) | offen |
-| 38 | Session-/Auth-Zustandsflotten (Browser-Sessions, MFA-Tickets) | offen |
-| 39 | Sync-Ordner & Ablage-Klient (OAuth-Flows, Festigung) | offen |
-| 40 | SQL & Raw-Queries (text()-Stellen, Interpolation) | offen |
-| 41 | CI-Workflows & Doku-Drift (Actions vs. Wirklichkeit) | offen |
+| 34 | WS-Ops im Einzelnen (resync/typing/device/watch/token_refresh) | offen |
+| 35 | Postfach & Key-Bundle-Flows (Refill, Grants, Fallback) | offen |
+| 36 | Upload-/Medien-Pipeline (PIL, MIME, Thumbnails, Presign-TTL) | offen |
+| 37 | OAuth-Flows Ablage-Klient (Dropbox/Nextcloud/OneDrive/WebDAV) | offen |
+| 38 | SQL & Raw-Queries (text()-Stellen, Interpolation) | offen |
+| 39 | MFA-/Recovery-Flows (Tickets, Backup-Codes, Paket-Restore) | offen |
+| 40 | CI-Workflows & Doku-Drift (Actions vs. Wirklichkeit) | offen |
+| 41 | Gerätekopplung & Backup-Restore-Roundtrip | offen |
 | 42 | Regression-Jagd über Runden 33–41 + Abschluss | offen |
 
 ## Bekannt (Erweiterung: Runden 23–32)
