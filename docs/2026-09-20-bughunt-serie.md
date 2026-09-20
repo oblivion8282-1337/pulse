@@ -16,7 +16,7 @@ landen auf `bughunt-2026-09-20`; `main` bleibt auf `origin/main`.
 | 8 | Klient-Server-Drift (desktop/mobile-Capacitor vs. API) | erledigt — 5 Fixes (Allowlist, WSL2-Assistent, Shortcut-Regex, Audio-Dreizustand, Notification-Permission) |
 | 9 | Rechte & Sichtbarkeit quer (Resolver-Ränder, Cache-Invalidierung) | erledigt — 5 Fixes (Purge-WS-Caches, Reorder-Evict, id-Tiebreak, Rangklemme, Gastlink-Orakel/Filter) |
 | 10 | E2E-Krypto-Glue (Postfach, Kopplung, Sicherung, Ablage) | erledigt — 6 Fixes (eigene R7-Regression, Verteilschlüssel-Partnervergleich, OTK-Deadlock, Ablage-Instanz-Cache, ATTACH_FILES-Gate, Kanal-Sitzungs-Reset) |
-| 11 | Tote Wege & Test-Drift (exportiert-nie-gerufen, Tests am falschen Verhalten) | offen |
+| 11 | Tote Wege & Test-Drift (exportiert-nie-gerufen, Tests am falschen Verhalten) | erledigt — 3 Fixes (Single-Flight-Verdrahtung, Test-Anker, WS-Close-Codes) + Inventar toter Wege im Protokoll |
 | 12 | Selbst-Review des Serien-Diffs + Abschlussbericht | offen |
 
 Neue Entscheidungsbedarfe wandern nach

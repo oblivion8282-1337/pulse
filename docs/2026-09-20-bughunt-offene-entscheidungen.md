@@ -119,6 +119,27 @@ Upgrade-Pfad meist schon nebengenannt.
   neutral, aber unbegrenzes Tabellenwachstum). Braucht
   Reservierungs-TTL oder -Sweep plus Design-Entscheidung.
 
+## 2c. Tote Wege — gebaut, aber nie verdrahtet (Runde 11, Aufräumen oder Verdrahten?)
+
+* `web/src/lib/plugins/conflict-detector.ts` — Konflikt-Detektor ohne UI
+  (die dokumentierte Manager-UI aus PLUGIN_ROADMAP Schritt 6 existiert
+  nicht mehr; Plugin-Op-Kollisionen laufen lautlos last-wins).
+* Mitschnitt/Clip-Stack: `player/client.ts` (startRecording/stopRecording/
+  saveClip) + IPC + Rust-Recorder — komplett gebaut, kein Renderer-Aufruf.
+* `web/src/lib/api/recovery-package.ts::deleteRecoveryPackage` + Server-
+  Endpoint existieren — keine UI, ein Nutzer kann ein Päckchen nie entfernen.
+* `web/src/lib/sicherung/googleClient.ts::sicherungClientKonfiguriert` —
+  Build-Gate ungekoppelt (Sicherung wird auch ohne konfigurierte
+  Google-Client-ID angeboten).
+* `web/src/lib/remote/berechtigte.ts::anzahlBerechtigte` — für den nie
+  gebauten Gerätedialog.
+* `web/src/lib/direct/registry.ts::getDirectConnection` — toter Vorgänger-
+  Wrapper (nur noch Docstring-Zitat).
+* `shared`-Helfer: `watchkeys.read_parties`, `unregister_channel_handler`
+  (Loader-Rollback fährt über _rollback_registrations), `settings-registry`
+  `deleteServerSection`/`flushSection` (Policy-Option fehlt),
+  `platformAuthenticatorAvailable` (Copy-Tailoring nie verdrahtet).
+
 ## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 
 ### 3.4 Composer bleibt bis zur E2E-Sendebestätigung offen (UX-Redesign)
