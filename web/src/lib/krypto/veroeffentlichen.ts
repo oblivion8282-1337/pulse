@@ -169,3 +169,33 @@ async function nachfuellenWennNoetig(ident: Identitaet, kennung: string): Promis
   ident.alsVeroeffentlichtMarkieren();
   await kryptoAccountSichern(ident);
 }
+
+/**
+ * **Bughunt Runde 36**: Nachfüllen im laufenden Betrieb. Bislang lief das
+ * nur beim Start (`runIssueFlow`, „genau einmal pro Seitenleben") und bei
+ * der Kopplung — der Vorrat (Cap 100 je Gerät) wurde aber bei JEDEM Claim
+ * verbraucht, auch von jedem eingehenden Sitzungsaufbau. In einer
+ * langlebigen Registerkarte war er nach ~100 empfangenen Nachrichten
+ * dauerhaft leer, und jeder neue Sitzungsaufbau lief über den nie mehr
+ * rotierten Fallback-Schlüssel — keine Forward Secrecy mehr je Sitzung,
+ * herbeigeführt durch normalste Nutzung.
+ *
+ * Best-effort und stumm: Fehler (offline, nicht angemeldet) werden nur
+ * geloggt — der nächste Postfach-Zyklus versucht es erneut. Ruft NUR
+ * `nachfuellenWennNoetig` (kein `publishBundle`) und erwartet, bereits
+ * unter der Konto-Sperre zu laufen (Aufrufer: `postfachZyklus`).
+ */
+export async function fuelleEinmalschluesselNach(): Promise<void> {
+  let kennung: string;
+  try {
+    kennung = await geraeteKennung();
+  } catch {
+    return; // Nicht angemeldet — s. Modulkopf.
+  }
+  try {
+    const ident = await kryptoAccountLaden();
+    await nachfuellenWennNoetig(ident, kennung);
+  } catch (err) {
+    console.warn('[krypto] Einmalschluessel-Nachfüllen verschoben:', err);
+  }
+}
