@@ -13,7 +13,7 @@ landen auf `bughunt-2026-09-20`; `main` bleibt auf `origin/main`.
 | 5 | Zähler, Grenzen & Wachstum (Pagination, Caches, Snowflake-Grenze) | erledigt — 9 Fixes (Mod-Queue-Cursor, Claim-Budget-Frist, Hook-IP-Deckel, Gruppen-Unreads, Frisch-Laden-Gap-Fill, Verlauf-Räumung, Teardown-Zähler, Mac-Audio-Bound, Linux-Queues) |
 | 6 | Parallelität & Reihenfolge (Races, Transaktionen, Event-Order) | erledigt — 9 Fixes (Watch atomar, Owner-TOCTOU, Anhang-Bind, DM-Sortierung, vier Web-Store-Races, Hydrate/Seed-Merges) |
 | 7 | Fehlerpfade & Halbzustände (verschluckte Exceptions, Retries) | offen |
-| 8 | Klient-Server-Drift (desktop/mobile-Capacitor vs. API) | offen |
+| 8 | Klient-Server-Drift (desktop/mobile-Capacitor vs. API) | erledigt — 5 Fixes (Allowlist, WSL2-Assistent, Shortcut-Regex, Audio-Dreizustand, Notification-Permission) |
 | 9 | Rechte & Sichtbarkeit quer (Resolver-Ränder, Cache-Invalidierung) | offen |
 | 10 | E2E-Krypto-Glue (Postfach, Kopplung, Sicherung, Ablage) | offen |
 | 11 | Tote Wege & Test-Drift (exportiert-nie-gerufen, Tests am falschen Verhalten) | offen |
