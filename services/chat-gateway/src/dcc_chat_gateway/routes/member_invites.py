@@ -185,11 +185,23 @@ async def create_member_invite(
     # (kein Spam-Stapel durch mehrere Absender). Guard-Query statt partiellem
     # Unique-Index (SQLite-Tests); das Race-Fenster ist akzeptiert, wie bei
     # der Friend-Request-Forward-Prüfung.
+    # Bughunt Runde 29: der Dedupe-Guard berücksichtigt die Ziel-Instanz —
+    # Snowflakes werden je Instanz unabhängig geprägt, eine Cloud-Guild kann
+    # dieselbe ID tragen wie eine Self-Host-Guild. Ohne target_instance_id
+    # im Schlüssel blockierte eine Self-Host-Einladung die Cloud-Einladung
+    # zur "gleichen" Guild-ID (409) bzw. überschrieb sie.
     dup = (
         await session.execute(
             select(CommunityInviteNotification.id).where(
                 CommunityInviteNotification.guild_id == guild_id,
                 CommunityInviteNotification.invitee_user_id == invitee_id,
+                # Bughunt Runde 29: nur CLOUD-Ziel-Karten deduplizieren
+                # (target_host/instance_id NULL — genau die, die diese Route
+                # anlegt). Self-Host-Karten tragen fremde Instanz-IDs; deren
+                # Guild-Snowflakes können kollidieren und blockierten sonst
+                # die Cloud-Einladung zur "gleichen" Guild-ID.
+                CommunityInviteNotification.target_host.is_(None),
+                CommunityInviteNotification.target_instance_id.is_(None),
             )
         )
     ).first()

@@ -266,25 +266,32 @@ async def write_party(redis: Redis, channel_id: str, state: dict) -> None:
     Refreshes the channel hash's TTL on every write (self-heal)."""
     pid = str(state["party_id"])
     key = WATCH_STATE_KEY.format(channel_id=channel_id)
-    await redis.hset(key, pid, json.dumps(state, separators=(",", ":")))
-    await redis.expire(key, WATCH_TTL_SECONDS)
-    snapshot = WatchStateSnapshot(channel_id=str(channel_id), party_id=pid, state=state)
-    await redis.publish(
-        WATCH_EVENTS_CHANNEL,
-        json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
-    )
+    # Bughunt Runde 31: Schreiben + Publish atomar (siehe mutate_party) —
+    # sonst konnten parallele Schreiber in falscher Reihenfolge zustellen.
+    async with redis.pipeline(transaction=True) as pipe:
+        pipe.hset(key, pid, json.dumps(state, separators=(",", ":")))
+        pipe.expire(key, WATCH_TTL_SECONDS)
+        snapshot = WatchStateSnapshot(channel_id=str(channel_id), party_id=pid, state=state)
+        pipe.publish(
+            WATCH_EVENTS_CHANNEL,
+            json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
+        )
+        await pipe.execute()
 
 
 async def delete_party(redis: Redis, channel_id: str, party_id: str) -> None:
     """Remove one party from the channel hash + publish a null-state stop event.
     The channel key auto-disappears once its last party field is gone."""
     pid = str(party_id)
-    await redis.hdel(WATCH_STATE_KEY.format(channel_id=channel_id), pid)
-    snapshot = WatchStateSnapshot(channel_id=str(channel_id), party_id=pid, state=None)
-    await redis.publish(
-        WATCH_EVENTS_CHANNEL,
-        json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
-    )
+    # Bughunt Runde 31: hdel + publish atomar (siehe write_party).
+    async with redis.pipeline(transaction=True) as pipe:
+        pipe.hdel(WATCH_STATE_KEY.format(channel_id=channel_id), pid)
+        snapshot = WatchStateSnapshot(channel_id=str(channel_id), party_id=pid, state=None)
+        pipe.publish(
+            WATCH_EVENTS_CHANNEL,
+            json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
+        )
+        await pipe.execute()
 
 
 async def delete_party_if_host(
@@ -314,14 +321,15 @@ async def delete_party_if_host(
                     return False
                 pipe.multi()
                 pipe.hdel(key, pid)
-                await pipe.execute()
                 snapshot = WatchStateSnapshot(
                     channel_id=str(channel_id), party_id=pid, state=None
                 )
-                await redis.publish(
+                # Publish in der TX — siehe mutate_party (Runde 31).
+                pipe.publish(
                     WATCH_EVENTS_CHANNEL,
                     json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
                 )
+                await pipe.execute()
                 return True
             except WatchError:
                 continue
@@ -368,14 +376,19 @@ async def mutate_party(redis: Redis, channel_id: str, party_id: str, mutate) -> 
                 pipe.multi()
                 pipe.hset(key, pid, json.dumps(state, separators=(",", ":")))
                 pipe.expire(key, WATCH_TTL_SECONDS)
-                await pipe.execute()
+                # Bughunt Runde 31: PUBLISH in derselben MULTI-Transaktion —
+                # sonst war die Zustellreihenfolge der Snapshots RTT-abhängig
+                # statt commit-abhängig, und der ältere Stand konnte den
+                # neueren überholen (Queue-Eintrag verschwand aus allen
+                # Kacheln; beendete Partys "auferstehten").
                 snapshot = WatchStateSnapshot(
                     channel_id=str(channel_id), party_id=pid, state=state
                 )
-                await redis.publish(
+                pipe.publish(
                     WATCH_EVENTS_CHANNEL,
                     json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
                 )
+                await pipe.execute()
                 return state
             except WatchError:
                 continue
