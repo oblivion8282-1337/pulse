@@ -120,18 +120,25 @@
     if (ok) waehlen(id);
   }
 
+  /** In-flight-Merker gegen den Doppelklick-Rückschlag (s. RolesEditor). */
+  let sortiertGerade = false;
+
   async function umsortieren(neu: Role[]): Promise<void> {
+    if (sortiertGerade) return;
     const zug = bewegterAusschnitt(hoechsteZuerst, neu);
     if (zug.art === 'unveraendert') return;
     if (zug.art === 'nicht_darstellbar') {
       toast.error(m.roles_editor_reorder_failed());
       return;
     }
+    sortiertGerade = true;
     try {
       const zeilen = await rolesApi.setPositions(guildId, zug.eintraege);
       for (const r of zeilen) rolesStore.upsertRole(r);
     } catch (err) {
       toast.error(m.roles_editor_reorder_failed(), { description: (err as Error).message });
+    } finally {
+      sortiertGerade = false;
     }
   }
 

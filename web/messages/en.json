@@ -669,6 +669,7 @@
   "ablage_pulse_deaktiviert": "Storage is disabled for this community.",
   "ablage_pulse_kein_schluessel": "This device doesn't have the access key for this drive.",
   "ablage_pulse_ordner_loeschen_frage": "Delete folder “{name}” — including everything inside?",
+  "ablage_pulse_datei_loeschen_frage": "Delete file \u201c{name}\u201d permanently?",
   "ablage_pulse_name_doppelt": "“{name}” already exists in this folder.",
   "channel_list_laufwerk_dialog_title": "Community drive",
   "channel_list_open_laufwerk": "Open drive",

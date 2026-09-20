@@ -37,6 +37,8 @@
     if (open) {
       void start();
     } else {
+      // In-Flight-Anfragen beim Schließen verwerfen (s. setupLauf).
+      setupLauf++;
       // Reset on close so next open starts fresh.
       step = 'qr';
       busy = false;
@@ -49,16 +51,27 @@
     }
   });
 
+  // Lauf-Nummer der Setup-Anfrage: eine Antwort, die NACH einem Schließen
+  // oder Schnell-Wiederöffnen eintrudelt, darf den Stand nicht schreiben —
+  // sonst zeigt der QR den ERSTEN Pending-Secret, der Server prüft aber
+  // gegen den zweiten, und jeder Verifizierungscode wird abgewiesen
+  // (Bughunt 2026-09-20, Runde 2).
+  let setupLauf = 0;
+
   async function start() {
+    const lauf = ++setupLauf;
     busy = true;
     error = null;
     try {
-      setupData = await totpSetup();
+      const daten = await totpSetup();
+      if (lauf !== setupLauf) return;
+      setupData = daten;
       step = 'qr';
     } catch (err) {
+      if (lauf !== setupLauf) return;
       error = (err as Error).message;
     } finally {
-      busy = false;
+      if (lauf === setupLauf) busy = false;
     }
   }
 

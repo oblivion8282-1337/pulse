@@ -669,6 +669,7 @@
   "ablage_pulse_deaktiviert": "Die Ablage ist für diese Community deaktiviert.",
   "ablage_pulse_kein_schluessel": "Dieses Gerät hat keinen Zugriffsschlüssel für dieses Laufwerk.",
   "ablage_pulse_ordner_loeschen_frage": "Ordner „{name}“ löschen — samt allem, was drinliegt?",
+  "ablage_pulse_datei_loeschen_frage": "Datei \u201e{name}\u201c endg\u00fcltig l\u00f6schen?",
   "ablage_pulse_name_doppelt": "„{name}“ existiert in diesem Ordner bereits.",
   "channel_list_laufwerk_dialog_title": "Community-Laufwerk",
   "channel_list_open_laufwerk": "Laufwerk öffnen",

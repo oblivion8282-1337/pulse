@@ -131,6 +131,22 @@
     });
     speicher = new DateiSpeicher(adapter, 'ablage', holeSchlüssel());
     quelle = 'Dropbox (App-Ordner)';
+    // Gleich listen — vorher zeigte die Kopfzeile nach dem OAuth-Rückkehr
+    // "0 Dateien" mit leerer Liste, und "Neu laden" half nicht (s. dort).
+    await neuLaden();
+  }
+
+  /** Verzeichnis neu lesen UND die angezeigte Liste ersetzen. Der alte
+   *  "Neu laden"-Knopf rief nur speicher.laden() auf — der interne Bestand
+   *  drehte sich, die Tabelle blieb unverändert. */
+  async function neuLaden(): Promise<void> {
+    if (!speicher) return;
+    try {
+      await speicher.laden();
+      dateien = await speicher.liste();
+    } catch (e) {
+      fehler = e instanceof Error ? e.message : String(e);
+    }
   }
 
   // --- Sync-Ordner ---
@@ -219,10 +235,13 @@
 
   async function löschen(datei: DateiInfo): Promise<void> {
     if (!speicher) return;
+    // Unwiederbringlich für alle, die die Verbindung teilen — der Ausrufe-
+    // Haken sitzt klein neben dem Download-Haken, ein Verhauer zahlt sonst
+    // die ganze Community (dieselbe Regel wie in CommunityDateiablage).
+    if (!window.confirm(`„${datei.name}“ endgültig löschen?`)) return;
     try {
       await speicher.löschen(datei.id);
-      await speicher.laden();
-      dateien = await speicher.liste();
+      await neuLaden();
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
     }
@@ -357,7 +376,7 @@
           Hochladen
         </span>
       </label>
-      <Button variant="secondary" size="sm" onclick={() => speicher?.laden()} disabled={laeuft}>
+      <Button variant="secondary" size="sm" onclick={neuLaden} disabled={laeuft}>
         Neu laden
       </Button>
     </div>

@@ -219,13 +219,17 @@
   async function loeschen(zeile: DateiInfo): Promise<void> {
     const speicher = await speicherFuerVerbindung();
     if (!speicher) return;
-    if (zeile.istOrdner) {
-      const ok = await confirmDialog({
-        description: m.ablage_pulse_ordner_loeschen_frage({ name: zeile.name }),
-        destructive: true
-      });
-      if (!ok) return;
-    }
+    // Bughunt 2026-09-20 (Runde 2): der Confirm galt nur für Ordner — eine
+    // EINZELNE Datei flog nach einem Klick auf den kleinen Mülleimer endgültig
+    // weg (verschlüsseltes Objekt inklusive), für die ganze Community. Auch
+    // Dateien fragen jetzt nach (s. Engine-Kommentar in dateispeicher.ts).
+    const ok = await confirmDialog({
+      description: zeile.istOrdner
+        ? m.ablage_pulse_ordner_loeschen_frage({ name: zeile.name })
+        : m.ablage_pulse_datei_loeschen_frage({ name: zeile.name }),
+      destructive: true
+    });
+    if (!ok) return;
     try {
       await speicher.löschen(zeile.id);
       await ladeListe();

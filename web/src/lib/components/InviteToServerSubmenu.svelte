@@ -176,6 +176,15 @@
     if (working) return;
     working = true;
     try {
+      // Vorbedingung VOR dem Minten (Bughunt 2026-09-20, Runde 2): ohne
+      // Ziel-Host fehlt dem Broker der Routing-Key (Backend verlangt
+      // target_host non-empty → sonst 422). Vorher wurde erst der
+      // Single-Use-Invite gemintet und dann abgebrochen — der Code blieb
+      // als verwaiste Zeile in der Einladungsliste liegen.
+      if (!ziel.serverHostname) {
+        toast.error(m.invite_to_server_submenu_invite_error());
+        return;
+      }
       // 1. Frischen host-Invite-Code minten (single-use, 24h) — AUF DEM
       //    SERVER der Community, nicht auf dem gerade aktiven.
       const invite = await chatApi.createInvite(
@@ -187,13 +196,6 @@
       //    der Server DER COMMUNITY — der Empfänger soll ja genau dorthin
       //    eingeladen werden (Cross-Server: Freund in der Cloud, Community
       //    auf dem Self-Host).
-      if (!ziel.serverHostname) {
-        // Ohne Ziel-Host fehlt dem Broker der Routing-Key
-        // (Backend verlangt target_host non-empty → sonst 422). Früh + klar
-        // abbrechen statt einen leeren String zu senden.
-        toast.error(m.invite_to_server_submenu_invite_error());
-        return;
-      }
       await communityInvitesApi.create({
         invitee_id: friendUserId,
         target_host: ziel.serverHostname,
