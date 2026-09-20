@@ -81,6 +81,44 @@ Upgrade-Pfad meist schon nebengenannt.
 - Upgrade: nach jedem Loop den Port final prüfen und bei Fehlschlag mit
   Log-Pfad abbrechen; env sauber als Array an `env` übergeben.
 
+## 2b. Design-Entscheidungen aus Runde 10 (E2E-Krypto/Ablage)
+
+### 2b.1 OTK-Verbrauch je Sendung — Nachfüllen nur bei App-Start
+- `krypto/senden.ts` + `gruppe/{senden,kanalSenden}.ts` claimen pro
+  Nachricht einen Einmalschlüssel je Zielgerät (Server löscht ihn
+  bedingungslos), benutzen ihn aber nur beim Sitzungs-NEUBAU — im
+  Normalfall wird er weggeworfen. Nachfüllen passiert nur in
+  `veroeffentlicheSchluessel` (Tab-/App-Start, Cert-Rotation): ein
+  lange offener Tab senkt den Vorrat aller Mitglieder kontinuierlich
+  gegen 0, dann laufen neue Sitzungsaufbauten über den
+  Fallback-Schlüssel. Runde 10 hat den Deadlock der NACHFÜLLUNG
+  behoben; das DESIGN (Refill nach Claim, z. B. debounce'd
+  `nachfuellenWennNoetig` nach Sendungen) ist eine Abwägung zwischen
+  Serverlast und Forward-Secrecy-Fenster.
+
+### 2b.2 Zwischenlager-Quota: nicht-atomare Buchung + tote Buchungen ohne Release
+- `routes/ablage_zwischenlager.py:137-158`: read-then-INSERT mit await
+  dazwischen — zwei parallele Ankündigungen überspringen beide das
+  Limit (dasselbe Muster, das kopplung_anlegen per INSERT-FROM-SELECT
+  fixte). Plus: die Buchung entsteht bei Ankündigung, scheiternde PUTs
+  belegen das Kontingent bis zum 7-Tage-Sweep, und Löschen darf nur
+  der Owner — der Hochladende kann seine tote Buchung nicht selbst
+  freigeben (Uploader-Spalte fehlt im Modell → Migration nötig).
+
+### 2b.3 Festigung belebt gelöschte Dateien wieder
+- `ablage/dateispeicher.ts:285-292`: die Idempotenz-Prüfung ist
+  Präsenz-basiert („id fehlt im Verzeichnis = noch nicht gefestigt").
+  Quittierungsfehler + Owner-Löschen + Retry = Datei ist wieder da.
+  Sauberer Fix braucht Lösch-Grabsteine im Verzeichnis oder
+  Festigungs-Journal — Design-Entscheidung.
+
+### 2b.4 Pulse-Laufwerk: Reservierungen (zustand=0) zählen nicht aufs Kontingent, kein Sweeper
+- `routes/ablage_pulse.py` `_genutzte_bytes` zählt nur zustand=1 —
+  parallele Ankündigungen laufen alle gegen denselben Stand; nie
+  hochgeladene Ankündigungen akkumulieren sich ohne Sweeper (quota-
+  neutral, aber unbegrenzes Tabellenwachstum). Braucht
+  Reservierungs-TTL oder -Sweep plus Design-Entscheidung.
+
 ## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 
 ### 3.4 Composer bleibt bis zur E2E-Sendebestätigung offen (UX-Redesign)
