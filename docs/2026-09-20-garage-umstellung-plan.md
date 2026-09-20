@@ -30,7 +30,7 @@ nach dem Umstieg ein Rebase auf den neuen Stand.
 
 ## Umsetzung
 
-### 1. Self-Host (all-in-one)
+### 1. Self-Host (all-in-one) — UMGESETZT (c952077f)
 * Dockerfile: MinIO-Stage ersetzen durch `COPY --from=dxflrs/garage:v1.1.0
   /garage ...` (Image statt URL-Download — das 410-Problem entfällt
   strukturell; 9ac86230 wird damit überholt).
@@ -46,7 +46,7 @@ nach dem Umstieg ein Rebase auf den neuen Stand.
 * Healthcheck: `garage status` bzw. HEAD auf Bucket.
 * Alte MinIO-s6-Services + Dockerfile-Stage + Pins entfernen.
 
-### 2. Prod (infra/prod/docker-compose.yml)
+### 2. Prod (infra/prod/docker-compose.yml) — UMGESETZT (e95b137d)
 * `minio`-Service → Garage-Container (dxflrs/garage, garage.toml
   gemountet, Ports 9000 intern). Achtung: das Hub-Image
   `minio/minio:RELEASE.2025-09-07...` ist vom Hub GELÖSCHT — Neu-Deploys
