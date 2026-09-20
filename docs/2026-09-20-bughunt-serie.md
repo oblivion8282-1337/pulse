@@ -158,7 +158,24 @@ Kondensiert auf Fix-Klassen (Details je Commit im Log):
 | 29 | Einladungs-/Freigabe-Arten (guild/guest/member/recovery) | erledigt — Invite-Dedupe auf Cloud-Ziele eingegrenzt; Gast-TOCTOU-Rest notiert |
 | 30 | Service-Worker & Offline (Cache, Update, Background) | erledigt — sauber (kein Fetch-Intercept, Cache je Build-Version, DND-Spiegel aus R19) |
 | 31 | Watch-Party & Stream-Chat-Protokoll (Kontrolle, Lifecycle) | erledigt — Watch-Publish in Commit-Reihenfolge (atomare Transaktion) |
-| 32 | Regression-Jagd über Runden 23–31 + Abschluss | offen |
+| 32 | Regression-Jagd über Runden 23–31 + Abschluss | erledigt — Adversarial-Review: Teil-3-Diff sauber |
+
+## Abschlussbilanz Teil 3 (2026-09-20)
+
+* **Runden 23–31: 17 Fixes** (Suche ×6, E-Mail/SMTP ×5, Watch/Invite ×2,
+  Verlauf/Brakes ×2, Voice ×2).
+* **Adversarial-Review (Selbstlauf):** Teil-3-Diff sauber; der in Runde
+  24-Kontext entdeckte target_user_id-NameError (11 rote Tests) wurde
+  noch in derselben Serie korrigiert (9cbd770c).
+* **Gates final:** Backend 2633/2634 (Singleworker-Test = Dev-Stack-Flag-
+  Umgebung), svelte-check 0 Fehler, Web 1190/1190, vite build grün,
+  watch tests 101/101.
+
+## Serie gesamt (Runden 1–32)
+
+~107 Fixes, 66+ Commits auf `bughunt-09-20`. Offene Design-/Aufräum-
+Punkte: `docs/2026-09-20-bughunt-offene-entscheidungen.md` (MinIO-Pin
+410 = akut).
 
 ## Bekannt (Erweiterung: Runden 13–22)
 
