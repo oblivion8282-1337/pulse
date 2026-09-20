@@ -454,16 +454,34 @@ async def register(
         response=response,
     )
 
+    await session.commit()
+
     # Auto-fire the verify-email so the new user finds a fresh link in their
     # inbox right after the redirect to /app. Wrapped in try/except: a flaky
     # mail relay must NOT abort registration — the token row is committed
     # alongside the user either way, and the in-app banner has a manual resend.
+    # Bughunt Runde 24: der Versand lief INNERHALB des globalen Advisory-Locks
+    # UND vor dem Commit — ein träges Relay blockierte jede parallele
+    # Registrierung für die volle SMTP-Laufzeit (bis 15 s je Versuch), und
+    # ein Crash vor dem Commit schickte einen toten Link raus. Jetzt: Commit
+    # zuerst (User + Token durable), Versand danach ohne Lock.
     try:
         await issue_verification_email(session, user)
+        # issue_verification_email committet bewusst nicht selbst — nach dem
+        # Umzug hinter den User-Commit braucht der Token-Zweile einen
+        # eigenen Commit, sonst rollt der Request-Teardown ihn zurück.
+        await session.commit()
     except Exception as exc:  # noqa: BLE001
+        # Die DB-Seite (Token-Zeile invalidieren + anlegen) ist vor dem
+        # SMTP-Versand fertig und bleibt gültig — committieren, damit der
+        # User über den Banner neu senden kann (das erwartet
+        # test_register_succeeds_when_verify_mail_fails).
+        try:
+            await session.commit()
+        except Exception:  # noqa: BLE001
+            pass
         log.warning("register_verify_email_failed", user_id=user.id, error=str(exc))
 
-    await session.commit()
     set_session_cookie(response, sid)
     return tokens
 

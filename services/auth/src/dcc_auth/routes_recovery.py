@@ -261,8 +261,11 @@ async def email_verification_send(
 @router.post("/email/verification/confirm", response_model=MessageOut)
 async def email_verification_confirm(
     payload: EmailVerifyConfirmIn,
+    request: Request,
     session: SessionDep,
 ):
+    # Bughunt Runde 24: Brake nachreichen (Spiegel zu /password/reset) —
+    # der Endpoint war das einzige anonyme Token-Gate ganz ohne Drossel.
     """Anonymous endpoint — the token in the URL IS the auth.
 
     The verify link goes out in an email, so the recipient is by definition
@@ -272,6 +275,11 @@ async def email_verification_confirm(
     from fastapi import HTTPException
 
     from dcc_auth.recovery import hash_token
+
+    settings = get_settings()
+    await _check_rate(
+        request, "token_confirm", settings.rate_limit_token_confirm
+    )
 
     digest = hash_token(payload.token)
     # with_for_update: atomares Single-Use-Consume (gleiche Race wie beim
