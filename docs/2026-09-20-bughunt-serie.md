@@ -89,7 +89,7 @@ tests, AV1/HEVC-Fragmentierung (Tests), jitter/fec/state machines im Player.
 | 15 | Datenschema & Migrationen (Alembic-Kette, Modell-Drift, Nullable) | erledigt — 1 Fix (MemberRole-Composite-FK im Modell, create_all-Kaskade) |
 | 16 | Datei- & Pfad-Handling (Traversal, Temp, Serving) | erledigt — 2 Fixes (Abruf-Content-Type-XSS, Sound-Upload-Order) |
 | 17 | Netzwerk & Trust-Chain (Timeouts, Proxy-Header, client_ip) | erledigt — 2 Fixes (Bridge-Identitäts-Köpfe, Provisionierungs-Frist) + ponytail-Deckel 127.0.0.1-Kollaps |
-| 18 | UI-Zustandsautomaten (Dialoge, Mehrschritt-Flows, Drag&Drop) | offen |
+| 18 | UI-Zustandsautomaten (Dialoge, Mehrschritt-Flows, Drag&Drop) | erledigt — 5 Fixes (Cross-Apply, Stuck-Busy, TOTP/Passkey-Stale-Guards, Anhang-Fehlversand) |
 | 19 | Benachrichtigungs-Pipeline (Push end-to-end, Badge, Stummschaltung) | offen |
 | 20 | DB↔Redis↔Memory-Konsistenz (Invarianten, Reconciliation) | offen |
 | 21 | Admin- & Betriebswege (Auth-Konsistenz, Operator-Flows, Registry) | offen |
