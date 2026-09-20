@@ -234,8 +234,13 @@ async def list_mod_queue(
       - target_message_id → message's channel's guild_id matches
       - target_user_id only → user is a member of this guild
 
-    Paginated by ``before`` timestamp (exclusive upper bound on ``created_at``);
-    oldest entries first within the window. Use ``limit`` to control page size.
+    Paginated by ``before`` timestamp (exclusive upper bound on ``created_at``),
+    NEWEST first within the window — derselbe desc+``before``-Cursor wie jede
+    andere Paginierung hier. Bughunt Runde 5: die Sortierung lief ASC, Seite 1
+    enthielt damit bereits das ÄLTESTE Ende — der ``before``-Cursor konnte nie
+    vorrücken (jede Folgeseite war eine schrumpfende Präfix-Menge der ersten),
+    bei >limit offenen Meldungen blieben die neueren unsichtbar. Der Klient
+    sortiert für die Anzeige ohnehin selbst.
     """
     await _has_any_mod_perm(session, current, guild_id)
 
@@ -245,7 +250,7 @@ async def list_mod_queue(
     )
     if before is not None:
         stmt = stmt.where(Report.created_at < before)
-    stmt = stmt.order_by(Report.created_at.asc()).limit(limit)
+    stmt = stmt.order_by(Report.created_at.desc()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
     return [_report_to_out(r) for r in rows]
 

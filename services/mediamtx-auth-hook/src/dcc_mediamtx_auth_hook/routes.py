@@ -75,7 +75,26 @@ _HOOK_FENSTER_S = 60.0
 _hook_zeiten: dict[str, deque[float]] = defaultdict(deque)
 
 
+# Bughunt Runde 5: jede jemals gesehene Zuschauer-IP hinterlässt einen
+# dauerhaften Dict-Eintrag (Key + leerer Deque) — langsames Leck auf
+# öffentlichen Instanzen. Derselbe Deckel wie ``gaeste._fallback_zeiten``:
+# über dem Limit fallen ALTE Keys weg; ein aktiver Zuschauer baut sein
+# Fenster beim nächsten Call sofort wieder auf.
+_HOOK_MAX_QUELLEN = 4096
+
+
 def _rate_ok(ip: str) -> bool:
+    if len(_hook_zeiten) > _HOOK_MAX_QUELLEN:
+        jetzt_kandidat = monotonic()
+        for k in [
+            k
+            for k, d in _hook_zeiten.items()
+            if not d or jetzt_kandidat - d[-1] > _HOOK_FENSTER_S
+        ]:
+            del _hook_zeiten[k]
+        # Immer noch drüber (Flut mit frischen Keys)? Hart abschneiden.
+        while len(_hook_zeiten) > _HOOK_MAX_QUELLEN:
+            _hook_zeiten.pop(next(iter(_hook_zeiten)))
     jetzt = monotonic()
     fenster = _hook_zeiten[ip]
     while fenster and jetzt - fenster[0] > _HOOK_FENSTER_S:
