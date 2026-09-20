@@ -39,6 +39,7 @@ from dcc_chat_gateway.message_helpers import (
     reactions_for as _reactions_for,
     serialize_message,
 )
+from dcc_chat_gateway.mentions import serialize_mentions
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
     LEGACY_READONLY_DETAIL,
@@ -215,6 +216,44 @@ async def post_message(
                 400,
                 detail=f"too many attachments ({len(payload.attachment_ids)} > {max_count})",
             )
+
+    # Bughunt Runde 26: Nonce-Dedup auf dem REST-Weg (Spiegel zum WS-Op).
+    # Der Direct-Transport replayt denselben POST, wenn die Verbindung nach
+    # der Zustellung vor der Antwort stirbt — ohne Dedup landete die
+    # Nachricht doppelt. Nur Senden mit Nonce ist dedupliziert; Kollision
+    # je (Kanal, Autor, Nonce).
+    if payload.nonce:
+        dup = await session.scalar(
+            select(Message.id).where(
+                Message.channel_id == channel_id,
+                Message.author_id == current.id,
+                Message.nonce == payload.nonce,
+            )
+        )
+        if dup is not None:
+            existing = await session.get(Message, dup)
+            if existing is not None and existing.deleted_at is None:
+                # Idempotente Wiederholung: die bereits zugestellte
+                # Nachricht nochmals als 200-Antwort ausliefern statt
+                # eine Dublette anzulegen. Relationen wie im Normalpfad
+                # nachladen (response_model braucht sie).
+                att_rows = (
+                    await session.execute(
+                        select(MessageAttachment).where(
+                            MessageAttachment.message_id == dup,
+                            MessageAttachment.deleted_at.is_(None),
+                        )
+                    )
+                ).scalars().all()
+                mention_rows = (
+                    await session.execute(
+                        select(MessageMention).where(MessageMention.message_id == dup)
+                    )
+                ).scalars().all()
+                existing.reactions = []  # type: ignore[attr-defined]
+                existing.attachments = att_rows  # type: ignore[attr-defined]
+                existing.mentions = serialize_mentions(mention_rows)  # type: ignore[attr-defined]
+                return existing
 
     msg = Message(
         id=next_id(),

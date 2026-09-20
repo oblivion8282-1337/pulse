@@ -26,7 +26,16 @@ export async function erstelleCommunity(name: string): Promise<void> {
       for (const r of rows) roles.upsertRole(r);
     })
     .catch(() => undefined);
-  const c = await chatApi.createChannel(g.id, { name: 'general' });
-  guilds.addChannel(c);
-  await goto(`/app/guilds/${g.id}/channels/${c.id}`);
+  // Bughunt Runde 26: scheitert der general-Kanal (Netz-Blip), WAR die
+  // Guild schon angelegt — ein Retry legte eine ZWEITE Community an und
+  // ließ die erste als Waise zurück. Stattdessen: direkt in die neue
+  // Guild navigieren (Kanal per UI nachholbar), Fehler als solche melden.
+  try {
+    const c = await chatApi.createChannel(g.id, { name: 'general' });
+    guilds.addChannel(c);
+    await goto(`/app/guilds/${g.id}/channels/${c.id}`);
+  } catch (err) {
+    await goto(`/app/guilds/${g.id}`);
+    throw err;
+  }
 }
