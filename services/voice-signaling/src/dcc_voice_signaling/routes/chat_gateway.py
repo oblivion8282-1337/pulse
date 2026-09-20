@@ -271,6 +271,22 @@ async def _maybe_revoke_voice_pull(redis, channel_id: str, user_id: str) -> None
             return
     except Exception:  # noqa: BLE001 — Redis best-effort; reaper is the backstop
         return
+    # Bughunt Runde 4: Gnadenfenster mit Presence-Nachfrage, derselbe Schutz
+    # wie im Reaper („never yanks a grant from a user who is still in the
+    # call“). LiveKit feuert bei einem vollen Reconnect participant_left und
+    # participant_joined im Sekundenabstand — vorher riss der Flap den Pull-
+    # Grant (Zeile + VIEW/CONNECT-Bits) weg, obwohl der Nutzer nie bewusst
+    # verlassen hat. Ponytail: die Restlücke (Rejoin NACH der Nachfrage)
+    # bleibt; der Reaper heilt sie beim nächsten Lauf nicht, aber ein Mod
+    # kann erneut ziehen.
+    import asyncio  # noqa: PLC0415
+
+    await asyncio.sleep(5)
+    try:
+        if await redis.sismember(f"voice:room:channel-{channel_id}", user_id):
+            return
+    except Exception:  # noqa: BLE001 — Redis best-effort; reaper is the backstop
+        return
     if _http_client is None:
         return
     url = settings.chat_gateway_url.rstrip("/") + "/internal/voice-pull-revoke"
