@@ -30,7 +30,13 @@ fn ws_url(cfg: &Config) -> String {
 pub async fn run(cfg: Config, factory: Arc<RtcFactory>) {
     let mut backoff = Duration::from_secs(1);
     loop {
-        match connect_and_serve(&cfg, &factory).await {
+        match connect_and_serve(&cfg, &factory, &mut backoff).await {
+            // Bughunt Runde 3: Ok(()) ist der Kanal-zu-Pfad (der Original-tx
+            // lebt im Funktionsrahmen weiter, der Kanal liefert nie None) —
+            // der Backoff-Reset hier war toter Code, nach dem ersten
+            // Netzfehler blieb der Retry für immer bei 60 s. Der Reset
+            // passiert deshalb IN connect_and_serve, sobald die Verbindung
+            // steht und authentifiziert ist.
             Ok(()) => backoff = Duration::from_secs(1),
             Err(e) => eprintln!("[signal] Verbindung verloren: {e:#}"),
         }
@@ -39,7 +45,11 @@ pub async fn run(cfg: Config, factory: Arc<RtcFactory>) {
     }
 }
 
-async fn connect_and_serve(cfg: &Config, factory: &Arc<RtcFactory>) -> Result<()> {
+async fn connect_and_serve(
+    cfg: &Config,
+    factory: &Arc<RtcFactory>,
+    backoff: &mut Duration,
+) -> Result<()> {
     let (stream, _) = tokio_tungstenite::connect_async(ws_url(cfg))
         .await
         .context("Signal-WS-Connect")?;
@@ -47,6 +57,9 @@ async fn connect_and_serve(cfg: &Config, factory: &Arc<RtcFactory>) -> Result<()
 
     let auth = serde_json::json!({ "instance_id": cfg.instance_id, "token": cfg.relay_token });
     sink.send(WsMessage::Text(auth.to_string().into())).await?;
+    // Verbindung steht und ist authentifiziert — ab hier lohnt sofortiger
+    // Reconnect nach dem nächsten Abriss wieder (siehe run()).
+    *backoff = Duration::from_secs(1);
 
     // Answers kommen aus spawned Tasks → über einen Kanal in den Sink.
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(16);

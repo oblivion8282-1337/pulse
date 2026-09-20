@@ -188,7 +188,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # Reject already-expired tokens before `ready` — avoids sending `ready`
     # followed immediately by a 4001 close (inconsistent client state).
     exp = payload.get("exp")
-    if isinstance(exp, (int, float)) and float(exp) < time.time():
+    # <= statt <: bei exp == now würde der TokenExpiryWatch (delay <= 0)
+    # sofort schliessen — genau das ready-gefolgt-von-4001, das dieser
+    # Check verhindern soll (Bughunt Runde 3).
+    if isinstance(exp, (int, float)) and float(exp) <= time.time():
         await websocket.close(code=4001, reason="token expired")
         return
 

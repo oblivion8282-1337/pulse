@@ -8,7 +8,7 @@ landen auf `bughunt-2026-09-20`; `main` bleibt auf `origin/main`.
 
 | Runde | Linse | Status |
 |-------|-------|--------|
-| 3 | Zeit & Fristen (TTL, Grace, Clock, Kalender) | läuft |
+| 3 | Zeit & Fristen (TTL, Grace, Clock, Kalender) | erledigt — 5 Fixes: Heartbeat-Timeout + Backoff-Reset + ICE-Deadline (direct-adapter), WS-Expiry-Grenzfall, readState-pagehide-Flush |
 | 4 | Daten-Lebenszyklen (anlegen→ändern→löschen→Archiv, side effects) | offen |
 | 5 | Zähler, Grenzen & Wachstum (Pagination, Caches, Snowflake-Grenze) | offen |
 | 6 | Parallelität & Reihenfolge (Races, Transaktionen, Event-Order) | offen |
