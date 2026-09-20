@@ -112,6 +112,14 @@ class WSOpContext:
     # throttle backstop. ``resync`` rebuilds the full ready frame (several DB
     # queries + Redis/S3 reads), so an unthrottled loop is a DB-pool DoS vector.
     last_resync: float = 0.0
+    # Bughunt Runde 34: Bremse für profile_statement (legitimer Takt ~1 je
+    # Verbindung + Retry je Key-Rotation; ohne Bremse kostet jeder Frame
+    # Redis-GET, Pool-Checkout und RSA-Verify).
+    last_profile_statement: float = 0.0
+    # Bughunt Runde 34: Bremse für profile_statement (legitimer Takt ~1 je
+    # Verbindung + Retry je Key-Rotation; ohne Bremse kostet jeder Frame
+    # Redis-GET, Pool-Checkout und RSA-Verify).
+    last_profile_statement: float = 0.0
     # Monotonic timestamp of the last ``hist_replay`` this socket served —
     # same throttle rationale (Redis stream reads + potentially large frame).
     last_hist_replay: float = 0.0

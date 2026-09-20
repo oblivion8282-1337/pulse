@@ -183,6 +183,11 @@ async def handle_join(
     if cid_int is None or pid is None:
         await _err(websocket, 4012, "channel_id and party_id required")
         return
+    # Bughunt Runde 34: bereits beobachtende Paare kurzschließen (Spiegel
+    # zum Leave-Seite-Fix) — sonst kostet jeder watch_join-Frame DB-Gate +
+    # broadcast_watchers-Fan-out erneut, bei idempotentem set.add.
+    if (cid_int, pid) in watched_parties:
+        return
     async with session_factory() as session:
         channel = await channel_membership(session, cid_int, user.id)
         if channel is None or channel.type != CHANNEL_TYPE_VOICE:
