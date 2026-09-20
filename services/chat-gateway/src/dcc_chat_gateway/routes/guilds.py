@@ -316,6 +316,14 @@ async def delete_guild(
     guild = await guild_or_404(session, guild_id)
     if guild.owner_id != current.id and not current.is_admin:
         raise HTTPException(403, detail="only the owner can delete the guild")
+    # Zeile bis zum Commit sperren (Bughunt Runde 6): sonst konnte ein
+    # parallel committender Owner-Transfer den Besitzer ändern und der
+    # Lösch-Commit zerstörte die Community unter dem NEUEN Owner. Postgres
+    # hält das Row-Lock bis zum Commit; SQLite-Tests ignorieren FOR UPDATE
+    # (dort serialisiert der Testläufer ohnehin).
+    await session.execute(
+        select(Guild).where(Guild.id == guild_id).with_for_update()
+    )
     mgr = getattr(request.app.state, "connection_manager", None)
     # Hard-delete MinIO attachments for all channels before the DB cascade
     # removes the rows — the cascade can't clean up object-store objects.
@@ -443,6 +451,12 @@ async def transfer_ownership(
         raise HTTPException(
             403, detail="only the owner can transfer ownership"
         )
+    # Zeile sperren (Bughunt Runde 6, Spiegel zu delete_guild): zwei
+    # konkurrierende Transfers oder Transfer gegen Löschung serialisieren
+    # sich sonst nach dem Check.
+    await session.execute(
+        select(Guild).where(Guild.id == guild_id).with_for_update()
+    )
     if payload.confirm_name != guild.name:
         raise HTTPException(
             400, detail="confirm_name does not match the guild name"

@@ -258,16 +258,14 @@ async def handle_stop(
     redis = _redis(websocket)
     if redis is None:
         return
-    state = await watchkeys.read_party(redis, cid, pid)
-    if state is None:
-        # Idempotent stop.
-        hosted_parties.discard((cid, pid))
-        watched_parties.discard((cid, pid))
-        return
-    if str(state.get("host_user_id")) != str(user.id):
+    # Atomar prüfen + löschen (Bughunt Runde 6): ein Handoff vom zweiten
+    # Tab des Hosts konnte zwischen Lesen und Löschen landen — die Löschung
+    # beendete die soeben übergebene Party für alle. delete_party_if_host
+    # prüft den Host im WATCH; False deckt „weg" und „nicht mehr Host" ab.
+    gestoppt = await watchkeys.delete_party_if_host(redis, cid, pid, str(user.id))
+    if not gestoppt and (await watchkeys.read_party(redis, cid, pid)) is not None:
         await _err(websocket, 4015, "only the host can stop")
         return
-    await watchkeys.delete_party(redis, cid, pid)
     hosted_parties.discard((cid, pid))
     watched_parties.discard((cid, pid))
     mgr = _manager(websocket)

@@ -22,7 +22,7 @@ from typing import Any
 from dcc_shared.events import ChannelBumpEvent, DmBumpEvent
 from dcc_shared.permission_resolver import has_permission
 from dcc_shared.permissions import Permissions
-from sqlalchemy import update
+from sqlalchemy import or_, update
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionLocal
@@ -306,10 +306,19 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
         )
         if kind == "dm":
             # Bump last_message_id so the DM list can sort by recency.
-            # UPDATE-only to avoid loading the row.
+            # UPDATE-only to avoid loading the row. Guarded (Bughunt Runde 6):
+            # zwei parallele Sende-Commits konnten die Spalte sonst auf die
+            # AELTERE Snowflake zurückschreiben — die DM-Liste sortierte bis
+            # zum nächsten Senden falsch.
             await session.execute(
                 update(DirectMessageChannel)
                 .where(DirectMessageChannel.id == cid_int)
+                .where(
+                    or_(
+                        DirectMessageChannel.last_message_id.is_(None),
+                        DirectMessageChannel.last_message_id < persisted.id,
+                    )
+                )
                 .values(last_message_id=persisted.id)
             )
         await session.commit()

@@ -258,8 +258,11 @@ async def post_message(
 
     if kind == "dm":
         # Bump last_message_id so the DM list can sort by recency.
-        ch.last_message_id = msg.id
-        session.add(ch)
+        # Nur VORWÄRTS (Bughunt Runde 6): ein paralleler Send-Commit konnte
+        # die Spalte sonst auf die ältere Snowflake zurückschreiben.
+        if ch.last_message_id is None or ch.last_message_id < msg.id:
+            ch.last_message_id = msg.id
+            session.add(ch)
     await session.commit()
     await session.refresh(msg)
 

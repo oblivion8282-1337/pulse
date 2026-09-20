@@ -39,13 +39,12 @@ def _id(value: object) -> str | None:
 
 async def end_if_host(redis, channel_id: str, party_id: str, departing_uid: str) -> None:
     """Host left deliberately (tile unmount / channel switch) → end the party
-    now. No-op if the departing user is a viewer."""
+    now. No-op if the departing user is a viewer — oder inzwischen NICHT mehr
+    Host: die Prüfung sitzt im WATCH (Bughunt Runde 6), sonst beendete ein
+    verspätetes Leave die soeben via Handoff übergebene Party."""
     if redis is None:
         return
-    state = await watchkeys.read_party(redis, channel_id, party_id)
-    if state is None or str(state.get("host_user_id")) != str(departing_uid):
-        return
-    await watchkeys.delete_party(redis, channel_id, party_id)
+    await watchkeys.delete_party_if_host(redis, channel_id, party_id, str(departing_uid))
 
 
 async def end_or_grace_if_host(
@@ -107,9 +106,21 @@ async def promote_or_end(
             await watchkeys.delete_party(redis, channel_id, party_id)
             return
         watchers_now = set(await manager.watchers(channel_id, party_id))
-    new_state = watchkeys.promoted_state(fresh, next_uid)
-    await watchkeys.write_party(redis, channel_id, new_state)
-    log.info(
+    # Schreiben über mutate_party (Bughunt Runde 6): ein plain write_party
+    # des Vorher-Snapshots hätte eine zwischenzeitlich per mutate_party
+    # committete Queue-Anmeldung still verworfen (lost update — genau der
+    # Fall, vor dem watchkeys.mutate_party ausdrücklich warnt). Der Callback
+    # prüft den Host am FRISCHEN Stand; ein zwischenzeitlicher Handoff/Stop
+    # bricht den Write ab.
+    def _promote(state: dict) -> str | None:
+        if str(state.get("host_user_id")) != str(departing_uid):
+            return "NOT_HOST"
+        state.update(watchkeys.promoted_state(state, next_uid))
+        return None
+
+    ergebnis = await watchkeys.mutate_party(redis, channel_id, party_id, _promote)
+    if isinstance(ergebnis, dict):
+        log.info(
         "watch-party promoted channel=%s party=%s from=%s to=%s",
         channel_id,
         party_id,
@@ -176,9 +187,18 @@ async def handle_handoff(
         if target not in await mgr.watchers(cid, pid):
             await _err(websocket, 4018, "target not watching")
             return
-        new_state = watchkeys.promoted_state(fresh, target)
-        await watchkeys.write_party(redis, cid, new_state)
-        mgr.cancel_host_end(cid, pid)  # defensive: host changed → drop pending grace
+        # Schreiben über mutate_party (Bughunt Runde 6, Spiegel zu
+        # promote_or_end): Host-Prüfung am FRISCHEN Stand im WATCH, Queue-
+        # Anmeldungen paralleler Zuschauer werden nicht übergeschrieben.
+        def _promote(state: dict) -> str | None:
+            if str(state.get("host_user_id")) != str(user.id):
+                return "NOT_HOST"
+            state.update(watchkeys.promoted_state(state, target))
+            return None
+
+        ergebnis = await watchkeys.mutate_party(redis, cid, pid, _promote)
+        if isinstance(ergebnis, dict):
+            mgr.cancel_host_end(cid, pid)  # defensive: host changed → drop pending grace
         return
     # No target → promote next oldest (host stays a viewer in the registry).
     await promote_or_end(redis, mgr, cid, pid, str(user.id))

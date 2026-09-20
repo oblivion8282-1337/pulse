@@ -287,6 +287,47 @@ async def delete_party(redis: Redis, channel_id: str, party_id: str) -> None:
     )
 
 
+async def delete_party_if_host(
+    redis: Redis, channel_id: str, party_id: str, host_uid: str
+) -> bool:
+    """Partei löschen, NUR wenn ``host_uid`` noch Host ist — atomar via
+    WATCH/MULTI.
+
+    Bughunt Runde 6: die bisherige read→compare→delete-Kette in
+    ``handle_stop``/``end_if_host`` war nicht atomar — ein Handoff vom
+    zweiten Tab desselben Hosts konnte zwischen Lesen und Löschen landen,
+    und die Löschung beendete die soeben übergebene Party für alle.
+    True = gelöscht; False = Party weg oder Host gewechselt (beides für
+    den Aufrufer „nichts zu tun")."""
+    key = WATCH_STATE_KEY.format(channel_id=channel_id)
+    pid = str(party_id)
+    async with redis.pipeline() as pipe:
+        for _ in range(_QUEUE_WATCH_RETRIES):
+            try:
+                await pipe.watch(key)
+                state = _parse_state(await pipe.hget(key, pid))
+                if state is None:
+                    await pipe.unwatch()
+                    return False
+                if str(state.get("host_user_id")) != str(host_uid):
+                    await pipe.unwatch()
+                    return False
+                pipe.multi()
+                pipe.hdel(key, pid)
+                await pipe.execute()
+                snapshot = WatchStateSnapshot(
+                    channel_id=str(channel_id), party_id=pid, state=None
+                )
+                await redis.publish(
+                    WATCH_EVENTS_CHANNEL,
+                    json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
+                )
+                return True
+            except WatchError:
+                continue
+    return False
+
+
 # ── Queue ────────────────────────────────────────────────────────────────────
 #
 # The queue is a ``queue`` list inside the party state. Every mutation is a

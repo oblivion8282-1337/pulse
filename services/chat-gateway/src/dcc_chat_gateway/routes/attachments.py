@@ -401,7 +401,25 @@ async def bind_attachments(
         # oben, weil sie zutrifft: gebunden, nur eben an einen Umschlag.
         if r.postfach_gebunden_am is not None:
             raise HTTPException(400, detail=f"attachment {aid} already bound")
-        r.message_id = message_id
+    # Bedingtes UPDATE statt ORM-Zuweisung (Bughunt Runde 6): die
+    # message_id-Spalte hat keinen Unique-Index, der Check-then-act oben
+    # ließ bei doppeltem Absenden beide Requests durchlaufen — der letzte
+    # Commit gewann und der ersten Nachricht wurde der Anhang still
+    # abgezogen. rowcount != len heißt: ein paralleler Request war
+    # schneller → 409, der Klient wiederholt mit frischem Stand.
+    result = await session.execute(
+        update(MessageAttachment)
+        .where(
+            MessageAttachment.id.in_(attachment_ids),
+            MessageAttachment.message_id.is_(None),
+        )
+        .values(message_id=message_id)
+    )
+    if result.rowcount != len(set(attachment_ids)):
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="attachment already bound"
+        )
     # caller commits
 
 
