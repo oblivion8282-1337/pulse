@@ -17,7 +17,21 @@ landen auf `bughunt-2026-09-20`; `main` bleibt auf `origin/main`.
 | 9 | Rechte & Sichtbarkeit quer (Resolver-Ränder, Cache-Invalidierung) | erledigt — 5 Fixes (Purge-WS-Caches, Reorder-Evict, id-Tiebreak, Rangklemme, Gastlink-Orakel/Filter) |
 | 10 | E2E-Krypto-Glue (Postfach, Kopplung, Sicherung, Ablage) | erledigt — 6 Fixes (eigene R7-Regression, Verteilschlüssel-Partnervergleich, OTK-Deadlock, Ablage-Instanz-Cache, ATTACH_FILES-Gate, Kanal-Sitzungs-Reset) |
 | 11 | Tote Wege & Test-Drift (exportiert-nie-gerufen, Tests am falschen Verhalten) | erledigt — 3 Fixes (Single-Flight-Verdrahtung, Test-Anker, WS-Close-Codes) + Inventar toter Wege im Protokoll |
-| 12 | Selbst-Review des Serien-Diffs + Abschlussbericht | offen |
+| 12 | Selbst-Review des Serien-Diffs + Abschlussbericht | erledigt — 3 eigene Regressionen behoben (Kopplung-Handler, Purge-Reihenfolge, Voice-Gnade-Task); Rest des Diffs im Review sauber |
+
+## Abschlussbilanz (2026-09-20)
+
+* **Runden 3–12: 63 Fixes** in ~30 Commits auf `bughunt-2026-09-20`
+  (inkl. 3 Regressionen aus der eigenen Serie, gefangen vom
+  Adversarial-Review in Runde 12).
+* **Letzter Stand aller Gates:** Backend 2631/2631 (Singleworker-Test
+  braucht Abwesenheit des Dev-Stack-Flags), svelte-check 0 Fehler,
+  Web 1190/1190, Desktop 191/193 (2 Umgebung),
+  Android-Kompilat grün (JDK 21), depacket 45/45,
+  pulse-update-Fälle grün, Kopplung 19/19.
+* **Nicht gefixt / Entscheidungen:** s.
+  `docs/2026-09-20-bughunt-offene-entscheidungen.md` (u. a. MinIO-Pin
+  410 mit akutem Handlungsdruck).
 
 Neue Entscheidungsbedarfe wandern nach
 `docs/2026-09-20-bughunt-offene-entscheidungen.md`.
