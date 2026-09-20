@@ -320,7 +320,7 @@ async def _approve_vps(
             session,
             actor_id=actor.id,
             action="instance_application.approve",
-            target_id=target_user_id,
+            target_id=app_applicant_user_id,
             payload={"application_id": app_row.id, "instance_id": instance_id},
         )
 
