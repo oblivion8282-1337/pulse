@@ -86,10 +86,22 @@ def _generate_ed25519_pem() -> bytes:
 
 
 def _load_or_generate_key(key_path: str) -> Ed25519PrivateKey:
-    """Load an Ed25519 private key from ``key_path``, generating it if absent."""
+    """Load an Ed25519 private key from ``key_path``, generating it if absent.
+
+    Die Erst-Erzeugung ist atomar (``O_CREAT|O_EXCL``): starten mehrere
+    Services den gemeinsamen Schlüssel gleichzeitig, gewinnt genau einer das
+    Rennen und die anderen laden *nach*. Ohne das schreibt jeder Prozess einen
+    eigenen Schlüssel aufs selbe Pfad (last writer wins), behält seinen
+    Schlüssel im Speicher — chat-gateway signiert dann mit A, voice/media
+    validieren mit B, und jede Session läuft in 401.
+    """
     p = Path(key_path)
-    if p.exists():
-        pem = p.read_bytes()
+
+    def _load() -> Ed25519PrivateKey | None:
+        try:
+            pem = p.read_bytes()
+        except FileNotFoundError:
+            return None
         try:
             key = serialization.load_pem_private_key(pem, password=None)
             if isinstance(key, Ed25519PrivateKey):
@@ -99,11 +111,28 @@ def _load_or_generate_key(key_path: str) -> Ed25519PrivateKey:
             )
         except Exception:  # noqa: BLE001
             log.warning("Failed to load session signing key at %s — regenerating", key_path)
+        return None
+
+    key = _load()
+    if key is not None:
+        return key
 
     # Generate fresh key
     p.parent.mkdir(parents=True, exist_ok=True)
     pem = _generate_ed25519_pem()
-    p.write_bytes(pem)
+    try:
+        fd = os.open(key_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        # Gleichzeitiger Erststart — der andere Prozess hat gewonnen. Dessen
+        # Schlüssel gemeinsam nutzen statt eigenen drüberzuschreiben.
+        key = _load()
+        if key is not None:
+            return key
+        # Unlesbare/beschädigte Datei: wie bisher ersetzen.
+        p.write_bytes(pem)
+    else:
+        with os.fdopen(fd, "wb") as f:
+            f.write(pem)
     # Harden permissions (Linux only, silent on other platforms)
     try:
         os.chmod(p.parent, 0o700)
