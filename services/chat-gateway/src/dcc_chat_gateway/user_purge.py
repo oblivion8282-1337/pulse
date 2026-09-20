@@ -35,6 +35,7 @@ from dcc_chat_gateway.models import (
     MENTION_TYPE_USER,
     Channel,
     CommunityInvite,
+    CommunityInviteNotification,
     Device,
     DirectMessageChannel,
     FriendRequest,
@@ -54,7 +55,7 @@ from dcc_chat_gateway.models import (
     UserPrivacy,
     WebPushSubscription,
 )
-from dcc_chat_gateway.routes.attachments import hard_delete_attachments
+from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
 from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
 from dcc_chat_gateway.user_purge_ablage import (
     purge_ablage_konto_laufwerk,
@@ -97,6 +98,11 @@ class _PurgeResult:
     #: Community, Kanal, Aussenform) — fuers Register-Vergessen + die
     #: device_changed-Meldung nach dem Commit.
     removed_devices: list[tuple[int, int, int, dict]] = field(default_factory=list)
+    #: MinIO-Storage-Keys der Anhaenge, deren Tombstones erst mit dem Commit
+    #: durable werden — die Objekte duerfen erst DANACH geloescht werden
+    #: (``purge_s3_keys``), sonst ueberlebt ein Rollback Zeilen, deren Bytes
+    #: schon weg sind (s. Docstring von ``hard_delete_attachments``).
+    deferred_s3: list[str] = field(default_factory=list)
 
 
 # permission_overwrites.target_type sentinel for user-scoped rows
@@ -125,7 +131,7 @@ async def _collect_dm_channel_ids(session: AsyncSession, user_id: int) -> list[i
 
 
 async def _hard_delete_guild_with_attachments(
-    session: AsyncSession, guild_id: int
+    session: AsyncSession, guild_id: int, defer_s3: list[str]
 ) -> list[int]:
     """``session.delete(guild)`` cascades channels/messages/members/etc.
     via the FK schema, but MinIO objects need an explicit sweep first
@@ -146,7 +152,9 @@ async def _hard_delete_guild_with_attachments(
         )
         att_ids = list((await session.execute(att_ids_stmt)).scalars())
         if att_ids:
-            await hard_delete_attachments(session, attachment_ids=att_ids)
+            await hard_delete_attachments(
+                session, attachment_ids=att_ids, defer_s3=defer_s3
+            )
     guild = await session.get(Guild, guild_id)
     if guild is not None:
         await session.delete(guild)
@@ -154,7 +162,7 @@ async def _hard_delete_guild_with_attachments(
 
 
 async def _delete_user_authored_messages(
-    session: AsyncSession, user_id: int
+    session: AsyncSession, user_id: int, defer_s3: list[str]
 ) -> None:
     """Hard-delete every message the user wrote (across all channels +
     DMs). FK CASCADE on ``message_id`` clears reactions / mentions /
@@ -166,7 +174,7 @@ async def _delete_user_authored_messages(
     await _close_reports_for_deleted_user(session, user_id, msg_ids)
     if not msg_ids:
         return
-    await hard_delete_attachments(session, message_ids=msg_ids)
+    await hard_delete_attachments(session, message_ids=msg_ids, defer_s3=defer_s3)
     await session.execute(sa_delete(Message).where(Message.id.in_(msg_ids)))
 
 
@@ -199,7 +207,7 @@ async def _close_reports_for_deleted_user(
 
 
 async def _delete_dm_channels(
-    session: AsyncSession, dm_channel_ids: Iterable[int]
+    session: AsyncSession, dm_channel_ids: Iterable[int], defer_s3: list[str]
 ) -> None:
     """Delete every DM channel the user participated in + every message
     posted in them. DM channels are 1:1, so the other side has nobody
@@ -214,7 +222,9 @@ async def _delete_dm_channels(
     )
     att_ids = list((await session.execute(att_ids_stmt)).scalars())
     if att_ids:
-        await hard_delete_attachments(session, attachment_ids=att_ids)
+        await hard_delete_attachments(
+            session, attachment_ids=att_ids, defer_s3=defer_s3
+        )
     await session.execute(sa_delete(Message).where(Message.channel_id.in_(cids)))
     await session.execute(
         sa_delete(DirectMessageChannel).where(DirectMessageChannel.id.in_(cids))
@@ -242,7 +252,9 @@ async def _purge_db(
     # cleanup so the cascade can find this user's GuildMember row too).
     owned_guild_ids = await _collect_owned_guild_ids(session, user_id)
     for gid in owned_guild_ids:
-        voice_channel_ids = await _hard_delete_guild_with_attachments(session, gid)
+        voice_channel_ids = await _hard_delete_guild_with_attachments(
+            session, gid, result.deferred_s3
+        )
         result.owned_voice_channel_ids.extend(voice_channel_ids)
     result.deleted_guild_ids = owned_guild_ids
     owned_set = set(owned_guild_ids)
@@ -298,7 +310,7 @@ async def _purge_db(
     )
 
     # 4. User-authored messages (cascades reactions/mentions/attachments).
-    await _delete_user_authored_messages(session, user_id)
+    await _delete_user_authored_messages(session, user_id, result.deferred_s3)
 
     # 5. User's reactions on other users' messages.
     await session.execute(
@@ -336,7 +348,7 @@ async def _purge_db(
     # 9. DM channels the user was a participant in (1:1 → drop the
     # whole channel + every message in it).
     dm_ids = await _collect_dm_channel_ids(session, user_id)
-    await _delete_dm_channels(session, dm_ids)
+    await _delete_dm_channels(session, dm_ids, result.deferred_s3)
 
     # 9b. Private-Gruppen-Mitgliedschaften (Etappe G1) — s. Docstring von
     # ``user_purge_gruppen.purge_private_group_memberships`` fuer die
@@ -403,6 +415,20 @@ async def _purge_db(
             or_(
                 CommunityInvite.inviter_id == user_id,
                 CommunityInvite.invitee_id == user_id,
+            )
+        )
+    )
+
+    # 10c. Community-Einladungs-Karten (2026-08-27-Schiene, kein FK auf
+    # User — dasselbe handgestempte Aufräumen wie ``delete_guild`` in
+    # routes/guilds.py): Karten mit dem Geloeschten als Empfaenger sind
+    # tot, als Absender zeigen sie auf "@unknown" und das Annehmen würde
+    # eine Mitgliedschaft anlegen, die niemand mehr autorisieren kann.
+    await session.execute(
+        sa_delete(CommunityInviteNotification).where(
+            or_(
+                CommunityInviteNotification.inviter_user_id == user_id,
+                CommunityInviteNotification.invitee_user_id == user_id,
             )
         )
     )
@@ -489,6 +515,9 @@ async def purge_user(
             await purge_guild_dropbox_objects(gid)
         except Exception:  # noqa: BLE001
             log.warning("purge: dropbox object purge failed for guild %s", gid, exc_info=True)
+    # Attachment bytes last — the tombstones are durable now (same
+    # defer-until-after-commit pattern as ``routes/attachments.py``).
+    await purge_s3_keys(result.deferred_s3)
     await evict_voice_sessions(
         session,
         redis,
