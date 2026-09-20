@@ -130,6 +130,16 @@ Upgrade-Pfad meist schon nebengenannt.
   (`POSTGRES_HOST_PORT:-5433`/`6379`) — frisches Kopieren bricht den
   Dev-Stack; Beispiel sollte die Host-Port-Knobs setzen.
 
+## 2d. Benachrichtigungs-Restposten (Runde 19 — kleine Features, keine Defekte)
+* Community-Invites lösen kein Web-Push aus (Freundschaftsanfragen tun
+  es) — geschlossen-browser Nutzer sehen Einladungen erst beim nächsten
+  App-Start. Fix = neuer fan_out-Payload-Typ + SW-Behandlung.
+* Mod-Queue-Badge: +1 wird an alle Mods gebroadcastet, −1 (resolve/
+  dismiss/triage) nicht — Mod B's Badge zählt weiter bis zum Reconnect.
+* Kein `pushsubscriptionchange`-Handler im Service-Worker: Endpoint-
+  Rotation des Push-Service killt Push dauerhaft (Server löscht die
+  tote Zeile, kein Resubscribe). Braucht Design (Key-Versorgung im SW).
+
 ## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 
 ### 3.6 i18n-Restbestand: hartkodierte de-DE/de-Texte (Runde 14, Repair-Baustelle)
