@@ -20,7 +20,7 @@ import dcc_chat_gateway.config as _config
 import structlog
 from fastapi import APIRouter, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 Image.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
 
@@ -104,6 +104,9 @@ async def upload_icon(
             status.HTTP_400_BAD_REQUEST, detail="invalid image file"
         ) from exc
 
+    img = ImageOps.exif_transpose(img)  # Handy-JPEGs: Orientation physisch anwenden
+    if img.mode in ("P", "LA"):
+        img = img.convert("RGBA")  # Paletten-Transparenz geht sonst verloren
     img.thumbnail((_MAX_DIM, _MAX_DIM), Image.LANCZOS)
     # Temp-Datei + Umbenennen nach dem Commit (Bughunt Runde 7, Spiegel zu
     # routes_avatar): das Icon ist die EINZIGE Kopie — ein Commit-Fehler nach

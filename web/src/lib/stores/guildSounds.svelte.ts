@@ -4,7 +4,7 @@
  * Hydrates from the ready frame (each guild carries `sound_overrides:
  * [{sound_id, url}]`) and refreshes on the `guild_sound_updated` WS
  * event. URLs are SHORT-LIVED presigned GETs (server default
- * `s3_presigned_ttl_seconds = 600` — 10 Minuten) und werden deshalb
+ * `s3_presigned_ttl_seconds = 1800` — 30 Minuten) und werden deshalb
  * altersbewusst ausgeliefert: ``urlFor`` behandelt Einträge nach einer
  * Sicherheitsmarge als veraltet, spielt sie nicht mehr an und stößt
  * nebenbei ``refresh`` an. Ohne das Fürsorge-Paket (2026-08-30) war der
@@ -19,7 +19,7 @@
 
 import { chatApi, type GuildSoundOverrideOut } from '$lib/api/chat';
 
-/** Server-Default: `s3_presigned_ttl_seconds = 600` (config.py). Mit Sicherheits-
+/** Server-Default: `s3_presigned_ttl_seconds = 1800` (config.py). Mit Sicherheits-
  *  margin wird ein Eintrag schon nach 8 Minuten als reif fürs Erneuern
  *  behandelt — ein evtl. verpasster Cue ist unsichtbar gegen den
  *  Dauer-Ausfall nach echter Ablaufzeit. */

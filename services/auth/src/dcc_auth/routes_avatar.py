@@ -12,7 +12,7 @@ from pathlib import Path
 import dcc_auth.config as _config
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 # Guard against decompression-bomb DoS: a highly compressed 5 MB PNG can
 # expand to >1 GB in RAM. 16 MP is more than enough for profile pictures.
@@ -35,10 +35,19 @@ _HASH_FILENAME_RE = re.compile(r"^[0-9a-f]{64}\.webp$")
 
 
 def _process_image(raw: bytes) -> bytes:
-    """Validate + resize, return the processed WEBP bytes — runs in a thread pool."""
+    """Validate + resize, return the processed WEBP bytes — runs in a thread pool.
+
+    Bughunt Runde 36: exif_transpose wendet die EXIF-Orientierung von
+    Handy-JPEGs physisch an (sonst liegen Hochkant-Fotos seitlich, weil der
+    WEBP-Re-Encode das Orientation-Tag verwirft), und Paletten-PNGs mit
+    Transparenz werden nach RGBA gehoben — sonst opacity-färbt die
+    Palette den Hintergrund opak (oft schwarz)."""
     img = Image.open(io.BytesIO(raw))
     img.verify()
     img = Image.open(io.BytesIO(raw))  # re-open after verify() (it exhausts the stream)
+    img = ImageOps.exif_transpose(img)
+    if img.mode in ("P", "LA"):
+        img = img.convert("RGBA")
     img.thumbnail((_MAX_DIM, _MAX_DIM), Image.LANCZOS)
     out = io.BytesIO()
     img.save(out, "WEBP", quality=85)

@@ -71,7 +71,11 @@ class Settings(BaseSettings):
     s3_bucket: str = "pulse-attachments"
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
-    s3_presigned_ttl_seconds: int = 600  # 10 min, PUT and GET alike.
+    # Bughunt Runde 36: 10 min reichten bei 25-MB-Uploads auf schwachem
+    # Uplink nicht (PUT läuft ins 403, obwohl die Bytes wohlbehalten
+    # ankämen); 30 min decken auch Geduld-Uploads. Die Klienten
+    # re-signen GETs ohnehin bei Bedarf (AutoRefreshImage).
+    s3_presigned_ttl_seconds: int = 1800  # 30 min, PUT and GET alike.
     # Lowered from 30 min so a leaked PUT URL shrinks the orphan-
     # upload DoS window. The orphan sweep on the trash cadence
     # cleans up after the TTL anyway; clients mint fresh URLs on
