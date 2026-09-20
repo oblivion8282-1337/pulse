@@ -119,7 +119,18 @@ Upgrade-Pfad meist schon nebengenannt.
   neutral, aber unbegrenzes Tabellenwachstum). Braucht
   Reservierungs-TTL oder -Sweep plus Design-Entscheidung.
 
-## 2c. Tote Wege — gebaut, aber nie verdrahtet (Runde 11, Aufräumen oder Verdrahten?)
+## 2c. Tote Regler (Runde 13) — Entfernen aus Render/Examples ist Aufräum-Entscheidung
+* `CHAT_GATEWAY_CHALLENGE_SECRET` — die Challenge-Route existiert nicht
+  mehr; Render-Script + .env.example bewerben ihn weiter als live.
+* `PULSE_JWT_AUDIENCE` — der dokumentierte aud-Check existiert nicht;
+  Voreinstellung wird auf jedem Self-Host gerendert.
+* `SNOWFLAKE_WORKER_ID_VOICE` — voice-signaling prägt keine Snowflakes;
+  jede Operator-Anpassung ist ein No-op.
+* Dev-Ports: root `.env.example` (5434/6380) vs. compose-Defaults
+  (`POSTGRES_HOST_PORT:-5433`/`6379`) — frisches Kopieren bricht den
+  Dev-Stack; Beispiel sollte die Host-Port-Knobs setzen.
+
+## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 
 * `web/src/lib/plugins/conflict-detector.ts` — Konflikt-Detektor ohne UI
   (die dokumentierte Manager-UI aus PLUGIN_ROADMAP Schritt 6 existiert

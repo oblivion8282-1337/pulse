@@ -84,7 +84,7 @@ tests, AV1/HEVC-Fragmentierung (Tests), jitter/fec/state machines im Player.
 
 | Runde | Linse | Status |
 |-------|-------|--------|
-| 13 | Konfiguration & Feature-Flags (Defaults, Halb-Ge-Toggelte Wege) | läuft |
+| 13 | Konfiguration & Feature-Flags (Defaults, Halb-Ge-Toggelte Wege) | erledigt — 6 Fixes (Member-Invite-Gate, Passkey-SSO-Gate, env.sh-Drei-Vars, permissions_updated-Null, Cap-Reconnect-Refresh, vite envPrefix) |
 | 14 | i18n, Encoding & Namen (Interpolation, Unicode, Dateinamen) | offen |
 | 15 | Datenschema & Migrationen (Alembic-Kette, Modell-Drift, Nullable) | offen |
 | 16 | Datei- & Pfad-Handling (Traversal, Temp, Serving) | offen |
