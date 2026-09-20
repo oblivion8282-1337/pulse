@@ -14,7 +14,7 @@ landen auf `bughunt-2026-09-20`; `main` bleibt auf `origin/main`.
 | 6 | Parallelität & Reihenfolge (Races, Transaktionen, Event-Order) | erledigt — 9 Fixes (Watch atomar, Owner-TOCTOU, Anhang-Bind, DM-Sortierung, vier Web-Store-Races, Hydrate/Seed-Merges) |
 | 7 | Fehlerpfade & Halbzustände (verschluckte Exceptions, Retries) | offen |
 | 8 | Klient-Server-Drift (desktop/mobile-Capacitor vs. API) | erledigt — 5 Fixes (Allowlist, WSL2-Assistent, Shortcut-Regex, Audio-Dreizustand, Notification-Permission) |
-| 9 | Rechte & Sichtbarkeit quer (Resolver-Ränder, Cache-Invalidierung) | offen |
+| 9 | Rechte & Sichtbarkeit quer (Resolver-Ränder, Cache-Invalidierung) | erledigt — 5 Fixes (Purge-WS-Caches, Reorder-Evict, id-Tiebreak, Rangklemme, Gastlink-Orakel/Filter) |
 | 10 | E2E-Krypto-Glue (Postfach, Kopplung, Sicherung, Ablage) | offen |
 | 11 | Tote Wege & Test-Drift (exportiert-nie-gerufen, Tests am falschen Verhalten) | offen |
 | 12 | Selbst-Review des Serien-Diffs + Abschlussbericht | offen |
