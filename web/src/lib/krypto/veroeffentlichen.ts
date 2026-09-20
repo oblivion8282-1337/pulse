@@ -145,8 +145,24 @@ async function nachfuellenWennNoetig(ident: Identitaet, kennung: string): Promis
   const zuVeroeffentlichen = ident.offeneEinmalschluessel();
   if (zuVeroeffentlichen.length === 0) return;
 
+  // Bughunt Runde 10: der Server lehnt einen Batch ab, der den Cap von 100
+  // sprengt (vorhandene + len > 100 → 400). Offene Schlüssel aus
+  // gescheiterten Läufen schrumpften nie (markiert wird erst nach Erfolg) —
+  // ab ~4 gescheiterten Läufen war 0 + >100 > 100 und JEDE Nachfüllung für
+  // immer tot: Vorrat leer, jeder neue Sitzungsaufbau lief über den nie
+  // rotierten Fallback-Schlüssel.
+  // Fix: auf den freien Platz kappen (Server nimmt max. diesen), NUR den
+  // gekappten Batch hochladen. Das anschließende
+  // `alsVeroeffentlichtMarkieren()` ist All-or-Nothing (vodozemac) und
+  // verwirft die NICHT hochgeladenen Überschuss-Schlüssel — gewollt: sie
+  // waren nie veröffentlicht, also wertlos, und die nächste Nachfüllung
+  // erzeugt bei Bedarf frische.
+  const freierPlatz = Math.max(0, 100 - vorrat);
+  if (freierPlatz === 0) return;
+  const batch = zuVeroeffentlichen.slice(0, freierPlatz);
+
   await keysApi.addOneTimeKeys(
-    { device_pubkey: kennung, schluessel: zuVeroeffentlichen },
+    { device_pubkey: kennung, schluessel: batch },
     cloudRoute()
   );
 

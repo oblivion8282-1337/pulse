@@ -38,6 +38,7 @@ import { gesundheitTor } from '$lib/stream/gesundheitTor';
 import { standplatz } from '$lib/remote/standplatz.svelte';
 import { postfachAbholenUndAnzeigen } from './chat';
 import { page } from '$app/state';
+import { kanalSitzungenVerwerfen } from '$lib/krypto/gruppe/kanalSitzungStore';
 import { gruppenApi } from '$lib/api/gruppen';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 
@@ -58,6 +59,11 @@ export type ReadyContext = {
 
 export function register(ctx: ReadyContext): void {
   registerWsHandler('ready', (evt) => {
+    // Bughunt Runde 10: der Ablage-Kanal-Sitzungsstore speist sich nur aus
+    // LIVE-WS-Ereignissen — verpasste (WS-Lücke) holt kein Replay nach.
+    // Bei jedem Ready verwerfen, die nächste Sendung liest die
+    // Mitgliederliste frisch (kanalSitzungswahl).
+    kanalSitzungenVerwerfen();
     // Global-Friends Stufe 1 — der ready-Frame ist gesplittet:
     //  - SERVER-Teil (guilds/roles/sounds/voice/stream/watch/guild-presence/
     //    clock) gilt nur, wenn DIESE Connection die **aktive** ist.

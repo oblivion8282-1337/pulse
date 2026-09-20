@@ -40,6 +40,7 @@ from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import AblagePulseLaufwerk, AblagePulseObjekt, DropboxConfig
+from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import guild_oder_404, mitglied_oder_403
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -226,6 +227,10 @@ async def kuendige_datei_an(
 ) -> dict[str, str]:
     guild = await guild_oder_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
+    # Bughunt Runde 10: dasselbe Gate wie im Zwischenlager (E8) —
+    # ATTACH_FILES entzogen heißt sonst: Weiterladen trotz Sperre,
+    # auf Kosten des Community-Kontingents.
+    await check_permission(session, current, guild_id, Permissions.ATTACH_FILES)
     if not ratelimit.check("ablage_pulse_ankuendigen", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
     await _laufwerk_oder_404(session, guild_id)
@@ -292,6 +297,10 @@ async def melde_gelungen(
 ) -> Response:
     await guild_oder_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
+    # Bughunt Runde 10: dasselbe Gate wie im Zwischenlager (E8) —
+    # ATTACH_FILES entzogen heißt sonst: Weiterladen trotz Sperre,
+    # auf Kosten des Community-Kontingents.
+    await check_permission(session, current, guild_id, Permissions.ATTACH_FILES)
     if not ratelimit.check("ablage_pulse_gelungen", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
 
