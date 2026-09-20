@@ -98,6 +98,11 @@ class _PurgeResult:
     #: Community, Kanal, Aussenform) — fuers Register-Vergessen + die
     #: device_changed-Meldung nach dem Commit.
     removed_devices: list[tuple[int, int, int, dict]] = field(default_factory=list)
+    #: Nutzer-IDs (Ex-Freunde + DM-Partner), die NACH dem Commit ein
+    #: friend_removed bekommen — sonst führt ihre Liste das gelöschte Konto
+    #: bis zum nächsten Reconnect als offline-Freund samt DM-Karteileiche
+    #: (Bughunt Runde 4).
+    partner_ids: list[int] = field(default_factory=list)
     #: MinIO-Storage-Keys der Anhaenge, deren Tombstones erst mit dem Commit
     #: durable werden — die Objekte duerfen erst DANACH geloescht werden
     #: (``purge_s3_keys``), sonst ueberlebt ein Rollback Zeilen, deren Bytes
@@ -378,6 +383,29 @@ async def _purge_db(
     # 10. Friendship system (Etappe 1): friendships, pending friend-
     # requests, blocks both directions, privacy row. Same pattern as
     # the DM cleanup — drop every row that mentions the user.
+    # Zuerst die Partner einsammeln (Bughunt Runde 4): sie kriegen nach
+    # dem Commit ein friend_removed, damit ihre Liste den Gelöschten
+    # sofort fallen lässt statt bis zum nächsten Reconnect.
+    partner_rows = await session.execute(
+        select(Friendship.user_a_id, Friendship.user_b_id).where(
+            or_(Friendship.user_a_id == user_id, Friendship.user_b_id == user_id)
+        )
+    )
+    partner_set = set()
+    for a, b in partner_rows:
+        partner_set.add(a if a != user_id else b)
+    dm_partner_rows = await session.execute(
+        select(DirectMessageChannel.user_a_id, DirectMessageChannel.user_b_id).where(
+            or_(
+                DirectMessageChannel.user_a_id == user_id,
+                DirectMessageChannel.user_b_id == user_id,
+            )
+        )
+    )
+    for a, b in dm_partner_rows:
+        partner_set.add(a if a != user_id else b)
+    partner_set.discard(user_id)
+    result.partner_ids = sorted(partner_set)
     await session.execute(
         sa_delete(Friendship).where(
             or_(
@@ -518,6 +546,23 @@ async def purge_user(
     # Attachment bytes last — the tombstones are durable now (same
     # defer-until-after-commit pattern as ``routes/attachments.py``).
     await purge_s3_keys(result.deferred_s3)
+    # Ex-Freunde + DM-Partner informieren (Bughunt Runde 4): ohne Event
+    # führt deren Freundesliste das gelöschte Konto als offline-Eintrag
+    # weiter, bis der nächste Reconnect neu seedet. Derselbe Event-Typ wie
+    # beim Entfreunden — der Klient kennt den Räumweg bereits.
+    if manager is not None and result.partner_ids:
+        from dcc_shared.events import FriendRemovedEvent  # noqa: PLC0415
+
+        for pid in result.partner_ids:
+            try:
+                await manager.publish_user_event(
+                    pid, FriendRemovedEvent(data={"user_id": str(user_id)})
+                )
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "purge: friend_removed publish failed for %s", pid,
+                    exc_info=True,
+                )
     await evict_voice_sessions(
         session,
         redis,
@@ -525,6 +570,18 @@ async def purge_user(
         owned_voice_channel_ids=result.owned_voice_channel_ids,
         other_member_guild_ids=result.other_member_guild_ids,
     )
+    # Gelöschte eigene Guilds: Watch-Partys + HQ-Streams in deren Kanälen
+    # miträumen (Bughunt Runde 4, Spiegel zu delete_guild/delete_channel) —
+    # sonst heartbeatet der Host im Nichts und der Poller hält den Stream
+    # für live.
+    if result.owned_voice_channel_ids:
+        from dcc_chat_gateway.stream_evict import end_active_streams_for_channels  # noqa: PLC0415
+        from dcc_chat_gateway.watch_evict import end_watch_parties_for_channels  # noqa: PLC0415
+
+        await end_watch_parties_for_channels(redis, manager, result.owned_voice_channel_ids)
+        await end_active_streams_for_channels(
+            redis, result.owned_voice_channel_ids, grund="konto_purge"
+        )
     await forget_devices(manager, result.removed_devices)
     await _cleanup_redis(redis, user_id)
     return {"deleted_guild_ids": [str(g) for g in deleted_guild_ids]}

@@ -54,6 +54,8 @@ from dcc_chat_gateway.schemas import (
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 from dcc_chat_gateway.routes.guest_links import entwerte_link
+from dcc_chat_gateway.stream_evict import end_active_streams_for_channels
+from dcc_chat_gateway.watch_evict import end_watch_parties_for_channels
 from dcc_chat_gateway.voice_evict import evict_all_from_voice_channels
 
 router = APIRouter()
@@ -312,7 +314,14 @@ async def delete_channel(
     # LiveKit-Session werfen, sonst hängen sie in einem Ghost-Channel (nichts
     # heilt das innerhalb der Session). Best-effort, nach dem Commit.
     if channel_is_voice:
-        await evict_all_from_voice_channels(getattr(mgr, "_redis", None), [channel_id])
+        redis = getattr(mgr, "_redis", None)
+        # Watch-Party beenden + laufende HQ-Streams unterdrücken (Bughunt
+        # Runde 4): der Host heartbeatete sonst im gelöschten Kanal unbegrenzt
+        # weiter (die Watch-Ops prüfen nie die Kanal-Existenz), und der
+        # media-svc-Poller führte den Stream als live.
+        await end_watch_parties_for_channels(redis, mgr, [channel_id])
+        await end_active_streams_for_channels(redis, [channel_id], grund="kanal_geloescht")
+        await evict_all_from_voice_channels(redis, [channel_id])
     # Und das Geräte-Register vergisst, was die Kaskade gerade geräumt hat.
     await forget_devices_after_cascade(mgr, guild_id, devices_removed)
 

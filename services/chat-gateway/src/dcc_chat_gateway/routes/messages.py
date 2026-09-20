@@ -387,6 +387,18 @@ async def edit_message(
     # only; DMs bypass.
     perms = 0  # DM-path default — see notes in post_message.
     if kind == "guild":
+        # Bughunt Runde 4: derselbe Frost wie post_message — eingefrorene
+        # Alt-Kanäle bleiben lesbar, aber nicht BESCHREIBBAR, und Bearbeiten
+        # ist Schreiben (vorher ließ sich eingefrorener Verlauf via PATCH
+        # umschreiben, während Posten korrekt 403 gab). Ablage-Kanäle nehmen
+        # ohnehin keinen Klartext an (Mischzustand-Regel, Konzept §2a).
+        if getattr(ch, "legacy_readonly", False):
+            raise HTTPException(403, detail=LEGACY_READONLY_DETAIL)
+        if getattr(ch, "ablage", False):
+            raise HTTPException(
+                403,
+                detail="ablage channel: content is end-to-end encrypted, not accepted here",
+            )
         perms = await resolve_permissions(
             session, current, ch.guild_id, channel_id=msg.channel_id
         )

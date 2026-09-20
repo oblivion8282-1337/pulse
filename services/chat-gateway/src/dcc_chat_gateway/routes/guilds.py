@@ -44,8 +44,10 @@ from dcc_chat_gateway.remote_guard import (
     forget_devices_after_cascade,
     remove_devices_for_member,
 )
+from dcc_chat_gateway.stream_evict import end_active_streams_for_channels
 from dcc_chat_gateway.stream_evict import end_active_streams_for_member
 from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
+from dcc_chat_gateway.watch_evict import end_watch_parties_for_channels
 from dcc_chat_gateway.watch_evict import end_watch_parties_for_member
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.routes._deps import require_member
@@ -407,7 +409,12 @@ async def delete_guild(
     # Anwesende aus allen (jetzt gelöschten) Voice-Channels werfen — sonst
     # hängen sie in Ghost-Sessions. Best-effort, nach dem Commit.
     if voice_channel_ids:
-        await evict_all_from_voice_channels(getattr(mgr, "_redis", None), voice_channel_ids)
+        redis = getattr(mgr, "_redis", None)
+        # Watch-Partys + HQ-Streams derselben Kanäle miträumen (Bughunt
+        # Runde 4, Spiegel zu delete_channel).
+        await end_watch_parties_for_channels(redis, mgr, voice_channel_ids)
+        await end_active_streams_for_channels(redis, voice_channel_ids, grund="community_geloescht")
+        await evict_all_from_voice_channels(redis, voice_channel_ids)
     # Und das Geräte-Register vergisst, was die Kaskade gerade geräumt hat.
     await forget_devices_after_cascade(mgr, guild_id, devices_removed)
 
