@@ -217,7 +217,7 @@ Kondensiert je Fix (Details im Commit-Log):
 
 | Runde | Linse | Status |
 |-------|-------|--------|
-| 33 | Logging & Secrets (Redaction, Log-Injection, Debug-Wege) | läuft |
+| 33 | Logging & Secrets (Redaction, Log-Injection, Debug-Wege) | erledigt — 4 Fixes (Renew-Race, Invite-Codes in Logs, 422-Roh-Echo, tote Diagnose-Zeile) |
 | 34 | Cookies & CSRF (Flags, SameSite, Browser-Reachable Mutations) | offen |
 | 35 | WS-Ops im Einzelnen (resync/typing/device/watch/token_refresh) | offen |
 | 36 | Postfach & Key-Bundle-Flows (Refill, Grants, Fallback) | offen |

@@ -161,6 +161,18 @@ Upgrade-Pfad meist schon nebengenannt.
   oder ein evict-after-Commit im Entwertungs-Pfad gegen den aktuellen
   Link-Set.
 
+### 2f. Session-Design-Punkte (Runde 33 — Design statt Defekt)
+* „Überall sonst abmelden" klassifiziert Geräte per IP-Hash + UA:
+  zweites Profil am selben Rechner überlebt (Chain + selbstheilender
+  Cookie), ein Gerät mit gewechseltem WLAN wird dagegen abgemeldet.
+  Sauber wäre ein gerätestabiler Merker (z. B. Device-Bindung), kein
+  IP/UA-Vergleich.
+* Pubsub-Malformed-Warnungen loggen Payload-Auszüge auf WARNING (privates
+  Beziehungswissen); structlog ist im Log-Setup nicht level-gekoppelt —
+  beides Härtungs-Backlog, kein Defekt.
+* admin_events.py loggt bei Publish-Fehler den ganzen Payload (%r) —
+  heute inhaltleer, bei künftigen Payload-Erweiterungen mitdenken.
+
 ## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 
 ### 3.6 i18n-Restbestand: hartkodierte de-DE/de-Texte (Runde 14, Repair-Baustelle)
