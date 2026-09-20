@@ -188,8 +188,6 @@ export GUILD_ICON_UPLOAD_DIR='${DATA}/uploads/guild-icons'
 # Prüfung — sonst lehnt MinIO die vom chat-gateway signierte URL ab. (Bei
 # PULSE_TLS_MODE=behind-proxy terminiert der externe Proxy TLS; der Browser
 # nutzt weiterhin https://${PULSE_HOSTNAME}, daher hier immer https.)
-export MINIO_ROOT_USER='${MINIO_USER}'
-export MINIO_ROOT_PASSWORD='${MINIO_PASS}'
 export MINIO_SERVER_URL='https://${PULSE_HOSTNAME}'
 export S3_INTERNAL_ENDPOINT='http://127.0.0.1:9000'
 export S3_PUBLIC_ENDPOINT='https://${PULSE_HOSTNAME}'

@@ -15,7 +15,8 @@ mkdir -p \
     "${DATA}/caddy" \
     "${DATA}/livekit" \
     "${DATA}/mediamtx" \
-    "${DATA}/minio" \
+    "${DATA}/garage/meta" \
+    "${DATA}/garage/data" \
     "${DATA}/uploads" \
     "${DATA}/uploads/avatars" \
     "${DATA}/uploads/guild-icons"
