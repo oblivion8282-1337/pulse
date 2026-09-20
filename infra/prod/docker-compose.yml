@@ -92,57 +92,24 @@ services:
   # the public surface is pulse_web's nginx proxying `/s3/*` → minio:9000.
   # MINIO_SERVER_URL makes MinIO sign presigned URLs with the public host so
   # browsers can PUT/GET directly via Caddy → pulse_web → nginx → MinIO.
-  # Bucket creation runs in the one-shot minio-init container below.
-  minio:
+  # Garage — S3-kompatibler Objektspeicher (Bughunt Runde 32: ersetzt MinIO.
+  # Gründe: dl.min.io liefert die Community-Edition nicht mehr (410, Build-
+  # Bruch im Self-Host-Dockerfile) und das minio/minio-Hub-Image ist vom Hub
+  # entfernt. Internal-only: die öffentliche Fläche ist pulse_web's nginx
+  # (/pulse-attachments/* → garage:9000). Presigning signiert chat-gateway
+  # gegen S3_PUBLIC_ENDPOINT (howispulse.com) — nginx lässt den Pfad 1:1
+  # durch, path-style /<bucket>/<key>.
+  # Erstinbetriebnahme: Bootstrap-Kommandos stehen in
+  # infra/prod/garage/garage.toml (Layout, Bucket, Key-Import).
+  garage:
     <<: *logging
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    container_name: pulse_minio
+    image: dxflrs/garage:v1.1.0
+    container_name: pulse_garage
     restart: unless-stopped
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER required}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required}
-      # Presigning host — MinIO ignores path prefixes here (verified
-      # empirically: setting this to https://…/s3 made it log
-      # `API: https://howispulse.com` anyway, dropping the prefix,
-      # which broke signature verification). So the public surface uses
-      # the bucket name as the URL prefix instead: nginx forwards
-      # `/pulse-attachments/*` straight through.
-      MINIO_SERVER_URL: https://howispulse.com
-      # No public console (admin UI). Reachable from the host via SSH-tunnel
-      # if needed: `ssh -L 9001:127.0.0.1:9001 michael@…` + visit localhost.
-      MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:9001
+    command: ["-c", "/etc/garage.toml"]
     volumes:
-      - pulse_minio:/data
-    healthcheck:
-      test: ["CMD-SHELL", "mc ready local || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    ports:
-      # Console bound to loopback so the SSH-tunnel works but nothing public.
-      - "127.0.0.1:9001:9001"
-    networks: [pulse-net]
-    labels: *pinned-labels
-
-  minio-init:
-    <<: *logging
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
-    container_name: pulse_minio_init
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: ["sh", "-c"]
-    command:
-      - |
-        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
-        mc mb --ignore-existing local/pulse-attachments &&
-        echo "bucket pulse-attachments ready"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    restart: "no"
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - pulse_garage:/var/lib/garage
     networks: [pulse-net]
     labels: *pinned-labels
 
@@ -180,7 +147,7 @@ services:
       PGUSER: ${POSTGRES_USER:-dcc}
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       PGDATABASE: ${POSTGRES_DB:-dcc}
-      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ENDPOINT: http://garage:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
     volumes:
@@ -198,7 +165,7 @@ services:
       - ./:/snapshot/config:ro
     depends_on:
       postgres: { condition: service_healthy }
-      minio: { condition: service_healthy }
+      garage: { condition: service_started }
     # Healthcheck reads /repo/.pulse/last-ok-<tag> per backup group (written
     # by backup.sh on every successful run, touched by entrypoint on start).
     # > 36h old on ANY group ⇒ unhealthy — catches "cron silently broke for
@@ -279,7 +246,7 @@ services:
       redis: { condition: service_healthy }
       migrate-chat: { condition: service_completed_successfully }
       auth: { condition: service_started }
-      minio: { condition: service_healthy }
+      garage: { condition: service_started }
     volumes:
       - ./secrets:/secrets:ro
       - pulse_guild_icons:/app/services/chat-gateway/uploads
@@ -617,7 +584,7 @@ volumes:
   pulse_redis:
   pulse_avatars:
   pulse_guild_icons:
-  pulse_minio:
+  pulse_garage:
   pulse_backups:
   pulse_chat_data:
   pulse_minio_stage:
