@@ -172,10 +172,22 @@
 
   async function speichern(): Promise<void> {
     if (!selectedRole) return;
+    // Bughunt Runde 18: Ziel-ID VOR dem Flug festnageln — während des PATCH
+    // ist die Rangleiste klickbar. Wählt der Nutzer inzwischen Rolle B,
+    // würde die A-Antwort sonst A's Entwurf auf B's Formular übernehmen
+    // (Cross-Apply), und ein Speichern-Klick schrieb A's Eigenschaften
+    // auf B.
+    const zielId = selectedRole.id;
     speichert = true;
     try {
-      const r = await rolesApi.patch(guildId, selectedRole.id, entwurf.alsAenderung(selectedRole));
+      const r = await rolesApi.patch(guildId, zielId, entwurf.alsAenderung(selectedRole));
       rolesStore.upsertRole(r);
+      if (selectedRole?.id !== zielId) {
+        // Der Nutzer schaut inzwischen auf eine ANDERE Rolle — nur den
+        // Store frisch halten, den Entwurf der neuen Auswahl NICHT anfassen.
+        toast.success(m.roles_editor_role_saved());
+        return;
+      }
       // Neu uebernehmen, damit `dirty` zurueckfaellt — sonst raece der
       // frische Rollenstand aus `upsertRole` mit dem Entwurf.
       entwurf.uebernehmen(r);

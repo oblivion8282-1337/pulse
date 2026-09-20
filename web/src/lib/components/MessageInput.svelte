@@ -142,8 +142,14 @@
   // suppresses role + everyone suggestions.
   const guildId = $derived(channelId ? guilds.guildIdForChannel(channelId) : null);
 
+  // Bughunt Runde 18: Fehlerzeilen blockieren jetzt — vorher ging die
+  // Nachricht ohne den fehlgeschlagenen Anhang raus und die Fehlerkachel
+  // (einzige Retry-Möglichkeit) verschwand still.
   const sendDisabled = $derived(
-    disabled || (text.trim().length === 0 && anhaenge.zeilen.length === 0) || anhaenge.laeuftNoch
+    disabled ||
+      (text.trim().length === 0 && anhaenge.zeilen.length === 0) ||
+      anhaenge.laeuftNoch ||
+      anhaenge.hatFehler
   );
   const effectivePlaceholder = $derived(
     disabled && disabledReason ? disabledReason : placeholder

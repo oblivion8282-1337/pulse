@@ -158,10 +158,17 @@
 
   async function speichern(): Promise<void> {
     if (!selectedRole) return;
+    // Ziel-ID festnageln (Bughunt Runde 18, Spiegel zu RolesEditor) —
+    // sonst Cross-Apply der A-Antwort auf B's Formular bei Wechsel im Flug.
+    const zielId = selectedRole.id;
     speichert = true;
     try {
-      const r = await rolesApi.patch(guildId, selectedRole.id, entwurf.alsAenderung(selectedRole));
+      const r = await rolesApi.patch(guildId, zielId, entwurf.alsAenderung(selectedRole));
       rolesStore.upsertRole(r);
+      if (selectedRole?.id !== zielId) {
+        toast.success(m.roles_editor_role_saved());
+        return;
+      }
       entwurf.uebernehmen(r);
       toast.success(m.roles_editor_role_saved());
     } catch (err) {

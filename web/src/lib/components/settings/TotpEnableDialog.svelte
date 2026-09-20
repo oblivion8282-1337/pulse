@@ -89,17 +89,24 @@
       error = m.totp_enable_dialog_password_required();
       return;
     }
+    // Derselbe Lauf-Schutz wie in start() (Bughunt Runde 18): Escape
+    // während des Verifizierens setzt setupLauf hoch — die späte Antwort
+    // darf weder den geschlossenen Dialog beschreiben noch bei schnellem
+    // Wiederöffnen den QR-Step überspringen.
+    const lauf = setupLauf;
     busy = true;
     error = null;
     try {
       const res = await totpVerifySetup(digits, password);
+      if (lauf !== setupLauf) return;
       backupCodes = res.backup_codes;
       step = 'codes';
       if (auth.user) auth.setUser({ ...auth.user, totp_enabled: true });
     } catch (err) {
+      if (lauf !== setupLauf) return;
       error = (err as Error).message;
     } finally {
-      busy = false;
+      if (lauf === setupLauf) busy = false;
     }
   }
 
