@@ -269,6 +269,27 @@ async def webauthn_delete_credential(
     row = await session.get(WebAuthnCredential, credential_id)
     if row is None or row.user_id != current.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="passkey not found")
+
+    # Bughunt Runde 33/34-Fortsetzung: Löscht der Nutzer den LETZTEN Passkey,
+    # nimmt er dem Konto den zweiten Faktor — und bei Passkey-only-Konten
+    # ist das der EINZIGE Weg, ein fremdes Konto zu entschärfen (spiegelt
+    # delete_me: irreversible Minderung der MFA-Postur verlangt denselben
+    # Beweis). Bei bestehendem TOTP bleibt der Restfaktor — kein Nachweis.
+    remaining_before = await session.scalar(
+        select(func.count())
+        .select_from(WebAuthnCredential)
+        .where(WebAuthnCredential.user_id == current.id)
+    )
+    if remaining_before == 1 and not current.totp_enabled:
+        from dcc_auth.routes_totp import _consume_second_factor  # noqa: PLC0415
+
+        if not await _consume_second_factor(
+            session, current, code=None, backup_code=payload.backup_code
+        ):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, detail="backup code invalid"
+            )
+
     await session.delete(row)
     await session.flush()
 

@@ -1977,6 +1977,8 @@
   "passkey_row_never_used": "noch nicht benutzt",
   "passkey_row_password_label": "Passwort",
   "passkey_row_password_required": "Bitte Passwort eingeben.",
+  "passkey_row_backup_code_label": "Backup-Code",
+  "passkey_row_backup_code_required": "Bitte Backup-Code eingeben — dies ist dein letzter Passkey ohne TOTP.",
   "passkey_row_removed": "Passkey entfernt",
   "passkey_row_removing": "Entferne…",
   "passkey_row_rename": "Passkey umbenennen",

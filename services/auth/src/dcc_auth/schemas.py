@@ -457,6 +457,11 @@ class WebAuthnDeleteIn(BaseModel):
     """
 
     password: _CurrentPasswordField
+    # Bughunt Runde 33/34-Fortsetzung: Löscht der Nutzer seinen (letzten)
+    # Passkey, verlangt der Server denselben zweiten Faktor wie beim
+    # Konto-Löschen — ein gestohlener Access-Token + gehischtes Passwort
+    # nahm vorher den einzigen Faktor ohne jede zweite Beweislast.
+    backup_code: str | None = None
 
 
 class WebAuthnCredentialOut(BaseModel):

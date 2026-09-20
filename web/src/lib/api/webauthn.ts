@@ -217,13 +217,17 @@ export function renamePasskey(id: string, name: string): Promise<WebAuthnCredent
   });
 }
 
-/** Passkey löschen. `password` ist Pflicht: das Löschen des LETZTEN Schlüssels
- *  nimmt dem Konto seinen zweiten Faktor mit — es war damit der stillste Weg,
- *  ein fremdes Konto zu entschärfen. */
-export function deletePasskey(id: string, password: string): Promise<void> {
+/** Passkey löschen. `password` ist Pflicht; beim letzten Passkey ohne TOTP
+ *  zusätzlich `backupCode` (die Konten verlieren sonst ihren zweiten Faktor
+ *  komplett — Bughunt Runde 34). */
+export function deletePasskey(
+  id: string,
+  password: string,
+  backupCode?: string
+): Promise<void> {
   return request<void>(`/webauthn/credentials/${id}`, {
     method: 'DELETE',
-    body: { password },
+    body: { password, ...(backupCode ? { backup_code: backupCode } : {}) },
     endpoint: 'auth'
   });
 }
