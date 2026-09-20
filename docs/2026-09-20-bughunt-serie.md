@@ -1,4 +1,4 @@
-# Bughunt-Serie 2026-09-20 — Protokoll (Runden 3–12)
+# Bughunt-Serie 2026-09-20 — Protokoll (Runden 3–22)
 
 Autonome Fortsetzung der beiden Runden vom 2026-09-20. Pro Runde eine eigene
 Fehler-Linse, damit späte Runden Neues finden statt Wiederholungen. Alle Fixes
@@ -74,3 +74,54 @@ Archiv, abgelaufene Sound-Override-Signatur, WS int()/nonce-Crashes,
 add_member-Self-Add, Ban-Erhalt bei Moderator-Löschung, Report-Cleanup beim
 Purge, Kopplung/Postfach/Kopplungs-Purge, plugin ws-op-gate + permission
 tests, AV1/HEVC-Fragmentierung (Tests), jitter/fec/state machines im Player.
+
+
+---
+
+# Teil 2: Runden 13–22 (Fortsetzung, gleicher Tag)
+
+## Plan
+
+| Runde | Linse | Status |
+|-------|-------|--------|
+| 13 | Konfiguration & Feature-Flags (Defaults, Halb-Ge-Toggelte Wege) | läuft |
+| 14 | i18n, Encoding & Namen (Interpolation, Unicode, Dateinamen) | offen |
+| 15 | Datenschema & Migrationen (Alembic-Kette, Modell-Drift, Nullable) | offen |
+| 16 | Datei- & Pfad-Handling (Traversal, Temp, Serving) | offen |
+| 17 | Netzwerk & Trust-Chain (Timeouts, Proxy-Header, client_ip) | offen |
+| 18 | UI-Zustandsautomaten (Dialoge, Mehrschritt-Flows, Drag&Drop) | offen |
+| 19 | Benachrichtigungs-Pipeline (Push end-to-end, Badge, Stummschaltung) | offen |
+| 20 | DB↔Redis↔Memory-Konsistenz (Invarianten, Reconciliation) | offen |
+| 21 | Admin- & Betriebswege (Auth-Konsistenz, Operator-Flows, Registry) | offen |
+| 22 | Regression-Jagd über die Fixes der Runden 13–21 + Abschluss | offen |
+
+## Bekannt (Erweiterung: Runden 3–12 — NICHT wieder melden)
+
+Kondensiert auf Fix-Klassen (Details je Commit im Log):
+* Zeit: direct-adapter Heartbeat-Timeout/Backoff/ICE-Deadline; WS exp==now;
+  readState-pagehide-Flush.
+* Lebenszyklen: Watch/Stream-Evict bei Kanal-/Guild-Delete; Purge
+  friend_removed + Einladungskarten + S3-Deferral; Passkey-Lösch-Dialog;
+  Avatar-Statement-Invalidierung; Device-Cap beim Move; edit_message-Frost;
+  joinedInvites-Teardown.
+* Grenzen: Mod-Queue-DESC-Cursor; Claim-Budget nx-Expire; Hook-IP-Deckel;
+  Gruppen-Unreads (Route-Vergleich); Frisch-Laden-Gap-Fill; Verlauf-Räumung
+  je Gespräch; Mac-Audio-Bound; Linux-Latenzdeckel; Mux-Sonden-Drain.
+* Parallelität: delete_party_if_host + mutate_party für Handoff/Promotion;
+  Guild-Zeile FOR UPDATE bei Delete/Transfer; Anhang-Bind bedingtes UPDATE;
+  DM last_message_id nur vorwärts; Generation-Guards in
+  memberRoles/channelPermissions/roles; DM-Hydrate- + Gruppen-Seed-Merge.
+* Fehlerpfade: Reaper commit→purge; Avatar/Icon Temp+Rename-nach-Commit;
+  JWKS-Pin-Verwerfen ohne Kids; Kopplungs-PUT-IntegrityError; WS-Reconnect
+  nach Token-Fehler; DM-Fehlerzustand-Reset; Sidecar-Waisen-Guard;
+  Entwurf-in-Zwischenablage.
+* Drift: nativePlayerOnlyTenBit-Allowlist; Shortcut-Backslash;
+  WSL2-Assistent am Start-Knopf; Audio-Dreizustand; POST_NOTIFICATIONS.
+* Rechte: Purge guild_member_removed; Reorder-Evict; id-Tiebreak;
+  create_role-Rangklemme; Gastlink-Liste-Filter + POST-Ordnung.
+* Krypto: Verteilschlüssel-Partnervergleich; OTK-Batch-Kappe;
+  Ablage-Speicher-Cache; ATTACH_FILES-Gate; Kanal-Sitzungs-Reset bei Ready.
+* Sonstige: nachtlauf.sh Exit-Status; Pulse-Update-All-Services-Prüfung;
+  Backup-Marker je Tag-Gruppe; restore.md-Staging-Pfade; coturn-Ports;
+  Checksummen-Skript deckt MinIO/frp; Guest-User-Limit an Token-Route;
+  HEVC-FU-Poison; WS-Gate-4040/4043-Kommentare.
