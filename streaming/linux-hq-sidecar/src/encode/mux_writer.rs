@@ -163,6 +163,16 @@ impl InterleaveProbe {
             self.sendeversatz.push(wall - ms);
         }
 
+        // Bughunt Runde 5: bei Video-OHNE-Ton (audio optional auf diesem
+        // Weg) poppt sonst niemand die `offen`-Einträge — einer je Bildpaket
+        // für die Restsitzung. Beim Sekunden-Meldungstakt mit abräumen:
+        // alles, was älter als 10 s ist, kann keine Ton-Antwort mehr finden.
+        if self.offen.len() > 512 && self.letzte_meldung.elapsed() >= Duration::from_secs(1) {
+            let grenze = ms - 10_000.0;
+            while self.offen.front().is_some_and(|(v, _)| *v <= grenze) {
+                self.offen.pop_front();
+            }
+        }
         if self.letzte_meldung.elapsed() >= Duration::from_secs(1) {
             self.letzte_meldung = jetzt;
             if let Some((avg_ms, max_ms, n)) = drain_avg_max(&mut self.wartezeiten) {

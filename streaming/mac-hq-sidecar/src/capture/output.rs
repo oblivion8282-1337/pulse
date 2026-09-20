@@ -11,7 +11,8 @@
 
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::mpsc::Sender;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::SyncSender;
 
 use objc2::rc::Retained;
 use objc2::{AllocAnyThread, DefinedClass, define_class, msg_send};
@@ -31,7 +32,10 @@ use super::{AudioFrame, CFRelease, Frame, Postfach, SendPixelBuffer, cmtime_seco
 /// Haelfte waere eine Falle — niemand leerte ihn.
 pub(super) struct OutputIvars {
     video_post: Mutex<Option<Arc<Postfach<Frame>>>>,
-    audio_tx: Mutex<Option<Sender<AudioFrame>>>,
+    audio_tx: Mutex<Option<SyncSender<AudioFrame>>>,
+    // Bughunt Runde 5: wie im linux-Pendant die Zahl der wegen vollem Kanal
+    // verworfenen Pakete (sparsames Log im Callback).
+    dropped_audio: AtomicU64,
 }
 
 define_class!(
@@ -66,11 +70,12 @@ define_class!(
 impl FrameOutput {
     pub(super) fn new(
         video_post: Option<Arc<Postfach<Frame>>>,
-        audio_tx: Option<Sender<AudioFrame>>,
+        audio_tx: Option<SyncSender<AudioFrame>>,
     ) -> Retained<Self> {
         let this = Self::alloc().set_ivars(OutputIvars {
             video_post: Mutex::new(video_post),
             audio_tx: Mutex::new(audio_tx),
+            dropped_audio: AtomicU64::new(0),
         });
         // SAFETY: NSObject's init is correct.
         unsafe { msg_send![super(this), init] }
@@ -138,12 +143,21 @@ impl FrameOutput {
             let interleaved = interleave_audio(&abl.buffers, abl.n as usize);
             if !interleaved.is_empty() {
                 let pts = cmtime_seconds(unsafe { sample_buffer.presentation_time_stamp() });
-                let _ = atx.send(AudioFrame {
+                // `try_send`, nicht `send`: dieser Callback läuft realtime —
+                // blockiert er auf vollem Kanal, staut sich der Audio-Rückstand
+                // unbegrenzt (der ungebundene Kanal von vorher lud bei
+                // hängendem Verbraucher hunderte MB; Spiegel zum linux-Pfad).
+                if atx.try_send(AudioFrame {
                     samples: interleaved,
                     sample_rate: 48_000,
                     channels: 2,
                     pts_seconds: pts,
-                });
+                }).is_err() {
+                    let n = self.ivars().dropped_audio.fetch_add(1, Ordering::Relaxed);
+                    if n.is_power_of_two() {
+                        eprintln!("[mac-capture] audio queue full, dropped {n} packets so far");
+                    }
+                }
             }
         }
         // Release the retained block buffer (+1 from the call above).
