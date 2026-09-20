@@ -64,6 +64,8 @@ ARG PULSE_MEDIAMTX_TAG=1.19.1-pulse7
 # MinIO — S3-compatible object store for message attachments. Pinned to the
 # SAME release the prod stack runs (infra/prod/docker-compose.yml) for parity.
 # Format is the upstream RELEASE.<timestamp> tag, used verbatim in the URL.
+# Source: the frozen GitHub release archive (dl.min.io is 410 since MinIO
+# went source-only for the community edition, s. the download stage below).
 ARG MINIO_VERSION=RELEASE.2025-09-07T16-13-09Z
 # frp-Client für den Steuerungs-Relay-Tunnel (App-Hosting). Version passend
 # zum frps auf dem Cloud-Server (infra/prod: snowdreamtech/frps:0.69.1).
@@ -81,7 +83,8 @@ ARG TARGETARCH=amd64
 #   - LiveKit: official checksums.txt in the GitHub release.
 #   - Caddy + MediaMTX: re-hashed from the upstream release tarballs (Caddy
 #     publishes SHA-512 only; MediaMTX publishes no checksums file at all).
-#   - MinIO: official .sha256sum sidecar next to each release binary.
+#   - MinIO: official .sha256sum sidecar next to each release binary in the
+#     frozen GitHub release archive.
 ARG SHA256_S6_NOARCH=6dbcde158a3e78b9bb141d7bcb5ccb421e563523babbe2c64470e76f4fd02dae
 ARG SHA256_S6_X86_64=59289456ab1761e277bd456a95e737c06b03ede99158beb24f12b165a904f478
 ARG SHA256_S6_AARCH64=8b22a2eaca4bf0b27a43d36e65c89d2701738f628d1abd0cea5569619f66f785
@@ -312,8 +315,13 @@ RUN set -eux; \
     tar -C /opt/frp --strip-components=1 -xzf frp.tar.gz "frp_${FRP_VERSION}_${FRP_ARCH}/frpc"
 
 # MinIO — single static binary (not a tarball). Upstream ships a .sha256sum
-# sidecar per release; we pin the hash via the top-level ARGs. The "archive"
-# path keeps versioned copies of the binary (the file IS the binary).
+# sidecar per release; we pin the hash via the top-level ARGs. Source is the
+# FROZEN GitHub release archive: dl.min.io serves 410 since MinIO stopped
+# distributing community binaries/images (source-only since early 2026), and
+# the minio/minio Docker Hub image is gone too. Same-version bumps stay
+# possible from the archive; anything newer needs a product decision
+# (fork/alternative/source build) — and infra/prod/docker-compose.yml still
+# references the Hub tag, which only survives on hosts that already pulled it.
 RUN set -eux; \
     case "${TARGETARCH}" in \
         amd64) MINIO_ARCH=amd64; SHA256_MINIO="${SHA256_MINIO_AMD64}" ;; \
@@ -321,7 +329,7 @@ RUN set -eux; \
         *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o minio \
-        "https://dl.min.io/server/minio/release/linux-${MINIO_ARCH}/archive/minio.${MINIO_VERSION}"; \
+        "https://github.com/minio/minio/releases/download/${MINIO_VERSION}/minio.linux-${MINIO_ARCH}.${MINIO_VERSION}"; \
     echo "${SHA256_MINIO}  minio" | sha256sum -c -; \
     mkdir -p /opt/minio; \
     mv minio /opt/minio/minio; \
