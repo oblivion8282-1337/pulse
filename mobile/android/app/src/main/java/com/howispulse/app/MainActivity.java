@@ -154,6 +154,19 @@ public class MainActivity extends BridgeActivity {
         // ContextCompat wählt intern startForegroundService (API 26+) bzw.
         // startService (darunter) — entspricht der bisherigen Version-Branch.
         ContextCompat.startForegroundService(this, new Intent(this, MicForegroundService.class));
+        // Bughunt Runde 8: die Laufzeit-Notification-Berechtigung (Android 13+)
+        // wurde bisher NUR gekoppelt mit einer fehlenden Mic-Berechtigung
+        // erfragt — ab dem zweiten Voice-Join (Mic längst erteilt) wurde sie
+        // nie wieder gestellt und der laufende-Call-Hinweis blieb dauerhaft
+        // unsichtbar. Jetzt eigenständig nachziehen, wenn sie fehlt.
+        if (Build.VERSION.SDK_INT >= 33
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    REQ_VOICE_PERMS);
+        }
     }
 
     @Override

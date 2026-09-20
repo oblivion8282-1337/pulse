@@ -36,7 +36,7 @@ const MODIFIERS = new Set([
   'CommandOrControl', 'CmdOrCtrl', 'Command', 'Cmd', 'Meta', 'Super',
   'Control', 'Ctrl', 'Alt', 'Option', 'Shift',
 ]);
-const TASTE = /^(F(1[0-9]|2[0-4]|[1-9])|[A-Z0-9]|[,./;'`[\]\=+\-]|Space|Tab|CapsLock|NumLock|ScrollLock|Backspace|Delete|Insert|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|Pause|PrintScreen|ContextMenu|Backquote|Numpad[0-9]|NumpadAdd|NumpadSubtract|NumpadMultiply|NumpadDivide|NumpadDecimal|NumpadEnter)$/;
+const TASTE = /^(F(1[0-9]|2[0-4]|[1-9])|[A-Z0-9]|[,./;'`[\]\\=+\-]|Space|Tab|CapsLock|NumLock|ScrollLock|Backspace|Delete|Insert|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|Pause|PrintScreen|ContextMenu|Backquote|Numpad[0-9]|NumpadAdd|NumpadSubtract|NumpadMultiply|NumpadDivide|NumpadDecimal|NumpadEnter)$/;
 
 function istGueltigerAccelerator(acc: string): boolean {
   const teile = acc.split('+').map((t) => t.trim()).filter(Boolean);

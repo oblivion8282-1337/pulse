@@ -1323,6 +1323,11 @@ const ALLOWED_STORE_KEYS = new Set([
   // Nativer HQ-Player (`streaming/pulse-player/`) statt des <video>-WHEP-Wegs.
   // Default aus — experimentell, noch ohne Tonausgabe (siehe player.ts).
   'useNativePlayer',
+  // Bughunt Runde 8: der Renderer persistiert den Zweit-Schalter daneben —
+  // ohne Allowlist-Eintrag wurde der Schreib still verworfen und der Schalter
+  // stand nach jedem Neustart wieder auf false (nur Electron betroffen,
+  // der Browser-Fallback nutzt localStorage).
+  'nativePlayerOnlyTenBit',
   // Standplatz-Geräte. Alle vier liegen im selben chmod-600-Tresor wie die
   // Stream-Einstellungen, und alle vier MÜSSEN hier stehen: die Allowlist
   // verwirft unbekannte Schlüssel still (nur `console.warn`), der Renderer
