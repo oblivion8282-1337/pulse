@@ -155,9 +155,9 @@ Kondensiert auf Fix-Klassen (Details je Commit im Log):
 | 26 | Idempotenz & Wiederholung (Retry-Sicherheit je Endpoint) | erledigt — 2 Fixes (REST-Nonce-Dedup, erstelleCommunity-Orphan) |
 | 27 | Lokaler Verlauf/IndexedDB (luecke, kontoFilter, Quota) | erledigt — Lücken-Hüllen-Merge (Verlauf) |
 | 28 | Rate-Limits & Brakes (Schwellen, Umwege, Deckel-Konsistenz) | erledigt — audio_diagnostic-Regel ergänzt (KeyError→500) |
-| 29 | Einladungs-/Freigabe-Arten (guild/guest/member/recovery) | offen |
-| 30 | Service-Worker & Offline (Cache, Update, Background) | offen |
-| 31 | Watch-Party & Stream-Chat-Protokoll (Kontrolle, Lifecycle) | offen |
+| 29 | Einladungs-/Freigabe-Arten (guild/guest/member/recovery) | erledigt — Invite-Dedupe auf Cloud-Ziele eingegrenzt; Gast-TOCTOU-Rest notiert |
+| 30 | Service-Worker & Offline (Cache, Update, Background) | erledigt — sauber (kein Fetch-Intercept, Cache je Build-Version, DND-Spiegel aus R19) |
+| 31 | Watch-Party & Stream-Chat-Protokoll (Kontrolle, Lifecycle) | erledigt — Watch-Publish in Commit-Reihenfolge (atomare Transaktion) |
 | 32 | Regression-Jagd über Runden 23–31 + Abschluss | offen |
 
 ## Bekannt (Erweiterung: Runden 13–22)

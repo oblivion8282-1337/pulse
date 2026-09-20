@@ -152,6 +152,15 @@ Upgrade-Pfad meist schon nebengenannt.
   scheitert und meldet "Mikrofon-Zugriff fehlgeschlagen" statt
   "Admin-Mute aktiv" — der Connect kennt den Override nicht.
 
+### 2b.5 Gast-Entwertung: millisekundenkleines TOCTOU-Restfenster (Runde 29)
+- `routes/gast.py` Beitritts-Pfad: fällt die Entwertung zwischen
+  `session.refresh` (revoked-Check) und `gast_eintragen` (Redis-SADD),
+  war der Räum-Snapshot der Entwertung schon vor dem SADD — der Gast
+  sitzt mit vollem 4-h-Ticket weiter, ohne Sperre/Token-Löschung/Evict.
+  Fenster = ein Redis-RTT; sauberer Fix wäre SADD+Revoked-Check atomar
+  oder ein evict-after-Commit im Entwertungs-Pfad gegen den aktuellen
+  Link-Set.
+
 ## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 
 ### 3.6 i18n-Restbestand: hartkodierte de-DE/de-Texte (Runde 14, Repair-Baustelle)
