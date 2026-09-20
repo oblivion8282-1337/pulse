@@ -13,6 +13,11 @@ import { dirname, join } from 'node:path';
  * Die Komponente selbst ist Svelte-Runes-Code (Node-Läufer unerreichbar, s.
  * CLAUDE.md „Die Falle") — Quelltext-Gegenproben wie in
  * `krypto-postfach-ready.test.ts`.
+ *
+ * Bughunt 2026-09-20: der Test war seit 999d85be (Cross-Server-Einladen)
+ * rot — die Komponente benennt ihre Ziele seither `anbietbareZiele`/
+ * `ziele`/`friendGuildKeys` (mit Server-Id als Schlüssel), der Test las
+ * noch die alten Namen. Nachgezogen.
  */
 
 const quelle = readFileSync(
@@ -22,15 +27,18 @@ const quelle = readFileSync(
 
 test('die Liste nutzt den Mitglieder-Cache, um Communitys zu erkennen', () => {
   assert.match(quelle, /import \{ memberListCache \} from '\.\/MentionAutocomplete\.svelte'/);
-  assert.match(quelle, /memberListCache\s*\n?\s*\.get\(g\.id\)/);
+  // Aktive Server über den geteilten Cache, fremde über geroutete Fetches.
+  assert.match(quelle, /memberListCache\.get\(z\.guild\.id\)/);
+  assert.match(quelle, /chatApi\.listMembers\(z\.guild\.id, \{ serverId: z\.serverId \}\)/);
 });
 
 test('angezeigt wird nur, wo der Freund NICHT Mitglied ist', () => {
   // Filter muss AUSSCHLIESSEND sein (ausblenden, nicht ausgrauen) und auf
-  // der Ausgabe-Liste stehen, das Empty-State-`if` ebenso.
-  assert.match(quelle, /anbietbareGuilds = \$derived\(invitableGuilds\.filter\(\(g\) => !friendGuildIds\.has\(g\.id\)\)\)/);
-  assert.match(quelle, /anbietbareGuilds\.length === 0/);
-  assert.match(quelle, /\{#each anbietbareGuilds as guild/);
+  // der Ausgabe-Liste stehen, das Empty-State-`if` ebenso. Schlüssel ist
+  // `serverId:guildId` — Snowflakes verschiedener Instanzen kollidieren.
+  assert.match(quelle, /anbietbareZiele = \$derived\(ziele\.filter\(\(z\) => !friendGuildKeys\.has\(z\.key\)\)\)/);
+  assert.match(quelle, /anbietbareZiele\.length === 0/);
+  assert.match(quelle, /\{#each anbietbareZiele as ziel \(ziel\.key\)\}/);
 });
 
 test('ein Cache-Fehler lässt die Community sichtbar (Server-409 als Rückfall)', () => {
