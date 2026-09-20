@@ -93,7 +93,19 @@ tests, AV1/HEVC-Fragmentierung (Tests), jitter/fec/state machines im Player.
 | 19 | Benachrichtigungs-Pipeline (Push end-to-end, Badge, Stummschaltung) | erledigt — 4 Fixes (DND-Spiegel, DM-Doppel-Push, Server-Stummschaltung für Chime) |
 | 20 | DB↔Redis↔Memory-Konsistenz (Invarianten, Reconciliation) | erledigt — 3 Fixes (Purge fremde Guilds, Grabstein-DEL bei Re-Publish, Presence-Order) |
 | 21 | Admin- & Betriebswege (Auth-Konsistenz, Operator-Flows, Registry) | erledigt — 5 Fixes (3 Audit-Lücken, Ban-Halberfolg, Hotfix-Cron-Marker) |
-| 22 | Regression-Jagd über die Fixes der Runden 13–21 + Abschluss | offen |
+| 22 | Regression-Jagd über die Fixes der Runden 13–21 + Abschluss | erledigt — 6 eigene Regressionen behoben (everyone-Rename, Guild-Raw-Name, MemberRole-SQLite-Lücke, Purge-Exception, envPrefix-Secret-Leak, Sound-Restpfad) |
+
+## Abschlussbilanz Teil 2 (2026-09-20)
+
+* **Runden 13–22: 36 Fixes** (+ 6 Regressionen aus Teil 2 im
+  Adversarial-Review behoben). Serie gesamt: **~90 Fixes**.
+* **Letzter Stand aller Gates:** Backend-Suite grün (Anmerkung:
+  Singleworker-Test braucht Abwesenheit des Dev-Stack-Flags),
+  svelte-check 0 Fehler, Web 1190/1190, vite build grün,
+  Android-Kompilat grün (JDK 21), esbuild grün.
+* **Offene Entscheidungen:** s.
+  `docs/2026-09-20-bughunt-offene-entscheidungen.md` (MinIO-Pin 410
+  bleibt der akuteste Punkt).
 
 ## Bekannt (Erweiterung: Runden 3–12 — NICHT wieder melden)
 
