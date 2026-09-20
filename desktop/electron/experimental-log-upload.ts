@@ -169,6 +169,15 @@ async function sidecarAngaben(
   let version: string | null = null;
   const sidecar = getSidecar(slot);
 
+  // Bughunt Runde 7: der Funktionskommentar verspricht, den Sidecar NICHT
+  // neu zu starten — nach `call('stop')`/Crash ist `child` aber null, und
+  // der erste `call` hier spawnte lautlos einen neuen Waisen-Prozess. Ohne
+  // lebenden Sidecar gibt es nichts zu fragen (der Bericht ist trotzdem
+  // wertvoll, s. Kommentar unten).
+  if (!sidecar.istGestartet()) {
+    return { version, gpu };
+  }
+
   try {
     const health = (await sidecar.call('health')) as {
       version?: string;

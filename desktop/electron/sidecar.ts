@@ -312,6 +312,14 @@ class SidecarManager {
   constructor(private readonly slot = 0) {}
 
   private child: ChildProcessWithoutNullStreams | null = null;
+
+  /** Läuft gerade ein Kindprozess? (Bughunt Runde 7: der Diagnose-Upload
+   *  will NUR bei einem lebenden Sidecar fragen — sonst spawnt der erste
+   *  `call` lautlos einen neuen Waisen-Prozess, dessen stdin niemand
+   *  schließt.) */
+  istGestartet(): boolean {
+    return this.child !== null && !this.child.killed;
+  }
   private rl: readline.Interface | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();

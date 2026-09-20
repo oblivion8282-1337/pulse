@@ -95,6 +95,11 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
         if (isStale()) return;
         loadError = err instanceof Error ? err.message : m.dm_page_dm_not_found();
         resolving = false;
+        // Bughunt Runde 7: prevDM lösen — sonst blockt `cid === prev` die
+        // Rückkehr zum VORGÄNGER-Gespräch (dessen Abo wir oben schon
+        // abgegeben haben) und der Fehlerbildschirm bleibt für einen völlig
+        // gesunden Kanal stehen, bis der Nutzer einen dritten öffnet.
+        untrack(() => (prevDM = ''));
         return;
       }
     }

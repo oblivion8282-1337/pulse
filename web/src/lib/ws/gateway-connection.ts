@@ -457,6 +457,13 @@ export class GatewayConnection {
     const token = await this._resolveToken();
     if (!token) {
       this.state = 'closed';
+      // Bughunt Runde 7: eine EINMALIG fehlgeschlagene Token-Erneuerung
+      // (Netz noch nicht wieder da, wenn der Backoff-Timer feuert) darf den
+      // Reconnect nicht für immer begraben — vorher blieb Chat/Presence bis
+      // zum Reload tot, obwohl das Netz längst zurück war. wantConnected
+      // steht noch → Backoff-Retry planen; Sign-Out hat wantConnected
+      // bereits auf false gezogen und landet hier gar nicht erst.
+      if (this.wantConnected) this._scheduleReconnect();
       return;
     }
     // Sign-Out kann während der Token-Auflösung dazwischengekommen sein.

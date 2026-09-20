@@ -92,6 +92,12 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
         // Hier steht deshalb nicht fest, ob die Zustellung durch war — ein
         // selbsttaetiger zweiter Anlauf koennte ein Duplikat erzeugen. Also
         // nur sichtbar melden, der Nutzer sendet bei Bedarf erneut.
+        // Bughunt Runde 7: der Composer hat Text+Anhänge schon verworfen —
+        // den Text wenigstens in die Zwischenablage retten (best-effort),
+        // die Wiederherstellung ist dann ein Einfügen statt Neu tippen.
+        try {
+          if (text) void navigator.clipboard.writeText(text);
+        } catch { /* Clipboard verweigert — Toast bleibt die Rückmeldung */ }
         toast.error(m.dm_page_send_failed(), { description: (err as Error).message });
         return;
       }
