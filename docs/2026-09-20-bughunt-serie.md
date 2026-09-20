@@ -99,7 +99,9 @@ tests, AV1/HEVC-Fragmentierung (Tests), jitter/fec/state machines im Player.
 
 * **Runden 13–22: 36 Fixes** (+ 6 Regressionen aus Teil 2 im
   Adversarial-Review behoben). Serie gesamt: **~90 Fixes**.
-* **Letzter Stand aller Gates:** Backend-Suite grün (Anmerkung:
+* **Letzter Stand aller Gates:** Backend-Suite 2632/2632 grün (Anmerkung: der Runde-21-VPS-Audit nutzte
+tfalsch target_user_id — im Runde-22-Lauf gefangen und korrigiert;
+Anmerkung:
   Singleworker-Test braucht Abwesenheit des Dev-Stack-Flags),
   svelte-check 0 Fehler, Web 1190/1190, vite build grün,
   Android-Kompilat grün (JDK 21), esbuild grün.
