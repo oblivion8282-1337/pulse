@@ -86,7 +86,7 @@ tests, AV1/HEVC-Fragmentierung (Tests), jitter/fec/state machines im Player.
 |-------|-------|--------|
 | 13 | Konfiguration & Feature-Flags (Defaults, Halb-Ge-Toggelte Wege) | erledigt — 6 Fixes (Member-Invite-Gate, Passkey-SSO-Gate, env.sh-Drei-Vars, permissions_updated-Null, Cap-Reconnect-Refresh, vite envPrefix) |
 | 14 | i18n, Encoding & Namen (Interpolation, Unicode, Dateinamen) | offen |
-| 15 | Datenschema & Migrationen (Alembic-Kette, Modell-Drift, Nullable) | offen |
+| 15 | Datenschema & Migrationen (Alembic-Kette, Modell-Drift, Nullable) | erledigt — 1 Fix (MemberRole-Composite-FK im Modell, create_all-Kaskade) |
 | 16 | Datei- & Pfad-Handling (Traversal, Temp, Serving) | offen |
 | 17 | Netzwerk & Trust-Chain (Timeouts, Proxy-Header, client_ip) | offen |
 | 18 | UI-Zustandsautomaten (Dialoge, Mehrschritt-Flows, Drag&Drop) | offen |
