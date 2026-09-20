@@ -1,0 +1,111 @@
+# Bughunt 2026-09-20 — offene Entscheidungen & bewusst Aufgeschobenes
+
+Ergebnis der beiden Bughunt-Runden vom 2026-09-20 (Branch `bughunt-2026-09-20`).
+Alles unten ist **verifiziert**, aber ausdrücklich NICHT gefixt — entweder, weil
+eine Betreiber-Entscheidung fehlt, oder weil Aufwand/Nutzen/Design es hergeben.
+Wer einen Punkt angeht: Zeile im jeweiligen Commit-Kontext lesen, dort steht der
+Upgrade-Pfad meist schon nebengenannt.
+
+---
+
+## 1. Entscheidung nötig — konkreter Schaden läuft
+
+### 1.1 MinIO-Pin ist upstream weg → Self-Host-Builds brechen
+- `infra/self-host/Dockerfile:67` (`MINIO_VERSION=RELEASE.2025-09-07T16-13-09Z`)
+  und die SHA256-MinIO-Pins in Zeile 92–93.
+- `https://dl.min.io/server/minio/release/linux-amd64/archive/minio.RELEASE.2025-09-07T16-13-09Z`
+  antwortet **410 Gone** (auch das Archiv-Listing selbst). Der `curl` im
+  Dockerfile (Zeile 323) schlägt damit fehl: **jeder frische Self-Host-Bau ist
+  aktuell tot**, bis der Pin gehoben wird.
+- Prod (infra/prod) ist NICHT betroffen — dort kommt MinIO als Docker-Hub-Image
+  (`minio/minio:RELEASE.2025-09-07...`, Zeile 98), und alte Tags auf Docker Hub
+  bleiben pull-bar.
+- Entscheidung: Version-Bump im Dockerfile (auf das aktuelle Release, Pins neu
+  berechnen — `scripts/refresh-checksums.sh --write` macht das inzwischen und
+  prüft MinIO/frp seit dem Bughunt mit). Dabei den Paritäts-Kommentar pflegen
+  („pinned to the SAME release the prod stack runs“): Entweder Prod-Compose mit
+  heben, oder die Parität bewusst lösen und kommentieren. Alternativ lang-
+  fristig den Self-Host-Bau auch auf das Docker-Hub-Image umstellen, dann
+  verschwindet die dl.min.io-Abhängigkeit (und das Pin-Problem) ganz.
+- Aufgedeckt am 2026-09-20 durch den erweiterten `refresh-checksums.sh`-Lauf
+  (Commit `b177afc1`).
+
+## 2. Bewusst aufgeschoben — bekannt, dokumentiert, braucht Design/Vorarbeit
+
+### 2.1 pulse-player: D3D11-Ring wird beim Software-Fallback geleakt (bis Sitzende)
+- `streaming/pulse-player/src/depacket/../decode.rs:1775-1821` +
+  `zerocopy/bruecke.rs:128-184`. Nach `auf_software`/`rebuild` bleibt die
+  D3D11-Shared-Texture-Bridge absichtlich am Leben, weil `GpuBild::handle`
+  unter Windows ein nackter `isize` ist — Droppen würde Handles schließen, die
+  In-Flight-Frames im Render-Pfad noch referenzieren (der Codekommentar
+  verweist selbst auf ausstehend „Befund 4“; Linux hält `Arc<Ringplatz>`).
+- Folge: Nach einem GPU-Stall bleiben 160–320 MB Grafik-/Systemspeicher bis
+  zum Sitzungsende gebunden, je Fenster multipliziert.
+- Upgrade-Pfad: Windows-`GpuBild` dieselbe `Arc<Ringplatz>`-Ownership geben
+  wie Linux, dann Bridge beim Fallback sauber droppen.
+
+### 2.2 Username: Fallkollisionen nur durch Vorab-Checks verhindert, nicht airtight
+- `services/auth/src/dcc_auth/routes.py` (Register) + `routes_profile.py`
+  (change_username) prüfen case-insensitiv — aber ohne eindeutigen Index kann
+  ein Rennen zwischen zwei PARALLELEN Registrierungen („bob“ + „Bob“) die
+  Variante noch durchlassen; die Resolver matchen lower(username) und würden
+  die beiden beliebig vermengen.
+- Upgrade-Pfad: Alembic-Migration mit eindeutigem Funktions-Index auf
+  `lower(username)`. VOR der Migration Bestandsdaten auf Kollisionen prüfen —
+  eine bestehende Kollision lässt den Index sonst nicht anlegen und blockiert
+  das Deployment.
+
+### 2.3 voice_override: read-merge-write kann parallele Admin-Patches verschlucken
+- `services/voice-signaling/src/dcc_voice_signaling/routes/voice_override.py:97-110`.
+  Zwei Admins patchen denselben Nutzer in derselben Millisekunde → letzter
+  Schreiber gewinnt, das Feld des ersten geht verloren (z. B. Force-Mute
+  wieder weg). Ereignis kann danach vom gespeicherten Stand abweichen.
+- Fenster ist winzig, Zwei-Admins-gleichzeitig-realistisch selten. Upgrade:
+  atomarer Compare-and-Save (Lua/`WATCH`) oder Patch-Events statt Full-Write.
+
+### 2.4 WS-Op-Gate: 4040/4043 erlauben Plugin-Enumeration durch Probieren
+- `services/chat-gateway/src/dcc_chat_gateway/plugins/ws_op_gate.py`. Der
+  Close-Code unterscheidet „nicht in Allowlist“ (4040) von „installiert,
+  aber für die Guild aus“ (4043) — wer Op-Namen probt, kann daraus
+  „installiert vs. fremd“ lesen. Bewusst so belassen (Debug-Signal, weiche
+  Sandbox); die Kommentare im Code sagen das jetzt auch so.
+- Falls irgendwann harte Anti-Enumeration gewollt ist: Codes vereinheitlichen
+  und die beiden assertierenden Tests mitziehen.
+
+### 2.5 dev-up.fish: Warte-Loops time out still, .env-Werte ungequotet
+- `scripts/dev-up.fish`: (a) die Bereitschafts-Loops brechen nach ~9 s still
+  um und das Skript meldet trotzdem „Services up“ — der Beweis steht in
+  /tmp/dcc-*.log; (b) env-Werte werden unquotet in `bash -c`-Strings
+  interpoliert (Zeile ~171/181ff) — Sonderzeichen im Passwort verhunzen den
+  Launch still. Dev-only, AGENTS.md dokumentiert das Umschiffen bereits.
+- Upgrade: nach jedem Loop den Port final prüfen und bei Fehlschlag mit
+  Log-Pfad abbrechen; env sauber als Array an `env` übergeben.
+
+## 3. Kosmetisch / UX — klein, aber nicht kostenlos
+
+### 3.1 Gast-TTL-Statusdivergenz: 404 vs. 403 für „Ticket abgelaufen“
+- voice-signaling `/gast/token` → 404 „ticket expired“
+  (`routes/token_gast.py`), media-svc WHEP-Pfad → 403 „ticket expired“
+  (`routes.py:563-574`, chat-gateway-Proxy reicht durch, `routes/gast.py:399`).
+  Die Gast-Seite kann „Besprechung vorbei“ nicht sauber von „rausgeworfen“
+  unterscheiden. Fix wäre eine Vereinheitlichung — aber bestehende Clients
+  kennen die aktuellen Codes, also nur zusammen mit einem Klienten-Tick.
+
+### 3.2 MitgliederRollen: Trägerliste im offenen Dialog stale
+- `web/src/lib/components/settings/MitgliederRollen.svelte` — Checkbox-Toggles
+  schreiben nur `mitgliedRollen`; Gruppierung links und Trägerzahlen der
+  Rangleiste folgen erst nach dem Wiederöffnen des Dialogs.
+
+### 3.3 KopplungEinloesen: Warten-Knopf trägt das Label des echten Imports
+- `web/src/lib/components/settings/KopplungEinloesen.svelte:173-177` — der
+  Status-Poll-Knopf heißt wie der spätere Import-Knopf („Verlauf
+  übernehmen“), tut aber nur polling ohne Feedback. Braucht eine eigene
+  Paraglide-Message (nach `paraglide:compile` Vite per PID neu starten, s.
+  AGENTS.md-Falle).
+
+---
+
+Gefundene, aber vollständig unfallfreie Zonen der Runde (pulse-whip/zeitbasis/
+bildmarke, krypto-Kern, media-svc, relay-frps-plugin, desktop IPC/Updater, WS-
+Kern/Messages-Stores des Webs) sind in den Commit-Botschaften der Runde
+dokumentiert — wer nachforschen will: `git log bughunt-2026-09-20 --oneline`.
