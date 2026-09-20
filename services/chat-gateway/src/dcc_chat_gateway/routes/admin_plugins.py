@@ -101,6 +101,12 @@ class PluginAllowlistPutOut(BaseModel):
     plugin_name: str
     in_allowlist: bool = True
     requires_restart: bool = False
+    # Bughunt 2026-09-20 (Runde 2): ``False`` = der Eintrag steht in der
+    # Allowlist, aber die Aktivierung ist GESCHEITERT (Importfehler,
+    # Strict-Gate). Der Gate-Snapshot wurde in dem Fall bewusst NICHT
+    # geöffnet — die Ops des Plugins laufen weiter auf 4040, bis der
+    # Fehler behoben und neu aktiviert ist.
+    activated: bool = True
 
 
 def _validate_plugin_name(name: str) -> str:
@@ -203,14 +209,20 @@ async def add_plugin_to_allowlist(
     if manifest is None:
         # Double-Check: Discovery hatte ihn oben gefunden, aber der
         # Loader-Aktivierungspfad nicht. Sehr selten (z.B. Plugin-Datei
-        # wurde zwischen den beiden Calls gelöscht). DB-Insert
-        # rückgängig zu machen wäre Overkill — der Admin kann den
-        # Eintrag per DELETE wieder rausnehmen.
+        # wurde zwischen den beiden Calls gelöscht) — oder die Aktivierung
+        # ist regulär gescheitert (Importfehler, Strict-Gate).
+        # DB-Insert rückgängig zu machen wäre Overkill — der Admin kann
+        # den Eintrag per DELETE wieder rausnehmen. ABER: den Gate-Snapshot
+        # öffnen wir nicht (Bughunt 2026-09-20, Runde 2) — sonst passieren
+        # die Ops des halb-aktivierten Plugins die Allowlist und sterben
+        # erst am fehlenden Handler (4007), während die UI "live" meldet.
         log.warning(
-            "admin PUT /admin/plugins/%s: activation returned None "
-            "(plugin file race?); allowlist row persisted",
+            "admin PUT /admin/plugins/%s: activation failed; allowlist row "
+            "persisted, gate snapshot NOT opened",
             name,
         )
+        await publish_allowlist_changed(request, op="add", name=name, actor_id=actor.id)
+        return PluginAllowlistPutOut(plugin_name=name, activated=False)
     await update_plugin_allowlist_snapshot(request.app, add=name)
 
     # Plugin-Channel-Subscribe nachreichen, damit publish→fan-out direkt

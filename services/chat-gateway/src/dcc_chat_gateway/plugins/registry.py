@@ -51,11 +51,13 @@ from dcc_chat_gateway.plugins.permissions import (
 )
 from dcc_chat_gateway.pubsub_channel_registry import (
     registered_channels,
-    unregister_channel_handler,
+    restore_channel_handler,
+    snapshot_channel_handlers,
 )
 from dcc_chat_gateway.routes.ws_ops_registry import (
     registered_ops,
-    unregister_ws_op,
+    restore_ws_op,
+    snapshot_ws_handlers,
 )
 
 log = logging.getLogger(__name__)
@@ -70,9 +72,17 @@ class PluginRecord:
     activated: bool = False
     # Tracking of *what* the plugin registered while activated, so
     # deactivate can roll back precisely. Filled by the diff captured
-    # around the plugin's `register()` call.
+    # around the plugin's `register()` call — inklusive ÜBERschriebener
+    # fremder Ops (Handler-Identitäts-Diff, s. activate()).
     registered_ws_ops: set[str] = field(default_factory=set)
     registered_channels: set[str] = field(default_factory=set)
+    # Vorgänger-Handler der oben getrackten Einträge (Bughunt 2026-09-20
+    # Runde 2): Wert ``None`` = der Op/Kanal war vorher unbekannt (deactivate
+    # nimmt ihn weg), sonst wird der frühere Handler WIEDERHERGESTELLT statt
+    # gelöscht — sonst würde das Deaktivieren eines Plugins, das einen fremden
+    # Op überschrieben hat, den Vorgänger mit in den Abgrund reißen.
+    ws_op_vorgaenger: dict[str, Callable | None] = field(default_factory=dict)
+    channel_vorgaenger: dict[str, Callable | None] = field(default_factory=dict)
     # Optional plugin-supplied cleanup callback. The plugin's `register()`
     # may return ``{"deactivate": fn}``; the loader stashes ``fn`` here and
     # calls it from :meth:`deactivate` *before* the registry diff is rolled
@@ -138,9 +148,14 @@ class PluginManager:
             # Snapshot BEFORE the plugin module is imported — both
             # import-time `@register_ws_op` decorations and the explicit
             # `register()` call must be tracked, so deactivate() can roll
-            # them back.
-            before_ops = set(registered_ops())
-            before_channels = set(registered_channels())
+            # them back. Der Snapshot hält Handler-OBJEKTE, nicht nur
+            # Namen: ein Plugin, das den Op eines anderen überschreibt
+            # (last-writer-wins, im Registry-Vertrag verankert), erzeugt
+            # sonst KEINE Namens-Differenz — schlüpfte unsichtbar am
+            # Permission-Gate vorbei und überlebte deactivate/forget
+            # ewig (Bughunt 2026-09-20, Runde 2).
+            before_op_handlers = snapshot_ws_handlers()
+            before_channel_handlers = snapshot_channel_handlers()
 
             # Load the plugin module from its file directly with a unique
             # ``sys.modules`` key (``pulse_plugin.<name>.<module>``) — this
@@ -158,8 +173,18 @@ class PluginManager:
                 )
             result = register_fn()
 
-            new_ops = set(registered_ops()) - before_ops
-            new_channels = set(registered_channels()) - before_channels
+            after_op_handlers = snapshot_ws_handlers()
+            new_ops = {
+                op
+                for op, handler in after_op_handlers.items()
+                if before_op_handlers.get(op) is not handler
+            }
+            after_channel_handlers = snapshot_channel_handlers()
+            new_channels = {
+                ch
+                for ch, handler in after_channel_handlers.items()
+                if before_channel_handlers.get(ch) is not handler
+            }
 
             # ---- Schritt-5 permission gate -------------------------------
             # Compare what the plugin actually registered against the
@@ -178,8 +203,12 @@ class PluginManager:
                 if mode == "strict":
                     # Roll back every new registration before raising so
                     # the dispatch tables can't observe a half-activated
-                    # plugin.
-                    self._unregister_registrations(new_ops, new_channels)
+                    # plugin — der Vorgänger-Handler eines ÜBERschriebenen
+                    # fremden Ops kommt dabei wieder zurück.
+                    for op in new_ops:
+                        restore_ws_op(op, before_op_handlers.get(op))
+                    for ch in new_channels:
+                        restore_channel_handler(ch, before_channel_handlers.get(ch))
                     raise PluginPermissionError(
                         name, undeclared_ops, undeclared_channels
                     )
@@ -194,6 +223,12 @@ class PluginManager:
 
             rec.registered_ws_ops = new_ops
             rec.registered_channels = new_channels
+            rec.ws_op_vorgaenger = {
+                op: before_op_handlers.get(op) for op in new_ops
+            }
+            rec.channel_vorgaenger = {
+                ch: before_channel_handlers.get(ch) for ch in new_channels
+            }
             rec.deactivate_hook = _extract_deactivate_hook(name, result)
             rec.activated = True
             log.info(
@@ -212,19 +247,17 @@ class PluginManager:
     # ---- helpers -----------------------------------------------------------
 
     @staticmethod
-    def _unregister_registrations(
-        ops: object, channels: object
+    def _rollback_registrations(
+        ops: dict[str, Callable | None], channels: dict[str, Callable | None]
     ) -> None:
-        """Unregister every WS op and channel handler in *ops* / *channels*.
-
-        Accepts any iterable (set, list, …). Snapshots both into lists
-        before iterating so callers need not worry about mutation-during-
-        iteration when passing live sets.
-        """
-        for op in list(ops):  # type: ignore[arg-type]
-            unregister_ws_op(op)
-        for ch in list(channels):  # type: ignore[arg-type]
-            unregister_channel_handler(ch)
+        """Roll the plugin's registrations back: ein Ops/Kanäle mit bekanntem
+        Vorgänger-Handler bekommt diesen WIEDERHERGESTELLT, unbekannte werden
+        weggenommen. Kopien werden vor dem Iterieren gezogen, damit Aufrufer
+        live Sets/Dicts übergeben dürfen."""
+        for op, vorgaenger in list(ops.items()):
+            restore_ws_op(op, vorgaenger)
+        for ch, vorgaenger in list(channels.items()):
+            restore_channel_handler(ch, vorgaenger)
 
     def deactivate(self, name: str) -> PluginRecord:
         """Remove every WS op + channel handler the plugin registered.
@@ -248,9 +281,11 @@ class PluginManager:
                 rec.deactivate_hook()
             except Exception:  # noqa: BLE001
                 log.exception("plugin %s: deactivate hook raised", name)
-        self._unregister_registrations(rec.registered_ws_ops, rec.registered_channels)
+        self._rollback_registrations(rec.ws_op_vorgaenger, rec.channel_vorgaenger)
         rec.registered_ws_ops.clear()
         rec.registered_channels.clear()
+        rec.ws_op_vorgaenger.clear()
+        rec.channel_vorgaenger.clear()
         rec.deactivate_hook = None
         rec.activated = False
         log.info("plugin %s deactivated", name)

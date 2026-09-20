@@ -64,6 +64,7 @@ async def test_put_plugin_adds_to_allowlist(
         "plugin_name": "hello",
         "in_allowlist": True,
         "requires_restart": False,
+        "activated": True,
     }
     # DB-Row da, ``added_by_user_id`` ist der Admin.
     async with session_factory() as s:

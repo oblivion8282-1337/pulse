@@ -247,6 +247,31 @@ def unregister_ws_op(op: str) -> bool:
     return _handlers.pop(op, None) is not None
 
 
+def snapshot_ws_handlers() -> dict[str, WSOpHandler]:
+    """Snapshot der Handler-Tabelle (Name → Handler-Objekt).
+
+    Für die Plugin-Registry, die um eine ``register()``-Ausführung herum
+    difft: der Vergleich läuft auf Handler-IDENTITÄT, nicht nur auf Namen —
+    ein Plugin, das den Op eines anderen überschreibt (last-writer-wins),
+    erzeugt so eine sichtbare Differenz, die das Permission-Gate und der
+    Rollback sehen, statt unsichtbar durchzuschlüpfen.
+    """
+    return dict(_handlers)
+
+
+def restore_ws_op(op: str, handler: WSOpHandler | None) -> None:
+    """Stellt den Vorgänger-Handler eines Ops wieder her.
+
+    ``None`` heißt: der Op war vorher unbekannt — dann wird er weggenommen.
+    Der Gegenentwurf zum blinden ``unregister_ws_op`` im Rollback: der würde
+    bei einem ÜBERschriebenen fremden Op auch den Vorgänger mit löschen.
+    """
+    if handler is None:
+        _handlers.pop(op, None)
+    else:
+        _handlers[op] = handler
+
+
 def registered_ops() -> list[str]:
     """List of currently-registered op names. Test/debug helper."""
     return sorted(_handlers)

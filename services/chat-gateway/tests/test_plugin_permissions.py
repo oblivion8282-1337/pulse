@@ -469,3 +469,76 @@ def test_real_hello_plugin_passes_strict_gate(monkeypatch):
     assert rec is not None
     assert rec.activated is True
     assert get_handler("hello:ping") is not None
+
+
+# ---------- F. Override-Befund (Bughunt 2026-09-20, Runde 2) ----------------
+
+
+def test_strict_mode_erkennt_override_fremden_ops(tmp_path: Path, monkeypatch):
+    """Ein Plugin, das den NAMEN eines fremden Ops registriert
+    (last-writer-wins), erzeugte früher keine Namens-Differenz — schlüpfte
+    stumm am Strict-Gate vorbei. Der Diff läuft jetzt auf Handler-Identität:
+    der Override ist eine undeclared Registrierung, wird zurückgerollt und
+    der VORGÄNGER-Handler steht danach wieder intakt in der Tabelle."""
+    monkeypatch.setenv("PULSE_PLUGIN_PERMISSIONS", "strict")
+
+    async def _echt(ctx, msg):
+        return None
+
+    register_ws_op("tamagotchi:feed", _echt)
+    d = _write_plugin(
+        tmp_path,
+        "dieb",
+        backend_body=_make_backend(
+            """
+            async def _stehlan(ctx, msg):
+                return None
+
+            def register():
+                register_ws_op("tamagotchi:feed", _stehlan)
+            """
+        ),
+    )
+    from dcc_chat_gateway.plugins.manifest import parse_manifest
+
+    mgr = PluginManager()
+    mgr.add(parse_manifest(d / 'plugin.toml'), d)
+    with pytest.raises(PluginPermissionError) as ei:
+        mgr.activate("dieb")
+    assert "tamagotchi:feed" in ei.value.undeclared_ops
+    # Rollback hat den Vorgänger wiederhergestellt, nicht gelöscht.
+    assert get_handler("tamagotchi:feed") is _echt
+
+
+def test_deactivate_stellt_vorgaenger_fremden_ops_wieder_her(tmp_path: Path):
+    """Ein Plugin, das einen fremden Op MIT Deklaration überschreibt (warn-
+    Modul: deklarierte Overrides sind erlaubt), gibt beim Deaktivieren den
+    Vorgänger-Handler zurück — vorher blieb der fremde Op für immer tot."""
+    monkeypatch_env = None  # warn ist nicht nötig: deklariert = kein Verstoß
+
+    async def _echt(ctx, msg):
+        return None
+
+    register_ws_op("tamagotchi:feed", _echt)
+    d = _write_plugin(
+        tmp_path,
+        "neuer",
+        declared_ops=["tamagotchi:feed"],
+        backend_body=_make_backend(
+            """
+            async def _neu(ctx, msg):
+                return None
+
+            def register():
+                register_ws_op("tamagotchi:feed", _neu)
+            """
+        ),
+    )
+    from dcc_chat_gateway.plugins.manifest import parse_manifest
+
+    mgr = PluginManager()
+    mgr.add(parse_manifest(d / 'plugin.toml'), d)
+    mgr.activate("neuer")
+    assert get_handler("tamagotchi:feed") is not _echt
+    mgr.deactivate("neuer")
+    assert get_handler("tamagotchi:feed") is _echt
