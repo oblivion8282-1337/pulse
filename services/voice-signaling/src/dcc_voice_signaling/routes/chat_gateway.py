@@ -195,21 +195,27 @@ async def _require_target_in_guild(channel_id: str, user_id: str, bearer: str) -
                 status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
             )
         guild_id = channel_resp.json().get("guild_id")
-        if guild_id:
-            # Verify the target user is a member of this guild.
-            member_resp = await voice_routes._chat_gateway_request(
-                "GET", f"/guilds/{guild_id}/members/{user_id}", bearer=bearer
+        if not guild_id:
+            # Fail closed auch bei Schema-Drift: channels.guild_id ist NOT NULL,
+            # ein 200-Body ohne guild_id ist also ein unverstandenes Antwort-
+            # format — die Ziel-Prüfung stumm überspringen wäre fail-open.
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
             )
-            if member_resp.status_code == 404:
-                raise HTTPException(
-                    status.HTTP_404_NOT_FOUND,
-                    detail="user is not a member of this guild",
-                )
-            if member_resp.status_code >= 400:
-                raise HTTPException(
-                    status.HTTP_502_BAD_GATEWAY,
-                    detail="membership check unavailable",
-                )
+        # Verify the target user is a member of this guild.
+        member_resp = await voice_routes._chat_gateway_request(
+            "GET", f"/guilds/{guild_id}/members/{user_id}", bearer=bearer
+        )
+        if member_resp.status_code == 404:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                detail="user is not a member of this guild",
+            )
+        if member_resp.status_code >= 400:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                detail="membership check unavailable",
+            )
     except HTTPException:
         raise
     except Exception as exc:

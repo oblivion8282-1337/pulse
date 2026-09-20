@@ -709,3 +709,30 @@ async def test_internal_evict_calls_livekit_and_clears_overrides(
     # Both override keys are gone.
     assert await redis.get("voice:override:channel-1:user-42") is None
     assert await redis.get("voice:override:channel-2:user-42") is None
+
+
+@pytest.mark.asyncio
+async def test_override_fail_closed_ohne_guild_id(
+    app_with_redis, auth_signer, monkeypatch
+):
+    """Bughunt 2026-09-20: antwortet chat-gateway 200, aber ohne ``guild_id``
+    im Body (Schema-Drift — die Spalte ist NOT NULL), darf die Ziel-Prüfung
+    nicht stumm übersprungen werden. Fail-closed: 502 statt stiller Aktion."""
+    client, _redis = app_with_redis
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+
+    async def _guildless_mock(method, path, *, bearer):
+        if path.endswith("/permissions/me"):
+            return httpx.Response(200, json={"permissions": str(_PERM_MUTE_MEMBERS)})
+        return httpx.Response(200, json={"id": "987654321", "type": 1})
+
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _guildless_mock)
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={"mute": True},
+        headers=auth(access),
+    )
+    assert r.status_code == 502

@@ -494,6 +494,22 @@ async def livekit_webhook(request: Request) -> None:
         user_id = user_id_from_identity(event.participant.identity)
         if user_id is None:
             return
+        # Dasselbe Gate wie bei ``participant_joined``: ein gesperrter Gast mit
+        # noch gültigem LiveKit-JWT (oder jemand, dessen Join-Webhook in der
+        # Restart-Lücke verloren ging) soll keinen Streaming-/Kamera-Eintrag
+        # bekommen — sonst taucht er in ``streaming_user_ids``/``camera_user_ids``
+        # auf, ohne in ``user_ids`` zu stehen, und Clients rendern eine Kachel
+        # für jemanden, der laut Präsenz gar nicht im Raum ist. Das Stop-
+        # Ereignis läuft ungehindert weiter: aus einem Set entfernen, in dem
+        # man nicht steht, ist harmlos und räumt Altlasten weg.
+        if (
+            kind == "track_published"
+            and _gaeste.ist_gast(user_id)
+            and await _gaeste.ist_gesperrt(redis, user_id)
+        ):
+            log.info("gast_gesperrt_publish_ignoriert", user_id=user_id, room=room_name)
+            await _publish_state(redis, room_name, channel_id)
+            return
         # Screen-share check runs first (it owns the UNKNOWN-source video
         # fallback); camera is only the explicit CAMERA source.
         if _is_screen_share(event.track):
