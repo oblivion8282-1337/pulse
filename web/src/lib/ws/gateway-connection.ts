@@ -503,6 +503,13 @@ export class GatewayConnection {
         this.attempt = 0;
         this._readyDone = false;
         this._preReadyBuffer = [];
+        // Bughunt Runde 13: Instanz-Capabilities nach JEDEM Dial auffrischen —
+        // der ready-Rahmen trägt sie nicht, und ein Operator, der offline die
+        // Limits änderte (HQ-Caps sind klientenseitig erzwungen), wurde sonst
+        // bis zum Server-Wechsel/Reload ignoriert.
+        void import('$lib/stores/capabilities.svelte').then(({ capabilities }) => {
+          void capabilities.hydrate().catch(() => undefined);
+        });
         for (const cid of this.subs) {
           this._sendRaw({ op: 'subscribe', channel_id: cid });
         }

@@ -163,6 +163,13 @@ export PULSE_ADMIN_EMAIL='${PULSE_ADMIN_EMAIL}'
 # no service consumes them yet.
 export PULSE_CLOUD_CLIENT_ID='${PULSE_CLOUD_CLIENT_ID}'
 export PULSE_CLOUD_CLIENT_SECRET='${PULSE_CLOUD_CLIENT_SECRET}'
+# Bughunt Runde 13: drei Vars, die Longruns bisher NIE sahen (sie lesen nur
+# diese env.sh) — der direct-adapter schlief deshalb im All-in-One-Container
+# immer („kein Relay-Token"), und /health/setup meldete für behind-proxy-
+# Deployments tls_modus=auto statt des konfigurierten Modus.
+export PULSE_RELAY_TUNNEL_TOKEN='${PULSE_RELAY_TUNNEL_TOKEN:-}'
+export PULSE_TLS_MODE='${PULSE_TLS_MODE:-auto}'
+export PULSE_DATA_PATH='${PULSE_DATA_PATH:-/data}'
 
 # Upload-Verzeichnisse (F10). Die Defaults sind relativ (./uploads/...) und unter
 # s6 (cwd=/opt/pulse/services/*) nicht beschreibbar → Avatar-/Guild-Icon-Upload

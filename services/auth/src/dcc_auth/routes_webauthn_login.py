@@ -171,6 +171,20 @@ async def webauthn_login_verify(
     if user is None or user.disabled or user.is_suspended:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
+    # Bughunt Runde 13: derselbe Mandatory-SSO-Gate wie /login und /register —
+    # NUR auf dem passwortlosen Pfad nötig (der 2FA-Pfad hat den Passwort-
+    # Schritt hinter dem Gate). Vorher tauschte ein lokaler Passkey auf einem
+    # versiegelten Self-Host Token gegen Cloud-Identität, unabhängig davon,
+    # ob ALLOW_LOCAL_ACCOUNTS gesetzt war — und überlebte so jede Cloud-
+    # Sperre des Kontos.
+    if passwordless:
+        settings = get_settings()
+        if settings.pulse_instance_mode != "cloud" and not settings.allow_local_accounts:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="local login disabled — sign in with your howispulse.com account",
+            )
+
     try:
         verified = webauthn.verify_authentication_response(
             credential=payload.credential,

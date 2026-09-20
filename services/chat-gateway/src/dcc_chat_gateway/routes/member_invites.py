@@ -33,6 +33,7 @@ from dcc_chat_gateway.friend_events import publish_friend_event
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
 from dcc_chat_gateway.invite_host import fremder_host
 from dcc_chat_gateway.models import (
+    ChatSettings,
     CommunityInviteNotification,
     Guild,
     GuildMember,
@@ -158,6 +159,16 @@ async def create_member_invite(
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild_not_found")
+    # Bughunt Runde 13: derselbe instanzweite Schalter wie in invites.py
+    # (Invite-Code-Mint) — vorher umging jedes normale Mitglied mit
+    # CREATE_INVITES den Operator-Schalter auf dem Nutzername-Weg.
+    settings_row = await session.get(ChatSettings, 1)
+    if settings_row is not None and not settings_row.allow_member_invites:
+        if guild.owner_id != current.id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="invite creation is restricted to the server owner",
+            )
 
     invitee_id = await _resolve_username(session, payload.username)
     if invitee_id == current.id:

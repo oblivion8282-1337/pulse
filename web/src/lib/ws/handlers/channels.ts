@@ -9,6 +9,7 @@
 import { guilds } from '$lib/stores/guilds.svelte';
 import { messages } from '$lib/stores/messages.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
+import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
 import { serversStore } from '$lib/api/servers.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
@@ -77,9 +78,20 @@ export function register(ctx: HandlerContext): void {
     // Server-Name live nachziehen, wenn der Admin umbenannt hat — kein Reload
     // nötig. "" = zurückgesetzt (Adresse zeigen); Feld fehlt = unverändert.
     // Der Quell-Server ist auf dem Event gestempelt (_serverId), Fallback aktiv.
-    if (evt.instance_name !== undefined) {
+    // Bughunt Runde 13: `null` heißt auf der Leitung "Feld war nicht
+    // betroffen" (der Server serialisiert es immer mit) — vorher nullte
+    // JEDER Admin-Toggle den Anzeigenamen bis zum nächsten Reconnect.
+    if (evt.instance_name != null) {
       const sid = (evt as { _serverId?: string })._serverId ?? activeServer.current?.id;
       if (sid) serversStore.update(sid, { server_name: evt.instance_name || null });
+    }
+    // Bughunt Runde 13: den PRO-Server-Capability-Cache mit verwerfen —
+    // `refresh()` war tot (Docstring versprach genau diesen Aufrufer), der
+    // Guild-Rail "+"-Knopf las sonst den alten `allowGuildCreation`-Stand
+    // bis zum Reload. Betrifft den Server, von dem das Event kam.
+    {
+      const sid = (evt as { _serverId?: string })._serverId ?? activeServer.current?.id;
+      if (sid) void serverCapabilities.refresh(sid);
     }
   });
 

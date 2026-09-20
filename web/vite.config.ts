@@ -94,6 +94,11 @@ function selfHostDateien() {
 }
 
 export default defineConfig({
+  // Bughunt Runde 13: PULSE_*-Build-Variablen waren dokumentiert, kamen aber
+  // NIE im Client an — Vite exponiert nur VITE_*-Präfixe (PULSE_DROPBOX_
+  // CLIENT_ID für eigene Dropbox-Apps pro Redirect-URI, PULSE_PLUGIN_
+  // PERMISSIONS). Beide Namen sind absichtlich nicht VITE_-präfixiert.
+  envPrefix: ['VITE_', 'PULSE_'],
   plugins: [
     selfHostDateien(),
     tailwindcss(),
