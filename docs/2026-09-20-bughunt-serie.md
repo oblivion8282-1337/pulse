@@ -9,7 +9,7 @@ landen auf `bughunt-2026-09-20`; `main` bleibt auf `origin/main`.
 | Runde | Linse | Status |
 |-------|-------|--------|
 | 3 | Zeit & Fristen (TTL, Grace, Clock, Kalender) | erledigt — 5 Fixes: Heartbeat-Timeout + Backoff-Reset + ICE-Deadline (direct-adapter), WS-Expiry-Grenzfall, readState-pagehide-Flush |
-| 4 | Daten-Lebenszyklen (anlegen→ändern→löschen→Archiv, side effects) | offen |
+| 4 | Daten-Lebenszyklen (anlegen→ändern→löschen→Archiv, side effects) | erledigt — 10 Fixes (Watch/Stream-Evict bei Löschung, Purge-Events, Device-Cap, Edit-Frost, Passkey-Löschung, Avatar-Statement, Poller-Gnade, Voice-Pull-Gnade, WHIP-PC-Leck, Join-Marker) |
 | 5 | Zähler, Grenzen & Wachstum (Pagination, Caches, Snowflake-Grenze) | offen |
 | 6 | Parallelität & Reihenfolge (Races, Transaktionen, Event-Order) | offen |
 | 7 | Fehlerpfade & Halbzustände (verschluckte Exceptions, Retries) | offen |
