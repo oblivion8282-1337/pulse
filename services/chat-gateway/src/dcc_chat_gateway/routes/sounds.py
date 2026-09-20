@@ -156,7 +156,15 @@ async def upload_sound(
         )
 
     key = storage_key(guild_id, sound_id)
-    await s3.put_object(key, body=raw, content_type=file.content_type)
+    # Bughunt Runde 16: die neuen Bytes landen ERST auf einem Temp-Key —
+    # der feste Key wird erst NACH dem Commit überschrieben. Vorher
+    # über schrieb put_object das alte Blob vor dem Commit: ein Commit-
+    # Fehler hinterließ DB-Zeile auf zerstörten Bytes (der alte Override-
+    # Sound unwiederbringlich weg), bei Erst-Upload ein verwaistes Objekt.
+    import uuid as _uuid  # noqa: PLC0415
+
+    temp_key = f"{key}-tmp-{_uuid.uuid4().hex[:8]}"
+    await s3.put_object(temp_key, body=raw, content_type=file.content_type)
 
     existing = await session.get(GuildSoundOverride, (guild_id, sound_id))
     if existing is None:
@@ -180,7 +188,17 @@ async def upload_sound(
         # — DB onupdate would fire on any UPDATE, including no-op resaves.
         existing.uploaded_at = datetime.now(timezone.utc)
 
-    await session.commit()
+    try:
+        await session.commit()
+    except Exception:
+        # Temp-Key aufräumen — die DB ist unangetastet, der alte Sound spielt.
+        await s3.delete_object(temp_key)
+        raise
+    # Jetzt erst den festen Key überschreiben (Commit ist durable), dann
+    # den Temp-Key abwerfen. Scheitert das Überschreiben, spielt noch der
+    # alte Sound — ein Retry des Uploads heilt es.
+    await s3.put_object(key, body=raw, content_type=file.content_type)
+    await s3.delete_object(temp_key)
     await session.refresh(existing)
 
     await _publish_sound_event(request, guild_id, sound_id, removed=False)
