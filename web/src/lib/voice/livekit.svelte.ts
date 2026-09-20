@@ -777,6 +777,18 @@ class VoiceRoom {
     this.setDeafened(!this.deafened);
   }
 
+  /** Bughunt Runde 25: Nach dem (Re-)Connect den geseedeten Override-Zustand
+   *  mit dem lokalen Mikrofon abgleichen. Ein in einer WS-Lücke erteiltes
+   *  Force-Mute ging sonst für immer verloren: das live-WS-Event traf tote
+   *  Sockets, der Ready-Seed disabled nur die Buttons, der Track blieb
+   *  unmuted — und applyForceMute(false) des späteren Unmute early-returnte,
+   *  weil #forceMuted nie true geworden war. */
+  applyOverrideReconciliation(muted: boolean, deafened: boolean): void {
+    if (muted && !this.#forceMuted) this.applyForceMute(true);
+    if (!muted && this.#forceMuted) this.applyForceMute(false);
+    if (deafened !== this.deafened) this.setDeafened(deafened);
+  }
+
   /** React to an admin force-mute / force-unmute for the local user.
    *  Driven from the `voice_override` WS handler. Discord-style: on mute we
    *  remember the prior mic state and stop the local track; on unmute we

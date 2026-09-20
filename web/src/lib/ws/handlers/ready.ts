@@ -15,6 +15,7 @@ import { streamPresence } from '$lib/stores/streamPresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
 import { clockSync } from '$lib/watch/clockSync';
 import { presence } from '$lib/stores/presence.svelte';
+import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { friends } from '$lib/stores/friends.svelte';
 import { friendRequests } from '$lib/stores/friendRequests.svelte';
 import { communityInvites } from '$lib/stores/communityInvites.svelte';
@@ -124,6 +125,18 @@ export function register(ctx: ReadyContext): void {
       void modQueueCounts.hydrate(modGuildIds);
       if (evt.voice_states) voicePresence.seed(evt.voice_states);
       voicePresence.seedOverrides(evt.voice_overrides ?? []);
+      // Bughunt Runde 25: Overrides gegen den lokalen Mikrofonzustand
+      // abgleichen — ein in der WS-Lücke erteiltes Force-Mute wirkte sonst
+      // nie auf den laufenden Track (Buttons disabled, Mikrofon sendet).
+      if (currentServerUserId()) {
+        void import('$lib/voice/livekit.svelte').then(({ voice }) => {
+          if (!voice.channelId) return;
+          voice.applyOverrideReconciliation(
+            voicePresence.isForceMuted(voice.channelId, currentServerUserId()!),
+            voicePresence.isForceDeafened(voice.channelId, currentServerUserId()!)
+          );
+        });
+      }
       streamPresence.seed(evt.stream_states ?? []);
       watchPartyPresence.seed(evt.watch_states ?? []);
       // Calibrate the watch-party clock offset on connect so position
