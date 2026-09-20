@@ -83,6 +83,16 @@ Upgrade-Pfad meist schon nebengenannt.
 
 ## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 
+### 3.4 Audit-Log/Mod-Queue-Cursor springt bei Zeitstempel-Gleichheit
+- `routes/mod_queue.py` (list_audit_log + inzwischen auch list_mod_queue)
+  paginieren mit exklusivem `created_at < before` — teilen sich Einträge
+  denselben Zeitstempel (realistisch bei Bulk-Aktionen in einer TX), werden
+  die Gleichzeitigen auf Folgeseiten dauerhaft übersprungen. Sauberer Fix
+  ist ein Composite-Cursor (created_at + snowflake-id), also ein
+  API-Shape-Wechsel mit Klienten-Nachzug — Entscheidung, ob sich das für
+  die Admin-Sicht lohnt.
+
+
 ### 3.1 Gast-TTL-Statusdivergenz: 404 vs. 403 für „Ticket abgelaufen“
 - voice-signaling `/gast/token` → 404 „ticket expired“
   (`routes/token_gast.py`), media-svc WHEP-Pfad → 403 „ticket expired“
