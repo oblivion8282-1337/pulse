@@ -37,6 +37,7 @@ import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
 import { gesundheitTor } from '$lib/stream/gesundheitTor';
 import { standplatz } from '$lib/remote/standplatz.svelte';
 import { postfachAbholenUndAnzeigen } from './chat';
+import { page } from '$app/state';
 import { gruppenApi } from '$lib/api/gruppen';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 
@@ -186,7 +187,18 @@ export function register(ctx: ReadyContext): void {
       // Bei ausgeschaltetem Schalter geht kein Aufruf hinaus
       // (`api/gruppen.ts`), die Antwort ist dann eine leere Liste.
       const abholen = () =>
-        postfachAbholenUndAnzeigen((kanalId) => ctx.getSubs().has(kanalId));
+        postfachAbholenUndAnzeigen((kanalId) => {
+          if (!ctx.getSubs().has(kanalId)) return false;
+          // Bughunt Runde 5: Gruppen sind DAUERHAFT abonniert (s. unten) —
+          // „abonniert" heißt für sie nicht „gerade offen". Vorher lief
+          // jede Gruppennachricht in den gelesen-Zweig: kein Unread-Pill,
+          // kein Ton, kein Toast, beim Öffnen war sie schon als gelesen
+          // markiert. Offen = die @me-Route zeigt genau diesen Kanal.
+          if (privateGruppen.istGruppe(kanalId)) {
+            return page.params.dmChannelId === kanalId;
+          }
+          return true;
+        });
       void gruppenApi
         .auflisten()
         .then(async (gruppen) => {

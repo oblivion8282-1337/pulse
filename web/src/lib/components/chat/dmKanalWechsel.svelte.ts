@@ -173,7 +173,11 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     // Nicht fuer Gruppen: `gapFill` holt ueber die Klartext-Route nach, die
     // eine Gruppen-ID abweist — das Nachholen dort erledigt das Postfach
     // (`ws/handlers/ready.ts`).
-    if (alreadyLoaded && !istGruppe) void cloudGateway.gapFill(cid);
+    // Bughunt Runde 5: nicht nur beim Wieder-Öffnen — der Frisch-Pfad
+    // friert den REST-Snapshot ein, eine DM im Fenster bis zur Abo-
+    // Registrierung erzeugt nur einen dm_bump. gapFillChannel liest
+    // lastPersistedId (der frische Stand) und holt genau das Fenster.
+    if (!istGruppe) void cloudGateway.gapFill(cid);
     const loaded = messages.for(cid);
     const latestSeen = loaded[loaded.length - 1]?.id;
     if (latestSeen) readState.recordSeen(cid, latestSeen);

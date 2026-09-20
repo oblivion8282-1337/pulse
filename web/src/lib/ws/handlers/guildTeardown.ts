@@ -2,6 +2,8 @@ import { guilds } from '$lib/stores/guilds.svelte';
 import { joinedInvites } from '$lib/stores/joinedInvites.svelte';
 import { messages } from '$lib/stores/messages.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
+import { readState } from '$lib/stores/readState.svelte';
+import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
 import type { HandlerContext } from './context';
 
 /** Lokaler Guild-Teardown, geteilt von `guild_deleted` (guild.ts) und dem
@@ -19,7 +21,14 @@ export function teardownGuildLocally(guildId: string, ctx: HandlerContext): void
   for (const subId of ctx.subs) {
     if (channelIds.has(subId)) ctx.unsubscribe(subId);
   }
-  for (const id of channelIds) messages.clearChannel(id);
+  for (const id of channelIds) {
+    messages.clearChannel(id);
+    // Bughunt Runde 5: dieselbe Räumung wie im channel_deleted-Pfad
+    // (teardownChannel) — sonst leben lastRead/mentions/unread in den
+    // localStorage-Karten und die Overwrite-Caches über die Entity hinaus.
+    readState.forgetChannel(id);
+    channelPermissions.forget(id);
+  }
   guilds.remove(guildId);
   guildSounds.remove(guildId);
   // Bughunt Runde 4: die Join-Marker dieser Community mit — sonst zeigt
