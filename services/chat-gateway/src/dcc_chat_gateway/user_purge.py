@@ -353,6 +353,16 @@ async def _purge_db(
     # 9. DM channels the user was a participant in (1:1 → drop the
     # whole channel + every message in it).
     dm_ids = await _collect_dm_channel_ids(session, user_id)
+    # DM-Partner JETZT einsammeln (Adversarial-Review Runde 12): nach dem
+    # Delete wäre die Query tot — nur Freundschaftspartner bekamen das
+    # friend_removed, DM-only-Fälle nie.
+    dm_partner_rows = await session.execute(
+        select(DirectMessageChannel.user_a_id, DirectMessageChannel.user_b_id).where(
+            DirectMessageChannel.id.in_(dm_ids)
+        )
+    )
+    for a, b in dm_partner_rows:
+        result.partner_ids.append(a if a != user_id else b)
     await _delete_dm_channels(session, dm_ids, result.deferred_s3)
 
     # 9b. Private-Gruppen-Mitgliedschaften (Etappe G1) — s. Docstring von
@@ -394,17 +404,10 @@ async def _purge_db(
     partner_set = set()
     for a, b in partner_rows:
         partner_set.add(a if a != user_id else b)
-    dm_partner_rows = await session.execute(
-        select(DirectMessageChannel.user_a_id, DirectMessageChannel.user_b_id).where(
-            or_(
-                DirectMessageChannel.user_a_id == user_id,
-                DirectMessageChannel.user_b_id == user_id,
-            )
-        )
-    )
-    for a, b in dm_partner_rows:
-        partner_set.add(a if a != user_id else b)
+    # DM-Partner sind schon in Schritt 9 eingesammelt (dort vor dem Delete).
+    partner_set.update(result.partner_ids)
     partner_set.discard(user_id)
+    result.partner_ids = sorted(partner_set)
     result.partner_ids = sorted(partner_set)
     await session.execute(
         sa_delete(Friendship).where(

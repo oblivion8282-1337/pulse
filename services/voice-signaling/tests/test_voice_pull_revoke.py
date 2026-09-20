@@ -55,8 +55,13 @@ async def test_posts_revoke_when_marker_present(redis, _isolate_voice_settings, 
     _isolate_voice_settings.internal_service_secret = "s"
     fake = _FakeClient()
     monkeypatch.setattr(cg, "_http_client", fake)
+    # Bughunt Runde 12: der Revoke läuft als verzögerter Task — Gnade auf 0
+    # und den Task abwarten statt nur den Funktionsaufruf.
+    monkeypatch.setattr(cg, "_VOICE_PULL_GNADEN_S", 0)
 
-    await _maybe_revoke_voice_pull(redis, "123", "456")
+    task = await _maybe_revoke_voice_pull(redis, "123", "456")
+    assert task is not None
+    await task
 
     assert len(fake.posts) == 1
     url, body, headers = fake.posts[0]
