@@ -87,6 +87,11 @@ _RULES: dict[str, tuple[int, float]] = {
     # Online-Raten auf INTERNAL_SERVICE_SECRET (Audit 2026-09); die
     # nginx-/Caddy-deny-Bloecke sind die erste Schicht davor.
     "internal_secret": (120, 60.0),
+    # Audio-Diagnose (Bughunt Runde 28): die Route bremst je Nutzer, aber
+    # die Regel fehlte in dieser Tabelle — JEDER Aufruf warf KeyError → 500,
+    # der Anti-Flooding-Bremser des Audits lief nie. 6/Minute: der Client
+    # feuert je Voice-Join mit Bluetooth-Gerät einmal.
+    "audio_diagnostic": (6, 60.0),
 }
 
 

@@ -48,8 +48,19 @@ function vergleicheId(a: string, b: string): number {
 
 /** Wird bei einem Gap-Fill-Overflow gerufen: `grenzeUnten` ist die letzte
  *  vor dem Sprung bekannte ID, `grenzeOben` die aelteste ID der neu
- *  abgelegten Seite. */
+ *  abgelegten Seite.
+ *
+ *  Bughunt Runde 28: eine ZWEITE Lücke überschrieb vorher eine noch
+ *  offene erste — nach dem Schließen der zweiten hielt `betrifftLuecke`
+ *  den ersten Bereich für geschlossen und der Scrollback übersprang ihn
+ *  still. Jetzt wird auf die HÜLLE beider Bereiche erweitert (eine
+ *  größere Lücke schließt beim Durchscrollen auch die innere). */
 export function lueckeMarkieren(kanalId: string, grenzeUnten: string, grenzeOben: string): void {
+  const bestehend = luecken.get(kanalId);
+  if (bestehend) {
+    if (vergleicheId(bestehend.grenzeUnten, grenzeUnten) < 0) grenzeUnten = bestehend.grenzeUnten;
+    if (vergleicheId(bestehend.grenzeOben, grenzeOben) > 0) grenzeOben = bestehend.grenzeOben;
+  }
   luecken.set(kanalId, { grenzeUnten, grenzeOben });
 }
 
