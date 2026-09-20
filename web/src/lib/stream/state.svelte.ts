@@ -244,6 +244,7 @@ export async function initStream(): Promise<() => void> {
     stream.available = false;
     stream.gsrAvailable = false;
     stream.tenBitAvailable = false;
+    stream.hevcTenBitAvailable = false;
     stream.hdrAvailable = false;
     stream.error = String(e);
     // Reset the guard so a later call can retry if the sidecar recovers.
