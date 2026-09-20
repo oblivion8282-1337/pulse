@@ -40,6 +40,24 @@ class JoinedInvites {
     }
   }
 
+  /** Bughunt Runde 4: Alle Marker für eine Community entfernen — nach dem
+   *  Austritt / guild_deleted muss die Karte wieder „Beitreten" zeigen.
+   *  Vorher blieb der Marker als wahre Bedingung stehen (localStorage,
+   *  geräteübergreifend) und die Karte zeigte dauerhaft „Beigetreten". */
+  entfernenFuerGuild(guildId: string): void {
+    const treffer = Object.entries(this._map).filter(([, gid]) => gid === guildId);
+    if (treffer.length === 0) return;
+    const next = { ...this._map };
+    for (const [code] of treffer) delete next[code];
+    this._map = next;
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(LS_KEY, JSON.stringify(this._map));
+    } catch {
+      /* Quota / Private-Browsing: nur der persistente Teil entfällt */
+    }
+  }
+
   /** Bei Sign-Out / Account-Switch aufrufen: den gerätelokalen Marker des
    *  Vorgängers wegwerfen. Sonst zeigt die Invite-Karte dem nächsten User am
    *  selben Gerät „Beigetreten" für Communitys, denen nur der vorige User

@@ -1,4 +1,5 @@
 import { guilds } from '$lib/stores/guilds.svelte';
+import { joinedInvites } from '$lib/stores/joinedInvites.svelte';
 import { messages } from '$lib/stores/messages.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import type { HandlerContext } from './context';
@@ -21,5 +22,8 @@ export function teardownGuildLocally(guildId: string, ctx: HandlerContext): void
   for (const id of channelIds) messages.clearChannel(id);
   guilds.remove(guildId);
   guildSounds.remove(guildId);
+  // Bughunt Runde 4: die Join-Marker dieser Community mit — sonst zeigt
+  // die Einladungs-Karte dem Ausgetretenen dauerhaft „Beigetreten".
+  joinedInvites.entfernenFuerGuild(guildId);
   ctx.fireGuildDeleted(guildId);
 }
