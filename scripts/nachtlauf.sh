@@ -15,23 +15,32 @@ cd "$repo_root"
 stempel="$(date +%Y-%m-%d_%H-%M-%S)"
 log="/tmp/pulse-nachtlauf-${stempel}.log"
 
+# Status je Teil in Dateien: im Pipeline-Block ({ ... } | tee) leben Variablen
+# im Subshell — die Zuweisungen unten wären sonst hinter der Pipe verschwunden
+# und die Endauswertung wäre STETS rot gewesen (Bughunt 2026-09-20).
+statusdir="$(mktemp -d)"
+trap 'rm -rf "$statusdir"' EXIT
+
 {
   echo "Pulse-Nachtlauf $stempel (HEAD: $(git rev-parse --short HEAD))"
   echo
 
   echo "═══ Teil 1: volles Gate (pytest backend, pnpm check/build/test:unit) ═══"
   PULSE_GATE_VOLL=1 bash scripts/gate.sh
-  gate=$?
-  echo "Gate-Ende: Status $gate"
+  echo $? > "$statusdir/gate"
+  echo "Gate-Ende: Status $(cat "$statusdir/gate")"
 
   echo
   echo "═══ Teil 2: Playwright E2E (komplette Suite, lokal) ═══"
   ( cd web && pnpm exec playwright test --reporter=list )
-  pw=$?
-  echo "Playwright-Ende: Status $pw"
+  echo $? > "$statusdir/pw"
+  echo "Playwright-Ende: Status $(cat "$statusdir/pw")"
 } 2>&1 | tee "$log"
+
+gate="$(cat "$statusdir/gate")"
+pw="$(cat "$statusdir/pw")"
 
 echo
 echo "Protokoll: $log"
 # 0 nur, wenn beide Teile grün waren.
-[ "${gate:-1}" -eq 0 ] && [ "${pw:-1}" -eq 0 ]
+[ "$gate" -eq 0 ] && [ "$pw" -eq 0 ]
