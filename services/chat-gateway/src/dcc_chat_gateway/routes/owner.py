@@ -165,7 +165,12 @@ async def list_communities(
     if before is not None:
         stmt = stmt.where(Guild.id < before)
     if q:
-        stmt = stmt.where(Guild.name.ilike(f"%{q}%"))
+        # Bughunt Runde 23: LIKE-Metazeichen maskieren (Spiegel zu dms.py) —
+        # a_b/x%y-Namen waren unter ihrem exakten Namen unsuchbar.
+        maskiert = (
+            q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        stmt = stmt.where(Guild.name.ilike(f"%{maskiert}%", escape="\\"))
 
     rows = (await session.execute(stmt)).all()
     communities = [

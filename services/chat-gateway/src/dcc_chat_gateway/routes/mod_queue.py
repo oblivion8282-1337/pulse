@@ -23,7 +23,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, and_
 
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.complaint_escalate import (
@@ -226,6 +226,7 @@ async def list_mod_queue(
     ),
     limit: int = Query(default=50, ge=1, le=200),
     before: datetime | None = Query(default=None),
+    before_id: int | None = Query(default=None),
 ) -> list[ReportItem]:
     """Return reports scoped to this guild, filtered by status.
 
@@ -249,8 +250,21 @@ async def list_mod_queue(
         _guild_scope_predicate(guild_id),
     )
     if before is not None:
-        stmt = stmt.where(Report.created_at < before)
-    stmt = stmt.order_by(Report.created_at.desc()).limit(limit)
+        # Bughunt Runde 23: Komposit-Cursor (created_at + id) — strict `<`
+        # auf dem alleinigen created_at übersprang den Rest einer
+        # Gleichzeitkeits-Gruppe (funk.now() ist Transaktionszeit; im selben
+        # Transaction-Resolve landen mehrere Meldungen auf derselben
+        # Mikrosekunde), sobald die Gruppe eine Seitengrenze riss.
+        if before_id is not None:
+            stmt = stmt.where(
+                or_(
+                    Report.created_at < before,
+                    and_(Report.created_at == before, Report.id < before_id),
+                )
+            )
+        else:
+            stmt = stmt.where(Report.created_at < before)
+    stmt = stmt.order_by(Report.created_at.desc(), Report.id.desc()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
     return [_report_to_out(r) for r in rows]
 

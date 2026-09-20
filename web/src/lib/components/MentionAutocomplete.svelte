@@ -105,13 +105,22 @@
     void loadMembers(guildId);
   });
 
+  // Bughunt Runde 23: Lauf-Zähler — der Kanalwechsel innerhalb einer Guild
+  // remountet diese Komponente nicht; ein langsamer Fetch für Guild A durfte
+  // B's Liste überschreiben, und ein FEHLSCHLAGENER A-Fetch leerte B's
+  // gute Liste dauerhaft (loadedFor blieb B → nie wieder nachgeladen).
+  let mitgliederLauf = 0;
+
   async function loadMembers(gid: string): Promise<void> {
+    const lauf = ++mitgliederLauf;
     try {
       const list = await memberListCache.get(gid);
+      if (lauf !== mitgliederLauf || guildId !== gid) return;
       for (const m of list) userCache.queue(m.user_id);
       members = list;
       loadedFor = gid;
     } catch {
+      if (lauf !== mitgliederLauf || guildId !== gid) return;
       members = [];
     }
   }

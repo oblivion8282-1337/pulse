@@ -63,8 +63,15 @@ import { errText } from '$lib/utils/errText';
     other: 'bg-bg-hover text-text-muted'
   };
 
+  // Bughunt Runde 23: Lauf-Zähler — zwei überlappende load()-Läufe
+  // (Tab-Wechsel + WS-Live-Nachladen) resolution sonst in beliebiger
+  // Reihenfolge, und der ÄLTERE Stand überschrieb den neueren (Offen-Tab
+  // zeigte erledigte Meldungen mit aktiven Knöpfen).
+  let ladelauf = 0;
+
   async function load(tab: QueueTab) {
     if (tab === 'banned') return; // BansList lädt selbst
+    const lauf = ++ladelauf;
     loading = true;
     loadError = null;
     try {
@@ -77,6 +84,7 @@ import { errText } from '$lib/utils/errText';
           listModQueue(guildId, 'new'),
           listModQueue(guildId, 'triaged')
         ]);
+        if (lauf !== ladelauf) return;
         reports = [...fresh, ...triaged].sort((a, b) =>
           (a.created_at ?? '').localeCompare(b.created_at ?? '')
         );
@@ -86,6 +94,7 @@ import { errText } from '$lib/utils/errText';
           listModQueue(guildId, 'resolved'),
           listModQueue(guildId, 'dismissed')
         ]);
+        if (lauf !== ladelauf) return;
         reports = [...resolved, ...dismissed].sort((a, b) =>
           (b.resolved_at ?? '').localeCompare(a.resolved_at ?? '')
         );
@@ -97,7 +106,7 @@ import { errText } from '$lib/utils/errText';
     } catch (e) {
       loadError = errText(e);
     } finally {
-      loading = false;
+      if (lauf === ladelauf) loading = false;
     }
   }
 
