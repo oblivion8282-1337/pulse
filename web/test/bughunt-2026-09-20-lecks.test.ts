@@ -45,9 +45,11 @@ describe('Bughunt 2026-09-20: Konto-Wechsel leakt nicht in die Stores', () => {
 
   it('directMessages.hydrate() verwirft Antworten, die nach einem clear() eintreffen', () => {
     const hydrate = dmQuelle.indexOf('async hydrate()');
+    assert.ok(hydrate >= 0, 'Anker hydrate() muss gefunden werden');
     const guard = dmQuelle.indexOf('generation !== this.#generation', hydrate);
-    assert.ok(hydrate >= 0 && guard > hydrate, 'hydrate muss den Generation-Guard haben');
+    assert.ok(guard > hydrate, 'hydrate muss den Generation-Guard haben');
     const clear = dmQuelle.indexOf('clear()');
+    assert.ok(clear >= 0, 'Anker clear() muss gefunden werden');
     assert.ok(
       dmQuelle.indexOf('#generation++', clear) > clear,
       'clear() muss die Generation hochzählen'
@@ -56,11 +58,13 @@ describe('Bughunt 2026-09-20: Konto-Wechsel leakt nicht in die Stores', () => {
 
   it('guilds.loadChannels()/hydrate() verwirft Antworten nach einem clear()', () => {
     const hydrate = guildsQuelle.indexOf('async hydrate()');
+    assert.ok(hydrate >= 0, 'Anker hydrate() muss gefunden werden');
     assert.ok(
       guildsQuelle.indexOf('generation !== this.#generation', hydrate) > hydrate,
       'hydrate muss den Generation-Guard haben'
     );
     const lade = guildsQuelle.indexOf('async loadChannels(');
+    assert.ok(lade >= 0, 'Anker loadChannels muss gefunden werden');
     assert.ok(
       guildsQuelle.indexOf('generation !== this.#generation', lade) > lade,
       'loadChannels muss den Generation-Guard haben'
@@ -69,7 +73,9 @@ describe('Bughunt 2026-09-20: Konto-Wechsel leakt nicht in die Stores', () => {
 
   it('_dial() schließt den Socket, wenn disconnect() während der Anbahnung lief', () => {
     const dial = dialQuelle.indexOf('private async _dial()');
+    assert.ok(dial >= 0, 'Anker _dial() muss gefunden werden');
     const nachOeffnen = dialQuelle.indexOf('await this._openSocket(token)', dial);
+    assert.ok(nachOeffnen >= 0, 'Anker _openSocket muss gefunden werden');
     const wächter = dialQuelle.indexOf('if (!this.wantConnected) {', nachOeffnen);
     assert.ok(
       wächter > nachOeffnen,

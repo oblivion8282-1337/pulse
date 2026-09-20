@@ -130,8 +130,12 @@ class AuthStore {
           void serversStore.hydrateFromBackend();
           startProfileRefresh();
           try {
-            const { runIssueFlow } = await import('$lib/identity/issue-flow');
-            await runIssueFlow();
+            // Bughunt Runde 11: über starteGeraeteAnmeldung statt
+            // runIssueFlow — der Single-Flight-Schutz war gebaut, aber nie
+            // verdrahtet. setUser- und Hydrate-Hook feuern beide beim Login;
+            // zwei parallele Flows = zwei Keypairs = kaputter Empfänger-Fächer.
+            const { starteGeraeteAnmeldung } = await import('$lib/identity/issue-flow');
+            await starteGeraeteAnmeldung();
           } catch (fehler) {
             // best-effort — der naechste Login/Restore versucht es erneut.
             // Seit B11 wirft der Fluss auch das Scheitern der Schluessel-
@@ -187,8 +191,9 @@ class AuthStore {
     // Geraete-Anmeldung (Weg A) — fire-and-forget, best-effort wie beim Restore.
     void (async () => {
       try {
-        const { runIssueFlow } = await import('$lib/identity/issue-flow');
-        await runIssueFlow();
+        // Bughunt Runde 11: s. Restore-Pfad — Single-Flight statt Parallellauf.
+        const { starteGeraeteAnmeldung } = await import('$lib/identity/issue-flow');
+        await starteGeraeteAnmeldung();
       } catch (fehler) {
         // s. derselbe Hinweis im Restore-Pfad oben (B11): sichtbar warnen.
         console.warn('[krypto] Geraete-Anmeldung fehlgeschlagen:', fehler instanceof Error ? fehler.message : fehler);
