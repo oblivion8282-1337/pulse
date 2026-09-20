@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, shell, nativeImage, systemPreferences } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage, systemPreferences } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -1492,6 +1492,13 @@ function wireInvitePull(): void {
 // On Windows/macOS `useSystemPicker: true` makes Electron use the OS picker and
 // our handler isn't invoked. (A proper in-app source picker is a follow-up —
 // the GSR HQ-stream path covers richer capture.)
+// Bughunt 2026-09-20: das stimmt nur für macOS 15+ (s. electron.d.ts —
+// "currently available for MacOS 15+ only"). Auf Windows (und macOS < 15) läuft
+// der Handler DOCH an und nahm blind sources[0] — egal ob Bildschirm oder
+// Fenster, "was auch immer zuerst kommt", ohne jede Nutzerwahl. Der Fallback
+// teilt deshalb bewusst den PRIMÄRBILDSCHIRM: vorhersagbar, nie ein Fenster.
+// ponytail: eine echte Quellwahl gibt es auf Windows so nicht — Ausbaupfad ist
+// ein In-App-Picker; bis dahin ist "Hauptmonitor" der ehrlichste Zustand.
 function wireScreenShare(): void {
   session.defaultSession.setDisplayMediaRequestHandler(
     (_request, callback) => {
@@ -1502,10 +1509,21 @@ function wireScreenShare(): void {
         callback({ video: { id: 'screen:0:0', name: 'Bildschirm' } });
         return;
       }
-      // Non-Linux without a system picker: fall back to enumerating sources.
+      // Non-Linux without a system picker: share the primary display.
       desktopCapturer
-        .getSources({ types: ['screen', 'window'] })
-        .then((sources) => callback(sources[0] ? { video: sources[0] } : {}))
+        .getSources({ types: ['screen'] })
+        .then((sources) => {
+          if (!sources.length) {
+            callback({});
+            return;
+          }
+          const primary = screen.getPrimaryDisplay();
+          const chosen =
+            sources.find(
+              (s) => s.display_id && s.display_id === String(primary.id)
+            ) ?? sources[0];
+          callback({ video: chosen });
+        })
         .catch(() => callback({}));
     },
     { useSystemPicker: true }

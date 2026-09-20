@@ -95,20 +95,24 @@ export function handleDeepLink(url: string, getWindow: () => BrowserWindow | nul
   // Always buffer the validated payload so the renderer can pull it on mount.
   // Also push it eagerly when the webContents is alive AND has actually
   // finished loading, in case the renderer is already fully loaded (e.g. a
-  // second-instance deep-link while the app is running). After the eager
-  // push, clear the buffer to prevent duplicate delivery on renderer reload
-  // (which would re-pull via takePendingInvite).
+  // second-instance deep-link while the app is running).
   //
   // **`!isDestroyed()` alone is NOT enough** (Bughunt 2026-08-17): a freshly
   // created window exists and isn't destroyed long before its page has
   // loaded — same race the `ready-to-show` handler in main.ts already avoids
   // by deliberately NOT pushing there. Sending while still loading is a
   // guaranteed drop (SvelteKit's `onMount` hasn't registered the
-  // `ipcRenderer.on('pulse:invite', …)` listener yet), and clearing the
-  // buffer right after meant the later pull-based `invite:getPending` found
-  // nothing either — the invite was gone for good. `isLoading() === false`
-  // is not a hundred-percent proof `onMount` already ran, but it closes the
-  // one case that was certain to lose the invite every time.
+  // `ipcRenderer.on('pulse:invite', …)` listener yet). `isLoading() === false`
+  // is not a hundred-percent proof `onMount` already ran.
+  //
+  // **Der Buffer wird deshalb nach dem Eager-Push NICHT geleert**
+  // (Bughunt 2026-09-20): genau in der Lücke zwischen did-finish-load und
+  // SvelteKit-Hydration ging der Push ins Leere, und das anschließende
+  // Leeren machte den Verlust unwiederbringlich — der Mount-Pull fand nichts
+  // mehr. Der One-Shot-Pull (`takePendingInvite`) ist der EINZIGE Verbraucher:
+  // pro Seitenladung liefert genau einer der beiden Wege aus, ein Reload
+  // wiederholt die Zustellung höchstens einmal (harmlos — die Invite-Seite
+  // ist idempotent).
   pendingInvitePayload = payload;
   const win = getWindow();
   if (
@@ -121,7 +125,6 @@ export function handleDeepLink(url: string, getWindow: () => BrowserWindow | nul
     win.show();
     win.focus();
     win.webContents.send('pulse:invite', payload);
-    pendingInvitePayload = null;
   }
 }
 

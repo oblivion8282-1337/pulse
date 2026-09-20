@@ -59,6 +59,12 @@ function starteZuhörer(): Promise<number> {
 
 export function wireSicherungRuecklauf(): void {
   ipcMain.handle('sicherung:oauthPort', async () => {
+    // Der bestehende Zuhörer bleibt (Modulkopf). Vorher baute jeder Aufruf
+    // einen NEUEN Listener auf und ließ den alten laufen — ein Leck pro
+    // Anmelde-Versuch, und Google-Clients hingen an veralteten Ports.
+    if (server?.listening) {
+      return (server.address() as { port: number }).port;
+    }
     try {
       return await starteZuhörer();
     } catch (fehler) {
