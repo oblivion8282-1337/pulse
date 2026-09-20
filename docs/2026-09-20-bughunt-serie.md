@@ -139,3 +139,54 @@ Kondensiert auf Fix-Klassen (Details je Commit im Log):
   Backup-Marker je Tag-Gruppe; restore.md-Staging-Pfade; coturn-Ports;
   Checksummen-Skript deckt MinIO/frp; Guest-User-Limit an Token-Route;
   HEVC-FU-Poison; WS-Gate-4040/4043-Kommentare.
+
+
+---
+
+# Teil 3: Runden 23–32 (Fortsetzung)
+
+## Plan
+
+| Runde | Linse | Status |
+|-------|-------|--------|
+| 23 | Suche & Volltext (kanal/dm/verlauf/mention-Suche, Cursor) | läuft |
+| 24 | E-Mail & SMTP-Flows (verify, reset, change, SMTP-Config) | offen |
+| 25 | Voice/WebRTC-Sitzungsleben (Token-Grants, Reconnect, Mute) | offen |
+| 26 | Idempotenz & Wiederholung (Retry-Sicherheit je Endpoint) | offen |
+| 27 | Lokaler Verlauf/IndexedDB (luecke, kontoFilter, Quota) | offen |
+| 28 | Rate-Limits & Brakes (Schwellen, Umwege, Deckel-Konsistenz) | offen |
+| 29 | Einladungs-/Freigabe-Arten (guild/guest/member/recovery) | offen |
+| 30 | Service-Worker & Offline (Cache, Update, Background) | offen |
+| 31 | Watch-Party & Stream-Chat-Protokoll (Kontrolle, Lifecycle) | offen |
+| 32 | Regression-Jagd über Runden 23–31 + Abschluss | offen |
+
+## Bekannt (Erweiterung: Runden 13–22)
+
+Kondensiert je Fix (Details im Commit-Log):
+* Flags: allow_member_invites auf member-invites; passwortloser
+  WebAuthn-Login hinter Mandatory-SSO; env.sh rendert RELAY_TOKEN/
+  TLS_MODE/DATA_PATH; permissions_updated null-vs-undefined +
+  serverCapabilities.refresh; capabilities.hydrate je Dial; vite define
+  statt envPrefix.
+* Namen: validate_name mit max_len (vor+nach NFKC); Rollen/Guild-Namen
+  gehärtet + @everyone reserviert (create UND rename); display_name
+  gestrippt; Tag-Trenner im App-Locale; Avatar-Initialen surrogatsicher
+  (Kernflächen).
+* Schema: MemberRole-Composite-FK im Modell; Kick/Leave löscht
+  member_roles ausdrücklich.
+* Datei/Pfad: Ablage-Abruf erzwingt octet-stream+nosniff+attachment;
+  Sound-Upload Temp-Key→Commit→Final (Erst-Upload-Rollback).
+* Netz: direct-adapter bridge streift XFF/Identitäts-Köpfe (+ ponytail-
+  Deckel 127.0.0.1-Kollaps); Provisionierungs-Calls 30-s-Frist.
+* UI: Rollen-Cross-Apply-Guard (beide Editoren); CreateGuildDialog-
+  Reset am open-Wechsel; TOTP/Passkey-Lauf-Schutz; Anhang-Fehlerzeile
+  blockiert Senden.
+* Notifications: dndSpeicher (SW-Flag aus Server-Truth); DM-Mention-
+  Push unterdrückt (dm-Push deckt ab); Server-Stummschaltung gilt für
+  Chime.
+* Konsistenz: Purge räumt fremde-Guild-Streams/Watch/Tokens (best-
+  effort); Hook klärt stream:stopping bei Re-Publish; Presence persist
+  vor Redis.
+* Admin: Guild-Delete im Admin-Bypass auditiert; VPS-Approval + Instanz-
+  suspend/unsuspend/rotate auditiert; Ban-Halberfolg getrennt gemeldet;
+  hotfix-prod cron HOTFIX-OFF-Marke.
