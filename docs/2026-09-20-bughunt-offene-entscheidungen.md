@@ -83,7 +83,16 @@ Upgrade-Pfad meist schon nebengenannt.
 
 ## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 
-### 3.4 Audit-Log/Mod-Queue-Cursor springt bei Zeitstempel-Gleichheit
+### 3.4 Composer bleibt bis zur E2E-Sendebestätigung offen (UX-Redesign)
+- `web/src/lib/components/MessageInput.svelte` + `chat/dmSenden.ts`: beim
+  verschlüsselten DM-Sendeweg werden Text/Anhänge sofort beim Absenden
+  verworfen; ein späterer Fehler rettet inzwischen nur noch den Text in die
+  Zwischenablage (Runde 7). Die saubere Lösung — Composer-Inhalt bis zur
+  Bestätigung halten bzw. bei Fehler inkl. Antwort-Kontext wiederherstellen —
+  ist ein UX-Redesign (Anhang-Schlüssel sind beim Sendeversuch verbraucht,
+  es müsste ein erneuter Upload-Fluss her).
+
+### 3.5 Audit-Log/Mod-Queue-Cursor springt bei Zeitstempel-Gleichheit
 - `routes/mod_queue.py` (list_audit_log + inzwischen auch list_mod_queue)
   paginieren mit exklusivem `created_at < before` — teilen sich Einträge
   denselben Zeitstempel (realistisch bei Bulk-Aktionen in einer TX), werden
