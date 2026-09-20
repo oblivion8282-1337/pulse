@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import base64
 
+from sqlalchemy.exc import IntegrityError
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import delete, select
 
@@ -164,7 +165,27 @@ async def kopplung_stueck_ablegen(
         vorhanden.groesse = groesse
         vorhanden.kennung = body.kennung
 
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Bughunt Runde 7: zwei gleichzeitig schwebende PUTs für dieselbe
+        # Folge sahen beide "vorhanden is None" (UniqueConstraint auf
+        # kopplung_id+folge). Die Route verspricht blinde Wiederholbarkeit —
+        # der Verlierer behandelt den Konflikt als Update-Case statt 500.
+        await session.rollback()
+        stueck = (
+            await session.execute(
+                select(UmzugStueck).where(
+                    UmzugStueck.kopplung_id == kid, UmzugStueck.folge == body.folge
+                )
+            )
+        ).scalar_one_or_none()
+        if stueck is None:
+            raise
+        stueck.daten = body.daten
+        stueck.groesse = groesse
+        stueck.kennung = body.kennung
+        await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -219,7 +240,27 @@ async def kopplung_fertig(
     kopplung = await kopplung_laden(session, kid, user.id, geraet, "alt")
 
     kopplung.gesamt_stuecke = body.gesamt_stuecke
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Bughunt Runde 7: zwei gleichzeitig schwebende PUTs für dieselbe
+        # Folge sahen beide "vorhanden is None" (UniqueConstraint auf
+        # kopplung_id+folge). Die Route verspricht blinde Wiederholbarkeit —
+        # der Verlierer behandelt den Konflikt als Update-Case statt 500.
+        await session.rollback()
+        stueck = (
+            await session.execute(
+                select(UmzugStueck).where(
+                    UmzugStueck.kopplung_id == kid, UmzugStueck.folge == body.folge
+                )
+            )
+        ).scalar_one_or_none()
+        if stueck is None:
+            raise
+        stueck.daten = body.daten
+        stueck.groesse = groesse
+        stueck.kennung = body.kennung
+        await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -269,5 +310,25 @@ async def kopplung_abschliessen(
     if treffer:
         await session.execute(delete(UmzugStueck).where(UmzugStueck.kopplung_id == kid))
 
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Bughunt Runde 7: zwei gleichzeitig schwebende PUTs für dieselbe
+        # Folge sahen beide "vorhanden is None" (UniqueConstraint auf
+        # kopplung_id+folge). Die Route verspricht blinde Wiederholbarkeit —
+        # der Verlierer behandelt den Konflikt als Update-Case statt 500.
+        await session.rollback()
+        stueck = (
+            await session.execute(
+                select(UmzugStueck).where(
+                    UmzugStueck.kopplung_id == kid, UmzugStueck.folge == body.folge
+                )
+            )
+        ).scalar_one_or_none()
+        if stueck is None:
+            raise
+        stueck.daten = body.daten
+        stueck.groesse = groesse
+        stueck.kennung = body.kennung
+        await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -625,14 +625,18 @@ async def _reap_once() -> int:
             keys.append(r.storage_key)
             if r.thumb_storage_key:
                 keys.append(r.thumb_storage_key)
-        await asyncio.gather(*[_drop(k) for k in keys])
-
+        # Bughunt Runde 7: MinIO-Objekte erst NACH dem eigenen Commit
+        # löschen — schlug der Commit fehl, verwiesen die Zeilen weiter auf
+        # bereits gelöschte Bytes (dieselbe Invariante wie in
+        # hard_delete_attachments/purge_s3_keys; der Reaper war der eine
+        # Aufrufer, der sie nicht einhielt). Ein sürzender Pass holt nach.
         await session.execute(
             sa_delete(MessageAttachment).where(
                 MessageAttachment.id.in_([r.id for r in rows])
             )
         )
         await session.commit()
+        await asyncio.gather(*[_drop(k) for k in keys])
         log.info("reaped orphan attachments", count=len(rows))
         return len(rows)
 

@@ -91,9 +91,15 @@ async def upload_avatar(
     avatar_hash = hashlib.sha256(processed).hexdigest()
     dest = _avatar_path(current.id)
     by_hash = _by_hash_dir() / f"{avatar_hash}.webp"
-    dest.write_bytes(processed)
+    # Temp-Datei + Umbenennen NACH dem Commit (Bughunt Runde 7): vorher
+    # überschrieb der Upload die Datei VOR der DB-Transaktion — ein Commit-
+    # Fehler ließ die DB beim alten Hash, während die Bytes schon die neuen
+    # waren (das alte Bild unwiederbringlich weg).
+    dest_tmp = dest.with_suffix(".webp.tmp")
+    dest_tmp.write_bytes(processed)
+    by_hash_tmp = by_hash.with_suffix(".webp.tmp")
     if not by_hash.exists():
-        by_hash.write_bytes(processed)
+        by_hash_tmp.write_bytes(processed)
 
     # Cache-Buster: der Dateiname bleibt gleich (<user_id>.webp), also würde der
     # Browser das alte Bild aus dem Cache nehmen. Ein neuer ?v=-Token bei jedem
@@ -107,6 +113,9 @@ async def upload_avatar(
     _invalidate_statement_cache(current.id)
     session.add(current)
     await session.commit()
+    dest_tmp.replace(dest)
+    if by_hash_tmp.exists():
+        by_hash_tmp.replace(by_hash)
     await session.refresh(current)
     return current
 

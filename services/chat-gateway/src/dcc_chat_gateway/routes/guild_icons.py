@@ -105,10 +105,16 @@ async def upload_icon(
         ) from exc
 
     img.thumbnail((_MAX_DIM, _MAX_DIM), Image.LANCZOS)
-    img.save(_icon_path(guild.id), "WEBP", quality=85)
+    # Temp-Datei + Umbenennen nach dem Commit (Bughunt Runde 7, Spiegel zu
+    # routes_avatar): das Icon ist die EINZIGE Kopie — ein Commit-Fehler nach
+    # dem Überschreiben hätte das alte Wappen still zerstört, während die DB
+    # weiter darauf zeigte.
+    icon_tmp = _icon_path(guild.id).with_suffix(".webp.tmp")
+    img.save(icon_tmp, "WEBP", quality=85)
 
     guild.icon_url = f"/api/chat/guild-icons/{guild.id}.webp?v={secrets.token_urlsafe(6)}"
     await session.commit()
+    icon_tmp.replace(_icon_path(guild.id))
     await session.refresh(guild)
 
     await _publish_guild_event(
