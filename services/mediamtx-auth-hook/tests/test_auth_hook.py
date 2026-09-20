@@ -515,3 +515,23 @@ async def test_auth_endpoint_rate_limited(client):
         assert status[-1] == 429
     finally:
         hook_routes._hook_zeiten.clear()  # Folge-Tests starten mit leerem Fenster
+
+
+@pytest.mark.asyncio
+async def test_auth_rate_limit_je_nutzer_ip(client):
+    """Bughunt 2026-09-20: MediaMTX ruft den Hook immer von loopback aus —
+    der Schieber muss deshalb die Payload-IP nehmen (``request.client.host``
+    wäre für ALLE Calls gleich). Zwei verschiedene Zuschauer-IPs bekommen
+    JEWEILS das volle Fenster; ein Dauer-Feuerwerker eines einzelnen
+    Zuschauers nimmt den anderen die Auth-Kapazität nicht mehr weg."""
+    hook_routes._hook_zeiten.clear()
+    try:
+        voll = {**_body("api", ""), "ip": "203.0.113.7"}
+        andere = {**_body("api", ""), "ip": "203.0.113.8"}
+        for _ in range(hook_routes._HOOK_LIMIT):
+            assert (await client.post("/", json=voll)).status_code == 200
+        assert (await client.post("/", json=voll)).status_code == 429
+        # Die andere IP ist von dem vollen Fenster unberührt.
+        assert (await client.post("/", json=andere)).status_code == 200
+    finally:
+        hook_routes._hook_zeiten.clear()

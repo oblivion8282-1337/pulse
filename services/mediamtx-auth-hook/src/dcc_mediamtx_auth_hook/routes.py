@@ -63,6 +63,13 @@ _READ_ACTIONS = frozenset({"read", "playback"})
 # spiegelbildlich zum relay-frps-plugin (Bughunt Runde 2) drosselt ein
 # In-Prozess-Schiebefenster je Quell-IP die Flut. Per-Prozess genügt: der Hook
 # läuft als einzelner Uvicorn-Worker neben MediaMTX.
+# Bughunt 2026-09-20: „Quell-IP" ist die des Payloads (``AuthRequest.ip``) —
+# MediaMTX ruft den Hook immer von loopback aus, ``request.client.host`` wäre
+# für ALLE Calls gleich, und der Schieber hätte als einziges globales Budget
+# funktioniert: ein einziger Zuschauer mit WHEP-Reconnects hätte allen anderen
+# die Auth-Kapazität weggenommen (429 → MediaMTX wertet nicht-20x als Ablehnung).
+# ``ip`` füllt MediaMTX aus dem Socket und ist von außen nicht wählbar; ohne
+# den Fall-Klumpen dient loopback als Ersatzschlüssel.
 _HOOK_LIMIT = 120       # Requests je Fenster
 _HOOK_FENSTER_S = 60.0
 _hook_zeiten: dict[str, deque[float]] = defaultdict(deque)
@@ -356,7 +363,7 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
 @router.post("/", status_code=status.HTTP_200_OK)
 @router.post("/auth", status_code=status.HTTP_200_OK)
 async def authenticate(req: AuthRequest, request: Request) -> Response:
-    if not _rate_ok(request.client.host if request.client else "?"):
+    if not _rate_ok(req.ip or (request.client.host if request.client else "?")):
         raise HTTPException(status_code=429, detail="rate limited")
     redis = _get_redis(request)
     await _handle(req, redis)
