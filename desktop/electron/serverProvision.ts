@@ -20,6 +20,11 @@ async function sessionCookie(cloudOrigin: string): Promise<string> {
   return cookies.length ? `pulse_session=${cookies[0].value}` : '';
 }
 
+// Bughunt Runde 17: Chromium timeoutet einen Socket, der annimmt und dann
+// schweigt/tröpfelt, NIE — ohne Frist hing "Server einrichten" für immer
+// (Spinner, kein Fehlerpfad). 30 s decken selbst zähe Cloud-Runden.
+const NET_FRIST_MS = 30_000;
+
 function netJsonOnce(
   method: string,
   url: string,
@@ -32,16 +37,31 @@ function netJsonOnce(
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const req = net.request({ method, url, headers });
     const chunks: Buffer[] = [];
+    let fertig = false;
+    const abschliessen = (ergebnis: { status: number; json: unknown }) => {
+      if (fertig) return;
+      fertig = true;
+      req.destroy();
+      resolve(ergebnis);
+    };
+    const frist = setTimeout(
+      () => abschliessen({ status: 0, json: null }),
+      NET_FRIST_MS,
+    );
     req.on('response', (res) => {
       res.on('data', (c) => chunks.push(c as Buffer));
       res.on('end', () => {
+        clearTimeout(frist);
         const text = Buffer.concat(chunks).toString('utf8');
         let json: unknown = null;
         try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON */ }
-        resolve({ status: res.statusCode ?? 0, json });
+        abschliessen({ status: res.statusCode ?? 0, json });
       });
     });
-    req.on('error', () => resolve({ status: 0, json: null }));
+    req.on('error', () => {
+      clearTimeout(frist);
+      abschliessen({ status: 0, json: null });
+    });
     if (body !== undefined) req.write(JSON.stringify(body));
     req.end();
   });
