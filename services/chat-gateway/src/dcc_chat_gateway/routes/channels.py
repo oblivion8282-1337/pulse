@@ -112,7 +112,7 @@ async def create_channel(
     # Display-string sink: must go through validate_name to harden
     # against path-traversal / bidi-spoofing / homograph phishing.
     try:
-        clean_name = validate_name(payload.name)
+        clean_name = validate_name(payload.name, max_len=64)
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
     channel = Channel(
@@ -350,7 +350,7 @@ async def patch_channel(
         # mitigation advertised by the dropbox POST endpoint only
         # defends against name-spoofing if this PATCH is also hardened.
         try:
-            channel.name = validate_name(payload.name)
+            channel.name = validate_name(payload.name, max_len=64)
         except ValueError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
     if payload.topic is not None:

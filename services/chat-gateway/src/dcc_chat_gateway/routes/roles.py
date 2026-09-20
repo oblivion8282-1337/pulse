@@ -35,6 +35,7 @@ from dcc_chat_gateway.role_hierarchy import (
     highest_role_position,
 )
 from dcc_chat_gateway.role_wire import role_wire_dict
+from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.routes._deps import (
     guild_or_404,
     publish_guild_event,
@@ -127,10 +128,23 @@ async def create_role(
                     detail="cannot create a role at or above your highest role",
                 )
 
+    # Display-string sink: dieselbe Härtung wie Kanal-/Gruppennamen
+    # (Bughunt Runde 14) — Zero-Width/Bidi-Homoglyphe ("Adm\u200bin") und
+    # Whitespace-only-Namen fielen sonst roh in Audit-Log und Memberliste.
+    try:
+        clean_name = validate_name(payload.name, max_len=64)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    # Reservierter Systemname (Bughunt Runde 14): eine zweite, zuweisbare
+    # "@everyone"-Rolle wäre reines Trust-/Display-Spoofing — das System-
+    # selbst unterscheidet nur über das is_everyone-Flag.
+    if clean_name == "@everyone":
+        raise HTTPException(422, detail="name is reserved")
+
     role = Role(
         id=next_id(),
         guild_id=guild_id,
-        name=payload.name,
+        name=clean_name,
         permissions=payload.permissions,
         color=payload.color,
         position=next_pos,
@@ -193,7 +207,11 @@ async def patch_role(
     if payload.name is not None:
         if role.is_everyone:
             raise HTTPException(400, detail="@everyone cannot be renamed")
-        role.name = payload.name
+        # Dasselbe Display-Härtung wie beim Anlegen (Bughunt Runde 14).
+        try:
+            role.name = validate_name(payload.name, max_len=64)
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
     if payload.permissions is not None:
         # Editor must already have every bit they're adding (anti-
         # escalation). Removing bits is always fine. Single-pass mask:

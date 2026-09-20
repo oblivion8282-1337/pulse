@@ -338,7 +338,7 @@ async def register(
         username=payload.username,
         email=payload.email.lower(),
         password_hash=password_hash,
-        display_name=payload.display_name,
+        display_name=(payload.display_name.strip() if payload.display_name else None) or None,
     )
     session.add(user)
     try:

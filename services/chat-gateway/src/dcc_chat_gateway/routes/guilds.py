@@ -22,6 +22,7 @@ from dcc_chat_gateway.community_categories import is_valid_category
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.routes._deps import guild_or_404
+from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limits
 from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.models import (
@@ -124,9 +125,16 @@ async def create_guild(payload: GuildIn, session: SessionDep, current: CurrentUs
                 status.HTTP_403_FORBIDDEN,
                 detail="server creation is disabled by the admin",
             )
+    # Display-string sink (Bughunt Runde 14): Guild-Namen erscheinen in
+    # öffentlichem Verzeichnis, Gast-Seite und Einladungskarten — dieselbe
+    # Härtung (Zero-Width/Bidi/NFKC-Länge) wie Kanäle.
+    try:
+        clean_guild_name = validate_name(payload.name, max_len=64)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
     guild = Guild(
         id=next_id(),
-        name=payload.name,
+        name=clean_guild_name,
         icon_url=payload.icon_url,
         owner_id=current.id,
     )
@@ -229,6 +237,13 @@ async def patch_guild(
     # durchgehend "keine Aenderung", nie "loeschen" (loeschen geht ueber
     # die eigenen Endpunkte, z. B. Icon via handle-Reset). Null-Filter,
     # weil ``exclude_unset`` ein explizit gesendetes null durchlaesst.
+    # Name vor dem Loop härtung (Bughunt Runde 14) — der ValueError wird
+    # hier zu 422, nicht erst mitten im Attribut-Schreiben zu 500.
+    if payload.name is not None:
+        try:
+            validate_name(payload.name, max_len=64)
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
     for feld, wert in payload.model_dump(exclude_unset=True).items():
         if wert is not None:
             setattr(guild, feld, wert)

@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
@@ -26,7 +27,7 @@
     auth.user ? (auth.user.display_name ?? auth.user.username) : ''
   );
   let username = $derived(auth.user?.username ?? '');
-  let initial = $derived(displayName.slice(0, 1).toUpperCase());
+  let initial = $derived(anfangsBuchstabe(displayName));
 
   let avatarUrl = $derived(safeAvatarUrl(auth.user?.avatar_url));
 

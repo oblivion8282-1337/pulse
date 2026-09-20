@@ -93,7 +93,12 @@ async def update_profile(
     updated: list[str] = []
     sent = payload.model_fields_set
     if "display_name" in sent:
-        current.display_name = payload.display_name
+        # Bughunt Runde 14: whitespace-only fiel durch die truthiness-
+        # Fallback (`display_name or username`) — der Name war blank in
+        # jeder Liste. Streifen; leer → None (Fallback greift).
+        current.display_name = (
+            payload.display_name.strip() if payload.display_name else payload.display_name
+        ) or None
         updated.append("display_name")
     if "profile_color" in sent:
         current.profile_color = payload.profile_color

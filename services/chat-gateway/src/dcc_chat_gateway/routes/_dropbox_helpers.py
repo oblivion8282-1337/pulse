@@ -166,7 +166,7 @@ def _fold_name(name: str) -> str:
     return unicodedata.normalize("NFKC", folded)
 
 
-def validate_name(name: str) -> str:
+def validate_name(name: str, *, max_len: int = 255) -> str:
     """Validate that ``name`` is a safe basename (no path separators,
     no control chars, no leading/trailing dots/whitespace). Returns the
     canonical form.
@@ -188,15 +188,18 @@ def validate_name(name: str) -> str:
 
     if not name:
         raise ValueError("name is empty")
-    if len(name) > 255:
-        raise ValueError("name longer than 255 chars")
+    if len(name) > max_len:
+        raise ValueError(f"name longer than {max_len} chars")
     cleaned = _fold_name(name)
     # NFKC darf einen Namen verlängern (``ﷺ`` → mehrere Zeichen) und das
     # Streichen darf ihn leeren — beides erst nach der Faltung messbar.
     if not cleaned:
         raise ValueError("name is empty")
-    if len(cleaned) > 255:
-        raise ValueError("name longer than 255 chars")
+    # Bughunt Runde 14: die Faltung NACH der Längenprüfung erneut messen —
+    # sonst lief ein 4-Zeichen-Name (``ﷺﷺﷺﷺ``) durch die 422-Bound, faltete
+    # auf 72 Zeichen und sprengte die String(64)-Spalte → 500 statt 422.
+    if len(cleaned) > max_len:
+        raise ValueError(f"name longer than {max_len} chars after normalisation")
     if any(c in _FORBIDDEN_NAME_CHARS for c in cleaned):
         raise ValueError("name contains forbidden character (/ \\ \\0)")
     # Steuerzeichen (C0/C1). Der Docstring verspricht sie seit jeher, geprüft

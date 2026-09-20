@@ -19,6 +19,7 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import { findeReplyZiel } from './replyLookup';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { currentLocale } from '$lib/i18n';
 
   type ChatItem =
     | { kind: 'divider'; label: string; key: string }
@@ -410,7 +411,9 @@
     const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     if (d.getTime() === today.getTime()) return pm.chat_view_today();
     if (d.getTime() === yesterday.getTime()) return pm.chat_view_yesterday();
-    return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+    // Bughunt Runde 14: App-Locale statt fest de-DE — englische Nutzer lasen
+    // ansonsten deutsche Tages-Trenner in der kompletten Chat-Historie.
+    return d.toLocaleDateString(currentLocale(), { day: 'numeric', month: 'long', year: 'numeric' });
   }
 
   const getKey = (item: ChatItem): string => item.key;
