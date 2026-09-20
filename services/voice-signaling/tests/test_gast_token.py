@@ -257,3 +257,50 @@ def test_livekit_identitaet_eines_gastes_traegt_kein_user_praefix():
 
     assert _lk_identity("gast-42") == "gast-42"
     assert _lk_identity("1234567890") == "user-1234567890"
+
+
+@pytest.mark.asyncio
+async def test_gast_token_in_vollen_kanal_abgewiesen(client, auth_signer, app, monkeypatch):
+    """Bughunt 2026-09-20 (Runde 2): der Limit-Check aus dem Ticket-Mint
+    (bis zu 4 h alt) reicht nicht — ein Gast mit Vor-Füllung-Ticket bekommt
+    jetzt an der Token-Route 409, wenn der Kanal inzwischen voll ist, wie
+    das Mitglied an derselben Tür."""
+    import os
+
+    from redis.asyncio import Redis
+
+    import dcc_voice_signaling.routes.token_gast as token_gast
+
+    async def _voll(channel_id: str) -> int:
+        return 2
+
+    monkeypatch.setattr(token_gast, "_voice_limit", _voll)
+
+    redis = Redis.from_url(
+        os.environ.get("REDIS_URL", "redis://localhost:6380/0").replace(
+            "localhost", "127.0.0.1"
+        )
+    )
+    app.state.redis = redis
+    try:
+        await redis.sadd("voice:room:channel-555", "user-1", "user-2")
+        r = await client.post(
+            "/gast/token",
+            json={"channel_id": "555"},
+            headers=auth(_ticket(auth_signer)),
+        )
+        assert r.status_code == 409
+
+        # Reconnect-Schonung: der Gast selbst sitzt schon im Set → zählt
+        # nicht neu → Token kommt.
+        await redis.sadd("voice:room:channel-555", "gast-77")
+        r2 = await client.post(
+            "/gast/token",
+            json={"channel_id": "555"},
+            headers=auth(_ticket(auth_signer)),
+        )
+        assert r2.status_code == 200, r2.text
+    finally:
+        await redis.delete("voice:room:channel-555")
+        await redis.aclose()
+        app.state.redis = None
