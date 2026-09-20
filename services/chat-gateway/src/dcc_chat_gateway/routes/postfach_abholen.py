@@ -29,6 +29,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Response, status
 from sqlalchemy import delete, exists, select
 
+import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DmNutzlast, DmZustellung
 from dcc_chat_gateway.schemas import (
@@ -54,7 +55,13 @@ async def postfach_abholen(
     geloescht (s. Modul-Docstring).
     """
     geraet = await pruefe_geraet(session, user, body.device_pubkey)
+    settings = chat_config.get_settings()
 
+    # LIMIT (Bughunt Runde 35): die indirekte Grenze (postfach_max_offene_
+    # zustellungen_je_geraet × 256 KiB je Umschlag) liesse eine ~170-MB-
+    # Antwort zu. Der Deckel zieht an derselben Stellschraube wie die
+    # Einlieferungs-Obergrenze; der Klient quitiiert und holt erneut —
+    # Reihenfolge nach id bleibt gewahrt.
     zeilen = (
         await session.execute(
             select(
@@ -110,6 +117,7 @@ async def postfach_abholen(
                 DmZustellung.empfaenger_user_id == user.id,
             )
             .order_by(DmZustellung.id)
+            .limit(settings.postfach_max_offene_zustellungen_je_geraet)
         )
     ).all()
 

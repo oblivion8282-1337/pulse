@@ -92,6 +92,11 @@ _RULES: dict[str, tuple[int, float]] = {
     # der Anti-Flooding-Bremser des Audits lief nie. 6/Minute: der Client
     # feuert je Voice-Join mit Bluetooth-Gerät einmal.
     "audio_diagnostic": (6, 60.0),
+    # Postfach-Einliefern (Bughunt Runde 35): die Route lief bislang ohne
+    # Bremse; je Anfrage laufen bis 100 Umschlaege mit je bis 64 Empfaenger-
+    # Lookups. 60/Minute je Konto deckelt den Amplifikator weit ueber dem
+    # echten Batch-Bedarf des Klienten.
+    "postfach": (60, 60.0),
 }
 
 
