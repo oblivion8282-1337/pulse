@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from dcc_auth.routes_admin import _audit
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
@@ -212,6 +213,15 @@ async def suspend_instance(
             reason=reason,
         )
     )
+    # Bughunt Runde 21: Kill-Switch-Aktionen ohne jede Akteurs-Spur — der
+    # app_host-revoke-Pfad auditiert dieselbe Suspension, diese Routen nicht.
+    _audit(
+        session,
+        actor_id=_actor.id,
+        action="instance.suspend",
+        target_id=instance_id,
+        payload={"reason": reason},
+    )
     await session.commit()
 
     # Bust the public suspended-instances cache so the next poll sees the change.
@@ -248,6 +258,7 @@ async def unsuspend_instance(
     await session.refresh(instance, ["suspended_entry"])
     if instance.suspended_entry is not None:
         await session.delete(instance.suspended_entry)
+    _audit(session, actor_id=_actor.id, action="instance.unsuspend", target_id=instance_id)
     await session.commit()
 
     # Bust the public suspended-instances cache so the next poll sees the change.
@@ -276,6 +287,9 @@ async def rotate_secret(
 
     new_secret_plain = secrets.token_urlsafe(32)
     instance.client_secret = await asyncio.to_thread(hash_password, new_secret_plain)
+    # Bughunt Runde 21: Secret-Rotation bricht eine laufende Instanz sofort —
+    # ohne Audit-Zeile war der einzige Hinweis die dunkel gewordene Instanz.
+    _audit(session, actor_id=_actor.id, action="instance.rotate_secret", target_id=instance_id)
     await session.commit()
 
     return RotateSecretOut(

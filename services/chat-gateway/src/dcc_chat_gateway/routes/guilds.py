@@ -329,6 +329,7 @@ async def delete_guild(
     navigate away and prune their local stores.
     """
     guild = await guild_or_404(session, guild_id)
+    admin_bypass = guild.owner_id != current.id and current.is_admin
     if guild.owner_id != current.id and not current.is_admin:
         raise HTTPException(403, detail="only the owner can delete the guild")
     # Zeile bis zum Commit sperren (Bughunt Runde 6): sonst konnte ein
@@ -339,6 +340,19 @@ async def delete_guild(
     await session.execute(
         select(Guild).where(Guild.id == guild_id).with_for_update()
     )
+    if admin_bypass:
+        # Bughunt Runde 21: der Plattform-Admin kann JEDE Community löschen
+        # — die irreversible Aktion hinterließ als einzige auf dem Objekt
+        # keine Protokoll-Zeile (suspend/limits/kick alles auditiert).
+        await write_audit_log(
+            session,
+            guild_id=guild_id,
+            actor_user_id=current.id,
+            action_type="admin_guild_delete",
+            target_kind="guild",
+            target_id=guild_id,
+            payload={"op": "admin_delete", "owner_id": guild.owner_id},
+        )
     mgr = getattr(request.app.state, "connection_manager", None)
     # Hard-delete MinIO attachments for all channels before the DB cascade
     # removes the rows — the cascade can't clean up object-store objects.
