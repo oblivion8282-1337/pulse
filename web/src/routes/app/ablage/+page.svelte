@@ -74,14 +74,18 @@
   $effect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
-    const error = params.get('error');
-    const anbieter = params.get('anbieter');
-    if (!code) return;
-    if (error) {
-      fehler = `Verbindung abgelehnt: ${error}`;
+    const oauthFehler = params.get('error');
+    // Bughunt Runde 37: Ein Dropbox-Fehler-Redirect (Zustimmung verweigert /
+    // OAuth-Fehler) kommt OHNE code — der frühe `if (!code) return` hat
+    // genau diesen Fall still geschluckt: keine Meldung, und die Einmal-
+    // Values (state + PKCE-Verifier) blieben im sessionStorage liegen.
+    if (oauthFehler) {
+      fehler = `Verbindung abgelehnt: ${oauthFehler}`;
+      sessionStorage.removeItem('ablage_pkce_verifier');
+      sessionStorage.removeItem('ablage_oauth_state');
       return;
     }
-    if (anbieter !== 'dropbox') return;
+    if (!code) return;
 
     // State-Abgleich (Bughunt 2026-09-16, Runde 2): der state wurde beim
     // Redirect-Start erzeugt und gespeichert, aber nie gegengeprüft. PKCE
