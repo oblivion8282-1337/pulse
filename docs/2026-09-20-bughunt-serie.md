@@ -149,7 +149,7 @@ Kondensiert auf Fix-Klassen (Details je Commit im Log):
 
 | Runde | Linse | Status |
 |-------|-------|--------|
-| 23 | Suche & Volltext (kanal/dm/verlauf/mention-Suche, Cursor) | läuft |
+| 23 | Suche & Volltext (kanal/dm/verlauf/mention-Suche, Cursor) | erledigt — 6 Fixes (Mention-Lower, LIKE-Masken ×2, Mod-Queue-Komposit-Cursor, 2 Client-Such-Races) |
 | 24 | E-Mail & SMTP-Flows (verify, reset, change, SMTP-Config) | offen |
 | 25 | Voice/WebRTC-Sitzungsleben (Token-Grants, Reconnect, Mute) | offen |
 | 26 | Idempotenz & Wiederholung (Retry-Sicherheit je Endpoint) | offen |
