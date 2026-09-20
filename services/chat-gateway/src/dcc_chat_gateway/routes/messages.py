@@ -296,7 +296,11 @@ async def post_message(
     # sync pywebpush calls to threads and batches its DB writes, so it does not
     # block the event loop meaningfully. An unreferenced asyncio.create_task can
     # be GC'd before it runs and makes dead-subscription cleanup non-deterministic.
-    if notified:
+    # Bughunt Runde 19: in DMs deckt fan_out_dm_push (unten) den Empfänger
+    # bereits ab — der zusätzliche Mention-Push lieferte dieselbe Nachricht
+    # zweimal (renotify=true → doppelter Ton/Vibration; im Electron-Weg
+    # zwei OS-Toasts). Mention-Push nur für Guild-Kanäle.
+    if notified and kind == "guild":
         await fan_out_mention_push(
             user_ids=notified,
             author_name=current.username,

@@ -24,6 +24,7 @@
  */
 
 import { currentServerUserId } from '$lib/stores/currentServerUser';
+import { schreibeDndNachIdb } from '$lib/notifications/dndSpeicher';
 
 export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline';
 export type OwnPresenceStatus = 'online' | 'idle' | 'dnd' | 'invisible';
@@ -61,6 +62,8 @@ class PresenceStore {
   seedStatuses(map: Record<string, PresenceStatus>, ownStatus: OwnPresenceStatus): void {
     this.statuses = { ...map };
     this.myStatus = ownStatus;
+    // Bughunt Runde 19: SW-Flag mitführen (ready-seed = Server-Truth).
+    schreibeDndNachIdb(ownStatus === 'dnd');
   }
 
   /** Cloud-only: den Freundes-Online-Set aus dem Cloud-``ready``
@@ -122,6 +125,9 @@ class PresenceStore {
   setOwnStatus(status: OwnPresenceStatus): void {
     if (this.myStatus === status) return;
     this.myStatus = status;
+    // Bughunt Runde 19: SW-Flag mitführen (presence_status_changed von
+    // einem Zweitgerät ist hier ebenfalls angekommen).
+    schreibeDndNachIdb(status === 'dnd');
   }
 
   isOnline(userId: string): boolean {
@@ -185,6 +191,10 @@ class PresenceStore {
     this.friendOnlineIds = new Set();
     this.friendStatuses = {};
     this.myStatus = 'online';
+    // Bughunt Runde 19: Sign-Out räumt auch das SW-DND-Flag weg — sonst
+    // schluckte der Service-Worker ALLE Pushes für den nächsten Nutzer
+    // dieses Browsers, wenn der vorige DND an hatte.
+    schreibeDndNachIdb(false);
   }
 
   /** DEV-ONLY (``?demo=online`` auf der Freunde-Seite): Markiert die

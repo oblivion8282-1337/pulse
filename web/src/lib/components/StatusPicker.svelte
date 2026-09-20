@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
+  import { schreibeDndNachIdb } from '$lib/notifications/dndSpeicher';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import { presence, type OwnPresenceStatus } from '$lib/stores/presence.svelte';
   import { friendsApi } from '$lib/api/friends';
@@ -40,31 +41,15 @@
     presence.setOwnStatus(next);
     try {
       await friendsApi.setPresenceStatus(next);
-      writeDndToIdb(next === 'dnd');
+      schreibeDndNachIdb(next === 'dnd');
     } catch (e) {
       presence.setOwnStatus(prev);
-      writeDndToIdb(prev === 'dnd');
+      schreibeDndNachIdb(prev === 'dnd');
       toast.error(m.status_picker_set_error(), {
         description: e instanceof Error ? e.message : undefined
       });
     } finally {
       busy = false;
-    }
-  }
-
-  function writeDndToIdb(dnd: boolean): void {
-    try {
-      const req = indexedDB.open('pulse_presence', 1);
-      req.onupgradeneeded = () => {
-        req.result.createObjectStore('status');
-      };
-      req.onsuccess = () => {
-        const db = req.result;
-        const tx = db.transaction('status', 'readwrite');
-        tx.objectStore('status').put(dnd, 'dnd');
-      };
-    } catch {
-      /* IndexedDB not available (SSR / private mode) — skip */
     }
   }
 

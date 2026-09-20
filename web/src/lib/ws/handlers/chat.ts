@@ -31,6 +31,8 @@ import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
 import { meldeNeueZustellung } from './postfachBenachrichtigung';
 import { registerWsHandler } from '../handler-registry';
+import { serversStore } from '$lib/api/servers.svelte';
+import { dispatchingServerId } from '$lib/ws/gateway-connection';
 import { isRecentMention, markRecentMention } from './_mentionSuppression';
 import type { HandlerContext } from './context';
 import { m } from '$lib/paraglide/messages.js';
@@ -223,7 +225,14 @@ export function register(ctx: HandlerContext): void {
         readState.markRead(evt.channel_id, evt.message_id);
       } else {
         readState.incUnread(evt.channel_id);
-        if (!isRecentMention(evt.message_id) && !isDnd()) {
+        // Bughunt Runde 19: der stumme Server schaltet auch den Chime stumm —
+        // vorher galt notification_mode=none nur für den OS-Toast (inPage).
+        const stumm =
+          (() => {
+            const sid = dispatchingServerId();
+            return sid ? serversStore.servers.find((s) => s.id === sid)?.notification_mode === 'none' : false;
+          })();
+        if (!isRecentMention(evt.message_id) && !isDnd() && !stumm) {
           sounds.play('notification.message', { guildId: evt.guild_id });
         }
       }
@@ -326,7 +335,12 @@ export function register(ctx: HandlerContext): void {
       // (a sound for the focused channel is just noise).
       readState.markRead(channel_id, message_id);
     } else {
-      if (!isDnd()) sounds.play('notification.mention', { guildId: guild_id });
+      // Bughunt Runde 19: Server-Stummschaltung gilt auch für den Mention-Chime.
+      const stumm = (() => {
+        const sid = dispatchingServerId();
+        return sid ? serversStore.servers.find((s) => s.id === sid)?.notification_mode === 'none' : false;
+      })();
+      if (!isDnd() && !stumm) sounds.play('notification.mention', { guildId: guild_id });
     }
     // In-page notification (only fires when tab is in background — the
     // helper gates on visibility + settings). The matching push from the

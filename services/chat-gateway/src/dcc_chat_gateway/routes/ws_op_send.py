@@ -355,10 +355,12 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
             )
     except Exception:
         log.exception("ws mention fan-out failed for channel %s", cid)
-    if notified:
+    if notified and kind == "guild":
         # Same audience as the in-window ``mention_added`` envelope —
         # role + everyone pings already expanded + VIEW-filtered +
         # author-excluded. ``fan_out_mention_push`` never raises.
+        # Bughunt Runde 19: nur Guild-Kanäle — DMs bekommen den Push
+        # bereits über fan_out_dm_push (Doppel-Benachrichtigung).
         await fan_out_mention_push(
             user_ids=notified,
             author_name=user.username,
