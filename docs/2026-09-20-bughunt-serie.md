@@ -151,7 +151,7 @@ Kondensiert auf Fix-Klassen (Details je Commit im Log):
 |-------|-------|--------|
 | 23 | Suche & Volltext (kanal/dm/verlauf/mention-Suche, Cursor) | erledigt — 6 Fixes (Mention-Lower, LIKE-Masken ×2, Mod-Queue-Komposit-Cursor, 2 Client-Such-Races) |
 | 24 | E-Mail & SMTP-Flows (verify, reset, change, SMTP-Config) | erledigt — 5 Fixes (Register-Mail nach Commit/ohne Lock, E-Mail-Wechsel 503 ohne SMTP, Reset-401-Affordance, Row-Lock, Consume-Brakes) |
-| 25 | Voice/WebRTC-Sitzungsleben (Token-Grants, Reconnect, Mute) | offen |
+| 25 | Voice/WebRTC-Sitzungsleben (Token-Grants, Reconnect, Mute) | erledigt — 2 Fixes (Override-Reconciliation beim Ready, Deafen-vor-Mute-Ordnung); 3 Design-Punkte ins Entscheidungs-Doc |
 | 26 | Idempotenz & Wiederholung (Retry-Sicherheit je Endpoint) | offen |
 | 27 | Lokaler Verlauf/IndexedDB (luecke, kontoFilter, Quota) | offen |
 | 28 | Rate-Limits & Brakes (Schwellen, Umwege, Deckel-Konsistenz) | offen |

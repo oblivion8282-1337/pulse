@@ -140,6 +140,18 @@ Upgrade-Pfad meist schon nebengenannt.
   Rotation des Push-Service killt Push dauerhaft (Server löscht die
   tote Zeile, kein Resubscribe). Braucht Design (Key-Versorgung im SW).
 
+## 2e. Voice-Design-Punkte (Runde 25 — brauchen Server-/Protokoll-Entscheidung)
+* Gast-Ticket-Ablauf: LiveKit refresht Tokens verbundener Gäste
+  proaktiv und überlebt damit das TTL-Cap des ersten Grants. Fix
+  braucht Ticket-exp im Token-Claim/Metadata + Reconcile-Prüfung.
+* DUPLICATE_IDENTITY: Zweitgerät wirft Erstgerät raus, dessen Teardown
+  löscht den benutzerweit geteilten voice:user_state:-Key unterm Fuß
+  des neuen Geräts (und republished nicht). Braucht gerätefeste oder
+  refcount-artige Semantik.
+* Rejoin unter Force-Mute: der Connect versucht den Mic-Publish,
+  scheitert und meldet "Mikrofon-Zugriff fehlgeschlagen" statt
+  "Admin-Mute aktiv" — der Connect kennt den Override nicht.
+
 ## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 
 ### 3.6 i18n-Restbestand: hartkodierte de-DE/de-Texte (Runde 14, Repair-Baustelle)
