@@ -463,7 +463,12 @@ def create_app(*, skip_redis: bool = False) -> FastAPI:
             parsed = _json.loads(raw)
             logged_body = _redact(parsed)
         except Exception:  # noqa: BLE001 — not JSON, keep raw
-            logged_body = raw
+            # Bughunt Runde 33: Nicht-JSON nie roh echoen — das ist
+            # kuenftig form-encoded Passwort-/Code-Sendepfad (und jeder
+            # unauthentifizierte Klient konnte beliebige Bytes ins Log
+            # druecken). Nur Laenge + sichere Kennung loggen.
+            logged_body = f"<non-json {len(raw)} bytes>"
+
         _sl.get_logger("dcc_chat_gateway").warning(
             "request_validation_error",
             method=request.method,

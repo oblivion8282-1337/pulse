@@ -250,7 +250,14 @@ async def handle_user_events(
 ) -> None:
     payload = _payload_or_skip(manager, msg, USER_EVENTS_CHANNEL)
     if payload is None:
-        log.warning("user:events malformed: %r", payload)
+        # Bughunt Runde 33: vorher loggte die Zeile garantiert None (der
+        # Wert IST None, wenn hier nicht zurueckgesprungen wurde) — tote
+        # Diagnose. Jetzt: Form des Roh-Botschafts sichtbar machen.
+        log.warning(
+            "user:events malformed: keys=%s type=%s",
+            sorted(msg.keys()) if isinstance(msg, dict) else type(msg).__name__,
+            type(msg).__name__,
+        )
         return
     target_uid_raw = payload.pop("_target_user_id", None)
     if target_uid_raw is None:

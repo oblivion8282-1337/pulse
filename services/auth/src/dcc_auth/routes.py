@@ -623,7 +623,7 @@ async def renew_session(
         user_agent=user_agent,
         ip=_client_ip(request),
     )
-    await relink_to_new_session(
+    moved = await relink_to_new_session(
         session,
         user_id=current.id,
         old_sid=old_sid,
@@ -635,8 +635,16 @@ async def renew_session(
         # gelten zu lassen hiesse nur, eine zweite lebende Sitzung zu führen,
         # die niemand mehr sieht.
         await revoke_sessions(session, [old_sid], user_id=current.id)
-    await session.commit()
-    set_session_cookie(response, sid)
+    # Bughunt Runde 33: Relink-Ergebnis auswerten — aber NUR im Cookie-Pfad
+    # (old_sid gesetzt). Zwei parallele /session/renew-Rufe mit demselben
+    # Cookie (mehrere Tabs beim Start) hingen sonst beide Refresh-Ketten um,
+    # revokten sich gegenseitig, und der Browser behielt das Cookie des
+    # Verlierers — eine lebende, in /sessions unsichtbare Sitzung. Ohne
+    # Cookie (Bearer-Pfad, Desktop) bleibt das alte Verhalten: Cookie wird
+    # gesetzt, Relink-Ausgang egal.
+    if old_sid is None or moved > 0:
+        await session.commit()
+        set_session_cookie(response, sid)
     return None
 
 
