@@ -188,7 +188,7 @@ async def _peek_token(redis: Redis, token: str) -> dict[str, Any] | None:
 # window where Redis could flap between the DEL and the active-write, leaving a
 # consumed token but no active record — the stream would then be invisible to
 # WHEP (404) with no error surfaced. Either both happen or neither does.
-# KEYS[1] = token key, KEYS[2] = active key.
+# KEYS[1] = token key, KEYS[2] = active key, KEYS[3] = stopping tombstone.
 # ARGV[1] = active payload JSON, ARGV[2] = active TTL seconds.
 # Returns 1 if the token was consumed (this request won the single-use race),
 # 0 if it was already gone (concurrent consumer) — in which case the active
@@ -198,6 +198,13 @@ if redis.call('DEL', KEYS[1]) == 0 then
     return 0
 end
 redis.call('SET', KEYS[2], ARGV[1], 'EX', tonumber(ARGV[2]))
+-- Bughunt Runde 20: ein frischer Publish räumt den stream:stopping-
+-- Grabstein weg (Key-Form = aktiver Key mit aktiv→stopping-Präfix-Tausch,
+-- identisch zu stream_evict._grabstein_schluessel). Ohne das DEL bliebe
+-- ein freiwillig gestoppter Stream nach dem Neustart 30 s unsichtbar;
+-- umgekehrt bleibt der Grabstein für einen EVIZTIERTEN Publisher (kein
+-- Re-Auth möglich) solange bestehen, wie sein Push weiterläuft.
+redis.call('DEL', KEYS[3])
 return 1
 """
 
@@ -255,11 +262,17 @@ async def _consume_token_and_mark_active(
     if remote_input:
         active["remote_input"] = True
     payload = json.dumps(active, separators=(",", ":"))
+    aktiv = active_key(channel_id, user_id, int(slot))
+    # Grabstein-Key = aktiver Key mit Präfix-Tausch (Spiegel zu
+    # stream_evict._grabstein_schluessel; Key-Namen sind hier bewusst
+    # dupliziert, s. shared.py).
+    grabstein = aktiv.replace("stream:active:", "stream:stopping:", 1)
     consumed = await redis.eval(  # type: ignore[arg-type]
         _LUA_CONSUME_AND_MARK,
-        2,
+        3,
         TOKEN_KEY.format(token=token),
-        active_key(channel_id, user_id, int(slot)),
+        aktiv,
+        grabstein,
         payload,
         str(settings.publisher_ttl_seconds),
     )

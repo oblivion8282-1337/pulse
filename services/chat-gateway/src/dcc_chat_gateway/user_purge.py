@@ -492,16 +492,13 @@ async def _cleanup_redis(redis: Any, user_id: int) -> None:
     except Exception:  # noqa: BLE001
         log.warning("purge: voice-room scan failed", exc_info=True)
 
-    # stream:active:channel-<cid>-<uid> — per-user HQ-stream marker.
-    try:
-        pattern = f"stream:active:channel-*-{uid_str}"
-        async for key in redis.scan_iter(match=pattern, count=200):
-            try:
-                await redis.delete(key)
-            except Exception:  # noqa: BLE001
-                log.warning("purge: del failed for %s", key, exc_info=True)
-    except Exception:  # noqa: BLE001
-        log.warning("purge: stream-active scan failed", exc_info=True)
+    # stream:active:channel-<cid>-<uid> wird NICHT hier gelöscht (Bughunt
+    # Runde 20): ein blinder Delete ohne stream:stopping-Grabstein lässt
+    # den Poller den (weiter publishenden) Stream sofort wieder auf "live"
+    # setzen — der alte "poller self-heal"-Kommentar war falsch, der Poller
+    # liest die Präsenz aus MediaMTX, nicht aus stream:active. Die Räumung
+    # läuft je fremder Guild über end_active_streams_for_member (Grabstein
+    # + Delete) und je eigener Guild über end_active_streams_for_channels.
 
 
 async def purge_user(
@@ -573,6 +570,24 @@ async def purge_user(
                     "purge: guild_member_removed publish failed for guild %s",
                     gid, exc_info=True,
                 )
+    # Bughunt Runde 20: Streams, Watch-Partys und Zuschauer-Lese-Token des
+    # Gelöschten in FREMDEN Guilds miträumen — der Kick/Ban-Pfad tut das
+    # (guilds.py, "membership_revoked"), der Purge tat es nicht: der
+    # Sidecar lief weiter, der Poller hielt den Kanal auf "live", Lese-
+    # Token blieben bis zu 1 h gültig, Watch-Partys bis zum 6-h-TTL.
+    if result.other_member_guild_ids:
+        from dcc_chat_gateway.stream_evict import end_active_streams_for_member  # noqa: PLC0415
+        from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer  # noqa: PLC0415
+        from dcc_chat_gateway.watch_evict import end_watch_parties_for_member  # noqa: PLC0415
+
+        for gid in result.other_member_guild_ids:
+            await revoke_read_tokens_for_viewer(
+                redis, session, gid, user_id, grund="konto_purge"
+            )
+            await end_active_streams_for_member(
+                redis, session, gid, user_id, grund="konto_purge"
+            )
+            await end_watch_parties_for_member(session, redis, manager, gid, user_id)
     if manager is not None and result.partner_ids:
         from dcc_shared.events import FriendRemovedEvent  # noqa: PLC0415
 
