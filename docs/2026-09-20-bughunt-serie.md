@@ -92,7 +92,7 @@ tests, AV1/HEVC-Fragmentierung (Tests), jitter/fec/state machines im Player.
 | 18 | UI-Zustandsautomaten (Dialoge, Mehrschritt-Flows, Drag&Drop) | erledigt — 5 Fixes (Cross-Apply, Stuck-Busy, TOTP/Passkey-Stale-Guards, Anhang-Fehlversand) |
 | 19 | Benachrichtigungs-Pipeline (Push end-to-end, Badge, Stummschaltung) | erledigt — 4 Fixes (DND-Spiegel, DM-Doppel-Push, Server-Stummschaltung für Chime) |
 | 20 | DB↔Redis↔Memory-Konsistenz (Invarianten, Reconciliation) | erledigt — 3 Fixes (Purge fremde Guilds, Grabstein-DEL bei Re-Publish, Presence-Order) |
-| 21 | Admin- & Betriebswege (Auth-Konsistenz, Operator-Flows, Registry) | offen |
+| 21 | Admin- & Betriebswege (Auth-Konsistenz, Operator-Flows, Registry) | erledigt — 5 Fixes (3 Audit-Lücken, Ban-Halberfolg, Hotfix-Cron-Marker) |
 | 22 | Regression-Jagd über die Fixes der Runden 13–21 + Abschluss | offen |
 
 ## Bekannt (Erweiterung: Runden 3–12 — NICHT wieder melden)
