@@ -132,6 +132,26 @@ Upgrade-Pfad meist schon nebengenannt.
 
 ## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 
+### 3.6 i18n-Restbestand: hartkodierte de-DE/de-Texte (Runde 14, Repair-Baustelle)
+* `formatTimestamp.ts` + `SettingsProfile.svelte` (de-DE-Daten in
+  BansList/GuildInvitesEditor/Standplatz-Rechner/-Protokoll),
+  `kurzeUhrzeit.ts`-Aufrufer ohne Locale (MobileChatsList/Suche,
+  WiederherstellungBlock, GastLinkDialog, CommunityDateiablage),
+  `CreateChannelDialog.svelte` (Ablage-only-Banner),
+  `AblageVerbindenDialog.svelte`/`NextcloudVerbenen.svelte`/
+  `KanalDateiablageVerbinden.svelte` (halbierte Dialoge),
+  `routes/sicherung/ruecklauf/+page.svelte` (Google-Rückkehrseite) —
+  jeweils Admin-/Ablage-/Wiederherstellungsflächen; Aufwand = Fläche für
+  Fläche auf Paraglide umstellen (Adminfläche ist laut AdminMembers.svelte
+  bewusst deutsch).
+* Avatar-Initialen: `anfangsBuchstabe()` (Runde 14) ist auf UserFooter +
+  MemberListItem umgestellt; ~25 weitere slice(0,1)/charAt(0)-Stellen
+  (InviteEmbed, ChatView, VoiceChannelMembers, friends/*, mobile/*,
+  admin/AdminUserRow, MentionAutocomplete, MessageRowLayout,
+  NeuesGespraechDialog, RolleTraeger, SettingsProfile, InviteFriendPicker,
+  InviteToServerSubmenu) warten auf dieselbe Mechanik — reine Sweep-
+  Arbeit, Muster steht.
+
 * `web/src/lib/plugins/conflict-detector.ts` — Konflikt-Detektor ohne UI
   (die dokumentierte Manager-UI aus PLUGIN_ROADMAP Schritt 6 existiert
   nicht mehr; Plugin-Op-Kollisionen laufen lautlos last-wins).
