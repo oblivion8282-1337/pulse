@@ -96,6 +96,11 @@ read_arg() {
 S6_OVERLAY_VERSION="$(read_arg S6_OVERLAY_VERSION)"
 CADDY_VERSION="$(read_arg CADDY_VERSION)"
 LIVEKIT_VERSION="$(read_arg LIVEKIT_VERSION)"
+# Bughunt 2026-09-20 (Runde 2): MinIO + frp standen hier NICHT in der Liste —
+# der Re-verify meldete "all pins match", pruefte die beiden Pins aber nie
+# (gerade die, gegen die das Skript als einzige Gegenprobe antritt).
+MINIO_VERSION="$(read_arg MINIO_VERSION)"
+FRP_VERSION="$(read_arg FRP_VERSION)"
 # MediaMTX steht hier NICHT mehr: das Binary kommt seit 2026-09-07 aus dem
 # Pulse-Fork-Bild (`PULSE_MEDIAMTX_TAG` im Dockerfile) statt von upstream, und
 # die Registry sichert ihre Schichten selbst ueber den Digest — eine von Hand
@@ -107,16 +112,18 @@ for key in "${!VERSION_OVERRIDES[@]}"; do
         S6_OVERLAY_VERSION) S6_OVERLAY_VERSION="${VERSION_OVERRIDES[$key]}" ;;
         CADDY_VERSION)      CADDY_VERSION="${VERSION_OVERRIDES[$key]}" ;;
         LIVEKIT_VERSION)    LIVEKIT_VERSION="${VERSION_OVERRIDES[$key]}" ;;
+        MINIO_VERSION)      MINIO_VERSION="${VERSION_OVERRIDES[$key]}" ;;
+        FRP_VERSION)        FRP_VERSION="${VERSION_OVERRIDES[$key]}" ;;
         *)
             echo "error: --set: unknown version name '$key'" >&2
-            echo "       valid: S6_OVERLAY_VERSION CADDY_VERSION LIVEKIT_VERSION" >&2
+            echo "       valid: S6_OVERLAY_VERSION CADDY_VERSION LIVEKIT_VERSION MINIO_VERSION FRP_VERSION" >&2
             exit 2
             ;;
     esac
 done
 
 # Validate we got everything
-for var in S6_OVERLAY_VERSION CADDY_VERSION LIVEKIT_VERSION; do
+for var in S6_OVERLAY_VERSION CADDY_VERSION LIVEKIT_VERSION MINIO_VERSION FRP_VERSION; do
     if [[ -z "${!var}" ]]; then
         echo "error: ${var} not set (Dockerfile parse failed?)" >&2
         exit 1
@@ -134,10 +141,17 @@ declare -A URLS=(
     [CADDY_ARM64]="https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_arm64.tar.gz"
     [LIVEKIT_AMD64]="https://github.com/livekit/livekit/releases/download/v${LIVEKIT_VERSION}/livekit_${LIVEKIT_VERSION}_linux_amd64.tar.gz"
     [LIVEKIT_ARM64]="https://github.com/livekit/livekit/releases/download/v${LIVEKIT_VERSION}/livekit_${LIVEKIT_VERSION}_linux_arm64.tar.gz"
+    # MinIO: der rohe Binary-Release (der Pin hashed das Binary selbst, genau
+    # wie der curl + sha256sum -c im Dockerfile).
+    [MINIO_AMD64]="https://dl.min.io/server/minio/release/linux-amd64/archive/minio.${MINIO_VERSION}"
+    [MINIO_ARM64]="https://dl.min.io/server/minio/release/linux-arm64/archive/minio.${MINIO_VERSION}"
+    # frp: der Tarball (der Pin hashed das Archiv; extrahiert wird nur frpc).
+    [FRP_AMD64]="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_amd64.tar.gz"
+    [FRP_ARM64]="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_arm64.tar.gz"
 )
 
 # Iteration order is stable (we sort the keys) so log output is reproducible.
-NAMES=(S6_NOARCH S6_X86_64 S6_AARCH64 CADDY_AMD64 CADDY_ARM64 LIVEKIT_AMD64 LIVEKIT_ARM64)
+NAMES=(S6_NOARCH S6_X86_64 S6_AARCH64 CADDY_AMD64 CADDY_ARM64 LIVEKIT_AMD64 LIVEKIT_ARM64 MINIO_AMD64 MINIO_ARM64 FRP_AMD64 FRP_ARM64)
 
 # ──────────────────────────────────────────────────────────────────────────
 # Download + hash each binary into a temp dir, capture results.

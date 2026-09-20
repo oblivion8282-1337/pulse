@@ -199,12 +199,14 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       minio: { condition: service_healthy }
-    # Healthcheck reads /repo/.pulse/last-backup-ok (written by backup.sh on
-    # every successful run, touched by entrypoint on container start). > 36h
-    # old ⇒ unhealthy — catches "cron silently broke for >1 day" without
-    # tripping on daily-only cadence.
+    # Healthcheck reads /repo/.pulse/last-ok-<tag> per backup group (written
+    # by backup.sh on every successful run, touched by entrypoint on start).
+    # > 36h old on ANY group ⇒ unhealthy — catches "cron silently broke for
+    # >1 day" per job; the old single global marker was renewed by every
+    # successful neighbour job, so a daily-dying pg_dump stayed invisible
+    # (Bughunt 2026-09-20, Runde 2).
     healthcheck:
-      test: ["CMD-SHELL", "test -f /repo/.pulse/last-backup-ok && [ $(($(date +%s) - $(stat -c %Y /repo/.pulse/last-backup-ok))) -lt 129600 ]"]
+      test: ["CMD-SHELL", "for t in pg minio avatars icons config; do test -f /repo/.pulse/last-ok-$$t && [ $$(($(date +%s) - $$(stat -c %Y /repo/.pulse/last-ok-$$t))) -lt 129600 ] || exit 1; done"]
       interval: 1h
       timeout: 5s
       retries: 3

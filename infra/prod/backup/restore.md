@@ -41,17 +41,26 @@ expected.
 Most common case — a user reports a deleted attachment, a guild icon was
 overwritten. No need to nuke the whole bucket.
 
+> **Bughunt 2026-09-20 (Runde 2):** MinIO-Snapshots enthalten ihre Dateien
+> seit dem Wechsel auf das flüchtige Staging (`snapshot_minio` spiegelt nach
+> `mktemp -d /tmp/pulse-minio-stage.XXXXXX`) unter EINEM JE-RUN-ANDEREN
+> Pfad — NICHT mehr unter `/var/cache/pulse-backup/minio`. Ein restic
+> `--include`, das nichts trifft, ist KEIN Fehler: es stellt still nichts
+> wieder. Erst den Staging-Pfad im Snapshot suchen, dann restaurieren.
+
 ```bash
-# List paths inside a snapshot.
-docker compose exec backup restic ls <snapid>
+# Find the staging path inside the snapshot (differs per backup run!).
+docker compose exec backup restic ls <snapid> | grep pulse-minio-stage
+#   → e.g. /tmp/pulse-minio-stage.aB3xY9/pulse/attachments/...
 
 # Restore one file. --target / would overwrite live state; use /tmp first.
 docker compose exec backup restic restore <snapid> \
-    --include /var/cache/pulse-backup/minio/<bucket-path> \
+    --include /tmp/pulse-minio-stage.XXXXXX/<bucket-path> \
     --target /tmp/restore
 
-# Pull it out of the container.
-docker cp pulse_backup:/tmp/restore/var/cache/pulse-backup/minio/<bucket-path> ./
+# Pull it out of the container (the staging path is recreated BELOW the
+# --target directory).
+docker cp pulse_backup:/tmp/restore/tmp/pulse-minio-stage.XXXXXX/<bucket-path> ./
 ```
 
 Then re-upload via `mc cp` (MinIO bucket) or `docker cp` (avatars/icons
@@ -108,14 +117,16 @@ docker compose exec -T minio sh -c '
     mc mb local/pulse-attachments
 '
 
-# 3) Restore the snapshot to its original path inside the backup container,
-#    then mirror it back into MinIO over the network.
+# 3) Restore the snapshot, then mirror it back into MinIO over the network.
+#    The staging path inside the snapshot differs per backup run — resolve
+#    it first (a non-matching --include would restore NOTHING and exit 0).
 docker compose exec backup sh -c '
-    rm -rf /var/cache/pulse-backup/minio &&
-    restic restore <snapid> --target / \
-        --include /var/cache/pulse-backup/minio &&
+    stage=$(restic ls <snapid> | grep -o "/tmp/pulse-minio-stage\.[A-Za-z0-9]*" | head -n 1) &&
+    test -n "$stage" &&
+    rm -rf /tmp/minio-restore &&
+    restic restore <snapid> --target /tmp/minio-restore &&
     mc alias set local "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" &&
-    mc mirror --overwrite /var/cache/pulse-backup/minio/ \
+    mc mirror --overwrite "/tmp/minio-restore$stage/" \
         local/pulse-attachments
 '
 

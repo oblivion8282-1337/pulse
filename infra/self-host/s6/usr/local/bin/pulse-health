@@ -9,7 +9,13 @@
 # auch funktioniert wenn Caddy selbst noch startet oder TLS neu verhandelt.
 #
 # Exit 0 = healthy, Exit 1 = unhealthy (Docker schaltet Container auf
-# "unhealthy" Status, restart: unless-stopped greift nach --retries).
+# "unhealthy" Status). WICHTIG (Bughunt 2026-09-20, Runde 2): Docker-
+# Restart-Policies reagieren AUSSCHLIESSLICH auf Container-Exit, NIE auf
+# den Health-Status — ein dauerhaft unhealthy laufender Container wird
+# NICHT neu gestartet (und es gibt in diesem Stack keinen Autoheal).
+# Der Status schlägt nur in `docker ps`/Monitoring auf; wer bei "unhealthy"
+# einen Neustart will, braucht eine externe Wache (oder einen Watchdog,
+# der bei Dauer-FehlHealth `exit 1` aufs PID 1 wirft).
 #
 # Absichtlich KEIN coturn-UDP-Check — bash /dev/tcp prüft TCP, coturn
 # ist primär UDP. s6-overlay-restart-loop reicht als Watchdog.
