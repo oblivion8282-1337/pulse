@@ -8,7 +8,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_auth.config import get_settings
@@ -137,7 +137,15 @@ async def change_username(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="new username is the same as current username",
         )
-    existing_user = await session.scalar(select(User).where(User.username == new_name))
+    # Groß-/klein gemischt vergleichen (Resolver matchen über lower(username))
+    # — aber den eigenen Zeile aussparen, damit ein reiner Schreibweisewechsel
+    # ("alice" → "Alice") weiter möglich bleibt.
+    existing_user = await session.scalar(
+        select(User).where(
+            func.lower(User.username) == new_name.lower(),
+            User.id != current.id,
+        )
+    )
     if existing_user is not None:
         suggestions = await _suggest_usernames(session, new_name)
         raise HTTPException(
@@ -146,7 +154,7 @@ async def change_username(
     now = datetime.now(tz=UTC)
     reservation = await session.scalar(
         select(UsernameReservation).where(
-            UsernameReservation.old_username == new_name,
+            func.lower(UsernameReservation.old_username) == new_name.lower(),
             UsernameReservation.released_at > now,
         )
     )

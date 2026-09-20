@@ -39,6 +39,7 @@ from dcc_auth.models import (
     RegistrationInvite,
     User,
     UserSession,
+    UsernameReservation,
     WebAuthnCredential,
 )
 from dcc_auth.refresh_kette import (
@@ -297,6 +298,36 @@ async def register(
     if mode == "invite_only" and not payload.invite_code:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="invite code required"
+        )
+
+    # Username-Vorab-Checks — billig, und zwar VOR dem Argon2-Hash (dieselbe
+    # Logik wie der Mode-Check oben). Groß-/klein gemischt vergleichen: die
+    # Resolver (Nutzername-Einladungen, Mention-Kandidaten, Profilsuche)
+    # matchen alle über lower(username), zwei Konten, die sich nur in der
+    # Schreibweise unterscheiden, würden dort beliebig vermengt. Dasselbe
+    # Gate wie in ``change_username`` (routes_profile.py).
+    # ponytail: kein unique lower()-Index dahinter — zwei parallel
+    # registrierte Schreibvarianten können die Lücke noch reißen; Upgrade-
+    # Pfad wäre eine Migration mit eindeutigem Funktions-Index.
+    lower_name = payload.username.lower()
+    if await session.scalar(
+        select(User.id).where(func.lower(User.username) == lower_name)
+    ) is not None:
+        suggestions = await _suggest_usernames(session, payload.username)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"error": "username_taken", "suggestions": suggestions},
+        )
+    now = datetime.now(UTC)
+    reservation = await session.scalar(
+        select(UsernameReservation).where(
+            func.lower(UsernameReservation.old_username) == lower_name,
+            UsernameReservation.released_at > now,
+        )
+    )
+    if reservation is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail={"error": "username_reserved"}
         )
 
     # Argon2 is CPU-bound (~50-150ms at t=3/m=64MiB/p=4); run it off the event
