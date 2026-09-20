@@ -580,14 +580,26 @@ async def purge_user(
         from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer  # noqa: PLC0415
         from dcc_chat_gateway.watch_evict import end_watch_parties_for_member  # noqa: PLC0415
 
+        # Best-effort (Adversarial-Review Runde 22): die DB des Kontos ist
+        # an dieser Stelle schon DURCHGEHEND gelöscht und committet — ein
+        # Redis-Fehler hier darf den Purge nicht zu einem 500 machen, der
+        # auth-svc zum Rollback verleitet (Halbpurge-Vertrag). Watch-Partys
+        # heilen über den 6-h-TTL, Streams über den nächsten Re-Publish-
+        # Verfall; idempotenter Purge-Retry räumt den Rest.
         for gid in result.other_member_guild_ids:
-            await revoke_read_tokens_for_viewer(
-                redis, session, gid, user_id, grund="konto_purge"
-            )
-            await end_active_streams_for_member(
-                redis, session, gid, user_id, grund="konto_purge"
-            )
-            await end_watch_parties_for_member(session, redis, manager, gid, user_id)
+            try:
+                await revoke_read_tokens_for_viewer(
+                    redis, session, gid, user_id, grund="konto_purge"
+                )
+                await end_active_streams_for_member(
+                    redis, session, gid, user_id, grund="konto_purge"
+                )
+                await end_watch_parties_for_member(session, redis, manager, gid, user_id)
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "purge: member-guild stream/watch cleanup failed for guild %s",
+                    gid, exc_info=True,
+                )
     if manager is not None and result.partner_ids:
         from dcc_shared.events import FriendRemovedEvent  # noqa: PLC0415
 

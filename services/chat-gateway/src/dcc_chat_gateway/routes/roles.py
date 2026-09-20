@@ -209,9 +209,15 @@ async def patch_role(
             raise HTTPException(400, detail="@everyone cannot be renamed")
         # Dasselbe Display-Härtung wie beim Anlegen (Bughunt Runde 14).
         try:
-            role.name = validate_name(payload.name, max_len=64)
+            clean_name = validate_name(payload.name, max_len=64)
         except ValueError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
+        # Reservierter Systemname (Regression aus Runde 14, Adversarial-
+        # Review Runde 22: der Check saß nur im create — ein Rename
+        # konnte eine gewöhnliche Rolle in "@everyone" taufen).
+        if clean_name == "@everyone":
+            raise HTTPException(422, detail="name is reserved")
+        role.name = clean_name
     if payload.permissions is not None:
         # Editor must already have every bit they're adding (anti-
         # escalation). Removing bits is always fine. Single-pass mask:

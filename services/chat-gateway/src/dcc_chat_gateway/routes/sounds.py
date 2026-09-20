@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.db import SessionDep
@@ -167,6 +167,10 @@ async def upload_sound(
     await s3.put_object(temp_key, body=raw, content_type=file.content_type)
 
     existing = await session.get(GuildSoundOverride, (guild_id, sound_id))
+    # Runde 22: Merker für den Restpfad — schlägt das finale put_object
+    # nach dem Commit fehl, rollt ein ERST-Upload die noch leere Zeile
+    # zurück (statt ein 404-Sound-Angebot stehen zu lassen).
+    ist_erstupload = existing is None
     if existing is None:
         existing = GuildSoundOverride(
             guild_id=guild_id,
@@ -196,8 +200,22 @@ async def upload_sound(
         raise
     # Jetzt erst den festen Key überschreiben (Commit ist durable), dann
     # den Temp-Key abwerfen. Scheitert das Überschreiben, spielt noch der
-    # alte Sound — ein Retry des Uploads heilt es.
-    await s3.put_object(key, body=raw, content_type=file.content_type)
+    # alte Sound — ein Retry des Uploads heilt es. Beim ERST-Upload gibt
+    # es keinen alten Stand: die leere Zeile wird zurückgerollt (Runde 22),
+    # sonst bliebe ein 404-Sound-Angebot stehen.
+    try:
+        await s3.put_object(key, body=raw, content_type=file.content_type)
+    except Exception:
+        if ist_erstupload:
+            await session.rollback()
+            await session.execute(
+                sa_delete(GuildSoundOverride).where(
+                    GuildSoundOverride.guild_id == guild_id,
+                    GuildSoundOverride.sound_id == sound_id,
+                )
+            )
+            await session.commit()
+        raise
     await s3.delete_object(temp_key)
     await session.refresh(existing)
 
@@ -235,6 +253,10 @@ async def delete_sound(
     )
 
     existing = await session.get(GuildSoundOverride, (guild_id, sound_id))
+    # Runde 22: Merker für den Restpfad — schlägt das finale put_object
+    # nach dem Commit fehl, rollt ein ERST-Upload die noch leere Zeile
+    # zurück (statt ein 404-Sound-Angebot stehen zu lassen).
+    ist_erstupload = existing is None
     if existing is None:
         return
 

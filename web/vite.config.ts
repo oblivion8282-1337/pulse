@@ -3,6 +3,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
 import { defineConfig } from 'vite';
+import process from 'node:process';
 
 // Proxy-Ziele des Dev-Servers. Vorgabe sind die Ports des Dev-Stacks
 // (`scripts/dev-up.fish`); die E2E-Suite startet ihren EIGENEN Vite mit
@@ -95,10 +96,20 @@ function selfHostDateien() {
 
 export default defineConfig({
   // Bughunt Runde 13: PULSE_*-Build-Variablen waren dokumentiert, kamen aber
-  // NIE im Client an — Vite exponiert nur VITE_*-Präfixe (PULSE_DROPBOX_
-  // CLIENT_ID für eigene Dropbox-Apps pro Redirect-URI, PULSE_PLUGIN_
-  // PERMISSIONS). Beide Namen sind absichtlich nicht VITE_-präfixiert.
-  envPrefix: ['VITE_', 'PULSE_'],
+  // NIE im Client an — Vite exponiert nur VITE_*-Präfixe. Runde 22:
+  // bewusst `define` mit EXAKTEN Namen statt `envPrefix: ['VITE_', 'PULSE_']`
+  // — der Präfix-Sweep hätte den GESAMTEN PULSE_-Namensraum (auch
+  // PULSE_CLOUD_CLIENT_SECRET, PULSE_RELAY_TUNNEL_TOKEN) in das Client-
+  // Bundle gebacken, sobald beim Build ein Shell mit sourcen self-host
+  // .env aktiv war. Nur diese beiden nicht-geheimen Namen sind bestimmt.
+  define: {
+    'import.meta.env.PULSE_DROPBOX_CLIENT_ID': JSON.stringify(
+      process.env.PULSE_DROPBOX_CLIENT_ID ?? ''
+    ),
+    'import.meta.env.PULSE_PLUGIN_PERMISSIONS': JSON.stringify(
+      process.env.PULSE_PLUGIN_PERMISSIONS ?? ''
+    )
+  },
   plugins: [
     selfHostDateien(),
     tailwindcss(),

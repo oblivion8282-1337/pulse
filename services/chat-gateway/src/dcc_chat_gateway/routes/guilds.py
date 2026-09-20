@@ -26,6 +26,7 @@ from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limits
 from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.models import (
+    MemberRole,
     AblageZwischenlagerDatei,
     Channel,
     CommunityInviteNotification,
@@ -239,12 +240,19 @@ async def patch_guild(
     # weil ``exclude_unset`` ein explizit gesendetes null durchlaesst.
     # Name vor dem Loop härtung (Bughunt Runde 14) — der ValueError wird
     # hier zu 422, nicht erst mitten im Attribut-Schreiben zu 500.
+    # Adversarial-Review Runde 22: der GEFALTETE Wert muss gespeichert
+    # werden (validate_name gibt die kanonische Form zurück) — vorher
+    # blieben beim Rename Zero-Width/Bidi/NFKC-Reste in der DB, die die
+    # Prüfung unsichtbar weggefoldet hatte.
+    gefalteter_name: str | None = None
     if payload.name is not None:
         try:
-            validate_name(payload.name, max_len=64)
+            gefalteter_name = validate_name(payload.name, max_len=64)
         except ValueError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
     for feld, wert in payload.model_dump(exclude_unset=True).items():
+        if feld == "name" and gefalteter_name is not None:
+            wert = gefalteter_name
         if wert is not None:
             setattr(guild, feld, wert)
     # Diese zwei Felder sind Werte der Community, keine Obergrenzen — ohne das
@@ -733,6 +741,17 @@ async def _remove_guild_member(
             )
         )
     await session.delete(member)
+    # Bughunt Runde 22: member_roles AUSDRÜCKLICH löschen — der Composite-
+    # FK (Modell + Migration 0009) kaskadiert auf Postgres, aber SQLite
+    # erzwingt Fremdschlüssel nur mit PRAGMA foreign_keys=ON, das weder
+    # der Testaufbau noch create_all-Setups setzen. Ohne dieses Delete
+    # überlebten die Rollen-Zuweisungen den Kick auf SQLite/Dev-DBs und
+    # belebten sich beim Wiedereintritt (Adversarial-Review Runde 22).
+    await session.execute(
+        sa_delete(MemberRole).where(
+            MemberRole.guild_id == guild_id, MemberRole.user_id == user_id
+        )
+    )
     await session.commit()
     await _after_member_removed(session, request, guild_id, user_id)
 
