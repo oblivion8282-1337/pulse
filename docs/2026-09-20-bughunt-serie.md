@@ -207,3 +207,46 @@ Kondensiert je Fix (Details im Commit-Log):
 * Admin: Guild-Delete im Admin-Bypass auditiert; VPS-Approval + Instanz-
   suspend/unsuspend/rotate auditiert; Ban-Halberfolg getrennt gemeldet;
   hotfix-prod cron HOTFIX-OFF-Marke.
+
+
+---
+
+# Teil 4: Runden 33–42 (Fortsetzung)
+
+## Plan
+
+| Runde | Linse | Status |
+|-------|-------|--------|
+| 33 | Logging & Secrets (Redaction, Log-Injection, Debug-Wege) | läuft |
+| 34 | Cookies & CSRF (Flags, SameSite, Browser-Reachable Mutations) | offen |
+| 35 | WS-Ops im Einzelnen (resync/typing/device/watch/token_refresh) | offen |
+| 36 | Postfach & Key-Bundle-Flows (Refill, Grants, Fallback) | offen |
+| 37 | Upload-/Medien-Pipeline (PIL, MIME, Thumbnails, Presign-TTL) | offen |
+| 38 | Session-/Auth-Zustandsflotten (Browser-Sessions, MFA-Tickets) | offen |
+| 39 | Sync-Ordner & Ablage-Klient (OAuth-Flows, Festigung) | offen |
+| 40 | SQL & Raw-Queries (text()-Stellen, Interpolation) | offen |
+| 41 | CI-Workflows & Doku-Drift (Actions vs. Wirklichkeit) | offen |
+| 42 | Regression-Jagd über Runden 33–41 + Abschluss | offen |
+
+## Bekannt (Erweiterung: Runden 23–32)
+
+* Suche: mention-search lower(); /c?q= + owner-list LIKE-Maskierung +
+  Länge; Mod-Queue-Komposit-Cursor (before+before_id, Sortierung +id);
+  ModQueue-Lauf-Zähler; MentionAutocomplete-Lauf-Prüfung.
+* E-Mail: Register-Mail nach Commit + ohne Advisory-Lock; Token-Zweile
+  committet auch bei SMTP-Fehler; /me/email/change 503 ohne SMTP;
+  confirm_email_change Row-Lock; token_confirm-Brake (30/min) auf
+  beiden Consume-Endpoints; Reset-Client akzeptiert 401.
+* Voice: Override-Reconciliation beim Ready (Force-Mute überlebt
+  WS-Lücken); Deafen vor Mute abarbeiten.
+* Idempotenz: REST-Senden mit Nonce-Dedup (idempotente 200);
+  erstelleCommunity navigiert bei Kanal-Fehler in die neue Guild.
+* Verlauf/Brakes: lueckeMarkieren verschmilzt zur Hülle;
+  audio_diagnostic-Regel (6/min) ergänzt.
+* Watch/Invites: PUBLISH in der MULTI-TX (mutate_party/
+  delete_party_if_host/write_party/delete_party); member-invite-Dedupe
+  nur für Cloud-Ziel-Karten.
+* Garage (Option 3 umgesetzt): Self-Host-Dockerfile + s6 garage/
+  garage-init (toml-Render, Layout, Bucket, Key-Import), Prod-Compose
+  + nginx-Upstream + .env GARAGE_RPC_SECRET; Live-Probe der s3.py-
+  Oberfläche gegen dxflrs/garage:v1.1.0 bestanden.
