@@ -112,11 +112,22 @@ class RoleStore {
    * `member_roles_updated` events that target the current user.
    * Backend pushes only "something changed for this (guild, user)" — we
    * re-fetch to learn what specifically. */
+  /** Lauf-Zähler je Guild (Bughunt Runde 6): zwei schnelle Rollen-
+   * Änderungen feuerten zwei ungeschützte Fetches — resolved der
+   * ZWISCHENstand nach dem Endstand, blieben die Rechte dauerhaft falsch
+   * (inkl. Mod-Badge bis zum nächsten Event). Jedes Event holt neu, aber
+   * nur der NEUESTE Fetch schreibt. */
+  #meinRollenLauf = new Map<string, number>();
+
   async refreshMyRoles(guildId: string): Promise<void> {
     const me = currentServerUserId();
     if (!me) return;
+    const lauf = (this.#meinRollenLauf.get(guildId) ?? 0) + 1;
+    this.#meinRollenLauf.set(guildId, lauf);
     try {
       const rows = await rolesApi.listMemberRoles(guildId, me);
+      // Antwort nur schreiben, wenn kein neueres Event nachgeschoben hat.
+      if (this.#meinRollenLauf.get(guildId) !== lauf) return;
       this.myRoleIds = {
         ...this.myRoleIds,
         [guildId]: rows.map((r) => r.id)

@@ -23,15 +23,22 @@ class ChannelPermissionsStore {
   byChannel = $state<Record<string, Overwrite[]>>({});
   /** Fetched-once guard so concurrent callers don't double-fetch. */
   private _inflight = new Map<string, Promise<Overwrite[]>>();
+  // Bughunt Runde 6: apply/forget während des Flugs mussten sonst den
+  // STALE Fetch-Snapshot gegenwehren — die Antwort schrieb ungeprüft zurück.
+  #generationen = new Map<string, number>();
 
   async ensure(channelId: string): Promise<Overwrite[]> {
     const cached = this.byChannel[channelId];
     if (cached) return cached;
     const inflight = this._inflight.get(channelId);
     if (inflight) return inflight;
+    const generation = (this.#generationen.get(channelId) ?? 0) + 1;
+    this.#generationen.set(channelId, generation);
     const p = overwritesApi
       .list(channelId)
       .then((rows) => {
+        // Antwort nur schreiben, wenn apply/forget dazwischenkam.
+        if (this.#generationen.get(channelId) !== generation) return rows;
         this.byChannel = { ...this.byChannel, [channelId]: rows };
         return rows;
       })
@@ -45,10 +52,12 @@ class ChannelPermissionsStore {
   /** Replace the cached overwrites for ``channelId``. Called from the
    * WS handler when the server pushes a fresh list after a mutation. */
   apply(channelId: string, overwrites: Overwrite[]): void {
+    this.#generationen.set(channelId, (this.#generationen.get(channelId) ?? 0) + 1);
     this.byChannel = { ...this.byChannel, [channelId]: overwrites };
   }
 
   forget(channelId: string): void {
+    this.#generationen.set(channelId, (this.#generationen.get(channelId) ?? 0) + 1);
     if (!this.byChannel[channelId]) return;
     const next = { ...this.byChannel };
     delete next[channelId];
