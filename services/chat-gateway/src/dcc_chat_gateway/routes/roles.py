@@ -106,6 +106,26 @@ async def create_role(
         select(func.max(Role.position)).where(Role.guild_id == guild_id)
     )
     next_pos = (max_pos if max_pos is not None else 0) + 1
+    # Bughunt Runde 9: create war der EINZIGE Rollen-Pfad ohne Rangschranke —
+    # ein MANAGE_ROLES-Halter erzeugte eine Rolle über seinem eigenen Rang
+    # und konnte sie danach weder zuweisen, bearbeiten, löschen noch
+    # umsortieren (jede Folge-Anfrage 403, nur der Owner konnte sie wieder
+    # entfernen). Klemmen unter die eigene Obergrenze; wer keine halten
+    # darf (aktor_top <= 1, also direkt über @everyone), geht leer aus.
+    guild = await session.get(Guild, guild_id)
+    if not (current.is_admin or (guild is not None and guild.owner_id == current.id)):
+        actor_top = await highest_role_position(session, guild_id, current.id)
+        if next_pos >= actor_top:
+            next_pos = actor_top - 1
+            # Position 0 (Gleichstand mit @everyone, sortiert im Resolver
+            # stabil DANACH) ist zulässig und zuweisbar — erst unter 0 wird
+            # es unmöglich, eine Rolle unter der eigenen zu schaffen
+            # (nur @everyone-only MANAGE_ROLES-Halter ohne eigene Rolle).
+            if next_pos < 0:
+                raise HTTPException(
+                    403,
+                    detail="cannot create a role at or above your highest role",
+                )
 
     role = Role(
         id=next_id(),
@@ -340,6 +360,13 @@ async def update_role_positions(
             publish_guild_event(request, RoleUpdatedEvent(role=role_wire_dict(role)))
             for role in rows.values()
         ]
+    )
+    # Bughunt Runde 9: der Reorder ändert die Overwrite-Layering-Reihenfolge
+    # (niedrig→hoch, deny-wins) und kann damit VIEW_CHANNEL/CONNECT entziehen
+    # — derselbe Trigger wie patch_role/delete_role, nur dass genau hier der
+    # Evict fehlte. Nach dem Commit, best-effort.
+    await evict_ineligible_from_voice_channels(
+        session, getattr(request.app.state, "redis", None), guild_id
     )
     return list(rows.values())
 

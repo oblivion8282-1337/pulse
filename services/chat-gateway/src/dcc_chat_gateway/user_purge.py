@@ -550,6 +550,26 @@ async def purge_user(
     # führt deren Freundesliste das gelöschte Konto als offline-Eintrag
     # weiter, bis der nächste Reconnect neu seedet. Derselbe Event-Typ wie
     # beim Entfreunden — der Klient kennt den Räumweg bereits.
+    # Bughunt Runde 9 (hoch): Membership in fremden Communities ist weg,
+    # aber der WS-Plan lernte davon nichts — der Socket des Gelöschten
+    # behielt _ws_guilds/_ws_perms (ALLOW) und bekam weiter private Kanal-
+    # Nachrichten, bis der Socket starb. Dasselbe Event wie bei Kick/Leave:
+    # der Handler räumt _ws_guilds, _ws_perms und die View-Mengen.
+    if manager is not None and result.other_member_guild_ids:
+        from dcc_shared.events import GuildMemberRemovedEvent  # noqa: PLC0415
+
+        for gid in result.other_member_guild_ids:
+            try:
+                await manager.publish_guild_event(
+                    GuildMemberRemovedEvent(
+                        guild_id=str(gid), user_id=str(user_id)
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "purge: guild_member_removed publish failed for guild %s",
+                    gid, exc_info=True,
+                )
     if manager is not None and result.partner_ids:
         from dcc_shared.events import FriendRemovedEvent  # noqa: PLC0415
 
