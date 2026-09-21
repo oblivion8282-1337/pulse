@@ -3361,5 +3361,11 @@
   "selfhost_diagnose_fehler": "Sending failed.",
   "selfhost_diagnose_als_datei": "Save package as file",
   "selfhost_diagnose_ohne_instanz": "This server has no instance ID — the package cannot be attributed.",
-  "selfhost_diagnose_inhalt": "Included: startup checklist, crash counters, backup summary, technical configuration values (no passwords/keys), cloud reachability and the bootstrap logs."
+  "selfhost_diagnose_inhalt": "Included: startup checklist, crash counters, backup summary, technical configuration values (no passwords/keys), cloud reachability and the bootstrap logs.",
+  "diagnose_kopf_details": "Show technical header (device & server list)",
+  "admin_diagnose_laden_fehler": "Could not load reports — try again later.",
+  "admin_diagnose_rolle_viewer": "Viewer",
+  "admin_diagnose_rolle_sender": "Sender",
+  "admin_diagnose_lade": "Loading reports …",
+  "selfhost_diagnose_server_offline": "Also, this server is currently unreachable — that is why there is no package to save. Check whether the container is running."
 }

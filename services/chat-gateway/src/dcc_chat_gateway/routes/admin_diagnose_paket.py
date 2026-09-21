@@ -8,22 +8,32 @@ Owner ⇒ admin-Claim).
 
 **Was drin ist — und was ehrlicherweise nicht geht:**
 
-* `setup_status` — dieselbe Checkliste, die der Installer zeigt (via
-  `_lies_phasen` aus health.py, tolerant gegen kaputte Zeilen).
-* `abstuerze` — die restart-gate-Zähler (`/var/run/pulse/restart-counter/`):
-  repo-eigenes Crash-Signal, jeder Longrun-finish schreibt hierher.
+* `setup_status` — die letzten 50 ROHZEILEN der Start-Checkliste (Format
+  `<epoche>\t<name>\t<ok|fehler>`, so wie der Installer sie zeigt).
+* `abstuerze` — die restart-gate-Zähler (`/var/run/pulse/restart-counter/`).
+  **Zwei ehrliche Grenzen, im Feldnamen und hier dokumentiert:** (1) der
+  Zähler läuft bei JEDEM Service-Exit, auch beim sauberen `docker stop`/
+  Update-Neustart — die Zahl ist „Neustarts", nicht „Abstürze"; (2) `/var/run`
+  ist tmpfs und überlebt einen Container-Neustart NICHT — ausgerechnet nach
+  einer Crash-Serie mit erzwungenem Neustart ist das Feld leer; `kopf.
+  uptime_s` entlarvt diesen Fall. Wer Absturz-Historie braucht: `docker logs`
+  vom Host.
 * `backups` — Zusammenfassung des pg_dump-Verzeichnisses (gleiche Quelle wie
   `/admin/self-host/backups`, hier nur verdichtet).
 * `version` / `konfiguration` — `build_version()` + eine AUSSCHNITTSWEISE
- .getenv-Whitelist (hostname, tls_modus, http_port, instance_mode,
+  .getenv-Whitelist (hostname, tls_modus, http_port, instance_mode,
   cloud_origin, plus booleans für optionale Flags). **Niemals** `PULSE_CLOUD_
   CLIENT_ID/SECRET` oder andere Credentials — das Paket verlässt den Server.
 * `cloud` — ein LIVE-Check der Cloud-Erreichbarkeit vom Server aus (3 s
   Timeout): genau die Richtung, die die Cloud-Diagnose NICHT misst.
 * `bootstrap_logs` — die einzigen Datei-Logs im Container (pg-Bootstrap +
-  Migrationen, gekappte Schwänze).
+  Migrationen, gekappte Schwänze), **ZEILENREDIGIERT**: die pg-Logs können im
+  Fehlerfall SQL-Statements samt Literalen loggen, und in
+  `02-init-postgres.sh` steht darunter ein `ALTER ROLE … PASSWORD '<Klartext>'`
+  — jede Zeile mit `password` wird darum ganz verworfen (Spec §8: hart,
+  nicht best-effort).
 
-**Nicht drin, und das ist eine grenze der Plattform:** Laufzeit-Fehlerzeilen
+**Nicht drin, und das ist eine Grenze der Plattform:** Laufzeit-Fehlerzeilen
 der Dienste. Alle Longruns loggen ausschließlich nach stdout (`docker logs`)
 — aus dem Container heraus gibt es dafür schlicht nichts auf Platte. Wer
 diensteite Logs braucht, muss `docker logs` vom Host lesen; das Paket sagt
@@ -52,13 +62,14 @@ _LOG_TAIL_BYTES = 16 * 1024
 _CLOUD_TIMEOUT_S = 3.0
 
 # Ausdrückliche Whitelist — neue Envs kommen hier nur als bewusster Akt rein.
+# Bewusst OHNE PULSE_DATA_PATH (Server-interner Dateisystempfad, für die
+# Diagnose ohne Wert) und natürlich ohne alle Credential-Envs.
 _KONFIG_KEYS = (
     "PULSE_HOSTNAME",
     "PULSE_TLS_MODE",
     "PULSE_HTTP_PORT",
     "PULSE_INSTANCE_MODE",
     "PULSE_CLOUD_ORIGIN",
-    "PULSE_DATA_PATH",
 )
 _KONFIG_BOOLEANS = ("PULSE_TURN_DISABLED", "PULSE_BACKUP_DISABLED")
 
@@ -84,7 +95,10 @@ def _lese_setup_status() -> list[str]:
 
 
 def _lese_abstuerze() -> dict[str, dict]:
-    """restart-gate-Zähler: je Dienst der letzte finish-Zeitstempel + Anzahl."""
+    """restart-gate-Zähler: je Dienst die Neustart-Zeitstempel + Anzahl.
+    Enthält saubere Stops (Update/Reboot) und ist tmpfs-flüchtig — siehe
+    Modul-Docstring; das Feld ist „Neustarts", nicht „Abstürze".
+    """
     verzeichnis = Path("/var/run/pulse/restart-counter")
     out: dict[str, dict] = {}
     try:
@@ -92,20 +106,24 @@ def _lese_abstuerze() -> dict[str, dict]:
     except OSError:
         return out
     for datei in dateien:
+        # restart-gate schreibt über <name>.tmp + mv — das Mikrosekunden-
+        # Fenster soll nicht als eigener "Dienst" erscheinen.
+        if datei.suffix == ".tmp":
+            continue
         try:
             zeitstempel = sorted(
-                int(z) for z in datei.read_text(encoding="utf-8").split() if z.strip()
+                int(z)
+                for z in datei.read_text(encoding="utf-8").split()
+                if z.strip()
             )
-        except (OSError, ValueError):
-            continue
-        out[datei.name] = {
-            "anzahl": len(zeitstempel),
-            "letzer": (
+            letzer = (
                 datetime.fromtimestamp(zeitstempel[-1], tz=timezone.utc).isoformat()
                 if zeitstempel
                 else None
-            ),
-        }
+            )
+        except (OSError, ValueError, OverflowError):
+            continue
+        out[datei.name] = {"anzahl": len(zeitstempel), "letzer": letzer}
     return out
 
 
@@ -114,15 +132,24 @@ def _lese_backups() -> dict:
     if not verzeichnis.is_dir():
         return {"enabled": False, "anzahl": 0, "letzer": None, "total_bytes": 0}
     dateien = sorted(verzeichnis.glob("pulse-*.dump"), reverse=True)
+    total = 0
+    neuester: datetime | None = None
+    for pfad in dateien:
+        # TOCTOU-fest: der Backup-Service pruned täglich mitten in unserem Glob
+        # (Muster aus admin_backups.py — eine verschwundene Datei lässt EINE
+        # Zeile aus, nicht den ganzen Endpoint sterben).
+        try:
+            st = pfad.stat()
+        except OSError:
+            continue
+        total += st.st_size
+        if neuester is None:
+            neuester = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)
     return {
         "enabled": True,
         "anzahl": len(dateien),
-        "letzer": (
-            datetime.fromtimestamp(dateien[0].stat().st_mtime, tz=timezone.utc).isoformat()
-            if dateien
-            else None
-        ),
-        "total_bytes": sum((p.stat().st_size for p in dateien if p.exists()), start=0),
+        "letzer": neuester.isoformat() if neuester else None,
+        "total_bytes": total,
     }
 
 
@@ -151,6 +178,23 @@ async def _pruefe_cloud() -> dict:
     }
 
 
+def _redigiere_bootstrap_log(text: str) -> str:
+    """Zeilen-Redaktion für die pg-Logs (Spec §8: hart, nicht best-effort).
+
+    Postgres loggt bei ERROR standardmäßig das ganze STATEMENT samt Literal —
+    und `02-init-postgres.sh` führt bei jedem Boot ein
+    `ALTER ROLE pulse WITH PASSWORD '<Klartext-Geheimnis>'` aus. Schlägt das
+    fehl (Disk voll), steht das DB-Passwort in pg-bootstrap.log, und ohne
+    Redaktion würde der 16-KiB-Schwanz es in die Cloud tragen. Darum: JEDE
+    Zeile mit `password` (unabhängig von Groß-/Kleinschreibung) fliegt raus —
+    konservativ, denn ein Fehlverdacht kostet eine Logzeile, ein Leck kostet
+    das Vertrauen.
+    """
+    return "\n".join(
+        zeile for zeile in text.splitlines() if "password" not in zeile.lower()
+    )
+
+
 def _lese_bootstrap_logs() -> dict[str, str]:
     out: dict[str, str] = {}
     for name in ("pg-bootstrap.log", "pg-migrations.log"):
@@ -160,9 +204,10 @@ def _lese_bootstrap_logs() -> dict[str, str]:
                 f.seek(0, 2)
                 groesse = f.tell()
                 f.seek(max(0, groesse - _LOG_TAIL_BYTES))
-                out[name] = f.read().decode("utf-8", errors="replace")[-_LOG_TAIL_BYTES:]
+                roh = f.read().decode("utf-8", errors="replace")[-_LOG_TAIL_BYTES:]
         except OSError:
             continue
+        out[name] = _redigiere_bootstrap_log(roh)
     return out
 
 

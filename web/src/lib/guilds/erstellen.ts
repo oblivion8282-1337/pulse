@@ -8,12 +8,14 @@
 import { goto } from '$app/navigation';
 import { chatApi } from '$lib/api/chat';
 import { rolesApi } from '$lib/api/roles';
+import type { Channel, Guild } from '$lib/api/types';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { melde } from '$lib/diagnose/app-diagnose';
 
 export async function erstelleCommunity(name: string): Promise<void> {
+  let erstellt: { g: Guild; c: Channel } | null = null;
   try {
     const g = await chatApi.createGuild(name);
     guilds.add(g);
@@ -30,12 +32,13 @@ export async function erstelleCommunity(name: string): Promise<void> {
       .catch(() => undefined);
     const c = await chatApi.createChannel(g.id, { name: 'general' });
     guilds.addChannel(c);
-    await goto(`/app/guilds/${g.id}/channels/${c.id}`);
+    erstellt = { g, c };
   } catch (err) {
     // Diagnose-Gedächtnis: gerade dieser Call war 2026-09-21 der Supportfall
     // („Server nicht erreichbar" beim Anlegen). status > 0 = echte HTTP-
     // Antwort des Servers; 0/undefined = kam nie an (netz) — die unter-
-    // scheidung ist die ganze Diagnose.
+    // scheidung ist die ganze Diagnose. `goto` ist bewusst NICHT im try:
+    // ein Navigationsfehler nach erfolgreichem Anlegen wäre kein api_fehler.
     const status = (err as { status?: number })?.status;
     melde(
       'api',
@@ -45,4 +48,5 @@ export async function erstelleCommunity(name: string): Promise<void> {
     );
     throw err;
   }
+  await goto(`/app/guilds/${erstellt.g.id}/channels/${erstellt.c.id}`);
 }

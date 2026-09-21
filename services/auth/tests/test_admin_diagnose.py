@@ -269,3 +269,90 @@ async def test_server_paket_zu_gross_422(client, session_factory):
         },
     )
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_server_paket_kopf_instanz_id_wird_ueberschrieben(client, session_factory):
+    """Attributions-Vertrag: ein abweichender/alter kopf.instance_id (Alter
+    Container nach Recycling, oder absichtlich fremd gelabelt) wird
+    serverseitig auf die eingereichte Instanz gesetzt."""
+    await _register(client, username="owner3", email="owner3@example.com")
+    token = await _login(client, username="owner3")
+    owner_id = await _user_id(session_factory, "owner3")
+    instanz_id = await _seed_instanz(
+        session_factory, owner_id=owner_id, hostname="pulse.alt.de"
+    )
+    await _promote_admin(session_factory, "owner3")
+    admin_token = await _login(client, username="owner3")
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    r = await client.post(
+        "/me/instance-diagnose",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "instance_id": str(instanz_id),
+            "paket": {"kopf": {"instance_id": "999", "hostname": "pulse.alt.de"}},
+        },
+    )
+    assert r.status_code == 201
+    zeilen = (
+        await client.get(
+            "/admin/experimental-logs?role=server", headers=headers
+        )
+    ).json()
+    details = (
+        await client.get(
+            f"/admin/experimental-logs/{zeilen[0]['id']}", headers=headers
+        )
+    ).json()
+    # channel_id UND kopf tragen dieselbe — die eingereichte — Instanz.
+    assert details["channel_id"] == str(instanz_id)
+    assert details["report"]["kopf"]["instance_id"] == str(instanz_id)
+
+
+@pytest.mark.asyncio
+async def test_oeffentlicher_endpoint_lehnt_role_server_ab(client):
+    """Bughunt P2: `role: "server"` ist dem authentifizierten Owner-Endpoint
+    vorbehalten — sonst fälscht jeder Anonyme „Server-Pakete" fremder
+    Instanzen in die Admin-Ansicht."""
+    await _register(client, username="spoofcheck", email="spoofcheck@example.com")
+    r = await client.post(
+        "/experimental-logs",
+        json={"reason": "user_report", "role": "server", "log_text": "fake"},
+    )
+    assert r.status_code == 422
+    # Andere Rollen bleiben erlaubt (Bestandsvertrag).
+    r = await client.post(
+        "/experimental-logs",
+        json={"reason": "stream_end", "role": "viewer", "log_text": "ok"},
+    )
+    assert r.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_oeffentlicher_endpoint_kappt_riesen_report(client):
+    """Bughunt P2: der 512-KiB-Deckel muss für report/system_info GELTEN —
+    vorher war nur log_text gedeckelt, kopf/abschluss/werte unendlich."""
+    r = await client.post(
+        "/experimental-logs",
+        json={"reason": "error", "report": {"abschluss": {"muell": "x" * (600_000)}}},
+    )
+    assert r.status_code == 422
+    r = await client.post(
+        "/experimental-logs",
+        json={"reason": "error", "system_info": {"muell": "x" * (600_000)}},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_oeffentlicher_endpoint_nan_422_statt_500(client):
+    """NaN/Infinity überlebt JSON-Parsing, tötet aber den Postgres-JSONB-
+    Insert (500). Mit allow_nan=False wird daraus ein sauberes 422."""
+    # NaN roh schicken — httpx' json= weigert sich selbst, NaN zu serialisieren.
+    r = await client.post(
+        "/experimental-logs",
+        content='{"reason": "error", "system_info": {"x": NaN}}',
+        headers={"content-type": "application/json"},
+    )
+    assert r.status_code == 422

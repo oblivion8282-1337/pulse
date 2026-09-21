@@ -3,14 +3,16 @@
   das Backend riegelt zusätzlich ab (_require_admin + _require_cloud).
 
   Liste (neueste zuerst, Filter nach Quelle) → Klick öffnet das Detail:
-  Kopf (Umgebung), Ereignisliste (verdichtet, mit anzahl), Nutzer-Notiz,
-  Rohtext (alter Sender-Weg). Löschen ist bewusst Einzellösung — der
-  reguläre Abwurf ist die 28-Tage-Frist im Endpoint.
+  App-Berichte als Kopf/Ereignisliste/Notiz, Server-Pakete zusätzlich mit
+  allen Paket-Blöcken (Setup-Checkliste, Neustart-Zähler, Backups,
+  Konfiguration, Cloud-Check, Bootstrap-Logs). Löschen ist bewusst
+  Einzellösung — der reguläre Abwurf ist die 28-Tage-Frist im Endpoint.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import * as Alert from '$lib/components/ui/alert/index.js';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
   import { m } from '$lib/paraglide/messages.js';
   import {
@@ -23,14 +25,17 @@
   let zeilen = $state<DiagnoseListeEintrag[]>([]);
   let laedt = $state(true);
   let fehler = $state<string | null>(null);
+  /** Fehler von Detail-Laden/-Löschen — BEWUSST getrennt vom Listen-Fehler:
+   *  ein gescheiterter Detail-Abruf darf nicht die ganze Liste ersetzen. */
+  let detailFehler = $state<string | null>(null);
   let rolle = $state<DiagnoseRolleFilter>('');
   let details = $state<DiagnoseDetails | null>(null);
 
   const rollen: { id: DiagnoseRolleFilter; label: string }[] = [
     { id: '', label: m.admin_diagnose_filter_alle() },
     { id: 'app', label: 'App' },
-    { id: 'viewer', label: 'Zuschauer' },
-    { id: 'sender', label: 'Sender' },
+    { id: 'viewer', label: m.admin_diagnose_rolle_viewer() },
+    { id: 'sender', label: m.admin_diagnose_rolle_sender() },
     { id: 'server', label: 'Server' }
   ];
 
@@ -40,7 +45,7 @@
     try {
       zeilen = await adminDiagnoseApi.list(rolle);
     } catch {
-      fehler = m.diagnose_senden_fehler();
+      fehler = m.admin_diagnose_laden_fehler();
     } finally {
       laedt = false;
     }
@@ -50,25 +55,28 @@
     if (rolle === neu) return;
     rolle = neu;
     details = null;
+    detailFehler = null;
     void laden();
   }
 
   async function oeffnen(id: string): Promise<void> {
+    detailFehler = null;
     details = null;
     try {
       details = await adminDiagnoseApi.hole(id);
     } catch {
-      fehler = m.diagnose_senden_fehler();
+      detailFehler = m.admin_diagnose_laden_fehler();
     }
   }
 
   async function loeschen(id: string): Promise<void> {
+    detailFehler = null;
     try {
       await adminDiagnoseApi.loeschen(id);
       zeilen = zeilen.filter((z) => z.id !== id);
       details = null;
     } catch {
-      fehler = m.diagnose_senden_fehler();
+      detailFehler = m.admin_diagnose_laden_fehler();
     }
   }
 
@@ -94,6 +102,19 @@
     return typeof n === 'number' ? n : null;
   }
 
+  /** Server-Paket-Blöcke (setup_status, abstuerze, backups, konfiguration,
+   *  cloud, bootstrap_logs) — generisch gelesen, damit neue Blöcke im
+   *  Sender ohne UI-Deploy sichtbar bleiben. */
+  function paketBloecke(d: DiagnoseDetails): { name: string; inhalt: unknown }[] {
+    if (d.role !== 'server') return [];
+    const report = d.report as Record<string, unknown> | null;
+    if (!report) return [];
+    const fix = new Set(['ereignisse', 'abschluss', 'ereignisse_verworfen', 'bilanz']);
+    return Object.entries(report)
+      .filter(([name, wert]) => !fix.has(name) && wert != null)
+      .map(([name, wert]) => ({ name, inhalt: wert }));
+  }
+
   onMount(laden);
 </script>
 
@@ -115,7 +136,7 @@
   </div>
 
   {#if laedt}
-    <p class="text-text-muted text-sm">…</p>
+    <LoadingState label={m.admin_diagnose_lade()} />
   {:else if fehler}
     <Alert.Root variant="destructive">
       <Alert.Description>{fehler}</Alert.Description>
@@ -135,9 +156,14 @@
         </thead>
         <tbody>
           {#each zeilen as z (z.id)}
+            <!-- Klickbare Zeile mit Tastaturweg: Zeilen-onclick allein wäre
+                 für Tastatur-/Screenreader-Nutzer unerreichbar. -->
             <tr
               class="border-border hover:bg-bg-hover cursor-pointer border-b transition-colors"
+              tabindex="0"
+              role="button"
               onclick={() => oeffnen(z.id)}
+              onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && oeffnen(z.id)}
               data-testid="diagnose-zeile"
             >
               <td class="py-2 pr-4 whitespace-nowrap">{zeit(z.created_at)}</td>
@@ -148,6 +174,14 @@
           {/each}
         </tbody>
       </table>
+    </div>
+  {/if}
+
+  {#if detailFehler}
+    <div class="mt-3">
+      <Alert.Root variant="destructive">
+        <Alert.Description>{detailFehler}</Alert.Description>
+      </Alert.Root>
     </div>
   {/if}
 
@@ -201,6 +235,21 @@
           </ul>
         </div>
       {/if}
+
+      {#each paketBloecke(details) as block, i (i)}
+        <div>
+          <p class="text-text-muted text-xs font-semibold uppercase">{block.name}</p>
+          {#if Array.isArray(block.inhalt)}
+            <ul class="mt-1 space-y-0.5 font-mono text-xs">
+              {#each block.inhalt as zeile, j (j)}
+                <li>{typeof zeile === 'string' ? zeile : JSON.stringify(zeile)}</li>
+              {/each}
+            </ul>
+          {:else}
+            <pre class="bg-bg-input border-border mt-1 max-h-64 overflow-auto rounded-lg border p-2 text-xs">{JSON.stringify(block.inhalt, null, 2)}</pre>
+          {/if}
+        </div>
+      {/each}
 
       {#if details.log_text}
         <div>

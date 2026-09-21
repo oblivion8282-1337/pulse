@@ -61,3 +61,24 @@ async def test_admin_bekommt_paket(client, admin_token, tmp_path, monkeypatch):
     # Cloud-Check ist live: httpx trifft im Test auf ein
     # nicht-antwortendes Ziel — egal wie es ausgeht, das Feld muss da sein.
     assert isinstance(paket["cloud"], dict)
+
+
+def test_bootstrap_log_redaktion_password_zeilen():
+    """Bughunt P2 (Spec §8): pg-Logs können im Fehlerfall SQL-Statements mit
+    dem Klartext-DB-Passwort enthalten (`ALTER ROLE … PASSWORD '…'`). JEDE
+    Zeile mit 'password' fliegt raus — konservativ, hart, getestet."""
+    from dcc_chat_gateway.routes.admin_diagnose_paket import _redigiere_bootstrap_log
+
+    roh = "\n".join(
+        [
+            "2026-09-21 12:00:00 UTC LOG:  database system is ready to accept connections",
+            "2026-09-21 12:00:01 UTC ERROR:  syntax error at or near \"PASSWORD\"",
+            "2026-09-21 12:00:01 UTC STATEMENT:  ALTER ROLE pulse WITH PASSWORD 'ganz-geheim-1234';",
+            "2026-09-21 12:00:02 UTC LOG:  autovacuum launcher started",
+        ]
+    )
+    redigiert = _redigiere_bootstrap_log(roh)
+    assert "ganz-geheim-1234" not in redigiert
+    assert "PASSWORD" not in redigiert
+    assert "autovacuum launcher started" in redigiert
+    assert "ready to accept connections" in redigiert

@@ -6,9 +6,18 @@
      Einwilligung; deshalb funktioniert der Weg auch im Browser, wo der
      Auto-Send-Schalter des Streaming-Berichts nie existieren konnte.
   2. Vorschau vor dem Versand — der Nutzer sieht, WAS gesendet wird
-     (Kopf + verdichtete Ereignisse), bevor er bestätigt.
+     (Kopf mit Serverliste + verdichtete Ereignisse), bevor er bestätigt.
   3. Fallback — scheitert der Versand (ausgerechnet „Cloud nicht erreichbar"
      ist denkbar), gibt es den Bericht als Datei zum klassischen Schicken.
+
+  Versand-Details, die der Bughunt 2026-09-21 nachgezogen hat: der Bericht
+  wird erst BEIM Klick gebaut (die Freitext-Notiz und während des Dialogs
+  neu ankommende Ereignisse gehören rein), `leeren()` löscht nur bis zum
+  Sendezeitpunkt (nichts, was während des Fetch ankam, geht verloren) und
+  `keepalive` ist bewusst NICHT gesetzt — Chromium lehnt keepalive-Bodies
+  über ~64 KiB ab, ausgerechnet die inhaltreichsten Berichte würden also
+  nie ankommen; die Seite bleibt beim nutzer-initiierten Versand ohnehin
+  offen.
 
   Gesendet wird NUR der Ringpuffer + Freitext: keine Nachrichteninhalte,
   keine Tokens (s. Spec §8). Server-IDs werden beim Anzeigen zu Namen
@@ -24,10 +33,9 @@
   import { serversStore, CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import {
-    leseRingpuffer,
     bericht,
-    leeren,
     darfJetztSenden,
+    leeren,
     merkeUebertragung,
     speichereAlsDatei
   } from '$lib/diagnose/app-diagnose';
@@ -35,12 +43,16 @@
 
   let open = $derived(uiOverlays.diagnoseOpen);
 
+  // `notiz` überlebt Öffnen/Schließen bewusst (Draft-Verhalten): nach einem
+  // FEHLGESCHLAGENEN Versand soll der getippte Text beim Wiederöffnen noch
+  // da sein. Gelöscht wird er nur nach erfolgreichem Versand.
   let notiz = $state('');
   let busy = $state(false);
   let gesendet = $state(false);
   let fehler = $state<string | null>(null);
   let dateiOfferiert = $state(false);
   let vorschau = $state<AppBericht | null>(null);
+  let autoCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Kopf beim Öffnen bauen — Serverliste/UA holen wir hier (mit Stores), damit
   // das Gedächtnis-Modul selbst importfrei bleiben kann.
@@ -51,7 +63,6 @@
         user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
         kerne: typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : undefined,
         server: serversStore.servers.map((s) => ({
-          name: s.server_name ?? s.label,
           hostname: s.hostname,
           cloud: s.isCloud
         })),
@@ -63,10 +74,20 @@
     );
   }
 
+  function stopAutoClose(): void {
+    if (autoCloseTimer !== null) {
+      clearTimeout(autoCloseTimer);
+      autoCloseTimer = null;
+    }
+  }
+
   let wasOpen = false;
   $effect(() => {
     if (open && !wasOpen) {
-      // Frisches Öffnen: Zustand zurücksetzen, Vorschau aus dem Puffer bauen.
+      // Frisches Öffnen: Zustand zurücksetzen (inkl. eines pendenten
+      // Auto-Close-Timers aus der VORSCHAU-Sitzung — ohne Stop schlösse der
+      // alten Timer den frisch geöffneten Dialog unter der Hand).
+      stopAutoClose();
       gesendet = false;
       fehler = null;
       dateiOfferiert = false;
@@ -77,7 +98,7 @@
 
   function handleOpenChange(next: boolean): void {
     if (!next) {
-      notiz = '';
+      stopAutoClose();
       gesendet = false;
       fehler = null;
       dateiOfferiert = false;
@@ -86,7 +107,7 @@
   }
 
   async function senden(): Promise<void> {
-    if (!vorschau || busy) return;
+    if (busy || !vorschau) return;
     if (!darfJetztSenden()) {
       fehler = m.diagnose_drossel();
       return;
@@ -103,24 +124,32 @@
         window.location.origin === CLOUD_HOSTNAME
           ? '/api/auth/experimental-logs'
           : `${CLOUD_HOSTNAME}/api/auth/experimental-logs`;
+      // Bericht JETZT bauen — nicht die Öffnen-Vorschau posten: die Notiz
+      // des Nutzers und die während des Dialogs neu ankommenden Ereignisse
+      // gehören in den Versand (Bughunt P1: Notiz ging still verloren).
+      const versand = bericht(vorschau.kopf, notiz.trim());
+      // Sendezeitpunkt VOR dem Fetch merken: `leeren(bisTs)` löscht nach dem
+      // Erfolg nur bis hierher — während des Fetch neu angekommenes bleibt.
+      const sentAt = Date.now();
       const resp = await fetch(ziel, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        keepalive: true,
         body: JSON.stringify({
           reason: 'user_report',
           role: 'app',
-          system_info: vorschau.kopf,
-          report: vorschau
+          system_info: versand.kopf,
+          report: versand
         })
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      // Erfolg: Drossel merken, Puffer leeren (dieselben Ereignisse nicht
-      // doppelt schicken), Dialog schließen.
       merkeUebertragung();
-      leeren();
+      leeren(sentAt);
+      notiz = '';
       gesendet = true;
-      setTimeout(() => uiOverlays.diagnoseOpen = false, 1200);
+      autoCloseTimer = setTimeout(() => {
+        autoCloseTimer = null;
+        uiOverlays.diagnoseOpen = false;
+      }, 1200);
     } catch {
       fehler = m.diagnose_senden_fehler();
       dateiOfferiert = true;
@@ -131,6 +160,8 @@
 
   function alsDatei(): void {
     if (!vorschau) return;
+    // Der angezeigten Vorschau entsprechend — nicht aus dem (seit dem Öffnen
+    // gewachsenen) Ring neu bauen; Vorschau-Versprechen = Datei-Inhalt.
     speichereAlsDatei(bericht(vorschau.kopf, notiz.trim()));
   }
 
@@ -177,13 +208,23 @@
             <p class="text-text-muted mt-2 text-xs">{m.diagnose_leer()}</p>
           {:else}
             <ul class="text-text-muted mt-2 space-y-1 text-xs">
-              {#each letzteEreignisse as e (e.s)}
+              {#each letzteEreignisse as e, i (`${e.s}-${i}`)}
                 <li class="font-mono">
                   t+{e.s}s · {e.art}{e.anzahl > 1 ? ` ×${e.anzahl}` : ''}
                 </li>
               {/each}
             </ul>
           {/if}
+          <details class="mt-2">
+            <summary class="text-text-muted cursor-pointer text-xs">
+              {m.diagnose_kopf_details()}
+            </summary>
+            <pre class="text-text-muted mt-1 overflow-x-auto text-2xs">{JSON.stringify(
+              vorschau?.kopf,
+              null,
+              2
+            )}</pre>
+          </details>
         </details>
 
         {#if fehler}

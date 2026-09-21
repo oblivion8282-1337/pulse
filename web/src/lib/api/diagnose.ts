@@ -58,10 +58,14 @@ export const adminDiagnoseApi = {
 /**
  * Server-Paket eines Self-Hosters einreichen (Spec §7, Phase 3).
  *
- * Läuft über `request(..., endpoint: 'auth')` — die Identity-Plane ist immer
- * Cloud-relativ (s. `client.ts::buildUrl`), der Bearer ist der Cloud-Account
- * des Betreibers. Die Cloud prüft die Owner-Membership der Instanz; der
- * Server selbst ruft die Cloud nie an — der Browser ist der Kurier.
+ * Läuft über `request(..., endpoint: 'auth')` — Identity-Plane, und die ist
+ * immer CLOUD-relativ. **Annahme, bewusst dokumentiert:** die Komponente
+ * lebt im Cloud-Web-Kontext (howispulse.com bzw. der Electron-Renderer, der
+ * die Cloud-App lädt) — dort löst die relative URL zur Cloud auf und der
+ * Cloud-Bearer des Betreibers liegt vor. Wer die App-Oberfläche stattdessen
+ * von einem Self-Host-Origin aus betreibt, trifft mit dieser Route dessen
+ * LOKALEN auth-Service (dort 403: cloud-only) — der Datei-Fallback der
+ * Komponente fängt den Fall auf.
  */
 export async function reicheServerPaketEin(
   instanceId: string,

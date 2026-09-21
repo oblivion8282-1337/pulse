@@ -57,8 +57,11 @@
       toast.success(m.selfhost_diagnose_gesendet());
     } catch (e) {
       fehler = errText(e) || m.selfhost_diagnose_fehler();
-      // Ohne Paket (Server selbst nicht erreichbar) gibt es nichts als Datei.
-      dateiOfferiert = letztesPaket !== null;
+      // Ohne Paket (Server selbst nicht erreichbar — genau der eigentliche
+      // Vorfall) gibt es nichts als Datei; das wird dem Betreiber extra
+      // gesagt statt still auszubleiben.
+      if (letztesPaket === null) fehler = `${fehler} ${m.selfhost_diagnose_server_offline()}`;
+      else dateiOfferiert = true;
     } finally {
       busy = false;
     }

@@ -56,15 +56,37 @@ RETENTION_DAYS = 28
 MAX_ROWS = 5_000
 
 
-# Obergrenze für die Ereignisliste EINES Berichts. Der Client verdichtet und
-# deckelt bereits (`web/src/lib/stream/diagnose-bericht.ts`); diese Zahl ist
-# die zweite Verteidigungslinie, denn der Endpoint ist offen und darf sich
-# nicht darauf verlassen, dass der Absender unser Client ist.
-#
-# Sie liegt bewusst ETWAS über dem Client-Deckel: läge sie gleichauf, würde ein
-# Bericht, der genau am Deckel liegt, an einem Rundungsunterschied scheitern —
-# und ein 422 verwirft den ganzen Bericht, nicht nur das überzählige Ereignis.
+# Obergrenze für die Ereignisliste EINES Berichts. Die Clients verdichten und
+# deckeln bereits — mit ZWEI Deckeln: 200 beim Streaming-Sammler
+# (``web/src/lib/stream/diagnose-bericht.ts``) und 250 beim App-Ringpuffer
+# (``web/src/lib/diagnose/app-diagnose.ts``). Diese Zahl ist die zweite
+# Verteidigungslinie, denn der Endpoint ist offen und darf sich nicht darauf
+# verlassen, dass der Absender unser Client ist. SIE IST KEIN PUFFER MEHR für
+# den App-Pfad (250 == 250) — künftige Server-Verkleinerungen müssen beide
+# Clients im Blick nehmen, ein 422 verwirft den GANZEN Bericht.
 MAX_EVENTS = 250
+
+# Obergrenze für die serialisierten Dict-Felder (system_info, report) am
+# öffentlichen Endpoint. MAX_LOG_CHARS deckt nur log_text; ohne diesen Deckel
+# wäre report.kopf/abschluss/jedes Ereignis.werte unbegrenzt — genau die
+# Umgehung, vor der der Kommentar an MAX_LOG_CHARS warnt.
+MAX_DICT_CHARS = 512 * 1024  # 512 KiB
+
+# Snowflake-IDs sind INT64 — asyncpg kann größere Werte nicht binden und
+# antwortet mit 500 statt 422 (gleiche Fehlerklasse wie routes.py::batch_users).
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
+
+
+def _parse_snowflake(wert: str, feld: str) -> int:
+    """Snowflake-String → int mit Int64-Grenze; sonst 422 (statt 500)."""
+    try:
+        zahl = int(wert)
+    except ValueError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{feld} muss eine Zahl sein")
+    if not (_INT64_MIN <= zahl <= _INT64_MAX):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{feld} außerhalb des gültigen Bereichs")
+    return zahl
 
 
 class Ereignis(BaseModel):
@@ -149,6 +171,17 @@ async def submit_experimental_log(
     Keine Auth nötig — es sendet nur, wer den Schalter nicht abgewählt hat."""
     await _check_rate(request, "experimental_log_submit", "30/hour")
 
+    # `role: "server"` ist der privilegierte Wert — er wird AUSSCHLIESSLICH
+    # von /me/instance-diagnose gesetzt, das die Owner-Membership der Instanz
+    # prüft. Am anonymen Endpoint würde er jedem erlauben, gefälschte
+    # „Server-Pakete" mit fremden instance_ids in die Admin-Ansicht zu
+    # einschleusen und die echten Betreiber-Pakete ununterscheidbar zu machen.
+    if payload.role == "server":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="role 'server' ist dem authentifizierten Endpoint vorbehalten",
+        )
+
     # Ein Aufruf ohne jeden Inhalt kostet eine Zeile und trägt nichts bei. Der
     # Fall entsteht nicht theoretisch: seit `log_text` optional ist, ist
     # `{"reason": "stream_end"}` ein syntaktisch gültiger Aufruf.
@@ -157,6 +190,28 @@ async def submit_experimental_log(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="entweder report oder log_text muss gesetzt sein",
         )
+
+    # Größen-Deckel auch für die DICT-Felder (Bughunt 2026-09-21): MAX_LOG_CHARS
+    # deckt nur log_text — kopf/bilanz/abschluss/werte wären sonst unbegrenzt.
+    # `allow_nan=False` verwandelt NaN/Infinity-Inputs (Postgres-JSONB kann die
+    # nicht speichern) von 500 in 422.
+    try:
+        groesse = len(
+            json.dumps(
+                {
+                    "system_info": payload.system_info,
+                    "report": payload.report.model_dump(mode="json") if payload.report else None,
+                },
+                allow_nan=False,
+            )
+        )
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Bericht enthält nicht-serialisierbare Werte",
+        )
+    if groesse > MAX_DICT_CHARS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Bericht zu groß")
 
     # Security-Audit 2026-09-16: statt des rohen XFF (client-kontrolliert,
     # spoofbare Attribution) dieselbe Trusted-Proxy-Auflösung wie überall.
@@ -327,12 +382,7 @@ async def admin_liste_experimental_logs(
     if channel_id:
         q = q.where(ExperimentalLog.channel_id == channel_id)
     if before_id:
-        try:
-            q = q.where(ExperimentalLog.id < int(before_id))
-        except ValueError:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT, detail="before_id muss eine Zahl sein"
-            )
+        q = q.where(ExperimentalLog.id < _parse_snowflake(before_id, "before_id"))
     q = q.order_by(ExperimentalLog.id.desc()).limit(limit)
     zeilen = (await session.execute(q)).scalars().all()
     return [_liste_zeile(e) for e in zeilen]
@@ -348,10 +398,7 @@ async def admin_experimental_log_details(
     log_id: str,
     session: SessionDep,
 ):
-    try:
-        numerisch = int(log_id)
-    except ValueError:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="id muss eine Zahl sein")
+    numerisch = _parse_snowflake(log_id, "id")
     e = (
         await session.execute(select(ExperimentalLog).where(ExperimentalLog.id == numerisch))
     ).scalar_one_or_none()
@@ -378,10 +425,7 @@ async def admin_experimental_log_loeschen(
     Aufbewahrungsfrist (``_aufraeumen``) — ein Bericht trägt keine Nutzer-
     Kennung, ein „alles von Nutzer X“ gibt es darum nicht und braucht es
     nicht (Spec §6)."""
-    try:
-        numerisch = int(log_id)
-    except ValueError:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="id muss eine Zahl sein")
+    numerisch = _parse_snowflake(log_id, "id")
     await session.execute(
         delete(ExperimentalLog).where(ExperimentalLog.id == numerisch),
         execution_options={"synchronize_session": False},
@@ -399,9 +443,11 @@ async def admin_experimental_log_loeschen(
 # Admin) darf ein Paket für eine Instanz einreichen; sonst könnte jeder
 # angemeldete Account beliebig fremde „Server-Berichte“ in die Ansicht
 # einschleusen. Anders als der öffentliche POST oben ist diese Route
-# authentifiziert — deshalb kein IP-Rate-Limit, aber ein harten Paket-Deckel.
+# authentifiziert — deshalb kein IP-Rate-Limit, aber ein Account-Rate-Limit
+# (unten) und ein harter Paket-Deckel.
 
-MAX_PAKET_CHARS = 400_000  # ≈400 KiB; der Client deckelt sich auf 256 KiB
+MAX_PAKET_CHARS = 400_000  # ≈400 KiB serialisiert; das Paket ist nativ klein
+# (2×16 KiB Log-Schwänze + 50 Setup-Zeilen), der Deckel fängt Gepansche ab.
 
 
 class InstanceDiagnoseCreate(BaseModel):
@@ -416,12 +462,16 @@ async def submit_instance_diagnose(
     session: SessionDep,
     current: User = Depends(_get_current_user),
 ):
-    try:
-        instanz_id = int(payload.instance_id)
-    except ValueError:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="instance_id muss eine Zahl sein"
-        )
+    # Account-Rate-Limit (Bughunt 2026-09-21): ohne es könnte ein Owner mit
+    # 400-KiB-Paketen den globalen MAX_ROWS-Pool in Minuten flushen und alle
+    # FREMDEN Berichte aus dem 28-Tage-Fenster verdrängen. Key je Account,
+    # nicht je IP (die Route ist authentifiziert — IP-Rotation hilft nichts).
+    await _check_rate(
+        request, "instance_diagnose", get_settings().rate_limit_selfhost_diagnose,
+        account=str(current.id),
+    )
+
+    instanz_id = _parse_snowflake(payload.instance_id, "instance_id")
 
     mitglied = (
         await session.execute(
@@ -438,7 +488,16 @@ async def submit_instance_diagnose(
             detail="nur der Instanz-Betreiber darf ein Server-Paket einreichen",
         )
 
-    if len(json.dumps(payload.paket)) > MAX_PAKET_CHARS:
+    # Deckel + NaN-Abweisung (Postgres-JSONB kennt NaN/Infinity nicht — ohne
+    # allow_nan=False wäre das ein 500 beim Insert, nicht ein 422 hier).
+    try:
+        paket_groesse = len(json.dumps(payload.paket, allow_nan=False))
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Paket enthält nicht-serialisierbare Werte",
+        )
+    if paket_groesse > MAX_PAKET_CHARS:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Paket zu groß"
         )
@@ -447,7 +506,12 @@ async def submit_instance_diagnose(
     # Auflösung statt rohen XFF, lokal importiert wie dort.
     from dcc_auth.routes import _client_ip  # noqa: PLC0415
 
-    kopf = payload.paket.get("kopf") if isinstance(payload.paket.get("kopf"), dict) else None
+    kopf = payload.paket.get("kopf") if isinstance(payload.paket.get("kopf"), dict) else {}
+    # Attributions-Vertrag: das Paket zählt ZUR Instanz in channel_id — ein
+    # abweichendes kopf.instance_id (alter Container nach Instanz-Recycling,
+    # oder absichtlich fremd gelabelt) wird hiermit autoritativ überschrieben.
+    kopf["instance_id"] = str(instanz_id)
+    payload.paket["kopf"] = kopf
     entry = ExperimentalLog(
         id=next_id(),
         reason="user_report",
