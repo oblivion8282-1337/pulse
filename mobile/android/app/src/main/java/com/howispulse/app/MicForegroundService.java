@@ -3,6 +3,7 @@ package com.howispulse.app;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
@@ -34,9 +35,18 @@ public class MicForegroundService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         createChannel();
+        // Bughunt Runde 45: Tipp auf die FGS-Notification öffnet die App —
+        // vorher war sie nicht tappbar (die einzige sichtbare Erinnerung
+        // daran, dass das Mikrofon läuft, ab Android 13 ohne
+        // POST_NOTIFICATIONS sogar die EINZIGE).
+        Intent offen = new Intent(this, MainActivity.class);
+        offen.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent tapIntent = PendingIntent.getActivity(
+                this, 0, offen, PendingIntent.FLAG_IMMUTABLE);
         Notification n = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Pulse Voice aktiv")
                 .setContentText("Mikrofon bleibt im Hintergrund aktiv")
+                .setContentIntent(tapIntent)
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)

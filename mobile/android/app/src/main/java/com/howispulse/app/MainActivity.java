@@ -1,12 +1,15 @@
 package com.howispulse.app;
 
 import android.Manifest;
+import android.app.DownloadManager;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -51,11 +54,39 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Bughunt Runde 45: micStartPending in SharedPreferences — bei
+        // Prozess-Neubau während des Permission-Dialogs (Android killt die
+        // Activity, das Grant kommt bei der FRISCHEN Activity an) war das
+        // Flag weg und der FGS startete nie nach. (onSaveInstanceState
+        // steht nicht zur Verfügung: BridgeActivity deklariert es final.)
+        micStartPending = getPreferences(MODE_PRIVATE).getBoolean("micStartPending", false);
         // MUSS vor super.onCreate registriert werden, damit die Bridge das Plugin
         // kennt, bevor die WebView lädt (Capacitor-Konvention).
         registerPlugin(AudioRoutePlugin.class);
         registerPlugin(OrientationLockPlugin.class);
         super.onCreate(savedInstanceState);
+        // Bughunt Runde 45: Capacitor setzt KEINEN DownloadListener — ein
+        // Android-WebView wirft Downloads STILLWEGE weg (Blob-URLs aus
+        // `URL.createObjectURL` inklusive). Jeder Download-Knopf in der App
+        // (2FA-Backup-Codes, Anhänge, Ablage, .env-Export) tat auf Android
+        // schlicht nichts. Umweg über DownloadManager: Blob-URLs kann er
+        // nicht laden — dafür ist der Ersatzweg verantwortlich, alles andere
+        // (https-Presigns etc.) geht an den System-Download.
+        bridge.getWebView().setDownloadListener((url, userAgent, contentDisposition, mimeType, length) -> {
+            if (url == null || url.startsWith("blob:")) return;
+            try {
+                DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
+                if (userAgent != null) req.addRequestHeader("User-Agent", userAgent);
+                if (mimeType != null) req.setMimeType(mimeType);
+                req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "pulse-download");
+                DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                if (dm != null) dm.enqueue(req);
+            } catch (Exception ignored) {
+                // Nicht abfangbar ohne Toast-Infrastruktur — besser als ein
+                // App-Crash; der Web-Seitige Fehlerpfad greift via Download-Feed.
+            }
+        });
         speakerRouter = new SpeakerphoneRouter(this, this, ContextCompat.getMainExecutor(this));
         speakerRouter.start();
         // Querformat nur mit Stream (s. OrientationLockPlugin): Start immer
@@ -80,7 +111,24 @@ public class MainActivity extends BridgeActivity {
             startMicService();
         } else {
             micStartPending = false;
+            getPreferences(MODE_PRIVATE).edit().putBoolean("micStartPending", false).apply();
             stopService(new Intent(this, MicForegroundService.class));
+        }
+    }
+
+    /**
+     * Bughunt Runde 45: startForegroundService aus dem Hintergrund ist ab
+     * API 31 eine ForegroundServiceStartNotAllowedException — uncaught auf
+     * dem UI-Thread = App-Crash. Passiert real: der User joint Voice und
+     * drückt Home, während der Token-Roundtrip läuft; der setVoiceActive-
+     * Plugin-Call landet mit gepauster Activity. Ohne Vordergrund bleibt
+     * der Start aus (der WebView-Stream stirbt dort ohnehin); kein Crash.
+     */
+    private void startFgsSicher() {
+        try {
+            ContextCompat.startForegroundService(this, new Intent(this, MicForegroundService.class));
+        } catch (SecurityException | IllegalStateException ignored) {
+            // Activity nicht RESUMED / FGS-Restriktion — bewusst schlucken.
         }
     }
 
@@ -141,6 +189,7 @@ public class MainActivity extends BridgeActivity {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             micStartPending = true;
+            getPreferences(MODE_PRIVATE).edit().putBoolean("micStartPending", true).apply();
             List<String> need = new ArrayList<>();
             need.add(Manifest.permission.RECORD_AUDIO);
             if (Build.VERSION.SDK_INT >= 33
@@ -153,7 +202,7 @@ public class MainActivity extends BridgeActivity {
         }
         // ContextCompat wählt intern startForegroundService (API 26+) bzw.
         // startService (darunter) — entspricht der bisherigen Version-Branch.
-        ContextCompat.startForegroundService(this, new Intent(this, MicForegroundService.class));
+        startFgsSicher();
         // Bughunt Runde 8: die Laufzeit-Notification-Berechtigung (Android 13+)
         // wurde bisher NUR gekoppelt mit einer fehlenden Mic-Berechtigung
         // erfragt — ab dem zweiten Voice-Join (Mic längst erteilt) wurde sie
@@ -175,9 +224,10 @@ public class MainActivity extends BridgeActivity {
         // Nur nachholen, wenn der Start auf den Permission-Grant gewartet hat.
         if (requestCode == REQ_VOICE_PERMS && micStartPending) {
             micStartPending = false;
+            getPreferences(MODE_PRIVATE).edit().putBoolean("micStartPending", false).apply();
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
-                ContextCompat.startForegroundService(this, new Intent(this, MicForegroundService.class));
+                startFgsSicher();
             }
             // Abgewiesen → kein Service. Der WebView-getUserMedia wird ohnehin
             // fehlschlagen, der User bleibt ohne Mic, aber ohne Hintergrund-Last.

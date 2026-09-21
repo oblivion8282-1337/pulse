@@ -223,8 +223,11 @@
       </Tooltip.Root>
 
       <!-- Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App (nativer
-           AudioRoute-Toggle). Behebt den earpiece-Default im Kommunikationsmodus. -->
-      {#if showAudioRouteToggle && !viewport.isMobile}
+           AudioRoute-Toggle). Behebt den earpiece-Default im Kommunikationsmodus.
+           Bughunt Runde 45: das `&& !viewport.isMobile` war eine
+           Gate-Inversion — ausgerechnet auf Phones (die EINZIGEN mit
+           Hörmuschel) war der Schalter weg, nur Tablets durften umschalten. -->
+      {#if showAudioRouteToggle}
         <Tooltip.Root>
           <Tooltip.Trigger>
             {#snippet child({ props })}
