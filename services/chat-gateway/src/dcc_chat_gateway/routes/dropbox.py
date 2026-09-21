@@ -1,8 +1,7 @@
 """Dropbox / Ablage — list, folder, entries, restore.
 
 Co-located route group for the per-guild dropbox feature. Companion
-modules:
-  - ``routes/dropbox_uploads.py``  — presigned PUT mint + finish-upload
+module:
   - ``routes/dropbox_admin.py``    — admin settings + sweep
 
 Each module owns its own APIRouter; the parent ``routes/__init__.py``
@@ -33,10 +32,8 @@ from dcc_chat_gateway.routes._dropbox_access import require_dropbox_view
 from dcc_chat_gateway.routes._dropbox_helpers import (
     fresh_entry_id,
     normalize_parent_path,
-    publish_entry_event,
     publish_purge_event,
     publish_quota_event,
-    serialize_entry,
     utc_now,
     validate_name,
     with_quota_lock,

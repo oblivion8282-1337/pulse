@@ -27,8 +27,11 @@ Channels nach und aktualisiert den ``app.state.plugin_allowlist``-
 Snapshot unter Lock. DELETE entfernt den Plugin-Namen aus dem Snapshot
 (WS-Op-Gate rejected ab dann sofort) und putzt den Per-Guild-Toggle-
 Cache. Die im Loader-Lauf registrierten Op-/Channel-Handler bleiben
-inert im Dispatch-Dict — siehe ``plugins/loader.deactivate_plugin`` für
-die Trade-off-Begründung.
+inert im Dispatch-Dict — bewusst kein ``mgr.deactivate()``: es gäbe ein
+Race zwischen "alte Handler weg, neue kommen" und in der Lücke ankommenden
+WS-Frames, und der Plugin-Modulcode leakt in ``sys.modules`` (ein zweiter
+Aktivierungspfad bekäme keinen frischen Import; ``register_ws_op`` ist
+last-writer-wins, Re-Add ist also idempotent).
 
 Multi-Pod-Setup bekommt zusätzlich einen Redis-Pub/Sub-Notify
 ``plugin:allowlist:changed`` mit ``{op, name, actor_id}``-Payload

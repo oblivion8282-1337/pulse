@@ -112,13 +112,6 @@ class WSOpContext:
     # throttle backstop. ``resync`` rebuilds the full ready frame (several DB
     # queries + Redis/S3 reads), so an unthrottled loop is a DB-pool DoS vector.
     last_resync: float = 0.0
-    # Bughunt Runde 34: Bremse für profile_statement (legitimer Takt ~1 je
-    # Verbindung + Retry je Key-Rotation; ohne Bremse kostet jeder Frame
-    # Redis-GET, Pool-Checkout und RSA-Verify).
-    last_profile_statement: float = 0.0
-    # Bughunt Runde 34: Bremse für profile_statement (legitimer Takt ~1 je
-    # Verbindung + Retry je Key-Rotation; ohne Bremse kostet jeder Frame
-    # Redis-GET, Pool-Checkout und RSA-Verify).
     last_profile_statement: float = 0.0
     # Monotonic timestamp of the last ``hist_replay`` this socket served —
     # same throttle rationale (Redis stream reads + potentially large frame).
@@ -247,14 +240,6 @@ def get_handler(op: str) -> WSOpHandler | None:
     return _handlers.get(op)
 
 
-def unregister_ws_op(op: str) -> bool:
-    """Drop the registration for ``op``. Returns ``True`` if a handler was
-    removed, ``False`` if there was nothing to remove. Used by the Schritt-4
-    plugin loader on `deactivate(name)` to roll back a plugin's registrations.
-    """
-    return _handlers.pop(op, None) is not None
-
-
 def snapshot_ws_handlers() -> dict[str, WSOpHandler]:
     """Snapshot der Handler-Tabelle (Name → Handler-Objekt).
 
@@ -271,7 +256,7 @@ def restore_ws_op(op: str, handler: WSOpHandler | None) -> None:
     """Stellt den Vorgänger-Handler eines Ops wieder her.
 
     ``None`` heißt: der Op war vorher unbekannt — dann wird er weggenommen.
-    Der Gegenentwurf zum blinden ``unregister_ws_op`` im Rollback: der würde
+    Der Gegenentwurf zum blinden ``snapshot/restore (plugins/registry.py)`` im Rollback: der würde
     bei einem ÜBERschriebenen fremden Op auch den Vorgänger mit löschen.
     """
     if handler is None:

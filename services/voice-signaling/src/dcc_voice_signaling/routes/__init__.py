@@ -83,13 +83,9 @@ _livekit_update_participant = _livekit_client._livekit_update_participant
 
 _OVERRIDE_TTL_SECONDS = _overrides_state._OVERRIDE_TTL_SECONDS
 _apply_override_patch = _overrides_state._apply_override_patch
-_SOURCE_CACHE_TTL_SECONDS = _overrides_state._SOURCE_CACHE_TTL_SECONDS
-_override_key = _overrides_state._override_key
-_sources_key = _overrides_state._sources_key
 _save_user_sources = _overrides_state._save_user_sources
 _load_user_sources = _overrides_state._load_user_sources
 _load_override = _overrides_state._load_override
-_save_override = _overrides_state._save_override
 _clear_override = _overrides_state._clear_override
 _apply_override = _overrides_state._apply_override
 

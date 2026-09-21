@@ -80,7 +80,6 @@ __all__ = [
     "LoadResult",
     "PluginLoadError",
     "activate_plugin",
-    "deactivate_plugin",
     "discover_plugins_dir",
     "discover_manifests",
         "load_all_with_allowlist",
@@ -414,32 +413,3 @@ def activate_plugin(
     return None
 
 
-def deactivate_plugin(
-    plugin_name: str, *, manager: PluginManager | None = None
-) -> None:
-    """Pendant zu :func:`activate_plugin` — heute bewusst no-op.
-
-    Trade-off-Doku
-    --------------
-    Wir könnten ``mgr.deactivate(plugin_name)`` rufen, was die im
-    Plugin registrierten Ops/Channels aus den Dispatch-Registries
-    räumt. Praktisches Problem: derselbe Process-State kann später
-    durch ein erneutes ``PUT`` wieder aktiviert werden — wir hätten
-    dann eine Race zwischen "alte Handler weg, neue Handler kommen
-    rein" und WS-Frames die in dieser Lücke ankommen. Außerdem leakt
-    der Plugin-Modulcode in ``sys.modules`` (Python kann Module nicht
-    sauber entladen), sodass ein zweiter Aktivierungspfad ohnehin
-    keinen frischen Import bekommen würde.
-
-    Pragmatischer Pfad: Handler bleiben registriert, der WS-Op-Gate
-    rejected Plugin-Ops aber sofort über den
-    ``app.state.plugin_allowlist``-Snapshot — eine Allowlist-Entfernung
-    wirkt also funktional als "Plugin off", auch wenn intern die
-    Registries nicht aufgeräumt sind. Bei einem späteren Re-Add greifen
-    die alten Handler weiter (idempotent: ``register_ws_op`` ist
-    last-writer-wins, kein Drift).
-
-    Volles ``deactivate()`` machen wir nur in Tests + beim
-    Service-Shutdown (:meth:`PluginManager.deactivate_all`).
-    """
-    pass

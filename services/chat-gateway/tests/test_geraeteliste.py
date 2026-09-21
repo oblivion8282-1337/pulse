@@ -36,12 +36,6 @@ def _register(_auth_signer) -> tuple[str, int]:
     return _auth_signer.issue_access(uid, f"u{uid}"), uid
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def _enable_sqlite_foreign_keys(engine):
-    """Wie in ``test_schluessel.py``: SQLite ignoriert ``ON DELETE CASCADE``
-    ohne dieses PRAGMA je Verbindung."""
-    async with engine.begin() as conn:
-        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 
 
 async def _buendel_seeden(

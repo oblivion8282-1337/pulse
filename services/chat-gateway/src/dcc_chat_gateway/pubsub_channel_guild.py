@@ -165,11 +165,9 @@ async def handle_guild_events(
     # can't sniff the URL out of their WS stream. The dropbox
     # channel id lives inside the ``entry`` sub-dict for entry
     # events and on the top-level event for the quota event.
+    # (Ponytail-Audit Runde 2: entry created/updated/deleted/restored sind
+    # mit der alten Browser-UI gestorben — nichts published sie mehr.)
     elif op in (
-        "dropbox_entry_created",
-        "dropbox_entry_updated",
-        "dropbox_entry_deleted",
-        "dropbox_entry_restored",
         "dropbox_entry_purged",
         "dropbox_quota_updated",
     ):

@@ -27,10 +27,6 @@ from dcc_chat_gateway.schluessel_zugriff import darf_schluessel_holen
 from dcc_chat_gateway.snowflake import next_id
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def _enable_sqlite_foreign_keys(engine):
-    async with engine.begin() as conn:
-        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 
 
 async def _install_block(session_factory, blocker_id: int, blocked_id: int) -> None:

@@ -45,7 +45,6 @@ from dcc_chat_gateway.routes.ws_ops_registry import (
 
 # Built-in op set we have to restore around each test so the rest of the
 # suite (which relies on the production registrations) keeps working.
-_BUILTIN_OPS = (
     "send", "subscribe", "unsubscribe",
     "voice_self_state",
     "watch_start", "watch_stop", "watch_control", "watch_heartbeat",

@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Literal
 
 import aiobotocore.session
 import httpx
@@ -39,7 +38,6 @@ from botocore.credentials import Credentials
 
 from dcc_chat_gateway.config import get_settings
 
-_Operation = Literal["put_object", "get_object"]
 
 
 def _make_client_kwargs(endpoint: str) -> dict:

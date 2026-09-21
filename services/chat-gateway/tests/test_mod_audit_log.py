@@ -68,7 +68,6 @@ async def _seed_entry(
 # ---------------------------------------------------------------------------
 
 _MANAGE_MESSAGES = 1 << 23  # not MANAGE_GUILD
-_MANAGE_GUILD = 1 << 1
 
 
 @pytest.mark.asyncio

@@ -41,13 +41,6 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def _enable_sqlite_foreign_keys(engine):
-    """SQLite kaskadiert ``ON DELETE`` nur mit ``PRAGMA foreign_keys=ON``.
-    Ohne das faellt ``DmAnhangBezug`` beim Loeschen einer Nutzlast nicht mit,
-    und der Anhang saehe nie verwaist aus."""
-    async with engine.begin() as conn:
-        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 
 
 class _S3Mock:

@@ -97,15 +97,6 @@ async def _load_override(redis: Redis | None, channel_id: str, user_id: str) -> 
         return {}
 
 
-async def _save_override(
-    redis: Redis, channel_id: str, user_id: str, state: dict
-) -> None:
-    await redis.set(
-        _override_key(channel_id, user_id),
-        json.dumps(state),
-        ex=_OVERRIDE_TTL_SECONDS,
-    )
-
 
 async def _clear_override(redis: Redis, channel_id: str, user_id: str) -> None:
     await redis.delete(_override_key(channel_id, user_id))

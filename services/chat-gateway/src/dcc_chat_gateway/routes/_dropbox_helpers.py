@@ -27,11 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dcc_chat_gateway.routes._dropbox_schemas import DropboxEntryOut
 from dcc_chat_gateway.snowflake import next_id
 from dcc_shared.events import (
-    DropboxEntryCreatedEvent,
-    DropboxEntryDeletedEvent,
     DropboxEntryPurgedEvent,
-    DropboxEntryRestoredEvent,
-    DropboxEntryUpdatedEvent,
     DropboxQuotaUpdatedEvent,
 )
 
@@ -216,16 +212,6 @@ def validate_name(name: str, *, max_len: int = 255) -> str:
     return cleaned
 
 
-def full_path(parent_path: str, name: str) -> str:
-    """Combine a normalized parent path + validated name into the full
-    MinIO-relative path. Empty root → just the name. Public so the
-    upload route can build the storage key without redefining it."""
-
-    if not parent_path:
-        return name
-    return f"{parent_path}/{name}"
-
-
 # Quota mutation ------------------------------------------------------
 
 
@@ -272,71 +258,7 @@ async def locked_config(
 # Event helpers -------------------------------------------------------
 
 
-def entry_dict(entry: DropboxFile) -> dict[str, object]:
-    """Wire-shape of a dropbox entry — used everywhere an event fires.
 
-    Same field names + snowflake-as-string serialization as the
-    Pydantic ``DropboxEntryOut`` so the listener + FE can treat them
-    interchangeably."""
-
-    return DropboxEntryOut.model_validate(entry).model_dump(mode="json")
-
-
-async def serialize_entry(session, entry: DropboxFile) -> DropboxEntryOut:
-    """DB-row → wire dict, with a fresh presigned GET URL for files.
-
-    Single source of truth used by every dropbox route (list, folder,
-    patch, delete, restore, finish-upload). The presigned URL is
-    best-effort — transient MinIO outage degrades to ``url=None``
-    instead of failing the whole call.
-
-    The presigned URL is signed with ``inline=False`` when the row's
-    content-type is NOT in the inline-safe whitelist (set by
-    ``finish_upload`` via ``normalize_content_type``). That way the
-    browser downloads the file instead of rendering it — defuses the
-    ``text/html`` → in-browser-XSS vector. ``filename`` is the
-    row's display name so the saved file keeps its on-platform name."""
-
-    out = DropboxEntryOut.model_validate(entry)
-    if entry.kind == DROPBOX_KIND_FILE and entry.storage_key:
-        try:
-            inline = is_safe_inline_content_type(entry.content_type)
-            out.url = await s3.presigned_get_url(
-                entry.storage_key,
-                filename=entry.name if not inline else None,
-                inline=inline,
-            )
-        except Exception:  # noqa: BLE001 — transient MinIO outage
-            out.url = None
-    return out
-
-
-async def publish_entry_event(mgr, *, kind: str, guild_id: int, entry: DropboxFile) -> None:
-    """Fan out a dropbox-mutation event on the guild channel.
-
-    ``kind`` is one of ``created``, ``updated``, ``deleted``,
-    ``restored``. ``purged`` is handled separately because that one
-    doesn't carry a full entry (the row is gone by then)."""
-
-    if mgr is None:
-        return
-    payload = entry_dict(entry)
-    if kind == "created":
-        await mgr.publish_guild_event(
-            DropboxEntryCreatedEvent(guild_id=str(guild_id), entry=payload)
-        )
-    elif kind == "updated":
-        await mgr.publish_guild_event(
-            DropboxEntryUpdatedEvent(guild_id=str(guild_id), entry=payload)
-        )
-    elif kind == "deleted":
-        await mgr.publish_guild_event(
-            DropboxEntryDeletedEvent(guild_id=str(guild_id), entry=payload)
-        )
-    elif kind == "restored":
-        await mgr.publish_guild_event(
-            DropboxEntryRestoredEvent(guild_id=str(guild_id), entry=payload)
-        )
 
 
 async def publish_purge_event(mgr, *, guild_id: int, entry_id: int, kind: int) -> None:

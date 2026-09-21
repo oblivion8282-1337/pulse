@@ -85,10 +85,8 @@ pub struct Request {
     /// Protokoll" — das ist falsch: `record` und `clip` sind laengst verdrahtet
     /// (`app/requests.rs`) und schreiben mit diesem Pfad in das Dateisystem
     /// (geprueft in `recorder::pruefe_ziel`). Nur `screenshot` fehlt noch.
-    #[allow(dead_code)]
     #[serde(default)]
     pub path: Option<String>,
-    #[allow(dead_code)]
     #[serde(default)]
     pub seconds: Option<f64>,
 

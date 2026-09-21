@@ -353,48 +353,9 @@ class DeviceStateEvent(_EventBase):
 
 
 # ---- Dropbox / Ablage ------------------------------------------------------
-#
-# Mutationen an Datei-/Ordner-Einträgen. Die ``entry`` dicts sind freiform-
-# shaped — die Wahrheit liegt in ``DropboxEntryOut`` (``routes/_dropbox_schemas.py``);
-# shared/events kennt SQLAlchemy nicht. Events sind nach Art der Mutation
-# getrennt (statt ein ``action: Literal[``...``]``-Sammelevent), weil jeder
-# Konsument genau eine Variante verarbeitet — Saves-Round-Trips beim
-# Listener-Validator und macht WS-Subscriptions per op lesbar.
-
-class DropboxEntryCreatedEvent(_EventBase):
-    """Neuer Eintrag (Datei ODER Ordner) angelegt — inklusive nach erfolgreichem
-    Direct-Upload (PUT zu MinIO via Presigned-URL)."""
-
-    op: Literal["dropbox_entry_created"] = "dropbox_entry_created"
-    guild_id: str
-    entry: dict[str, Any]
-
-
-class DropboxEntryUpdatedEvent(_EventBase):
-    """Eintrag verändert — rename, move (parent_path), pin/unpin, oder
-    overwrite (neue Version einer Datei)."""
-
-    op: Literal["dropbox_entry_updated"] = "dropbox_entry_updated"
-    guild_id: str
-    entry: dict[str, Any]
-
-
-class DropboxEntryDeletedEvent(_EventBase):
-    """Soft-Delete (Papierkorb) — die MinIO-Bytes sind noch da; Storage-Key
-    steht weiter auf der DB-Row. Hard-Purge erfolgt später durch den Sweep."""
-
-    op: Literal["dropbox_entry_deleted"] = "dropbox_entry_deleted"
-    guild_id: str
-    entry: dict[str, Any]
-
-
-class DropboxEntryRestoredEvent(_EventBase):
-    """Aus dem Papierkorb zurückgeholt — deleted_at wird NULL."""
-
-    op: Literal["dropbox_entry_restored"] = "dropbox_entry_restored"
-    guild_id: str
-    entry: dict[str, Any]
-
+# (Ponytail-Audit Runde 2, 2026-09-21: die entry-Created/Updated/Deleted/
+# Restored-Events sind mit der alten Browser-UI gestorben — nichts published
+# oder konsumiert sie. Geblieben: Purged (Trash-Sweep) + QuotaUpdated.)
 
 class DropboxEntryPurgedEvent(_EventBase):
     """Hard-Delete durch den Trash-Sweep nach ``trash_retention_days`` —

@@ -92,22 +92,20 @@ async def set_voice_override(
             status.HTTP_503_SERVICE_UNAVAILABLE, detail="redis unavailable"
         )
 
-    # Merge: read current → apply patch → write back. Lets a caller
-    # toggle mute without disturbing an existing deafen, and vice-versa.
-    current = await voice_routes._load_override(redis, channel_id, user_id)
-    next_state: dict[str, bool] = {
-        "muted": bool(current.get("muted")),
-        "deafened": bool(current.get("deafened")),
-    }
-    if payload.mute is not None:
-        next_state["muted"] = bool(payload.mute)
-    if payload.deafen is not None:
-        next_state["deafened"] = bool(payload.deafen)
-
-    if not next_state["muted"] and not next_state["deafened"]:
-        await voice_routes._clear_override(redis, channel_id, user_id)
-    else:
-        await voice_routes._save_override(redis, channel_id, user_id, next_state)
+    # Merge ATOMAR (Entscheidung 2.3, umgesetzt nach Runde-2-Audit): das
+    # Read-Merge-Write über drei Redis-Runden liess zwei parallele
+    # Admin-Patches sich gegenseitig verschlucken (last-writer-wins, Feld
+    # des ersten weg), und das Broadcast-Event konnte vom gespeicherten
+    # Stand abweichen. Das Lua-Skript liest+merged+schreibt in einem Lauf
+    # und liefert den tatsächlich gespeicherten Stand.
+    next_state = await voice_routes._apply_override_patch(
+        redis,
+        channel_id,
+        user_id,
+        mute=payload.mute,
+        deafen=payload.deafen,
+        ttl_seconds=voice_routes._OVERRIDE_TTL_SECONDS,
+    )
 
     # Live LiveKit update is only meaningful for the mute side — the
     # deafen enforcement is client-only (LiveKit doesn't gate inbound

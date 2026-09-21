@@ -27,16 +27,6 @@ def _make_device() -> str:
     return f"geraet-{next(_geraete_zaehler):036d}"
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def _enable_sqlite_foreign_keys(engine):
-    """SQLite ignoriert ``ON DELETE CASCADE`` ohne ``PRAGMA foreign_keys=ON``
-    je Verbindung. Postgres (Prod) erzwingt das ohnehin — dieselbe Falle wie
-    in ``services/auth/tests/test_account_delete.py``. Die Test-Engine nutzt
-    ``StaticPool`` (eine geteilte In-Memory-Verbindung), deshalb genuegt ein
-    einmaliges PRAGMA auf dieser einen Verbindung, ohne Dispose+Neuanlage.
-    """
-    async with engine.begin() as conn:
-        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 
 
 @pytest.mark.asyncio

@@ -27,8 +27,8 @@ import dcc_auth.config as _config
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.routes import _check_rate, _get_current_user
-from dcc_auth.security import constant_time_eq
 from dcc_auth.schemas import UserSummary
+from dcc_auth.routes_gast_ticket import _check_internal_secret
 
 router = APIRouter()
 
@@ -109,27 +109,6 @@ class _DiscoverableIn(BaseModel):
     user_id: Annotated[str, Field(min_length=1, max_length=32)]
     discoverable: bool
 
-
-async def _check_internal_secret(request: Request, provided: str | None) -> None:
-    """Mirror of ``routes/internal.py::_check_internal_secret`` in
-    chat-gateway. Fail-closed when the server-side secret is unset; rate-
-    limited BEFORE the compare so guessing the secret can't run hot
-    (Audit 2026-09)."""
-    await _check_rate(
-        request,
-        "internal_secret",
-        _config.get_settings().rate_limit_internal_secret,
-    )
-    expected = _config.get_settings().internal_service_secret
-    if not expected:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
-        )
-    if not provided or not constant_time_eq(provided, expected):
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret"
-        )
 
 
 @router.post(
