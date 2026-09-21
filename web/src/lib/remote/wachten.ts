@@ -135,9 +135,14 @@ export function verbindungsWachtMitGnadenfrist(
         beiEndgueltigemVerlust();
       }
     }, CLIENT_GRACE_MS);
-    // Wrapper, nicht `ab` selbst: die Variable wird erst unten belegt, und
-    // der Rückgabewert hier müsste die BELEGUNG sehen, nicht die Leere.
-    return () => ab();
+    // Bughunt Runde 43: KEIN frühzeitiger Rückkehr-Zweig mehr — der
+    // registrierte weder `onClose` noch `on(...)`, sodass der dokumentierte
+    // Reclaim-Rails (`ready` → reclaimSenden) in genau dem Szenario, für
+    // das die Gnadenfrist gebaut wurde, NIE anlief: Zusage während des
+    // Reconnect-Lochs, Socket kam nach 2 s wieder — die Sitzung starb
+    // trotzdem nach 12 s. Jetzt durchfallen zur gemeinsamen Anmeldung
+    // unten; der Zeitgeber wird dort von `ab` (und damit von WachtSchalter)
+    // mit aufgeräumt.
   }
 
   const zeitgeberAbraeumen = (): void => {

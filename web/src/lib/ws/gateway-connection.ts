@@ -500,7 +500,6 @@ export class GatewayConnection {
       ws.addEventListener('open', () => {
         opened = true;
         this.state = 'open';
-        this.attempt = 0;
         this._readyDone = false;
         this._preReadyBuffer = [];
         // Bughunt Runde 13: Instanz-Capabilities nach JEDEM Dial auffrischen —
@@ -594,6 +593,15 @@ export class GatewayConnection {
               try { ws.close(WS_CLOSE.SERVER_TOO_OLD, 'server too old'); } catch { /* noop */ }
               return;
             }
+            // Backoff erst hier auf 0 — NACH bestätigtem hello (Bughunt
+            // Runde 43). Im `open`-Handler stand der Reset zu früh: der
+            // Server accept()t die Verbindung und schliesst sie erst dann
+            // mit 4044/4045/4070 (zu alt/Update/gesperrt) — der Browser
+            // feuert also open (Reset auf 0) und DANACH close, und der
+            // Reconnect lief dauerhaft mit BACKOFF[0] = 1 s gegen einen
+            // Server, der uns explizit abweist, statt wie dokumentiert bis
+            // 300 s auseinanderzugehen.
+            this.attempt = 0;
             // Erst hier bekannt, ob der Server den Token-Austausch kennt —
             // deshalb wird die Erneuerung im hello geplant und nicht im
             // `open`-Zweig (der läuft, bevor das erste Frame da ist).
@@ -629,6 +637,14 @@ export class GatewayConnection {
         this.ws = null;
         this._stopHeartbeat();
         this._stopTokenErneuerung();
+        // Bughunt Runde 43: auch den Gapfill-Fallback-Timer killen — er war
+        // der eine Lifecycle-Timer, der weder im close noch in disconnect()
+        // aufgeräumt wurde und nach einem open-ohne-hello gegen die
+        // bekannte-tote Verbindung einen REST-Burst losschickte.
+        if (this._gapfillTimer) {
+          clearTimeout(this._gapfillTimer);
+          this._gapfillTimer = null;
+        }
         // Vor jeder Zustands-Abbildung und vor dem Reconnect: die Hörer sollen
         // den Abriss erfahren, egal ob danach neu gewählt wird oder nicht.
         // Kopie, weil ein Hörer sich im Ruf abmelden darf.
@@ -937,6 +953,10 @@ export class GatewayConnection {
     this.wantConnected = false;
     this._stopHeartbeat();
     this._stopTokenErneuerung();
+    if (this._gapfillTimer) {
+      clearTimeout(this._gapfillTimer);
+      this._gapfillTimer = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

@@ -38,6 +38,8 @@ import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
 import { gesundheitTor } from '$lib/stream/gesundheitTor';
 import { standplatz } from '$lib/remote/standplatz.svelte';
 import { postfachAbholenUndAnzeigen } from './chat';
+import { teardownGuildLocally } from './guildTeardown';
+import type { HandlerContext } from './context';
 import { page } from '$app/state';
 import { kanalSitzungenVerwerfen } from '$lib/krypto/gruppe/kanalSitzungStore';
 import { gruppenApi } from '$lib/api/gruppen';
@@ -58,7 +60,13 @@ export type ReadyContext = {
   getSubs: () => Set<string>;
 };
 
-export function register(ctx: ReadyContext): void {
+export function register(
+  ctx: ReadyContext,
+  // Bughunt Runde 43: der Minimal-Schnitt der Guild-Teardown-Helfer —
+  // der Stale-Sweep unten raeumt jetzt VOLL ab (Subscriptions, Messages,
+  // ReadState, Overwrites, Hooks), nicht nur den Guild-Store.
+  hctx?: Pick<HandlerContext, 'subs' | 'unsubscribe' | 'fireGuildDeleted'>
+): void {
   registerWsHandler('ready', (evt) => {
     // Bughunt Runde 10: der Ablage-Kanal-Sitzungsstore speist sich nur aus
     // LIVE-WS-Ereignissen — verpasste (WS-Lücke) holt kein Replay nach.
@@ -102,7 +110,16 @@ export function register(ctx: ReadyContext): void {
         } as Guild;
       }
       for (const gid of Object.keys(guilds.byId)) {
-        if (!seen.has(gid)) guilds.remove(gid);
+        if (!seen.has(gid)) {
+          // Bughunt Runde 43: guilds.remove allein liess die WS-Subscriptions
+          // der Guild-Kanäle in `subs` stehen — jeder Reconnect schickte
+          // sie erneut (Server antwortet 403/404, error-Handler schluckt),
+          // gapFillAll feuerte je totem Kanal einen REST-Abruf, und der
+          // Nutzer sass in einer Geister-Ansicht ohne fireGuildDeleted.
+          // Derselbe Teardown wie beim LIVE-Ereignis guild_deleted.
+          if (hctx) teardownGuildLocally(gid, hctx);
+          else guilds.remove(gid);
+        }
       }
       guilds.loaded = true;
       // The role payload is part of the ready envelope, not REST, so it's

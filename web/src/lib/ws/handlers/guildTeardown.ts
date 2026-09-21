@@ -10,7 +10,12 @@ import type { HandlerContext } from './context';
  *  kicked-Pfad in `guild_member_removed` (members.ts). Raeumt WS-Subscriptions
  *  der Guild-Kanäle, deren Messages und den Sound-Slot ab — der kicked-Pfad
  *  räumte Sounds bisher nicht ab (Duplikat-Drift, hiermit gefixt). */
-export function teardownGuildLocally(guildId: string, ctx: HandlerContext): void {
+// Bughunt Runde 43: bewusst nur der tatsächlich genutzte Schnitt — der
+// Ready-Stale-Sweep ruft den Teardown mit einem Partial-Kontext an.
+export function teardownGuildLocally(
+  guildId: string,
+  ctx: Pick<HandlerContext, 'subs' | 'unsubscribe' | 'fireGuildDeleted'>
+): void {
   // Drop every WS subscription for channels in that guild — they're
   // gone server-side and would otherwise leak in `ctx.subs`. We walk
   // both `subs` *and* `channelsByGuild` because the former may contain
