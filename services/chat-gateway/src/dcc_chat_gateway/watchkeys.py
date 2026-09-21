@@ -232,11 +232,6 @@ async def read_parties(redis: Redis, channel_id: str) -> list[dict]:
     return out
 
 
-async def count_parties(redis: Redis, channel_id: str) -> int:
-    """Number of active parties in a channel (for the per-channel cap)."""
-    return int(await redis.hlen(WATCH_STATE_KEY.format(channel_id=channel_id)))
-
-
 async def read_states_for(redis: Redis, channel_ids: list[str]) -> list[dict]:
     """``[{"channel_id": ..., "party_id": ..., "state": {...}}, ...]`` for every
     active party across the given channels. Channels with no party are omitted.
@@ -277,6 +272,48 @@ async def write_party(redis: Redis, channel_id: str, state: dict) -> None:
             json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
         )
         await pipe.execute()
+
+
+# Bughunt Runde 42 (Entscheidung 4.7): HLEN-Guard + HSET + EXPIRE in EINEM
+# Lua-Skript — der count-then-write in ``handle_join`` war check-then-act:
+# zwei gleichzeitige watch_start lasen beide < cap und legten beide an. Das
+# Skript ist der Schiedsrichter (einzelner Redis-Thread, kein WATCH nötig);
+# das Publish bleibt in Python, weil die Snapshot-Marshalling-Logik dort
+# lebt und nur bei ERFOLG gepublished werden darf.
+_GEUERDELTES_HSET = """
+local n = redis.call('HLEN', KEYS[1])
+if n >= tonumber(ARGV[1]) then return 0 end
+redis.call('HSET', KEYS[1], ARGV[2], ARGV[3])
+redis.call('EXPIRE', KEYS[1], ARGV[4])
+return 1
+"""
+
+
+async def write_party_gedeckelt(
+    redis: Redis, channel_id: str, state: dict
+) -> bool:
+    """Wie :func:`write_party`, aber nur, wenn der Kanal noch Platz hat
+    (``MAX_PARTIES_PER_CHANNEL``). ``False`` = Kanal voll, NICHTS geschrieben
+    und NICHTS veröffentlicht — der Aufrufer antwortet dem Starter mit 4014."""
+    pid = str(state["party_id"])
+    key = WATCH_STATE_KEY.format(channel_id=channel_id)
+    erlaubt = await redis.eval(
+        _GEUERDELTES_HSET,
+        1,
+        key,
+        MAX_PARTIES_PER_CHANNEL,
+        pid,
+        json.dumps(state, separators=(",", ":")),
+        WATCH_TTL_SECONDS,
+    )
+    if not erlaubt:
+        return False
+    snapshot = WatchStateSnapshot(channel_id=str(channel_id), party_id=pid, state=state)
+    await redis.publish(
+        WATCH_EVENTS_CHANNEL,
+        json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
+    )
+    return True
 
 
 async def delete_party(redis: Redis, channel_id: str, party_id: str) -> None:

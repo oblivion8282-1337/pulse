@@ -135,10 +135,6 @@ async def handle_start(
     if redis is None:
         await _err(websocket, 4017, "watch service unavailable")
         return
-    # Per-channel cap: several parties may coexist, but not unboundedly.
-    if await watchkeys.count_parties(redis, cid) >= watchkeys.MAX_PARTIES_PER_CHANNEL:
-        await _err(websocket, 4014, "too many watch parties in this channel")
-        return
     pid = str(next_id())
     ts = watchkeys.now_ms()
     state = {
@@ -154,7 +150,14 @@ async def handle_start(
         # ones that belong to a since-replaced clip.
         "source_epoch": 0,
     }
-    await watchkeys.write_party(redis, cid, state)
+    # Per-channel cap ATOMAR (Bughunt Runde 42, Entscheidung 4.7): vorher las
+    # handle_start den HLEN-Stand und schrieb danach — zwei gleichzeitige
+    # starts an einem vollen Kanal rissen beide die Prüfung und legten beide
+    # an. ``write_party_gedeckelt`` prüft und schreibt in einem Lua-Lauf;
+    # ``False`` heißt: voll, nichts angelegt.
+    if not await watchkeys.write_party_gedeckelt(redis, cid, state):
+        await _err(websocket, 4014, "too many watch parties in this channel")
+        return
     hosted_parties.add((cid, pid))
     # Ack the freshly-minted party id back to the host so its client can open
     # the tile (the broadcast that write_party fires doesn't say "this one is

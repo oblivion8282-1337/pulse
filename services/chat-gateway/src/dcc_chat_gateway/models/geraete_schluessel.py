@@ -26,6 +26,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -116,6 +117,23 @@ class DeviceKeyBundle(Base):
         # user_id und koennen eine reine device_pubkey-Suche nicht
         # bedienen (Migration 0070).
         Index("ix_device_key_bundles_pubkey", "device_pubkey"),
+        # Bughunt Runde 42 (Entscheidung 4.6): ein LIVE device_pubkey gehört
+        # genau EINEM Konto — über alle Konten hinweg. Der check-then-insert
+        # im PUT (``geraet_gehoert_fremdem_konto`` → 409) hatte ein
+        # Wettlauf-Fenster: zwei Konten konnten denselben Pubkey im selben
+        # Augenblick erstveröffentlichen, ``_bundle_laden`` fand dann zwei
+        # Zeilen (MultipleResultsFound → 500 für jede Einlieferung im
+        # Gespräch). Der partielle Unique-Index ist die DB-seitige
+        # Rückfallebung; die Route fängt den Verstoß als 409. Grabsteine
+        # (verfallen/entfernt) zählen nicht — die verwaisten Kennungen
+        # blockerieren keine Neuanlage.
+        Index(
+            "uq_device_key_bundles_pubkey_live",
+            "device_pubkey",
+            unique=True,
+            postgresql_where=text("verfallen_am IS NULL AND entfernt_am IS NULL"),
+            sqlite_where=text("verfallen_am IS NULL AND entfernt_am IS NULL"),
+        ),
     )
 
 
