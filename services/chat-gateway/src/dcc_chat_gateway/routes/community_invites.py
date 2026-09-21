@@ -37,6 +37,7 @@ from dcc_chat_gateway.friend_events import publish_friend_event
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
 from dcc_chat_gateway.invite_host import fremder_host
 from dcc_chat_gateway.models import CommunityInviteNotification, GuildMember
+from dcc_chat_gateway.push import fan_out_community_invite_push
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import CloudOnly
 from dcc_chat_gateway.routes.member_invites import _to_out
@@ -175,6 +176,16 @@ async def create_community_invite(
         target_user_id=payload.invitee_id,
         op="community_invite_received",
         data=_to_out(zeile, payload.target_guild_name).model_dump(mode="json"),
+    )
+
+    # Entscheidung 2d (2026-09-21): geschlossen-browser Empfänger bekommen
+    # die Einladung jetzt auch als Push (dieselbe Postur wie die
+    # Freundschaftsanfrage); offline holt der ready-Rahmen unverändert nach.
+    await fan_out_community_invite_push(
+        recipient_id=payload.invitee_id,
+        inviter_name=current.username,
+        guild_name=payload.target_guild_name,
+        guild_id=payload.target_guild_id,
     )
 
     return CommunityInviteOut(

@@ -40,6 +40,7 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.models.moderation import CachedUserProfile
 from dcc_chat_gateway.permissions import check_permission
+from dcc_chat_gateway.push import fan_out_community_invite_push
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import CloudOnly
 from dcc_chat_gateway.routes.invites import _join_guild
@@ -218,6 +219,16 @@ async def create_member_invite(
     session.add(row)
     await session.commit()
     await session.refresh(row)
+
+    # Entscheidung 2d (2026-09-21): Push zur Einladung — dieselbe Postur
+    # wie die Freundschaftsanfrage (geschlossener Browser bekommt eine
+    # Systemmeldung, online reicht das WS-Ereignis).
+    await fan_out_community_invite_push(
+        recipient_id=invitee_id,
+        inviter_name=current.username,
+        guild_name=guild.name,
+        guild_id=guild_id,
+    )
 
     out = _to_out(row, guild.name)
     # Direct-Delivery an den Empfänger — gleiche Schiene wie
