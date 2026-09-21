@@ -233,8 +233,13 @@ async def delete_channel(
     channel = await session.get(Channel, channel_id)
     if channel is None:
         raise HTTPException(404, detail="channel not found")
+    # Bughunt Runde 49: kanalskopiert — ohne channel_id zählte nur der
+    # Guild-Scope, ein kanalweiser User-Deny (legal setzbar) war dekorativ,
+    # und ein reiner Kanal-Allow verfehlte die Route. Gleiches Bit, gleicher
+    # Scope wie im ws_watch/guest_links-Pfad.
     await check_permission(
-        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS
+        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS,
+        channel_id=channel_id,
     )
     guild_id = channel.guild_id
     channel_is_voice = channel.type == CHANNEL_TYPE_VOICE
@@ -341,8 +346,10 @@ async def patch_channel(
     channel = await session.get(Channel, channel_id)
     if channel is None:
         raise HTTPException(404, detail="channel not found")
+    # Kanalskopiert, s. delete_channel (Bughunt Runde 49).
     await check_permission(
-        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS
+        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS,
+        channel_id=channel_id,
     )
     if payload.name is not None:
         # Display-string sink: validate_name is the same hardening
@@ -400,9 +407,14 @@ async def update_channel_positions(
     ``channel_updated`` per channel so every connected member re-sorts — the
     frontend already handles that op, so no new event type is introduced.
     """
-    await check_permission(session, current, guild_id, Permissions.MANAGE_CHANNELS)
-
+    # Bughunt Runde 49: kanalskopiert je betroffenem Kanal (ein Reorder
+    # fasst mehrere Kanäle an; ein kanalweiser Deny auf EINEM von ihnen
+    # muss die Ordnungsänderung für ihn verweigern).
     channel_ids = [p.id for p in payload.positions]
+    for cid in channel_ids:
+        await check_permission(
+            session, current, guild_id, Permissions.MANAGE_CHANNELS, channel_id=cid
+        )
     stmt = select(Channel).where(
         Channel.guild_id == guild_id, Channel.id.in_(channel_ids)
     )

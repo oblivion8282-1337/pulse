@@ -76,6 +76,12 @@ class RoleStore {
     this.byGuild = nextRoles;
     this.myRoleIds = nextMy;
     this.myGuildPerms = nextPerms;
+    // Bughunt Runde 49: die Snapshot-Caches der berührten Guilds verwerfen
+    // — seedFromReady lief sonst an `_snapshotsCache` vorbei, und nach
+    // einem Reconnect arbeiteten Voice/Stream/Remote-Buttons weiter mit
+    // den PRÄ-DISCONNECT-Rollen-Snapshots (Knopf sichtbar, Server 403 —
+    // oder umgekehrt), obwohl `myGuildPerms` frisch war.
+    for (const e of entries) this._snapshotsCache.delete(e.id);
   }
 
   upsertRole(role: Role): void {
@@ -253,6 +259,20 @@ class RoleStore {
       }
     }
     return best;
+  }
+
+  /** Bughunt Runde 49: Guild-Teardown (Kick/Guild-Delete) — vorher
+   *  behielt der Store Rollen, myRoleIds, Permissions und Snapshot-Cache
+   *  der toten Guild; hasGuildPermission(toteGuildId, X) blieb true bis
+   *  zum Reload. */
+  removeGuild(guildId: string): void {
+    const roleIds = (this.byGuild[guildId] ?? []).map((r) => r.id);
+    for (const id of roleIds) this.roleIdMap.delete(id);
+    delete this.byGuild[guildId];
+    delete this.myRoleIds[guildId];
+    delete this.myGuildPerms[guildId];
+    this._permBigInt.delete(guildId);
+    this._snapshotsCache.delete(guildId);
   }
 
   clear(): void {

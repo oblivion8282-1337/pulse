@@ -1,4 +1,5 @@
 import { guilds } from '$lib/stores/guilds.svelte';
+import { roles } from '$lib/stores/roles.svelte';
 import { joinedInvites } from '$lib/stores/joinedInvites.svelte';
 import { messages } from '$lib/stores/messages.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
@@ -36,6 +37,9 @@ export function teardownGuildLocally(
   }
   guilds.remove(guildId);
   guildSounds.remove(guildId);
+  // Bughunt Runde 49: Rollen-/Rechte-Restposten der toten Guild — sonst
+  // blieb hasGuildPermission(gekickteGuildId, …) bis zum Reload true.
+  roles.removeGuild(guildId);
   // Bughunt Runde 4: die Join-Marker dieser Community mit — sonst zeigt
   // die Einladungs-Karte dem Ausgetretenen dauerhaft „Beigetreten".
   joinedInvites.entfernenFuerGuild(guildId);

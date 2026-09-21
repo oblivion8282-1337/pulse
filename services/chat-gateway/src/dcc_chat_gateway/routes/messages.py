@@ -635,6 +635,17 @@ async def delete_message(
         )
         if not has_permission(perms, Permissions.MANAGE_MESSAGES):
             raise HTTPException(403, detail="not allowed to delete this message")
+    elif kind != "dm":
+        # Bughunt Runde 49: Membership allein reicht nicht — ein per
+        # Channel-Overwrite ausgeschlossenes Mitglied (deny VIEW_CHANNEL)
+        # konnte sonst seine ALTEN Nachrichten hier hart löschen und dabei
+        # die Anhänge-Bytes mitwerfen (Beweis-/Datenvernichtung in einem
+        # Kanal, den es nicht einmal betreten darf).
+        perms = await resolve_permissions(
+            session, current, ch.guild_id, channel_id=ch.id
+        )
+        if not has_permission(perms, Permissions.VIEW_CHANNEL):
+            raise HTTPException(403, detail="not allowed to delete this message")
 
     msg.deleted_at = datetime.now(UTC)
     # Gelöschte Nachricht löst ihren Pin — die Pin-Liste filtert zwar nach
