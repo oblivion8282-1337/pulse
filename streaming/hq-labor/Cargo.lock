@@ -1789,23 +1789,9 @@ name = "pulse-hq-labor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "ashpd",
- "bytes",
- "drm-fourcc",
- "ffmpeg-next",
- "libc",
- "libloading",
- "libspa",
- "pipewire",
  "pulse-linux-hq-sidecar",
- "reqwest",
- "rtcp",
- "serde",
  "serde_json",
- "tokio",
  "tracing",
- "tracing-subscriber",
- "webrtc",
 ]
 
 [[package]]
@@ -1819,7 +1805,6 @@ dependencies = [
  "ffmpeg-next",
  "libc",
  "libloading",
- "libspa",
  "pipewire",
  "pulse-bildmarke",
  "pulse-redact",

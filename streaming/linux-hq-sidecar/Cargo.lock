@@ -1811,7 +1811,6 @@ dependencies = [
  "ffmpeg-next",
  "libc",
  "libloading",
- "libspa",
  "pipewire",
  "pulse-bildmarke",
  "pulse-redact",

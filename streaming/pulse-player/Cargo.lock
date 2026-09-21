@@ -3203,7 +3203,6 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
- "thiserror 2.0.19",
  "tokio",
  "wayland-backend",
  "wayland-client",

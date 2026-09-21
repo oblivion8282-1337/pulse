@@ -54,7 +54,6 @@ impl Response {
 /// Variant names match the Linux sidecar's `ev` field exactly.
 #[derive(Debug, Serialize)]
 #[serde(tag = "ev", rename_all = "snake_case")]
-#[allow(dead_code)]
 pub enum Event {
     /// `uptime_s`/`fps` als Ints — Parität zu control.py (der Renderer rendert
     /// die Werte direkt; Floats ergäben „59.94000000004 fps" in der UI).
@@ -79,7 +78,6 @@ pub enum Event {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
 pub enum StreamState {
     Idle,
     Starting,

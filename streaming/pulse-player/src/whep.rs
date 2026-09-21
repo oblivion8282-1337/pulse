@@ -110,8 +110,7 @@ pub struct RtpArrival {
     /// RTP-Zeitstempel in Wanduhrzeit umzurechnen. Wird erst mit der
     /// Tonausgabe gebraucht (A/V-Synchronisierung), steht aber schon hier,
     /// weil nur der Track sie kennt.
-    #[allow(dead_code)]
-    pub clock_rate: u32,
+        pub clock_rate: u32,
     pub packet: webrtc::rtp::packet::Packet,
     /// Ankunftszeitpunkt, Grundlage fuer die Puffer-Freigabe.
     pub arrived: Instant,

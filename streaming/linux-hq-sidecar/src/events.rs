@@ -23,7 +23,6 @@ pub fn init(tx: Sender<Value>) {
 
 /// Send an event to the stdout writer thread. Non-blocking; dropped on
 /// disconnect (e.g. the writer thread already exited).
-#[allow(dead_code)]
 pub fn emit(event: Value) {
     if let Some(m) = EMITTER.get() {
         if let Ok(guard) = m.lock() {
