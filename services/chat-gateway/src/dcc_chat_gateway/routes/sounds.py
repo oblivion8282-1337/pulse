@@ -206,6 +206,14 @@ async def upload_sound(
     try:
         await s3.put_object(key, body=raw, content_type=file.content_type)
     except Exception:
+        # Bughunt Runde 37: der Temp-Key wurde vorher nur am ERFOLGSweg
+        # abgeworfen — jedes fehlgeschlagene Überschreiben hinterließ ein
+        # ≤5-MB-Orphan, ein Retry-Ausbruch füllte den Bucket. Best effort:
+        # schlägt auch das Aufräumen fehl, bleibt es beim einmaligen Orphan.
+        try:
+            await s3.delete_object(temp_key)
+        except Exception:  # noqa: BLE001
+            log.warning("sound temp cleanup failed", sound_id=sound_id)
         if ist_erstupload:
             await session.rollback()
             await session.execute(
@@ -218,7 +226,6 @@ async def upload_sound(
         raise
     await s3.delete_object(temp_key)
     await session.refresh(existing)
-
     await _publish_sound_event(request, guild_id, sound_id, removed=False)
     log.info(
         "guild_sound_uploaded",

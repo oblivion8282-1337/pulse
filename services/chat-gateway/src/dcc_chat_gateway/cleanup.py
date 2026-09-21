@@ -38,10 +38,12 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from dcc_chat_gateway import s3
 from dcc_chat_gateway.ablage_zwischenlager_pflege import sweep_alte_zwischenlager_dateien
 from dcc_chat_gateway.config import Settings
 from dcc_chat_gateway.models import CommunityInviteNotification, WebPushSubscription
 from dcc_chat_gateway.kopplung_pflege import sweep_verfallene_kopplungen
+from dcc_chat_gateway.routes.ablage_pulse import sweep_stehengebliebene_ankuendigungen
 from dcc_chat_gateway.postfach_pflege import (
     sweep_abgelaufene_anhaenge,
     sweep_verfallene_zustellungen,
@@ -142,6 +144,18 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
     async with session_factory() as session:
         einladungen = await sweep_abgelaufene_einladungen(session)
     log.info("einladungen_verfall_done abgelaufen=%d", einladungen)
+
+    # Steckengebliebene Pulse-Laufwerk-Ankündigungen (Bughunt Runde 37) —
+    # sie blockieren in der Reservierungsbilanz der Quota, also müssen sie
+    # zeitig weg. Bytes erst nach dem Commit (selbe Invariante wie oben).
+    async with session_factory() as session:
+        ankuendigungen, s3_keys = await sweep_stehengebliebene_ankuendigungen(session)
+    for key in s3_keys:
+        try:
+            await s3.delete_object(key)
+        except Exception:  # noqa: BLE001 — best effort, s. Reaper-Vorbild
+            log.warning("ablage_pulse_ankuendigung_purge_fehlgeschlagen")
+    log.info("ablage_pulse_pflege_done ankuendigungen=%d", ankuendigungen)
 
     return deleted
 

@@ -141,10 +141,13 @@ async def delete_icon(
     )
 
     path = _icon_path(guild.id)
-    if path.exists():
-        path.unlink()
     guild.icon_url = None
     await session.commit()
+    # Unlink erst NACH dem Commit (Bughunt Runde 37, Spiegel zum Upload-Dort:
+    # Temp+Rename-nach-Commit) — schlug der Commit fehl, zeigte icon_url
+    # weiter auf bereits geloeschte Bytes.
+    if path.exists():
+        path.unlink()
     await _publish_guild_event(
         request, GuildUpdatedEvent(guild=_guild_dict(guild))
     )

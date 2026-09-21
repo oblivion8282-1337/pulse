@@ -379,12 +379,12 @@ async def _purge_db(
 
     # 9c-2. Community-Dateiablage (Etappe E8) — eigene, noch nicht gefestigte
     # Zwischenlager-Uploads. S. Modul-Docstring von ``user_purge_ablage.py``.
-    await purge_ablage_zwischenlager(session, user_id)
+    result.deferred_s3.extend(await purge_ablage_zwischenlager(session, user_id))
     await purge_ablage_konto_laufwerk(session, user_id)
 
     # 9c-3. Pulse-Laufwerk (2026-09-11) — gemietete Chiffrat-Klumpen des
     # Kontos, s. Modul-Docstring von ``user_purge_ablage.py``.
-    await purge_ablage_pulse_objekte(session, user_id)
+    result.deferred_s3.extend(await purge_ablage_pulse_objekte(session, user_id))
 
     # 9d. Geraete-Kopplung + Verlaufsumzug (Etappe F) — Bughunt 2026-08-29
     # (Runde 6, Befund 5): s. Modul-Docstring von ``user_purge_kopplung.py``.

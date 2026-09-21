@@ -20,14 +20,17 @@ presigned PUT direkt ab. Fuenf Routen:
   „Was hier NICHT geprueft wird: der Inhalt").
 
 **Kein Zwischenlager, keine Quittung:** das PUT selbst ist die Ablage. Der
-Zustand ``angekündigt`` existiert nur, damit eine nie hochgeladene
-Ankündigung nicht als genutzter Platz im Kontingent steht — hochgezählt wird
-nur, was der Klient als gelungen meldete.
+Zustand ``angekündigt`` existiert nur als Reservierungsmarke: seit Bughunt
+Runde 37 zaehlt die Quota JEDE Angekündigung mit (sonst war sie in der
+Reserve-Phase ein No-Op — der Bucket fuellte sich ungebremst); eine nie
+hochgeladene Angekündigung räumt
+``sweep_stehengebliebene_ankuendigungen`` weg, bevor sie Platz blockiert.
 """
 
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
@@ -85,10 +88,18 @@ async def _laufwerk_oder_404(session: AsyncSession, guild_id: int) -> AblagePuls
 
 
 async def _genutzte_bytes(session: AsyncSession, guild_id: int) -> int:
+    # Bughunt Runde 37: ANGKUENDIGTE Objekte (zustand=0) zaehlen mit —
+    # vorher war die Quota ein No-Op fuer die Reserve-Phase: beliebige
+    # Ankündigungen passierten die Pruefung (belegt wuchs nie), dann PUTete
+    # der Kunde die Blobs ungebremst in den Bucket. Reservierungsbilanz wie
+    # im Zwischenlager (``_belegte_bytes`` dort ohne zustand-Filter); drei
+    # Steuerungen halten die Bilanz ehrlich: die Presignatur nagelt die
+    # Groesse je Ankündigung, steckengebliebene Ankündigungen räumt
+    # ``sweep_stehengebliebene_ankuendigungen`` ab, und Loeschen senkt die
+    # Bilanz sofort.
     summe = await session.execute(
         select(func.coalesce(func.sum(AblagePulseObjekt.groesse), 0)).where(
             AblagePulseObjekt.guild_id == guild_id,
-            AblagePulseObjekt.zustand == 1,
         )
     )
     return int(summe.scalar_one())
@@ -376,3 +387,39 @@ async def loesche_datei(
     await session.commit()
     await s3.delete_object(objekt.storage_key)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# Ankündigungen, die seit einem Tag auf zustand=0 kleben: die Presignatur
+# ist laengst verfallen (Minuten), der Klient kam nicht wieder. Sie haben
+# ihren Platz in der Reservierungsbilanz blockiert — hier wird geräumt.
+# (ponytail-Festwert statt Einstellung: eine Nachfolger-Einstellung wuerde
+# hier nichts uebernehmen, was der Presignatur-TTL nicht ohnehin vorgibt.)
+_ANKUENDIGUNG_MAX_ALTER = timedelta(days=1)
+
+
+async def sweep_stehengebliebene_ankuendigungen(
+    session: AsyncSession,
+) -> tuple[int, list[str]]:
+    """Loescht veraltete zustand=0-Ankündigungen; gibt ``(Anzahl, S3-Keys)``
+    zurueck und committet selbst — derselbe Zeilen-dann-Bytes-Schnitt wie
+    ``ablage_zwischenlager_pflege.sweep_alte_zwischenlager_dateien`` (Bughunt
+    Runde 37: die Reservierungsbilanz der Quota ist nur ehrlich, wenn
+    steckengebliebene Ankündigungen ihren Platz wieder freigeben)."""
+    grenze = datetime.now(UTC) - _ANKUENDIGUNG_MAX_ALTER
+    zeilen = (
+        await session.execute(
+            select(AblagePulseObjekt.id, AblagePulseObjekt.storage_key).where(
+                AblagePulseObjekt.zustand == 0,
+                AblagePulseObjekt.created_at < grenze,
+            )
+        )
+    ).all()
+    if not zeilen:
+        return 0, []
+    await session.execute(
+        sa_delete(AblagePulseObjekt).where(
+            AblagePulseObjekt.id.in_([z.id for z in zeilen])
+        )
+    )
+    await session.commit()
+    return len(zeilen), [z.storage_key for z in zeilen]
