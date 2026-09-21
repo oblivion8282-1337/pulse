@@ -87,10 +87,6 @@
     url.searchParams.set('tab', key);
     await goto(url.pathname + url.search, { replaceState: true, keepFocus: true });
   }
-
-
-
-
 </script>
 
 <GuildRail

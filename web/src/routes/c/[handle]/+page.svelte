@@ -11,7 +11,7 @@
                login flow joins automatically afterwards.
 -->
 <script lang="ts">
-import { errText } from '$lib/utils/errText';
+  import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { page } from '$app/state';

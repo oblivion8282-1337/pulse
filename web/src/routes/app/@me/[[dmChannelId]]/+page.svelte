@@ -103,7 +103,6 @@
     };
   });
 
-
   // Umschalten zwischen Gespraechen (Laden, Abonnieren, Nachhol-Bestellungen)
   // ausgelagert — s. `chat/dmKanalWechsel.svelte.ts`.
   const kanalWechsel = erstelleDmKanalWechsel(cloudRoute);
