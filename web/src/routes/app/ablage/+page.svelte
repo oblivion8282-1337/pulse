@@ -96,6 +96,11 @@
     const bekommen = params.get('state');
     if (!erwartet || bekommen !== erwartet) {
       fehler = 'Verbindung abgelehnt: Ungültiger OAuth-Status — bitte erneut verbinden.';
+      // Derselbe Hygiene-Schnitt wie im Fehler-Zweig darüber (Bughunt Runde
+      // 38): ein abgelehnter Callback darf die Einmal-Values nicht im Tab
+      // zurücklassen, sonst bliebe der echte Callback danach noch tauschbar.
+      sessionStorage.removeItem('ablage_pkce_verifier');
+      sessionStorage.removeItem('ablage_oauth_state');
       return;
     }
 
@@ -103,7 +108,6 @@
     const anbindung: DropboxAnbindung = { kundenId: DROPBOX_KEY };
     tauscheCodeAus(anbindung, code, { pruefer: verifier, herausforderung: '' })
       .then((zugang) => {
-        sessionStorage.setItem('ablage_dropbox_token', zugang.zugangsToken);
         dropboxVerbinden(zugang.zugangsToken);
       })
       .catch((e) => {

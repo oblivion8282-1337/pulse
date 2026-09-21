@@ -31,9 +31,26 @@ function starteZuhörer(): Promise<number> {
     const zuhörer = http.createServer((anfrage, antwort) => {
       const adresse = new URL(anfrage.url ?? '/', 'http://127.0.0.1');
       antwort.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      // Bughunt Runde 38: ein Fehler-Callback (Zustimmung verweigert) renderte
+      // vorher die Erfolgsmeldung — der echte Grund steht erst in der
+      // Einstellungssektion, der Tab behauptete das Gegenteil. Der Fehlerwert
+      // wird HTML-escaped: JEDER lokale Prozess kann diese URL mit beliebigen
+      // Parametern aufrufen, auch wenn der state den Wartenden-Zweig nie
+      // erreicht.
+      const fehler = adresse.searchParams.get('error');
+      const escapet = (roh: string): string =>
+        roh
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
       antwort.end(
         '<html><body style="font-family: sans-serif; text-align: center; padding-top: 4em">' +
-          '<h2>Google verbunden</h2><p>Dieses Fenster kannst du schließen und in Pulse weitermachen.</p>' +
+          (fehler !== null
+            ? `<h2>Verbindung abgelehnt</h2><p>Google meldete: ${escapet(fehler)}</p>` +
+              '<p>Fenster schließen und in Pulse erneut verbinden.</p>'
+            : '<h2>Google verbunden</h2><p>Dieses Fenster kannst du schließen und in Pulse weitermachen.</p>') +
           '</body></html>',
       );
       // Security-Scan 2026-09-18: Nur eine Rückgabe mit ERWARTETEM state
