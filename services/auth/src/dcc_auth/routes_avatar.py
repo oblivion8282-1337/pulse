@@ -10,7 +10,7 @@ import secrets
 from pathlib import Path
 
 import dcc_auth.config as _config
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status, Request
 from fastapi.responses import FileResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -79,6 +79,7 @@ def _by_hash_dir() -> Path:
 @router.post("/me/avatar", response_model=UserPublic)
 async def upload_avatar(
     file: UploadFile,
+    request: Request,
     session: SessionDep,
     current: User = Depends(_get_current_user),
 ):
@@ -119,7 +120,7 @@ async def upload_avatar(
     # ohne Invalidierung spielten die Caches (bis zu 24 h) das ALTE Bild auf
     # jedem Self-Host weiter aus. Derselbe Ruf wie bei update_profile/
     # change_username.
-    _invalidate_statement_cache(current.id)
+    await _invalidate_statement_cache(request, current.id)
     session.add(current)
     await session.commit()
     dest_tmp.replace(dest)
@@ -131,6 +132,7 @@ async def upload_avatar(
 
 @router.delete("/me/avatar", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_avatar(
+    request: Request,
     session: SessionDep,
     current: User = Depends(_get_current_user),
 ):
@@ -146,7 +148,7 @@ async def delete_avatar(
     current.avatar_hash = None
     # Siehe upload_avatar: Statement-Cache fällt lassen, sonst hängt das
     # gelöschte Bild bis zu 24 h in den Mitgliederlisten.
-    _invalidate_statement_cache(current.id)
+    await _invalidate_statement_cache(request, current.id)
     session.add(current)
     await session.commit()
 

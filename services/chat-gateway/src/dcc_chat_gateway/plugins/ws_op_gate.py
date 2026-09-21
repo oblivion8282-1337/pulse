@@ -270,13 +270,11 @@ async def check_plugin_op_gate(
 
     if plugin_name not in allowlist:
         # Generisches "unknown op" als TEXT — keine Rückschlüsse auf den
-        # Plugin-Namen. RESIDUALES Leck, bewusst (Bughunt 2026-09-20, Runde 2):
-        # der CLOSE-CODE unterscheidet sich vom "nicht-aktiviert"-Fall unten
-        # (4040 vs 4043) — wer probet, kann daraus "installiert vs. fremd"
-        # lesen. Die Trennung bleibt: sie ist das Debug-Signal für
-        # Plugin-Autoren und Admins (Allowlist- vs. Toggle-Problem), der
-        # Gate ist als weiche Sandbox deklariert und kein Anti-Enumerations-
-        # Versprechen wert. Kein Client liest die Codes unterscheidend.
+        # Plugin-Namen. Entscheidung 2.4 (2026-09-21): Allowlist-Miss und
+        # Guild-Toggle-Miss liefern jetzt DEISELBENben Code (4040) — vorher
+        # (4040 vs 4043) liess sich probierend "installiert vs. fremd"
+        # unterscheiden. Das Debug-Signal für Plugin-Autoren wandert in die
+        # Server-Logs, nicht auf die Leitung.
         return GateDecision(
             allowed=False,
             error_code=WS_CODE_PLUGIN_NOT_ALLOWED,
@@ -303,12 +301,11 @@ async def check_plugin_op_gate(
         )
 
     if not await is_plugin_enabled_for_guild(session, guild_id, plugin_name):
-        # Gleicher generischer Text wie der Allowlist-Miss — aber bewusst
-        # ein ANDERER Code (4043 vs 4040, s. Kommentar oben): Debug-Signal
-        # statt Anti-Enumerations-Versprechen.
+        # Gleicher Code + Text wie der Allowlist-Miss (Entscheidung 2.4,
+        # 2026-09-21) — kein "installiert vs. fremd"-Orakel mehr.
         return GateDecision(
             allowed=False,
-            error_code=WS_CODE_PLUGIN_NOT_ENABLED,
+            error_code=WS_CODE_PLUGIN_NOT_ALLOWED,
             error_msg="unknown op",
         )
 

@@ -140,6 +140,18 @@ class ReportNewEvent(_EventBase):
     reason_code: Literal["spam", "harassment", "illegal", "csam", "other"]
 
 
+class ReportClosedEvent(_EventBase):
+    """A moderation report left the open queue (resolved or dismissed) —
+    delivered to the guild's moderators like ``report_new`` so their
+    open-reports badge decrements live instead of lagging until reconnect
+    (Bughunt-Entscheidung 2d, 2026-09-21). NO PII (just ids); triage does
+    NOT fire this — the badge counts ``new + triaged``."""
+
+    op: Literal["report_closed"] = "report_closed"
+    guild_id: str
+    report_id: str
+
+
 class ComplaintNewEvent(_EventBase):
     """A new operator complaint (abuse report) arrived — delivered direct to
     platform admins (via ``user:events``) so their inbox badge + open list

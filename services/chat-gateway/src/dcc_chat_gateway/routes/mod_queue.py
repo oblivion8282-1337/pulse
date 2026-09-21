@@ -400,6 +400,16 @@ async def resolve_report(
     )
     await session.commit()
     await session.refresh(report)
+    # Entscheidung 2d (2026-09-21): −1 live an alle Mods — vorher zählte
+    # ihr Badge die geschlossene Meldung bis zum Reconnect weiter.
+    manager = getattr(request.app.state, "connection_manager", None)
+    if manager is not None:
+        from dcc_shared.events import ReportClosedEvent
+
+        for gid in await guilds_for_report(session, report):
+            await manager.publish_guild_event(
+                ReportClosedEvent(guild_id=str(gid), report_id=str(report.id))
+            )
     return _report_to_out(report)
 
 

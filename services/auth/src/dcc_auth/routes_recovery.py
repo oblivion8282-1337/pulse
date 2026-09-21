@@ -35,7 +35,12 @@ from dcc_auth.models import (
     User,
 )
 from dcc_auth.recovery import generate_token, verify_token
-from dcc_auth.routes import _check_account_rate, _check_rate, _get_current_user
+from dcc_auth.routes import (
+    _check_account_rate,
+    _check_rate,
+    _get_current_user,
+    verify_dummy_password,
+)
 from dcc_auth.schemas import (
     EmailVerifyConfirmIn,
     MessageOut,
@@ -105,6 +110,14 @@ async def password_forgot(
 
     if user is None or user.disabled or user.is_suspended:
         # Enumeration guard: same 204 either way + don't issue a token.
+        # Bughunt-Entscheidung 4.4 (2026-09-21): der Treffer-Pfad kostet
+        # UPDATE+INSERT+Commit (fsync) plus SMTP-Auflösung — das ~ms-Delta
+        # gegen diesen sonst leeren Miss-Pfad war messbar. Ein Dummy-Argon2
+        # (Muster aus /login, ~150 ms) frisst das Delta; passender Fehl-
+        # Argon2 kostet in etwa einen echten Hash-Verify.
+        import asyncio  # noqa: PLC0415
+
+        await asyncio.to_thread(verify_dummy_password, "equalizer")
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     now = datetime.now(UTC)

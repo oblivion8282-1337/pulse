@@ -520,7 +520,19 @@ async def login(
         )
 
     needle = payload.email_or_username.strip()
-    stmt = select(User).where(or_(User.email == needle.lower(), User.username == needle))
+    # Bughunt-Entscheidung 4.11a (2026-09-21): Username-Fall insensitive —
+    # die Registrierung reserviert case-insensitiv (LOWER-Index, Migration
+    # 0053), der Login war aber exakt: "Michael" konnte sich nicht einloggen,
+    # nachdem er "michael" getippt hatte. Der lower()-Vergleich bedient
+    # sich des eindeutigen lower()-Index (0053) und des text_pattern-Index
+    # (0024); DB-kollidierende Fall-Varianten kann es seit 0053 nicht mehr
+    # geben, scalar_one ist damit sicher.
+    stmt = select(User).where(
+        or_(
+            User.email == needle.lower(),
+            func.lower(User.username) == needle.lower(),
+        )
+    )
     user = (await session.execute(stmt)).scalar_one_or_none()
     # Run argon2 verification off the event loop (same reasoning as register).
     # For a non-existent user, run a dummy verify of equal cost so the response

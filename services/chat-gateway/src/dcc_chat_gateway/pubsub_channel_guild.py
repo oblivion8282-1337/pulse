@@ -201,7 +201,9 @@ async def handle_guild_events(
     # ``report_new`` was pre-narrowed to guild members by
     # _filter_targets_by_guild above; narrow further to the guild's
     # moderators so a plain member can't learn a report exists.
-    elif op == "report_new":
+    elif op in ("report_new", "report_closed"):
+        # report_closed (Entscheidung 2d): dieselbe Mod-Narrowing wie
+        # report_new — eine geschlossene Meldung ist ebenso Mod-Wissen.
         targets = await manager._filter_by_moderator(
             targets, str(payload.get("guild_id", ""))
         )
