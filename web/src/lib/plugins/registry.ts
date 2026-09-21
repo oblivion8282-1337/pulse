@@ -259,10 +259,6 @@ export async function deactivatePlugin(name: string): Promise<PluginRecord> {
 
 /** Test/dev helper. The registry exports the same shape the backend uses;
  *  no production path resets at runtime. */
-export function _resetPluginRegistry(): void {
-  records.clear();
-  activating.clear();
-}
 
 // Re-export so plugin modules can `import { registerSettingsSection } from
 // '$lib/plugins'` without reaching into the settings-registry barrel

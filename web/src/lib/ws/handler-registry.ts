@@ -52,6 +52,3 @@ export function listWsHandlers(): string[] {
 
 /** Test/dev helper — wipes the registry. NOT exported via the barrel; the
  *  production code path never resets at runtime. */
-export function _resetWsHandlers(): void {
-  handlers.clear();
-}

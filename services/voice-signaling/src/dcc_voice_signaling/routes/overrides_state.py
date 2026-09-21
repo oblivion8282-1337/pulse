@@ -23,14 +23,11 @@ _OVERRIDE_TTL_SECONDS = 24 * 3600
 # entry from a removed permission auto-expires before causing harm.
 _SOURCE_CACHE_TTL_SECONDS = 6 * 3600
 
-
 def _override_key(channel_id: str, user_id: str) -> str:
     return f"voice:override:channel-{channel_id}:user-{user_id}"
 
-
 def _sources_key(channel_id: str, user_id: str) -> str:
     return f"voice:user_sources:channel-{channel_id}:user-{user_id}"
-
 
 async def _save_user_sources(
     redis: Redis | None, channel_id: str, user_id: str, sources: list[str]
@@ -49,7 +46,6 @@ async def _save_user_sources(
         )
     except Exception:  # noqa: BLE001
         log.warning("voice source-cache write failed", exc_info=True)
-
 
 async def _load_user_sources(
     redis: Redis | None, channel_id: str, user_id: str
@@ -73,7 +69,6 @@ async def _load_user_sources(
     except json.JSONDecodeError:
         return None
 
-
 async def _load_override(redis: Redis | None, channel_id: str, user_id: str) -> dict:
     """Return the current override state for (channel, user) or ``{}``.
 
@@ -96,11 +91,8 @@ async def _load_override(redis: Redis | None, channel_id: str, user_id: str) -> 
     except json.JSONDecodeError:
         return {}
 
-
-
 async def _clear_override(redis: Redis, channel_id: str, user_id: str) -> None:
     await redis.delete(_override_key(channel_id, user_id))
-
 
 # Entscheidung 2.3 (2026-09-21): Read-Merge-Write war auf drei Redis-Runden
 # verteilt — zwei parallele Admin-Patches auf denselben Nutzer konnten sich
@@ -128,7 +120,6 @@ end
 return {state.muted and 1 or 0, state.deafened and 1 or 0}
 """
 
-
 async def _apply_override_patch(
     redis: Redis,
     channel_id: str,
@@ -150,7 +141,6 @@ async def _apply_override_patch(
         ttl_seconds,
     )
     return {"muted": bool(ergebnis[0]), "deafened": bool(ergebnis[1])}
-
 
 def _apply_override(sources: list[str], can_publish: bool, override: dict) -> tuple[bool, list[str]]:
     """Strip override-blocked sources from the publish-list.

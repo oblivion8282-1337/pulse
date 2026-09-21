@@ -62,7 +62,7 @@ _REPORTER_RESOLVED_DM = (
 
 
 def _check_internal_secret(provided: str | None) -> None:
-    """Mirror of ``routes_search.py::_check_internal_secret``. Fail-closed when
+    """Mirror of ``routes_gast_ticket.py::_check_internal_secret``. Fail-closed when
     the server-side secret is unset."""
     expected = _config.get_settings().internal_service_secret
     if not expected:

@@ -289,6 +289,7 @@
         channel={synthChannel}
         messages={visibleMessages}
         onSend={sendMessage}
+        sendReport
         headerKind="dm"
         dmPartnerId={activeDM.other_user_id}
         onBack={() => goto('/app/@me')}

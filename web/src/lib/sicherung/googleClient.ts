@@ -48,9 +48,6 @@ const WEB_GEHEIMNIS = import.meta.env.VITE_SICHERUNG_GDRIVE_WEB_GEHEIMNIS ?? '';
 export const OAUTH_RUECKGABE_SPEICHER = 'pulse.sicherung-oauth-rueckgabe';
 
 /** Ob dieser Build die Sicherung im jeweiligen Kontext anbieten darf. */
-export function sicherungClientKonfiguriert(): boolean {
-	return isElectron() ? WEB_KUNDEN_ID !== '' || DESKTOP_KUNDEN_ID !== '' : WEB_KUNDEN_ID !== '';
-}
 
 function gdriveZiel(weiterleitung: string): {
 	ziel: 'gdrive';

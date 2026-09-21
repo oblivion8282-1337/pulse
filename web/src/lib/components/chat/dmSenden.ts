@@ -26,9 +26,11 @@ export interface DmSendeAuftrag {
   e2eDmsEnabled: boolean;
   cloudRoute: { serverId?: string };
   pendingOptimisticTimeouts: Map<string, ReturnType<typeof setTimeout>>;
-  /** Entscheidung 3.4: genau einmal gerufen, wenn der verschlüsselte Weg
-   *  festgelesen hat (true = zugestellt, false = fehlgeschlagen). Ohne den
-   *  Callback verhält sich der Weg wie bisher (Composer bleibt geleert). */
+  /** Entscheidung 3.4: genau einmal gerufen (true = der Weg hat das Ergebnis
+   *  festgelesen und es war zugestellt; false = fehlgeschlagen). Beim
+   *  Gruppen-Weg heisst true „Anzeige ist raus" — ein asynchrones Scheitern
+   *  dort meldet sich per Toast, der Composer ist dann schon geleert.
+   *  Ohne den Callback verhält sich der Weg wie bisher. */
   melden?: (ok: boolean) => void;
 }
 
@@ -60,10 +62,14 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
       return;
     }
     const kanonischeId = kanonischeAntwortId(replyToId, visibleMessages);
-    void import('$lib/krypto/gruppe/sendenMitAnzeige').then(({ gruppeSendenMitAnzeige }) =>
-      gruppeSendenMitAnzeige(gruppenKanal, text, kanonischeId)
-    );
-    melden?.(true);
+    void import('$lib/krypto/gruppe/sendenMitAnzeige').then(async ({ gruppeSendenMitAnzeige }) => {
+      try {
+        const ok = await gruppeSendenMitAnzeige(gruppenKanal, text, kanonischeId);
+        melden?.(ok);
+      } catch {
+        melden?.(false);
+      }
+    });
     return;
   }
 

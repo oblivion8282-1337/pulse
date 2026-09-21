@@ -224,20 +224,6 @@ async def suspended_instances(
 # Internal: broadcast-update
 # ---------------------------------------------------------------------------
 
-
-    secret = get_settings().internal_service_secret
-    if not secret:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="INTERNAL_SERVICE_SECRET not configured",
-        )
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
-    token = authorization.split(" ", 1)[1].strip()
-    if not constant_time_eq(token, secret):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret")
-
-
 @router.post("/admin/instances/_broadcast-update")
 async def broadcast_update(
     session: SessionDep,
