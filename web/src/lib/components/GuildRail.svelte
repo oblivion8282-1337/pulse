@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -169,7 +170,7 @@
   function initials(name: string): string {
     return name
       .split(/\s+/)
-      .map((w) => w[0]?.toUpperCase() ?? '')
+      .map((w) => anfangsBuchstabe(w))
       .slice(0, 2)
       .join('');
   }

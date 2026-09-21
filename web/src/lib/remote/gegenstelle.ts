@@ -20,6 +20,7 @@
  */
 
 import { userCache } from '$lib/stores/users.svelte';
+import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { safeAvatarUrl } from '$lib/avatar';
 import { m } from '$lib/paraglide/messages.js';
@@ -54,7 +55,7 @@ export function gegenstelle(userId: string | null): Gegenstelle {
     anzeige,
     benutzername: u.username,
     avatar: safeAvatarUrl(u.avatar_url),
-    initiale: (anzeige || '?').slice(0, 1).toUpperCase(),
+    initiale: anfangsBuchstabe(anzeige || '?'),
   };
 }
 

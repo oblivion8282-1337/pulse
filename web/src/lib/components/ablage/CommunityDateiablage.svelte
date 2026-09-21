@@ -44,6 +44,7 @@
   import { sichererBlobTyp } from '$lib/krypto/sichererBlobTyp.ts';
   import { formatBytes } from '$lib/utils/formatBytes';
   import { m } from '$lib/paraglide/messages.js';
+  import { currentLocale } from '$lib/i18n';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import DropboxQuotaGauge from '../dropbox/DropboxQuotaGauge.svelte';
@@ -447,7 +448,7 @@
                   {:else}
                     {formatBytes(zeile.groesse)}
                     {#if zeile.hochgeladenAm}
-                      · {new Date(zeile.hochgeladenAm).toLocaleDateString()}
+                      · {new Date(zeile.hochgeladenAm).toLocaleDateString(currentLocale())}
                     {/if}
                   {/if}
                 </div>

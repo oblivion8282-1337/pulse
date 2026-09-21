@@ -9,6 +9,7 @@
    * waren es 471 Zeilen mit drei unabhängigen Anliegen.
    */
   import HashIcon from '@lucide/svelte/icons/hash';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -17,6 +18,7 @@
   import { nameStyle } from '$lib/utils/nameColor';
   import { safeAvatarUrl } from '$lib/avatar';
   import { kurzeUhrzeit } from '$lib/utils/kurzeUhrzeit';
+  import { currentLocale } from '$lib/i18n';
   import { suchnorm, namePasst } from '$lib/utils/suche';
   import { chatApi, type DMMessageSearchHit } from '$lib/api/chat';
   import { sucheKombiniert } from '$lib/verlauf/sucheLokal';
@@ -111,10 +113,6 @@
     }
   }
 
-  function initialen(name: string): string {
-    return name.slice(0, 1).toUpperCase();
-  }
-
   const ZEILE =
     'hover:bg-bg-hover border-border bg-bg-input flex w-full items-center gap-3 rounded-[14px] border p-2.5 text-left transition-colors';
   const UEBERSCHRIFT =
@@ -141,7 +139,7 @@
         <span
           class="flex size-full items-center justify-center rounded-full text-sm font-bold text-white"
           style="background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));"
-          >{initialen(name)}</span
+          >{anfangsBuchstabe(name)}</span
         >
       {/if}
     </span>
@@ -194,7 +192,7 @@
     <span class="flex items-center gap-2">
       <span class="truncate text-sm font-semibold" style={nameStyle(hit.other_user_id)}>{name}</span
       >
-      <time class="text-text-muted text-2xs ml-auto shrink-0">{kurzeUhrzeit(hit.created_at)}</time>
+      <time class="text-text-muted text-2xs ml-auto shrink-0">{kurzeUhrzeit(hit.created_at, new Date(), currentLocale())}</time>
     </span>
     <span class="text-text-muted line-clamp-2 text-xs"
       >{vonMir ? m.dm_preview_own_prefix() : ''}{hit.content}</span

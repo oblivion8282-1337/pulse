@@ -21,6 +21,7 @@
 -->
 <script lang="ts">
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import PresenceBadge from '$lib/components/PresenceBadge.svelte';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
@@ -232,7 +233,7 @@
                   <Avatar.Fallback
                     class="accent-gradient text-primary-foreground text-2xs font-semibold"
                   >
-                    {display.slice(0, 1).toUpperCase()}
+                    {anfangsBuchstabe(display)}
                   </Avatar.Fallback>
                 </Avatar.Root>
                 <span class="text-text-base truncate text-xs">{display}</span>

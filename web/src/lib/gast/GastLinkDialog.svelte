@@ -16,6 +16,7 @@
   import { Button } from '$lib/components/ui/button';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
+  import { currentLocale } from '$lib/i18n';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import ChevronUpIcon from '@lucide/svelte/icons/chevron-up';
   import {
@@ -156,7 +157,7 @@
   }
 
   function datum(iso: string): string {
-    return new Date(iso).toLocaleString();
+    return new Date(iso).toLocaleString(currentLocale());
   }
 
   const aktiv = $derived(links.filter((l) => !l.revoked));

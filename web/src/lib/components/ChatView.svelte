@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import { presence } from '$lib/stores/presence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -378,7 +379,7 @@
           {:else}
             <span
               class="accent-gradient flex size-full items-center justify-center rounded-full text-xs font-bold text-white"
-              >{userCache.displayName(dmPartnerId).slice(0, 1).toUpperCase()}</span
+              >{anfangsBuchstabe(userCache.displayName(dmPartnerId))}</span
             >
           {/if}
           <StatusDot

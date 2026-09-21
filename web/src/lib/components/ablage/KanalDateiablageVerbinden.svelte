@@ -26,6 +26,7 @@
    */
   import { onDestroy } from 'svelte';
   import { ApiError } from '$lib/api/client';
+  import { m } from '$lib/paraglide/messages.js';
   import { ablageKanalLaufwerkSetzen } from '$lib/api/ablageKanal.ts';
   import { ablageVerbindungen } from '$lib/ablage/verbindungen.svelte.ts';
   import { kanalLaufwerkSchluesselSichern } from '$lib/ablage/kanalLaufwerkSchluessel.ts';
@@ -57,13 +58,15 @@
     // Server für die Weiterreich-Route braucht (Design §4.1) — nie der rohe
     // Link selbst (der bleibt in der Verbindungs-Konfiguration).
     const basis = v.konfiguration.basis;
-    if (!basis) return 'Nur ein Nextcloud-Freigabe-Link kann als Kanal-Laufwerk dienen.';
+    if (!basis) return m.kanal_ablage_verbinden_nur_nextcloud();
     try {
       await ablageKanalLaufwerkSetzen(kanalId, basis);
     } catch (e) {
       return e instanceof ApiError && e.status === 403
-        ? 'Dieser Kanal hat bereits ein Laufwerk eines anderen Mitglieds verbunden.'
-        : `Verbinden fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`;
+        ? m.kanal_ablage_verbinden_schon_verbunden()
+        : m.kanal_ablage_verbinden_fehlgeschlagen({
+            grund: e instanceof Error ? e.message : String(e)
+          });
     }
     // Erst NACH dem erfolgreichen PUT lokal als Besitzer-Gerät markieren und
     // den Schlüssel sichern — das ist die Stelle, auf die der Rest wartet:
@@ -81,12 +84,12 @@
 {:else if status === 'nicht_verbunden'}
   <AblageLaufwerkAufforderung
     testIdPraefix="kanal-ablage"
-    hinweisText="Noch kein Laufwerk für diesen Kanal verbunden. Verbinde eines, damit der Verlauf gesichert wird."
+    hinweisText={m.kanal_ablage_verbinden_hinweis()}
     fehlerTestId="kanal-ablage-fehler"
     onVerbunden={nachVerbindung}
   />
 {:else}
   <p class="text-sm text-muted-foreground" data-testid="kanal-ablage-verbunden">
-    Dieses Gerät sichert diesen Kanal auf seinem Laufwerk.
+    {m.kanal_ablage_verbinden_verbunden()}
   </p>
 {/if}

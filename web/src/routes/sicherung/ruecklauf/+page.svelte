@@ -12,6 +12,7 @@
    * ebenfalls übergeben.
    */
   import { page } from '$app/stores';
+  import { m } from '$lib/paraglide/messages.js';
   import { OAUTH_RUECKGABE_SPEICHER } from '$lib/sicherung/googleClient';
 
   $effect(() => {
@@ -37,22 +38,19 @@
 
 <div class="mx-auto max-w-md space-y-3 p-8 text-center">
   {#if codeDa}
-    <h1 class="text-lg font-semibold">Google verbunden</h1>
+    <h1 class="text-lg font-semibold">{m.sicherung_ruecklauf_verbunden_titel()}</h1>
     <p class="text-sm text-muted-foreground">
-      Der Code wurde übergeben. Dieses Fenster kannst du schließen und in
-      Pulse weitermachen.
+      {m.sicherung_ruecklauf_verbunden_text()}
     </p>
   {:else if fehlerDa}
-    <h1 class="text-lg font-semibold">Verbindung abgelehnt</h1>
+    <h1 class="text-lg font-semibold">{m.sicherung_ruecklauf_abgelehnt_titel()}</h1>
     <p class="text-sm text-muted-foreground">
-      Google meldete: {fehlerDa}. Fenster schließen und in Pulse erneut
-      verbinden.
+      {m.sicherung_ruecklauf_abgelehnt_text({ fehler: fehlerDa ?? '' })}
     </p>
   {:else}
-    <h1 class="text-lg font-semibold">Fehlende Rückgabe</h1>
+    <h1 class="text-lg font-semibold">{m.sicherung_ruecklauf_fehlt_titel()}</h1>
     <p class="text-sm text-muted-foreground">
-      Diese Seite wird nur von der Google-Anmeldung angesprungen. Bitte starte
-      die Verbindung erneut aus den Sicherheitseinstellungen.
+      {m.sicherung_ruecklauf_fehlt_text()}
     </p>
   {/if}
 </div>

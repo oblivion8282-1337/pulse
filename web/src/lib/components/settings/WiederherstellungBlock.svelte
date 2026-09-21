@@ -28,6 +28,7 @@
   import { getRecoveryPackage } from '$lib/api/recovery-package';
   import { ApiError } from '$lib/api/client';
   import { m } from '$lib/paraglide/messages.js';
+import { currentLocale } from '$lib/i18n';
 
   type Zustand = 'unbekannt' | 'keins' | 'vorhanden';
   let zustand = $state<Zustand>('unbekannt');
@@ -116,7 +117,7 @@
 
   {#if zustand === 'vorhanden' && zuletztAktualisiert}
     <p class="text-text-muted text-xs" data-testid="wiederherstellung-stand">
-      {m.wiederherstellung_stand({ datum: new Date(zuletztAktualisiert).toLocaleDateString() })}
+      {m.wiederherstellung_stand({ datum: new Date(zuletztAktualisiert).toLocaleDateString(currentLocale()) })}
     </p>
   {/if}
 

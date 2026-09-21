@@ -250,7 +250,7 @@ import { errText } from '$lib/utils/errText';
             <span class="rounded-full px-2 py-0.5 text-xs font-medium {REASON_COLORS[r.reason_code] ?? REASON_COLORS.other}">
               {REASON_LABELS[r.reason_code] ?? r.reason_code}
             </span>
-            <span class="text-text-muted text-xs">{formatTimestamp(r.created_at)}</span>
+            <span class="text-text-muted text-xs">{formatTimestamp(r.created_at, 'de-DE')}</span>
             <span class="text-text-muted text-xs">{m.mod_queue_report_by({ user: fmtUser(r.reporter_user_id) })}</span>
             {#if r.target_user_id}
               <span class="text-text-muted text-xs">→ {fmtUser(r.target_user_id)}</span>

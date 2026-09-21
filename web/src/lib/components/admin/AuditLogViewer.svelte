@@ -110,7 +110,7 @@ import { errText } from '$lib/utils/errText';
                 </span>
               {/if}
             </div>
-            <div class="text-text-muted mt-0.5 text-xs">{formatTimestamp(e.created_at)}</div>
+            <div class="text-text-muted mt-0.5 text-xs">{formatTimestamp(e.created_at, 'de-DE')}</div>
           </div>
         </li>
       {/each}

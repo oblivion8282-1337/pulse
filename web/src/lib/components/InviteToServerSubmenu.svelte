@@ -23,6 +23,7 @@
 -->
 <script lang="ts">
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
@@ -164,10 +165,6 @@
 
   let anbietbareZiele = $derived(ziele.filter((z) => !friendGuildKeys.has(z.key)));
 
-  function guildInitial(name: string): string {
-    return name.trim().charAt(0).toUpperCase();
-  }
-
   function hostKurz(hostname: string): string {
     return hostname.replace(/^https?:\/\//, '');
   }
@@ -234,7 +231,7 @@
             <Avatar.Image src={iconSrc} alt={ziel.guild.name} />
           {/if}
           <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
-            {guildInitial(ziel.guild.name)}
+            {anfangsBuchstabe(ziel.guild.name)}
           </Avatar.Fallback>
         </Avatar.Root>
         <span class="truncate">{ziel.guild.name}</span>

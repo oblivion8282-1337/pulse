@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import VoiceMuteIcon from './VoiceMuteIcon.svelte';
   import type { VoiceParticipant } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
@@ -36,7 +37,7 @@
   // fehlt, ist die Ansage: sein Name ist selbst getippt und von niemandem
   // geprüft, das muss man ihm ansehen.
   let istGast = $derived(istGastKennung(p.identity));
-  let initial = $derived((resolvedName.trim()[0] ?? '?').toUpperCase());
+  let initial = $derived(anfangsBuchstabe(resolvedName) || '?');
   let avatarSrc = $derived(p.userId ? safeAvatarUrl(userCache.get(p.userId)?.avatar_url) : null);
   // Same name colour as the member list: role colour → profile colour.
   let nameColour = $derived(p.userId ? nameColor(p.userId, guildId) : null);

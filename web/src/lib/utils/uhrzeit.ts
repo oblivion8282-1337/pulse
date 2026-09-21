@@ -4,9 +4,10 @@
  * sie der Server-`created_at` direkt hergibt. Müll/ungültig → ''.
  * Importfrei, damit Tests die Datei direkt prüfen können.
  */
-export function uhrzeitHHMM(iso: string): string {
+/** `locale` nachlegen (Bughunt Runde 14): App-Sprache statt System-Sprache. */
+export function uhrzeitHHMM(iso: string, locale?: string): string {
   try {
-    return new Date(iso).toLocaleTimeString(undefined, {
+    return new Date(iso).toLocaleTimeString(locale, {
       hour: '2-digit',
       minute: '2-digit'
     });

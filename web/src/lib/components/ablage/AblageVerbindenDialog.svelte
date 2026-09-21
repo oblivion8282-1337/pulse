@@ -58,18 +58,18 @@
     guildId?: string;
   } = $props();
 
-  /** Kurzbeschreibung je Anbieter — reiner Anzeigetext, deshalb hier und
-   *  nicht in `anbieter.ts` (die Liste dort bleibt importfrei/rechnend). */
-  const BESCHREIBUNG: Record<AblageAnbieterArt, string> = {
-    dropbox: 'Mit deinem Dropbox-Konto verbinden — App-Ordner, nur Pulse sieht ihn',
-    onedrive: 'Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner',
-    gdrive: 'Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat',
-    nextcloud: 'Freigabe-Link aus deiner Nextcloud einfügen — mehr braucht es nicht',
-    // Pulse zeigt in der Liste Name + Beschreibung aus paraglide
-    // (ablage_pulse_*); dieser Eintrag bleibt nur als Fallback stehen.
-    pulse: 'Verschlüsselter Speicher auf dem Pulse-Server — kein Konto, kein Link',
-    sync_ordner: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch',
-    s3: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben',
+  /** Kurzbeschreibung je Anbieter — Paraglide je Sprache, deshalb hier und
+   *  nicht in `anbieter.ts` (die Liste dort bleibt importfrei/rechnend).
+   *  Pulse zeigt in der Liste Name + Beschreibung aus `ablage_pulse_*`;
+   *  der Pulse-Eintrag hier bleibt nur als Fallback stehen. */
+  const BESCHREIBUNG: Record<AblageAnbieterArt, () => string> = {
+    dropbox: m.ablage_verbinden_beschreibung_dropbox,
+    onedrive: m.ablage_verbinden_beschreibung_onedrive,
+    gdrive: m.ablage_verbinden_beschreibung_gdrive,
+    nextcloud: m.ablage_verbinden_beschreibung_nextcloud,
+    pulse: m.ablage_verbinden_beschreibung_pulse,
+    sync_ordner: m.ablage_verbinden_beschreibung_sync_ordner,
+    s3: m.ablage_verbinden_beschreibung_s3,
   };
 
   // Firefox/Safari koennen keinen Ordner waehlen (kein File-System-Access) —
@@ -111,7 +111,7 @@
     try {
       const verzeichnis = await wähleOrdner();
       if (!verzeichnis) {
-        fehler = 'Dieser Browser kann keine Ordner wählen — Chrome, Edge oder die Desktop-App nehmen.';
+        fehler = m.ablage_verbinden_browser_ohne_ordner();
         return;
       }
 
@@ -121,7 +121,10 @@
       // gar nicht taugt.
       const ergebnis = await probiere(adapterAusVerzeichnis(verzeichnis));
       if (!ergebnis.gut) {
-        fehler = `Verbindung fehlgeschlagen beim Schritt „${SCHRITT_TEXT[ergebnis.schritt]}": ${ergebnis.grund}`;
+        fehler = m.ablage_verbinden_probe_fehlgeschlagen({
+          schritt: SCHRITT_TEXT[ergebnis.schritt],
+          grund: ergebnis.grund
+        });
         return;
       }
 
@@ -132,7 +135,7 @@
       const griffId = `sync-${Date.now()}`;
       const abgelegt = await legeGriffAb(griffId, verzeichnis);
       if (!abgelegt) {
-        fehler = 'Der Ordner-Zugriff konnte nicht gespeichert werden — nach einem Neuladen müsste er neu gewählt werden.';
+        fehler = m.ablage_verbinden_griff_nicht_gespeichert();
         return;
       }
 
@@ -164,7 +167,7 @@
       // Die eigentliche Verbindungslogik (OAuth-Flow, WebDAV-Prüfung,
       // S3-Verbindungsprobe) kommt mit der Krypto-Etappe — hier steht
       // die Struktur dafür.
-      fehler = 'Die Verbindung für diesen Anbieter ist noch nicht aktiv — braucht die Krypto-Etappe.';
+      fehler = m.ablage_verbinden_noch_nicht_aktiv();
     } finally {
       verbinde = false;
     }
@@ -188,7 +191,7 @@
       const verbindung: AblageVerbindung = {
         id: `pulse-${guildId}`,
         anbieter: 'pulse',
-        name: 'Pulse-Laufwerk',
+        name: m.ablage_pulse_name(),
         konfiguration: {},
         hauptschlüsselB64: bytesZuBase64(
           globalThis.crypto.getRandomValues(new Uint8Array(32))
@@ -210,10 +213,9 @@
 <Dialog.Root {open} onOpenChange={() => schliessen()}>
   <Dialog.Content class="max-h-[85vh] overflow-y-auto" data-testid="ablage-verbinden-dialog">
     <Dialog.Header>
-      <Dialog.Title>Ablage verbinden</Dialog.Title>
+      <Dialog.Title>{m.ablage_verbinden_titel()}</Dialog.Title>
       <Dialog.Description>
-        Wähle, wo deine verschlüsselten Kanäle und Dateien liegen sollen.
-        Der Pulse-Server sieht den Inhalt nie.
+        {m.ablage_verbinden_beschreibung()}
       </Dialog.Description>
     </Dialog.Header>
 
@@ -232,7 +234,7 @@
                 {a.art === 'pulse' ? m.ablage_pulse_name() : a.name}
               </div>
               <div class="text-xs text-muted-foreground">
-                {a.art === 'pulse' ? m.ablage_pulse_beschreibung() : BESCHREIBUNG[a.art]}
+                {a.art === 'pulse' ? m.ablage_pulse_beschreibung() : BESCHREIBUNG[a.art]()}
               </div>
             </div>
           </button>
@@ -241,11 +243,10 @@
     {:else}
       {#if auswahl === 'sync_ordner'}
         <p class="mb-4 text-sm text-muted-foreground">
-          Wähle einen lokalen Ordner. Dein Dropbox-, Drive- oder Nextcloud-Client
-          synchronisiert ihn in deine Cloud — Pulse schreibt nur dort hinein.
+          {m.ablage_verbinden_sync_hinweis()}
         </p>
         <Button onclick={verbindeSyncOrdner} disabled={verbinde} data-testid="sync-ordner-wählen">
-          Ordner wählen
+          {m.ablage_verbinden_ordner_waehlen()}
         </Button>
       {:else if auswahl === 'nextcloud'}
         <NextcloudVerbinden
@@ -263,11 +264,9 @@
         </Button>
       {:else}
         <p class="mb-4 text-sm text-muted-foreground">
-          Die Verbindung für <strong>{auswahl}</strong> braucht die Krypto-Etappe —
-          die Anbindungslogik ist gebaut und getestet, aber noch nicht mit echten
-          OAuth-Client-IDs verknüpft.
+          {m.ablage_verbinden_krypto_hinweis({ anbieter: auswahl })}
         </p>
-        <Button onclick={() => verbindeFormular()}>Verbinden</Button>
+        <Button onclick={() => verbindeFormular()}>{m.ablage_verbinden_knopf()}</Button>
       {/if}
       {#if fehler}
         <p class="mt-2 text-sm text-destructive">{fehler}</p>
@@ -276,12 +275,11 @@
 
     <div class="mt-4 flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
       <LockIcon class="size-3.5 shrink-0" />
-      Deine Schlüssel verlassen dieses Gerät nie. Der Pulse-Server sieht
-      weder deine Dateien noch deine Zugangsdaten.
+      {m.ablage_verbinden_schluessel_hinweis()}
     </div>
 
     <div class="mt-3 text-right">
-      <Button variant="ghost" onclick={schliessen}>Abbrechen</Button>
+      <Button variant="ghost" onclick={schliessen}>{m.ablage_verbinden_abbrechen()}</Button>
     </div>
   </Dialog.Content>
 </Dialog.Root>

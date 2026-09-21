@@ -18,6 +18,7 @@
 -->
 <script lang="ts">
   import { ContextMenu as ContextMenuPrimitive } from 'bits-ui';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import BottomSheet from '$lib/components/mobile/BottomSheet.svelte';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import FlagIcon from '@lucide/svelte/icons/flag';
@@ -84,10 +85,6 @@
       : roles.hasGuildPermission(guildId, Perm.MANAGE_NICKNAMES);
   });
 
-  function initials(name: string): string {
-    return name.slice(0, 1).toUpperCase();
-  }
-
   let displayNameStyle = $derived(nameStyle(userId, guildId ?? null));
 </script>
 
@@ -98,7 +95,7 @@
       <Avatar.Image src={avatarUrl} alt={displayName} />
     {/if}
     <Avatar.Fallback class="accent-gradient text-primary-foreground text-base font-semibold">
-      {initials(displayName)}
+      {anfangsBuchstabe(displayName)}
     </Avatar.Fallback>
   </Avatar.Root>
   <div class="min-w-0 flex-1">

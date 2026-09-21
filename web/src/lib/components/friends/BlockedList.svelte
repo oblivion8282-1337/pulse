@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import UserMinusIcon from '@lucide/svelte/icons/user-minus';
@@ -66,7 +67,7 @@
           <Avatar.Image src={avatar} alt="" />
         {/if}
         <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-          {(u?.display_name ?? u?.username ?? '?').slice(0, 1).toUpperCase()}
+          {anfangsBuchstabe(u?.display_name ?? u?.username ?? '?')}
         </Avatar.Fallback>
       </Avatar.Root>
       <div class="min-w-0 flex-1">

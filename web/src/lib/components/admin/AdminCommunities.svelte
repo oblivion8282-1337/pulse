@@ -9,6 +9,7 @@
 <script lang="ts">
 import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -174,7 +175,7 @@ import { errText } from '$lib/utils/errText';
             <div
               class="bg-bg-hover text-text-muted flex size-9 shrink-0 items-center justify-center rounded-xl text-sm font-semibold"
             >
-              {c.name.slice(0, 1).toUpperCase()}
+              {anfangsBuchstabe(c.name)}
             </div>
           {/if}
 

@@ -10,6 +10,7 @@
 -->
 <script module lang="ts">
   import type { Member } from '$lib/api/types';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { chatApi } from '$lib/api/chat';
 
   function roleColorHex(color: number): string {
@@ -250,7 +251,7 @@
               <Avatar.Image src={item.avatar} alt={item.label} />
             {/if}
             <Avatar.Fallback class="accent-gradient text-primary-foreground text-2xs font-semibold">
-              {item.label.slice(0, 1).toUpperCase()}
+              {anfangsBuchstabe(item.label)}
             </Avatar.Fallback>
           </Avatar.Root>
           <span class="truncate text-text-bright" style={item.color ? `color: ${item.color}` : ''}>{item.label}</span>

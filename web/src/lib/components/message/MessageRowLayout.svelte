@@ -13,6 +13,7 @@
    * Markup unverändert übernommen, `data-testid` identisch.
    */
   import type { Snippet } from 'svelte';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import UserProfilePopover from '$lib/components/UserProfilePopover.svelte';
   import { longpress } from '$lib/utils/longpress';
@@ -107,7 +108,7 @@
               <Avatar.Fallback
                 class="accent-gradient text-primary-foreground text-sm font-semibold"
               >
-                {authorName.slice(0, 1).toUpperCase()}
+                {anfangsBuchstabe(authorName)}
               </Avatar.Fallback>
             </Avatar.Root>
           </button>
