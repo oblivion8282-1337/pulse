@@ -145,12 +145,13 @@ export function register(
       // Bughunt Runde 25: Overrides gegen den lokalen Mikrofonzustand
       // abgleichen — ein in der WS-Lücke erteiltes Force-Mute wirkte sonst
       // nie auf den laufenden Track (Buttons disabled, Mikrofon sendet).
-      if (currentServerUserId()) {
+      const meineId = currentServerUserId();
+      if (meineId) {
         void import('$lib/voice/livekit.svelte').then(({ voice }) => {
           if (!voice.channelId) return;
           voice.applyOverrideReconciliation(
-            voicePresence.isForceMuted(voice.channelId, currentServerUserId()!),
-            voicePresence.isForceDeafened(voice.channelId, currentServerUserId()!)
+            voicePresence.isForceMuted(voice.channelId, meineId),
+            voicePresence.isForceDeafened(voice.channelId, meineId)
           );
         });
       }

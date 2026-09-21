@@ -165,11 +165,9 @@
     try {
       const r = await rolesApi.patch(guildId, zielId, entwurf.alsAenderung(selectedRole));
       rolesStore.upsertRole(r);
-      if (selectedRole?.id !== zielId) {
-        toast.success(m.roles_editor_role_saved());
-        return;
-      }
-      entwurf.uebernehmen(r);
+      // Cross-Apply-Schutz: hat sich die Auswahl im Flug geändert, B's Formular
+      // nicht mit A's Antwort überschreiben — der Toast bleibt trotzdem.
+      if (selectedRole?.id === zielId) entwurf.uebernehmen(r);
       toast.success(m.roles_editor_role_saved());
     } catch (err) {
       toast.error(m.roles_editor_save_failed(), { description: (err as Error).message });

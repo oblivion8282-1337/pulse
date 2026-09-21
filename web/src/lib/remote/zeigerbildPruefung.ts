@@ -100,9 +100,3 @@ export function pruefeBild(wert: unknown): Zeigerbild | undefined {
   if (!istZahl(b.w) || !istZahl(b.h) || !istZahl(b.hx) || !istZahl(b.hy)) return undefined;
   return { id: b.id, w: b.w, h: b.h, hx: b.hx, hy: b.hy, daten: b.daten };
 }
-
-/**
- * Nur die Frage „ist das eines?" — für Stellen, die das Ergebnis nicht
- * brauchen. Der Weg über [`pruefeBild`] ist der Regelfall: er gibt ein Bild
- * zurück, das **nur** geprüfte Felder trägt.
- */

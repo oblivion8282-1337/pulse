@@ -96,7 +96,6 @@ function ruecklaufBruecke(): RuecklaufBruecke | null {
 	);
 }
 
-/** Rückgabe-URL (Electron) in Code + State zerlegen. */
 /** OAuth-Fehler eines Anbieters lesbar werfen (Bughunt Runde 38): vorher
  *  versickerten `?error=access_denied`-Rückgaben als generisches
  *  „Rückgabe unvollständig“ bzw. liefen in die 5-Minuten-Frist. */
@@ -104,6 +103,7 @@ function werfeAnbieterFehler(fehler: string | null | undefined): never {
 	throw new Error(`Google-OAuth: ${fehler ?? 'unbekannter Fehler'}`);
 }
 
+/** Rückgabe-URL (Electron) in Code + State zerlegen. */
 export function zerlegeRueckgabe(rueckgabe: string): { code: string; state: string } {
 	const code = /[?&]code=([^&]+)/.exec(rueckgabe)?.[1];
 	const state = /[?&]state=([^&]+)/.exec(rueckgabe)?.[1];

@@ -52,6 +52,13 @@ function dmVorschauAuffrischen(): void {
   }, 1500);
 }
 
+/** Bughunt Runde 19: notification_mode=none des Servers schaltet beide
+ *  Chimes stumm (Nachricht + Mention), nicht nur den OS-Toast. */
+function serverStumm(): boolean {
+  const sid = dispatchingServerId();
+  return sid ? serversStore.servers.find((s) => s.id === sid)?.notification_mode === 'none' : false;
+}
+
 /**
  * Holt offene Postfach-Zustellungen ab, entschluesselt sie und zeigt sie an
  * — geteilt zwischen zwei Ausloesern (Bughunt-Runde 3, FIX 1): dem `postfach_
@@ -225,14 +232,7 @@ export function register(ctx: HandlerContext): void {
         readState.markRead(evt.channel_id, evt.message_id);
       } else {
         readState.incUnread(evt.channel_id);
-        // Bughunt Runde 19: der stumme Server schaltet auch den Chime stumm —
-        // vorher galt notification_mode=none nur für den OS-Toast (inPage).
-        const stumm =
-          (() => {
-            const sid = dispatchingServerId();
-            return sid ? serversStore.servers.find((s) => s.id === sid)?.notification_mode === 'none' : false;
-          })();
-        if (!isRecentMention(evt.message_id) && !isDnd() && !stumm) {
+        if (!isRecentMention(evt.message_id) && !isDnd() && !serverStumm()) {
           sounds.play('notification.message', { guildId: evt.guild_id });
         }
       }
@@ -335,12 +335,7 @@ export function register(ctx: HandlerContext): void {
       // (a sound for the focused channel is just noise).
       readState.markRead(channel_id, message_id);
     } else {
-      // Bughunt Runde 19: Server-Stummschaltung gilt auch für den Mention-Chime.
-      const stumm = (() => {
-        const sid = dispatchingServerId();
-        return sid ? serversStore.servers.find((s) => s.id === sid)?.notification_mode === 'none' : false;
-      })();
-      if (!isDnd() && !stumm) sounds.play('notification.mention', { guildId: guild_id });
+      if (!isDnd() && !serverStumm()) sounds.play('notification.mention', { guildId: guild_id });
     }
     // In-page notification (only fires when tab is in background — the
     // helper gates on visibility + settings). The matching push from the
