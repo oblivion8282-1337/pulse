@@ -1,9 +1,9 @@
 # Diagnose-Berichte für alles: App, Server, Player — vom Streaming-Prototyp zum Produkt
 
 Stand 2026-09-21. **Entwurf, noch nicht umgesetzt.** Anlass und Grundzüge
-besprochen (Michael + Agent, nach zwei Supportfällen derselben Woche); die
-Produktentscheidungen unten sind beschlossen, drei offene Punkte stehen in
-§11. Umsetzung in drei Phasen (§10).
+besprochen (Michael + Agent, nach zwei Supportfällen derselben Woche); alle
+Produktentscheidungen sind beschlossen (§11, beschieden am selben Tag).
+Umsetzung in drei Phasen (§10).
 
 ## 1. Anlass
 
@@ -149,8 +149,9 @@ Liste mit Filtern `reason`, `role`, `channel_id`, Instanz/Hostname (aus
 `system_info`), Zeitraum; Detailansicht rendert Kopf/Bilanz/Ereignisse
 als Tabelle, `log_text` als Pre. Kein Löschen-Einzelknopf nötig — die
 28-Tage-Frist räumt; ein „alle Berichte von Nutzer X löschen" reicht als
-DSGVO-Hahn. Super-Admin only (`is_admin`), keine Freigabe an
-Instanz-Betreiber in Phase 2 (offen: §11).
+DSGVO-Hahn. Super-Admin only (`is_admin`) — beschlossen (§11): eine
+Betreiber-Sicht auf Nutzer-Berichte ist auch später nicht vorgesehen;
+Betreiber sehen ausschließlich ihre eigenen Server-Berichte (§7).
 
 ## 7. Baustein D: das Server-Paket des Selfhosters (Phase 3)
 
@@ -220,17 +221,15 @@ Text heute.
 Reihenfolge begründet: Phase 1 erzeugt die Daten, ohne die Phase 2 eine
 leere Liste zeigt; Phase 3 braucht beide.
 
-## 11. Offene Entscheidungen
+## 11. Entscheidungen (beschieden 2026-09-21)
 
-1. **Dürfen Instanz-Betreiber die Berichte ihrer eigenen Nutzer sehen**
-   (gefiltert auf ihre Instanz), oder bleibt die Ansicht Super-Admin?
-   Pro Betreiber-Sicht: er ist unser erster Support-Depp. Contra:
-   Berichte enthalten Hostnamen anderer Server, wenn ein Nutzer mehrere
-   kennt — Filterung müsste das sauber schneiden. Vorschlag: Phase 2
-   Super-Admin only, Betreiber-Sicht als Phase-3-Option.
-2. **Ringpuffer-Größe/Exposition**: 250 Ereignisse/256 KiB sind ein
-   Erstandwurf, kein Vertrag — nach den ersten echten Berichten
-   nachjustieren.
-3. **Vorbefüllung des Freitexts**: Kategorie-des letzten Fehlers als
-   Chip vorschlagen („Betraf es die Anmeldung?") — Ja/Nein-Klick statt
-   Schreibblockade. Produktfeinschliff, nicht Blocker.
+1. **Admin-Sicht: nur Super-Admin.** Instanz-Betreiber sehen die
+   Nutzer-Berichte NICHT — auch nicht die ihrer eigenen Instanz. Die
+   in der Erstfassung als Phase-3-Option erwähnte Betreiber-Sicht ist
+   damit gestrichen; der Hostname-Schneideaufwand (Nutzer kennen
+   mehrere Server, Berichte tragen fremde Hostnamen) entfällt mit ihr.
+2. **Ringpuffer:** 250 Ereignisse / 256 KiB wie vorgeschlagen.
+   Nachjustieren bleibt erlaubt, sobald echte Berichte vorliegen —
+   kein erneuter Entscheid dafür nötig.
+3. **Vorschlags-Chips im Freitext: NEIN.** Das Panel zeigt das leere
+   Freitextfeld, keine Kategorievorschläge.
