@@ -380,3 +380,45 @@ password/forgot-Timing, 4.5 nginx-1G, 4.8 Statement-Cache pro Prozess,
 2.4 Gate-Enumeration, 2.5 dev-up.fish-Loops, 2b.2/2b.3 Zwischenlager,
 2c tote Regler, 2d Push-Restposten, 2e/2f Voice-/Session-Design, 3.x
 kosmetisch/UX.
+
+---
+
+# Teil 6: Reste aus Runden 43–52 (2026-09-21)
+
+### 6.1 PCP/NAT-PMP-Mappings verfallen nach 1 h ohne Renewal
+`portMapper.ts` setzt lifetime=3600 und verlängert nie — im Client-Hosting
+läuft direktes Medien-Routing nach einer Stunde über ICE-Pfadauswahl weiter
+(was meist reicht), aber ein bewusster Renewal bei ~½ Lifetime wäre korrekt.
+
+### 6.2 Weiterreich-Listen/Schreiben puffern Antworten ungebunden
+`ablage_schreiben.py` (liste/schreibe/loesche) liest die komplette Antwort
+der FREI gewählten Gegenstelle in den RAM — nur der abruf-Pfad hat die
+max_bytes-Kappe. Streaming mit Cap nachziehen (Muster ablage_ssrf.hole).
+
+### 6.3 UI: Kick/Ban/Voice-Knöpfe ignorieren Rangschranke und Kanal-Scope
+Server lehnt korrekt ab (assert_actor_outranks, kanalskopierte
+MUTE/DEAFEN/MOVE-Prüfung), die Popover-Knöpfe rechnen nur Guild-Bits —
+403-Erlebnis bei gleichrangigen Zielen bzw. Kanal-Denys. Entweder
+Client-Seitig nachziehen oder 403-Toasts mit verständlichem Text.
+
+### 6.4 Presence-Status-Saat: self-host-aktiv liest Cloud-Status
+`ready.ts` seedet `presence.statuses` nur im Cloud-Teil; auf aktivem
+Self-Host bleibt bis zum nächsten Live-Event der CLOUD-Status sichtbar
+(Identitäten sind geteilt). Entscheidung: ist der Status instance-global
+gewollt (dann dokumentieren) oder instance-lokal (dann Saat in den
+isActive-Zweig)?
+
+### 6.5 voice-signaling Reconcile-Fenster (bewusst toleriert)
+Ein Join, der zwischen `list_participants` und dem atomaren Rewrite
+landet, ist bis zum nächsten Pass (30 s) unsichtbar. Selbstheilung
+steht; wer es exakt will: SMEMBERS-Diff + Re-SADD nach dem Rewrite.
+
+### 6.6 Kleinigkeiten
+- Desktop: `markSuperseded` ohne Phasen-Wache; `discoverGateway` blockiert
+  sync (execFileSync); netdiag wertet http://-Ziele immer als TLS-Fehler;
+  Clipboard-Viewer allokiert 100 MiB je Datei; `host:refresh` ohne
+  localSenderOnly-Gate (nur lesend).
+- WS: HMR hinterlässt verwaiste Connections (nur Dev); `_readyDone`
+  bleibt disconnectiert true (selbstheilend).
+- Mobile: Firebase-Messaging-Restbestand in node_modules (npm install +
+  cap sync räumt).

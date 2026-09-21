@@ -300,3 +300,52 @@ Kondensiert je Fix (Details im Commit-Log):
 * **Gates:** Backend-Gesamtsuite grün (Einzelworker-Rest wie gehabt),
   svelte-check 0, Web 1190/1190, Desktop 191/193 (2 bekannte
   Umgebungs-Tests), esbuild grün.
+
+---
+
+# Teil 5: Runden 43–52 (2026-09-21, Fortsetzung)
+
+## Plan
+
+| Runde | Linse | Status |
+|-------|-------|--------|
+| 43 | Client-WS-Lebenszyklen (reconnect/backoff/state) | erledigt — 4 Fixes (Backoff-Sturm gegen abweisende Server, Wacht-Reclaim ohne Listener, Stale-Subs im Ready-Sweep, Gapfill-Timer) |
+| 44 | Desktop localBackend/IPC | erledigt — 5 Fixes (PCP-RFC-Layout Port+IP, Export-/EPIPE-Main-Crashes, Probe-Deadlock, Quit-Waisen) |
+| 45 | Android/Capacitor | erledigt — 8 Fixes (CAMERA fehlte, stumme Downloads, Cleartext-Override, FGS-Hintergrund-Crash, micStartPending, Speaker-Gate-Inversion, Push-Sackgasse, FGS-Tap+allowBackup) |
+| 46 | voice-signaling + dcc_shared | erledigt — 4 Fixes (Gast-Token-500 im Limit-Pfad, Snapshot-Hygiene, Geheimnis-Bremse, Bits-Pins komplett) |
+| 47 | WebPush-Sendepfad (eigener Durchgang) | erledigt — Abo-Verwaltung ohne Bremse (Sendepfad selbst hartening-sauber) |
+| 48 | Ablage-Weiterreich/Zwischenlager | erledigt — 4 Fixes (Guild-Delete verliert Pulse-Blobs, Reannounce-Alter, Quota-Sperre+IntegrityError, ehrliche 409 bei gelungen) |
+| 49 | Rechte-Resolver | erledigt — 6 Fixes (MANAGE_CHANNELS/CREATE_INVITES kanalskopiert, VIEW-Gate am eigenen Delete, Join in suspendierter Community, roles-Snapshot-Cache, teardown-roles) |
+| 50 | IDs/Zeit/Cursor | erledigt — REST-Cursor int64-Klemme (8 Flächen), Audit-Viewer before_id, Queue limit=200; Snowflake/Zeit/String-Serializer sauber |
+| 51 | Frontend-Stores Runde 2 | erledigt — 5 Fixes (Cloud-WS überlebt Kontowechsel, Wipe-Liste auf signOut-Stand, permissions_updated-Gate, gastNamen-clear, Hydrate-Generation) |
+| 52 | Regression + Abschluss | erledigt — alle Gates grün |
+
+## Bekannt (Erweiterung: Teil 5 — NICHT wieder melden)
+
+* WS: Backoff-Reset erst im hello; Wacht-Gnadenfrist mit gemeinsamer
+  Listener-Anmeldung; Ready-Stale-Sweep nutzt teardownGuildLocally
+  (inkl. roles.removeGuild); Gapfill-Timer-Räumung.
+* Desktop: PCP externalPort@42 + IPv4-mapped-IP@56..59 (Fixtures RFC);
+  rtExecToFile/rtExec mit Error-Handlern; reachability EADDRINUSE =
+  lokal versorgt; killHard() im Quit-Backstop.
+* Android: CAMERA im Manifest; DownloadListener→DownloadManager;
+  usesCleartextTraffic=false + tools:replace; startFgsSicher();
+  micStartPending in SharedPreferences; pushSupported ohne Capacitor.
+* Voice: token_gast über _chat_gateway._http_client; Snapshot-Filter
+  streaming/camera ⊆ user_ids; internal_secret-Bremse; 7 Bits gepinnt.
+* Sonst: push_abo-Bremse; pulse-Laufwerk-Keys im Guild-Delete;
+  created_at-Frischstellung bei Neuankündigung; REST-Cursor-Klemmen;
+  before_id im Audit-Viewer; capabilities/permissions_updated nur aktiv;
+  Kontowechsel schließt Cloud-WS + breite Wipe-Liste.
+
+## Abschlussbilanz Teil 5 (2026-09-21)
+
+* **Runden 43–52: 9 Fix-Commits, ~40 Einzelfixes** — Serie gesamt:
+  **~155 Fixes** in 120+ Commits auf `bughunt-2026-09-20`.
+* **Gates:** Backend 2637/2638 (nur Singleworker-Test braucht Dev-Stack-
+  Abwesenheit), svelte-check 0, Web 1190/1190, Desktop 191/193
+  (2 bekannte Umgebungs-Tests), Android-Kompilat grün (JDK 21),
+  esbuild grün.
+* **Neue Entscheidungen:** Teil-5-Reste im Entscheidungs-Doc
+  (PCP-Renewal, Weiterreich-Puffer, UI-Rangschranken, Presence-
+  self-host-Status, Reconcile-Fenster, Kleinigkeiten).
