@@ -35,6 +35,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import IntegrityError
+
+from dcc_chat_gateway.routes._dropbox_helpers import with_quota_lock
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -171,7 +174,13 @@ async def verbinde_pulse_laufwerk(
 
     if await session.get(AblagePulseLaufwerk, guild.id) is None:
         session.add(AblagePulseLaufwerk(guild_id=guild.id, erstellt_von=current.id))
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Zwei Owner-Requests gleichzeitig: der PK auf guild_id hat den
+            # Schnelleren gewonnen — idempotent 204 statt 500 (Bughunt
+            # Runde 48, Muster ablage_kanal.commit_or_conflict).
+            await session.rollback()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -249,44 +258,77 @@ async def kuendige_datei_an(
     if _NAME_MUSTER.match(payload.name) is None:
         raise HTTPException(422, detail="name must be a plain *.puls name")
     einstellungen = chat_config.get_settings()
-    gesamt, belegt, cfg = await _zuweisung(session, guild)
-    if cfg is not None and not cfg.enabled:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, detail="ablage is disabled for this community"
+    # Quota-Sperre (Bughunt Runde 48, Spiegel zum Dropbox-Weg): die
+    # Reservierungsbilanz ist check-then-insert — zwei gleichzeitige
+    # Ankündigungen gewannen beide die Prüfung und überbuchten. Das
+    # Schloss synchronisiert die PRÜFENDE Sektion je Guild (in-prozess,
+    # dieselbe Bewandtnis wie im Dropbox-Pfad); das Presignen unten
+    # bleibt bewusst draußen.
+    async with with_quota_lock(guild_id):
+        gesamt, belegt, cfg = await _zuweisung(session, guild)
+        if cfg is not None and not cfg.enabled:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail="ablage is disabled for this community"
+            )
+        grenze = (
+            einstellungen.pulse_laufwerk_verzeichnis_max_bytes
+            if payload.name == VERZEICHNIS_NAME
+            else (cfg.per_file_max_bytes if cfg is not None else einstellungen.pulse_laufwerk_max_datei_bytes)
         )
-    grenze = (
-        einstellungen.pulse_laufwerk_verzeichnis_max_bytes
-        if payload.name == VERZEICHNIS_NAME
-        else (cfg.per_file_max_bytes if cfg is not None else einstellungen.pulse_laufwerk_max_datei_bytes)
-    )
-    if payload.groesse > grenze:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="file too large")
-    if belegt + payload.groesse > gesamt:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="drive quota exceeded")
+        if payload.groesse > grenze:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="file too large")
+        if belegt + payload.groesse > gesamt:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="drive quota exceeded")
 
-    key = _storage_key(guild_id, payload.name)
-    objekt = (
-        await session.execute(
-            select(AblagePulseObjekt).where(AblagePulseObjekt.storage_key == key)
-        )
-    ).scalar_one_or_none()
-    if objekt is None:
-        objekt = AblagePulseObjekt(
-            id=next_id(),
-            guild_id=guild_id,
-            hochgeladen_von=current.id,
-            storage_key=key,
-            groesse=payload.groesse,
-            zustand=0,
-        )
-        session.add(objekt)
-    else:
-        # Neuankündigung (das Verzeichnis wird je Schreibvorgang neu
-        # geschrieben) — Groesse/Uploader mitnehmen, Zustand zurueck auf 0.
-        objekt.groesse = payload.groesse
-        objekt.hochgeladen_von = current.id
-        objekt.zustand = 0
-    await session.commit()
+        key = _storage_key(guild_id, payload.name)
+        objekt = (
+            await session.execute(
+                select(AblagePulseObjekt).where(AblagePulseObjekt.storage_key == key)
+            )
+        ).scalar_one_or_none()
+        if objekt is None:
+            objekt = AblagePulseObjekt(
+                id=next_id(),
+                guild_id=guild_id,
+                hochgeladen_von=current.id,
+                storage_key=key,
+                groesse=payload.groesse,
+                zustand=0,
+            )
+            session.add(objekt)
+        else:
+            # Neuankündigung (das Verzeichnis wird je Schreibvorgang neu
+            # geschrieben) — Groesse/Uploader mitnehmen, Zustand zurueck auf 0.
+            # created_at MITNEHMEN (Bughunt Runde 48): der Ankündigungs-Sweep
+            # (1 Tag) liest created_at — ohne Frischstellung löschte er eine
+            # gerade neu angekündigte Zeile samt LIVE-Blob (Klassiker
+            # verzeichnis.puls, das bei jedem Schreibvorgang neu angekündigt
+            # wird), wenn der Sweep zwischen Ankündigung und PUT/gelungen läuft.
+            objekt.groesse = payload.groesse
+            objekt.hochgeladen_von = current.id
+            objekt.zustand = 0
+            objekt.created_at = datetime.now(UTC)
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Zwei Geraete kündigen dasselbe File (fast immer: verzeichnis.puls)
+            # zum ERSTEN Mal gleichzeitig — der Unique-Key auf storage_key
+            # entscheidet; der Verlierer wandert in die Neuankündigungs-Behandlung
+            # statt mit 500 zu sterben (Bughunt Runde 48, Spiegel zu
+            # ablage_kanal.commit_or_conflict).
+            await session.rollback()
+            objekt = (
+                await session.execute(
+                    select(AblagePulseObjekt).where(AblagePulseObjekt.storage_key == key)
+                )
+            ).scalar_one_or_none()
+            if objekt is None:  # pragma: no cover — Unique-Verstoß ohne Zeile ist unerreichbar
+                raise HTTPException(status_code=409, detail="storage-key kollision")
+            objekt.groesse = payload.groesse
+            objekt.hochgeladen_von = current.id
+            objekt.zustand = 0
+            objekt.created_at = datetime.now(UTC)
+            await session.commit()
 
     url = await s3.presigned_put_url(
         key,
@@ -319,6 +361,17 @@ async def melde_gelungen(
     if objekt.hochgeladen_von == current.id:
         objekt.zustand = 1
         await session.commit()
+    else:
+        # Bughunt Runde 48: stillschweigendes 204 ohne Wirkung, wenn ein
+        # anderes Geraet zwischenzeitlich neu angekündigt hat (es nimmt
+        # hochgeladen_von mit) — der Schreibvorgang sah erfolgreich aus,
+        # der Zustand blieb 0, und der Ankündigungs-Sweep durfte den
+        # gueltigen Blob spaeter loeschen. 409 zwingt den Klienten zur
+        # Wiederholung seiner Ankündigung+PUT+gelungen-Sequenz.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="durch neuere ankündigung ersetzt — erneut ankündigen",
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -128,7 +128,11 @@ async def test_mitglied_klumpen_weg_von_ankuendigung_bis_lese_url(client, _auth_
         json={"name": "a-3f2b01.puls"},
         headers=auth(t_owner),  # fremde Bestaetigung aendert nichts
     )
-    assert r.status_code == 204
+    # Bughunt Runde 48: vorher stillschweigendes 204 ohne Wirkung — der
+    # Schreibvorgang sah erfolgreich aus, der Zustand blieb 0, und der
+    # Ankündigungs-Sweep durfte den gueltigen Blob spaeter loeschen. Der
+    # Nicht-Uploader bekommt jetzt 409 (erneut ankündigen).
+    assert r.status_code == 409
     r = await client.get(f"/guilds/{gid}/ablage/pulse/status", headers=auth(t_owner))
     assert r.json()["genutzt_bytes"] == 1234
 

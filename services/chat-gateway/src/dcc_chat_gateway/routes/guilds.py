@@ -27,6 +27,7 @@ from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limi
 from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.models import (
     MemberRole,
+    AblagePulseObjekt,
     AblageZwischenlagerDatei,
     Channel,
     CommunityInviteNotification,
@@ -404,6 +405,15 @@ async def delete_guild(
         AblageZwischenlagerDatei.guild_id == guild_id
     )
     s3_keys_to_purge.extend((await session.execute(zwischenlager_keys_stmt)).scalars())
+    # Pulse-Laufwerk (Etappe P1): dieselbe Luecke wie bei Sounds und
+    # Zwischenlager — Migration 0090 raeumt die Zeilen per ON DELETE
+    # CASCADE, die Chiffrat-Blobs unter ``pulse-laufwerk/guild-{id}/``
+    # blieben sonst fuer immer im Objektspeicher (Bughunt Runde 48: kein
+    # zweiter Sweep deckt dieses Prefix ab).
+    pulse_keys_stmt = select(AblagePulseObjekt.storage_key).where(
+        AblagePulseObjekt.guild_id == guild_id
+    )
+    s3_keys_to_purge.extend((await session.execute(pulse_keys_stmt)).scalars())
     # Offene Einladungen in diese Community von Hand raeumen. Bis Migration
     # 0063 erledigte das ein ON DELETE CASCADE; der Fremdschluessel musste
     # weichen, weil ``guild_id`` seither auch auf eine Community auf einem
