@@ -25,6 +25,19 @@ const FRIST_MS = 5 * 60_000;
 let server: http.Server | null = null;
 type Wartender = { state: string; erloest: (url: string) => void };
 let wartende: Wartender[] = [];
+// Bughunt Runde 42 (Entscheidung 4.10): Port-Anfragen teilen sich EIN
+// In-Flight-Versprechen — zwei gleichzeitige `oauthPort`-Aufrufe sahen sonst
+// beide `server === null` und bauten je einen Listener (ein Port war geleckt,
+// Google-Clients hingen an veralteten Adressen). Die Idempotenzprüfung oben
+// deckt nur den sequenziellen Fall.
+let portAnfrage: Promise<number> | null = null;
+
+function oeffneZuhörer(): Promise<number> {
+  portAnfrage ??= starteZuhörer().finally(() => {
+    portAnfrage = null;
+  });
+  return portAnfrage;
+}
 
 function starteZuhörer(): Promise<number> {
   return new Promise((resolve, ablehnen) => {
@@ -83,7 +96,7 @@ export function wireSicherungRuecklauf(): void {
       return (server.address() as { port: number }).port;
     }
     try {
-      return await starteZuhörer();
+      return await oeffneZuhörer();
     } catch (fehler) {
       // Ein toter Zuhörer (Fremdprozess auf unserem Socket, Netzwerkwechsel)
       // wird einmal weggeworfen und neu gebaut — scheitert auch das, sieht
@@ -93,7 +106,7 @@ export function wireSicherungRuecklauf(): void {
       if (fehler && (fehler as { code?: string }).code !== 'EADDRINUSE') {
         throw fehler;
       }
-      return await starteZuhörer();
+      return await oeffneZuhörer();
     }
   });
 
@@ -110,7 +123,10 @@ export function wireSicherungRuecklauf(): void {
       state = '';
     }
     if (!state) throw new Error('Anmelde-Adresse ohne state-Parameter');
-    if (server === null) await starteZuhörer();
+    // Bughunt Runde 42: auch einen GECRASHten Listener (existiert, lauscht
+    // aber nicht mehr) neu aufmachen — sonst öffnete der Konsent mit einer
+    // toten Weiterleitungs-Adresse und der Flow hing bis zur Frist.
+    if (!server?.listening) await oeffneZuhörer();
     const rueckgabe = new Promise<string>((resolve, ablehnen) => {
       const erledige = (url: string): void => {
         clearTimeout(frist);
