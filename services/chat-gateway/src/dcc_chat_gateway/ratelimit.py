@@ -97,6 +97,10 @@ _RULES: dict[str, tuple[int, float]] = {
     # Lookups. 60/Minute je Konto deckelt den Amplifikator weit ueber dem
     # echten Batch-Bedarf des Klienten.
     "postfach": (60, 60.0),
+    # Web-Push-Abo-Pflege (Bughunt Runde 47): je Aufruf Delete+Select+
+    # Upsert+Commit — ohne Bremse fuellte ein Skript die DB mit Churn.
+    # 10/Minute: ein Mensch koppelt Geraete, kein Maschinenwerk.
+    "push_abo": (10, 60.0),
 }
 
 
