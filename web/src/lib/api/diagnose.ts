@@ -8,6 +8,7 @@
  */
 
 import { cookieFetch } from './cookie-client';
+import { request } from './client';
 
 /** Zeile der Liste — ohne report/log_text (die holt das Detail). */
 export interface DiagnoseListeEintrag {
@@ -53,3 +54,22 @@ export const adminDiagnoseApi = {
     return cookieFetch<void>(`/admin/experimental-logs/${id}`, { method: 'DELETE' });
   }
 };
+
+/**
+ * Server-Paket eines Self-Hosters einreichen (Spec §7, Phase 3).
+ *
+ * Läuft über `request(..., endpoint: 'auth')` — die Identity-Plane ist immer
+ * Cloud-relativ (s. `client.ts::buildUrl`), der Bearer ist der Cloud-Account
+ * des Betreibers. Die Cloud prüft die Owner-Membership der Instanz; der
+ * Server selbst ruft die Cloud nie an — der Browser ist der Kurier.
+ */
+export async function reicheServerPaketEin(
+  instanceId: string,
+  paket: Record<string, unknown>
+): Promise<void> {
+  await request<void>('/me/instance-diagnose', {
+    method: 'POST',
+    endpoint: 'auth',
+    body: { instance_id: instanceId, paket }
+  });
+}

@@ -18,6 +18,7 @@ auf, und ein Umbenennen träfe genau die Nutzer, deren Berichte wir wollen.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
@@ -30,7 +31,8 @@ from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.models_experimental import ExperimentalLog
-from dcc_auth.routes import _check_rate, _require_admin
+from dcc_auth.models_instances import UserInstanceMembership
+from dcc_auth.routes import _check_rate, _get_current_user, _require_admin
 from dcc_auth.snowflake import next_id
 
 log = logging.getLogger(__name__)
@@ -386,3 +388,80 @@ async def admin_experimental_log_loeschen(
     )
     await session.commit()
     return None
+
+
+# --- Server-Paket eines Self-Hosters (Spec 2026-09-21 §7) -------------------
+#
+# Der Betreiber sammelt auf SEINEM Server ein Diagnose-Paket (Route im
+# chat-gateway, ``/admin/self-host/diagnose-paket``) und schickt es mit seinem
+# Cloud-Konto HIERHER — der Browser ist der Kurier, der Server selbst ruft die
+# Cloud nicht an. Attributierung über die Membership: nur der OWNER (oder ein
+# Admin) darf ein Paket für eine Instanz einreichen; sonst könnte jeder
+# angemeldete Account beliebig fremde „Server-Berichte“ in die Ansicht
+# einschleusen. Anders als der öffentliche POST oben ist diese Route
+# authentifiziert — deshalb kein IP-Rate-Limit, aber ein harten Paket-Deckel.
+
+MAX_PAKET_CHARS = 400_000  # ≈400 KiB; der Client deckelt sich auf 256 KiB
+
+
+class InstanceDiagnoseCreate(BaseModel):
+    instance_id: Annotated[str, Field(min_length=1, max_length=64)]
+    paket: dict[str, Any]
+
+
+@router.post("/me/instance-diagnose", status_code=status.HTTP_201_CREATED)
+async def submit_instance_diagnose(
+    payload: InstanceDiagnoseCreate,
+    request: Request,
+    session: SessionDep,
+    current: User = Depends(_get_current_user),
+):
+    try:
+        instanz_id = int(payload.instance_id)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="instance_id muss eine Zahl sein"
+        )
+
+    mitglied = (
+        await session.execute(
+            select(UserInstanceMembership).where(
+                UserInstanceMembership.user_id == current.id,
+                UserInstanceMembership.instance_id == instanz_id,
+                UserInstanceMembership.role == "owner",
+            )
+        )
+    ).scalar_one_or_none()
+    if mitglied is None and not current.is_admin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="nur der Instanz-Betreiber darf ein Server-Paket einreichen",
+        )
+
+    if len(json.dumps(payload.paket)) > MAX_PAKET_CHARS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Paket zu groß"
+        )
+
+    # Security-Audit-Konvention (s. öffentlicher POST oben): Trusted-Proxy-
+    # Auflösung statt rohen XFF, lokal importiert wie dort.
+    from dcc_auth.routes import _client_ip  # noqa: PLC0415
+
+    kopf = payload.paket.get("kopf") if isinstance(payload.paket.get("kopf"), dict) else None
+    entry = ExperimentalLog(
+        id=next_id(),
+        reason="user_report",
+        role="server",
+        # channel_id ist die indizierte Suchspalte (gleiche Rolle wie bei den
+        # Streaming-Berichten der Kanal) — hier trägt sie die Instanz, damit die
+        # Ansicht Server-Pakete je Instanz filtern kann.
+        channel_id=str(instanz_id),
+        system_info=kopf,
+        report=payload.paket,
+        client_ip=_client_ip(request),
+    )
+    session.add(entry)
+    await session.flush()
+    await _aufraeumen(session)
+    await session.commit()
+    return {"id": str(entry.id), "status": "received"}

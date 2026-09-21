@@ -7,6 +7,7 @@
 <script lang="ts">
   import AdminBackup from './AdminBackup.svelte';
   import AdminSelfHostBackup from './AdminSelfHostBackup.svelte';
+  import AdminSelfHostDiagnose from './AdminSelfHostDiagnose.svelte';
   import AdminAttachments from './AdminAttachments.svelte';
   import AdminRegistration from './AdminRegistration.svelte';
   import AdminSmtp from './AdminSmtp.svelte';
@@ -104,6 +105,7 @@
     <AdminBackup />
   {:else}
     <AdminSelfHostBackup />
+    <AdminSelfHostDiagnose />
   {/if}
   <AdminAttachments />
   {#if isCloud}

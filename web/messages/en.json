@@ -3352,5 +3352,14 @@
   "admin_diagnose_log": "Raw text",
   "admin_diagnose_loeschen": "Delete",
   "admin_diagnose_verworfen": "dropped by client",
-  "admin_diagnose_notiz": "User note"
+  "admin_diagnose_notiz": "User note",
+  "selfhost_diagnose_titel": "Send diagnostics package to Pulse",
+  "selfhost_diagnose_beschreibung": "Collects the technical state of this server (startup checklist, crash counters, backups, configuration, cloud reachability) and sends it to the Pulse developers — signed with your account.",
+  "selfhost_diagnose_knopf": "Send package",
+  "selfhost_diagnose_laeuft": "Sending …",
+  "selfhost_diagnose_gesendet": "Thanks! The server package has arrived at Pulse.",
+  "selfhost_diagnose_fehler": "Sending failed.",
+  "selfhost_diagnose_als_datei": "Save package as file",
+  "selfhost_diagnose_ohne_instanz": "This server has no instance ID — the package cannot be attributed.",
+  "selfhost_diagnose_inhalt": "Included: startup checklist, crash counters, backup summary, technical configuration values (no passwords/keys), cloud reachability and the bootstrap logs."
 }

@@ -13,6 +13,8 @@ import pytest
 from sqlalchemy import select
 
 from dcc_auth.models import User
+from dcc_auth.models_instances import RegisteredInstance, UserInstanceMembership
+from dcc_auth.snowflake import next_id
 
 
 async def _register(client, *, username: str, email: str) -> str:
@@ -145,3 +147,125 @@ async def test_nicht_admin_wird_abgewiesen(client):
 async def test_ohne_anmeldung_401(client):
     r = await client.get("/admin/experimental-logs")
     assert r.status_code == 401
+
+
+# --- Server-Paket (Spec §7): POST /me/instance-diagnose ---------------------
+
+
+async def _seed_instanz(session_factory, *, owner_id: int, hostname: str) -> int:
+    """Instanz + Owner-Membership anlegen (ForeignKey braucht beide Zeilen)."""
+    instanz_id = next_id()
+    async with session_factory() as s:
+        s.add(
+            RegisteredInstance(
+                id=instanz_id,
+                hostname=hostname,
+                client_id=f"clid-{instanz_id}",
+                client_secret="hash-nur-test",
+                # Unique-Pflichtfelder: drei getrennte Snowflakes, damit keine
+                # Kollision mit anderen Seed-Instanzen im Testlauf entsteht.
+                worker_id_chat=next_id(),
+                worker_id_voice=next_id(),
+                worker_id_media=next_id(),
+                status="active",
+                registered_by=owner_id,
+            )
+        )
+        s.add(
+            UserInstanceMembership(
+                user_id=owner_id, instance_id=instanz_id, role="owner"
+            )
+        )
+        await s.commit()
+    return instanz_id
+
+
+async def _user_id(session_factory, username: str) -> int:
+    from sqlalchemy import select as _select
+
+    async with session_factory() as s:
+        return (
+            await s.execute(_select(User).where(User.username == username))
+        ).scalar_one().id
+
+
+@pytest.mark.asyncio
+async def test_server_paket_owner_reicht_ein(client, session_factory):
+    await _register(client, username="owner1", email="owner1@example.com")
+    token = await _login(client, username="owner1")
+    owner_id = await _user_id(session_factory, "owner1")
+    instanz_id = await _seed_instanz(
+        session_factory, owner_id=owner_id, hostname="pulse.example.de"
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = await client.post(
+        "/me/instance-diagnose",
+        headers=headers,
+        json={
+            "instance_id": str(instanz_id),
+            "paket": {
+                "kopf": {"hostname": "pulse.example.de", "version": "0.8.0+abc"},
+                "setup_status": ["1\t06-run-migrations\tok"],
+                "backups": {"enabled": True, "anzahl": 7},
+            },
+        },
+    )
+    assert r.status_code == 201, r.text
+
+    # Als Admin lesbar und als Server-Bericht mit Instanz-Kanal abgelegt.
+    await _promote_admin(session_factory, "owner1")
+    admin_token = await _login(client, username="owner1")
+    r = await client.get(
+        "/admin/experimental-logs?role=server",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    zeilen = r.json()
+    assert len(zeilen) == 1
+    assert zeilen[0]["channel_id"] == str(instanz_id)
+    details = await client.get(
+        f"/admin/experimental-logs/{zeilen[0]['id']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    paket = details.json()["report"]
+    assert paket["kopf"]["hostname"] == "pulse.example.de"
+    assert paket["backups"]["anzahl"] == 7
+
+
+@pytest.mark.asyncio
+async def test_server_paket_nicht_owner_403(client, session_factory):
+    # Bootstrap-Admin (erster Nutzer) darf; ein zweiter User ohne Membership
+    # darf NICHT für die fremde Instanz einreichen.
+    await _register(client, username="boss", email="boss@example.com")
+    await _register(client, username="fremd", email="fremd@example.com")
+    owner_id = await _user_id(session_factory, "boss")
+    instanz_id = await _seed_instanz(
+        session_factory, owner_id=owner_id, hostname="pulse.fremd.de"
+    )
+    token = await _login(client, username="fremd")
+    r = await client.post(
+        "/me/instance-diagnose",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"instance_id": str(instanz_id), "paket": {"kopf": {}}},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_server_paket_zu_gross_422(client, session_factory):
+    await _register(client, username="owner2", email="owner2@example.com")
+    token = await _login(client, username="owner2")
+    owner_id = await _user_id(session_factory, "owner2")
+    instanz_id = await _seed_instanz(
+        session_factory, owner_id=owner_id, hostname="pulse.big.de"
+    )
+    r = await client.post(
+        "/me/instance-diagnose",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "instance_id": str(instanz_id),
+            "paket": {"kopf": {}, "muell": "x" * (400_001)},
+        },
+    )
+    assert r.status_code == 422
