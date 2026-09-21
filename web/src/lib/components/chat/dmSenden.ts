@@ -63,6 +63,7 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
     void import('$lib/krypto/gruppe/sendenMitAnzeige').then(({ gruppeSendenMitAnzeige }) =>
       gruppeSendenMitAnzeige(gruppenKanal, text, kanonischeId)
     );
+    melden?.(true);
     return;
   }
 
@@ -124,6 +125,7 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
     return;
   }
 
+  melden?.(true);
   sendeKlartextDm({
     cid,
     text,

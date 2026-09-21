@@ -82,17 +82,6 @@
   let auswahl: AblageAnbieterArt | null = $state(null);
   let verbinde = $state(false);
   let fehler = $state('');
-  let webdavUrl = $state('');
-  let webdavBenutzer = $state('');
-  let webdavPasswort = $state('');
-  let s3Wirt = $state('');
-  let s3Region = $state('');
-  let s3Eimer = $state('');
-  let s3Schluessel = $state('');
-  let s3Geheimnis = $state('');
-  let s3Praefix = $state('');
-
-  const brauchtFormular = $derived(auswahl === 's3');
 
   function schliessen(): void {
     auswahl = null;

@@ -52,21 +52,16 @@ export async function nachrichtLoeschen(
     destructive: true
   });
   if (!ok) return;
+  const lokalLoeschenUndFrame = async (): Promise<void> => {
+    await lokalLoeschenUndFrame();
+  };
+
   if (msg.verschluesselt) {
     // E2EE: keine Server-Zeile — der Grabstein läuft lokal (Verlauf +
     // Sicherungs-Archiv) und der Lösch-Frame an die Gegenseite über den
     // verschlüsselten Sendeweg. Schlägt das Senden fehl, ist die lokale
     // Löschung trotzdem gültig; der Fehler wird sichtbar gemacht.
-    verlaufNachrichtGeloescht(msg.channel_id, msg.id);
-    messages.remove(msg.channel_id, msg.id);
-    if (opts.partnerId) {
-      try {
-        await sendeLoeschung(msg.channel_id, opts.partnerId, msg.id);
-      } catch (e) {
-        toast.error(m.dm_page_delete_failed());
-        console.error(e);
-      }
-    }
+    await lokalLoeschenUndFrame();
     return;
   }
   // Eine ID jenseits von int64 kann in keiner Server-Zeile liegen (Postgres-
@@ -79,16 +74,7 @@ export async function nachrichtLoeschen(
     }
   })();
   if (ueberInt64) {
-    verlaufNachrichtGeloescht(msg.channel_id, msg.id);
-    messages.remove(msg.channel_id, msg.id);
-    if (opts.partnerId) {
-      try {
-        await sendeLoeschung(msg.channel_id, opts.partnerId, msg.id);
-      } catch (e) {
-        toast.error(m.dm_page_delete_failed());
-        console.error(e);
-      }
-    }
+    await lokalLoeschenUndFrame();
     return;
   }
 
@@ -101,14 +87,7 @@ export async function nachrichtLoeschen(
     // 404 für eine echte Klartext-Zeile heißt "schon weg" und verträgt den
     // lokalen Grabstein ebenfalls.
     if (e instanceof ApiError && e.status === 404 && opts.partnerId) {
-      verlaufNachrichtGeloescht(msg.channel_id, msg.id);
-      messages.remove(msg.channel_id, msg.id);
-      try {
-        await sendeLoeschung(msg.channel_id, opts.partnerId, msg.id);
-      } catch (frameErr) {
-        toast.error(m.dm_page_delete_failed());
-        console.error(frameErr);
-      }
+      await lokalLoeschenUndFrame();
       return;
     }
     toast.error(m.dm_page_delete_failed());

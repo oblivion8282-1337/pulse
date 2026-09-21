@@ -143,7 +143,7 @@ export function onPlayerEvent(cb: (ev: PlayerStateEvent) => void): () => void {
 }
 
 /** Der Zustand der Direktverbindung, wie der Player ihn meldet. */
-export type DirectZustand = 'wartend' | 'connecting' | 'live' | 'failed' | 'closed';
+type DirectZustand = 'wartend' | 'connecting' | 'live' | 'failed' | 'closed';
 
 /**
  * Abonniert die Direktverbindungs-Ereignisse des Players (`direct_state` —

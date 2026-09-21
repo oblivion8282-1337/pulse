@@ -245,8 +245,6 @@
   onMount(() => serverState.start());
   onDestroy(() => serverState.stop());
 
-  let cloudServer = $derived(serversStore.servers.find((s) => s.isCloud));
-  let selfHostServers = $derived(serversStore.servers.filter((s) => !s.isCloud));
 
   function openServerInfo(server: ServerEntry): void {
     infoServerTarget = server;

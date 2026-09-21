@@ -270,6 +270,7 @@
          daneben haette Anhaenge, Antworten, Reaktionen und das Aktionsblatt
          still verloren. -->
     <ChatView
+      sendReport
       channel={synthChannel}
       messages={visibleMessages}
       onSend={sendMessage}

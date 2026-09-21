@@ -43,7 +43,7 @@
     channel,
     messages,
     onSend,
-    onSendResult,
+    sendReport,
     /** Optionaler Inhalt fuer den Leerraum bei messages.length === 0 —
      *  wird unverändert an MessageList durchgereicht. */
     leerHinweis = undefined as Snippet | undefined,
@@ -75,7 +75,7 @@
       anhaenge: AnhangAngabe[],
       melden?: (ok: boolean) => void
     ) => void;
-    onSendResult?: (melden: (ok: boolean) => void) => void;
+    sendReport?: boolean;
     isOwner?: boolean;
     leerHinweis?: Snippet;
     /** 'dm' swaps the # for an @-style icon and prefixes names with @.
@@ -547,7 +547,7 @@
         ? `${namePrefix}${channel.name}`
         : pm.chat_view_message_placeholder({ preposition: headerKind === 'dm' ? pm.chat_view_placeholder_to() : pm.chat_view_placeholder_in(), prefix: namePrefix, name: channel.name })}
       onSend={handleSend}
-      onSendResult={onSendResult}
+      sendReport={sendReport}
       replyTo={replyBanner}
       onCancelReply={() => (replyTarget = null)}
       disabled={composerDisabled}
