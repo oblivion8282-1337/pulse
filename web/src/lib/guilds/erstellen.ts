@@ -11,22 +11,38 @@ import { rolesApi } from '$lib/api/roles';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
+import { melde } from '$lib/diagnose/app-diagnose';
 
 export async function erstelleCommunity(name: string): Promise<void> {
-  const g = await chatApi.createGuild(name);
-  guilds.add(g);
-  // Seed empty stores for the new guild so per-guild affordances render
-  // immediately as "no overrides yet" / owner-grants-all instead of
-  // staying hidden until the next WS reconnect rebuilds ``ready``.
-  roles.recomputeGuild(g.id);
-  guildSounds.ensureSlot(g.id);
-  void rolesApi
-    .list(g.id)
-    .then((rows) => {
-      for (const r of rows) roles.upsertRole(r);
-    })
-    .catch(() => undefined);
-  const c = await chatApi.createChannel(g.id, { name: 'general' });
-  guilds.addChannel(c);
-  await goto(`/app/guilds/${g.id}/channels/${c.id}`);
+  try {
+    const g = await chatApi.createGuild(name);
+    guilds.add(g);
+    // Seed empty stores for the new guild so per-guild affordances render
+    // immediately as "no overrides yet" / owner-grants-all instead of
+    // staying hidden until the next WS reconnect rebuilds ``ready``.
+    roles.recomputeGuild(g.id);
+    guildSounds.ensureSlot(g.id);
+    void rolesApi
+      .list(g.id)
+      .then((rows) => {
+        for (const r of rows) roles.upsertRole(r);
+      })
+      .catch(() => undefined);
+    const c = await chatApi.createChannel(g.id, { name: 'general' });
+    guilds.addChannel(c);
+    await goto(`/app/guilds/${g.id}/channels/${c.id}`);
+  } catch (err) {
+    // Diagnose-Gedächtnis: gerade dieser Call war 2026-09-21 der Supportfall
+    // („Server nicht erreichbar" beim Anlegen). status > 0 = echte HTTP-
+    // Antwort des Servers; 0/undefined = kam nie an (netz) — die unter-
+    // scheidung ist die ganze Diagnose.
+    const status = (err as { status?: number })?.status;
+    melde(
+      'api',
+      `api_fehler_${typeof status === 'number' && status > 0 ? status : 'netz'}`,
+      'Community anlegen fehlgeschlagen',
+      { aktion: 'community_erstellen' }
+    );
+    throw err;
+  }
 }

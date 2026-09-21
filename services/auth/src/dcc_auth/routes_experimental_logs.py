@@ -22,13 +22,15 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
+from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
+from dcc_auth.models import User
 from dcc_auth.models_experimental import ExperimentalLog
-from dcc_auth.routes import _check_rate
+from dcc_auth.routes import _check_rate, _require_admin
 from dcc_auth.snowflake import next_id
 
 log = logging.getLogger(__name__)
@@ -242,3 +244,145 @@ async def _aufraeumen(session: SessionDep) -> None:
             )
     except Exception:
         log.warning("experimental_log_cleanup_failed", exc_info=True)
+
+
+# --- Admin-Lesezugriff (Spec 2026-09-21 §6) ---------------------------------
+#
+# Bis hierher war die Tabelle reine Schreiboberfläche: Berichte landeten, aber
+# NUR per Datenbank-SSH lesbar. Die Admin-Ansicht im Web braucht diese zwei
+# Lesewege + einen Abwurf. Bewusst NICHT auf demselben Router-Prefix wie die
+# anderen Admin-Module (dieser Router ist die öffentliche Schreibfläche) —
+# die Gates hängen deshalb je Route: doppelt (_require_admin UND
+# _require_cloud), Defense-in-depth wie in routes_admin_instances.py.
+
+
+def _require_cloud() -> None:
+    """Diagnose-Berichte sind cloud-only (dieselbe Begründung wie
+    ``routes_admin_instances.py``): auf einem Self-Host-Deploy liegt die
+    Tabelle seines Servers bei IHM — aber die Ansicht, die der Plattform-
+    Admin liest, gehört zu dieser Cloud hier."""
+    if get_settings().pulse_instance_mode != "cloud":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="diagnose reports are cloud-only",
+        )
+
+
+class ExperimentalLogListe(BaseModel):
+    """Zeile der Liste — ohne report/log_text (die sind Detail-Sache)."""
+
+    model_config = {"extra": "ignore"}
+
+    id: str
+    created_at: datetime
+    reason: str | None = None
+    role: str | None = None
+    channel_id: str | None = None
+    sidecar_version: str | None = None
+    client_ip: str | None = None
+    system_info: dict[str, Any] | None = None
+
+
+class ExperimentalLogDetails(ExperimentalLogListe):
+    report: dict[str, Any] | None = None
+    log_text: str | None = None
+
+
+def _liste_zeile(e: ExperimentalLog) -> ExperimentalLogListe:
+    return ExperimentalLogListe(
+        id=str(e.id),
+        created_at=e.created_at,
+        reason=e.reason,
+        role=e.role,
+        channel_id=e.channel_id,
+        sidecar_version=e.sidecar_version,
+        client_ip=e.client_ip,
+        system_info=e.system_info,
+    )
+
+
+@router.get(
+    "/admin/experimental-logs",
+    response_model=list[ExperimentalLogListe],
+    dependencies=[Depends(_require_cloud)],
+)
+async def admin_liste_experimental_logs(
+    _admin: Annotated[User, Depends(_require_admin)],
+    session: SessionDep,
+    role: str | None = None,
+    reason: str | None = None,
+    channel_id: str | None = None,
+    limit: Annotated[int, Field(ge=1, le=200)] = 50,
+    before_id: str | None = None,
+):
+    """Neueste Berichte zuerst; Paginierung per ``before_id`` (Snowflake der
+    letzten gesehenen Zeile). Filter sind AND-verknüpft und optional."""
+    q = select(ExperimentalLog)
+    if role:
+        q = q.where(ExperimentalLog.role == role)
+    if reason:
+        q = q.where(ExperimentalLog.reason == reason)
+    if channel_id:
+        q = q.where(ExperimentalLog.channel_id == channel_id)
+    if before_id:
+        try:
+            q = q.where(ExperimentalLog.id < int(before_id))
+        except ValueError:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, detail="before_id muss eine Zahl sein"
+            )
+    q = q.order_by(ExperimentalLog.id.desc()).limit(limit)
+    zeilen = (await session.execute(q)).scalars().all()
+    return [_liste_zeile(e) for e in zeilen]
+
+
+@router.get(
+    "/admin/experimental-logs/{log_id}",
+    response_model=ExperimentalLogDetails,
+    dependencies=[Depends(_require_cloud)],
+)
+async def admin_experimental_log_details(
+    _admin: Annotated[User, Depends(_require_admin)],
+    log_id: str,
+    session: SessionDep,
+):
+    try:
+        numerisch = int(log_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="id muss eine Zahl sein")
+    e = (
+        await session.execute(select(ExperimentalLog).where(ExperimentalLog.id == numerisch))
+    ).scalar_one_or_none()
+    if e is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Bericht nicht gefunden")
+    return ExperimentalLogDetails(
+        **_liste_zeile(e).model_dump(),
+        report=e.report,
+        log_text=e.log_text,
+    )
+
+
+@router.delete(
+    "/admin/experimental-logs/{log_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(_require_cloud)],
+)
+async def admin_experimental_log_loeschen(
+    _admin: Annotated[User, Depends(_require_admin)],
+    log_id: str,
+    session: SessionDep,
+):
+    """Einzellöschung für Spot-Fälle. Der reguläre Abwurf bleibt die
+    Aufbewahrungsfrist (``_aufraeumen``) — ein Bericht trägt keine Nutzer-
+    Kennung, ein „alles von Nutzer X“ gibt es darum nicht und braucht es
+    nicht (Spec §6)."""
+    try:
+        numerisch = int(log_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="id muss eine Zahl sein")
+    await session.execute(
+        delete(ExperimentalLog).where(ExperimentalLog.id == numerisch),
+        execution_options={"synchronize_session": False},
+    )
+    await session.commit()
+    return None

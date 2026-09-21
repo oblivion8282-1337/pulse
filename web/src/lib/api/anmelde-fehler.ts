@@ -19,6 +19,7 @@
  */
 
 import { m } from '$lib/paraglide/messages.js';
+import { melde } from '$lib/diagnose/app-diagnose';
 import { MELDUNGSSCHLUESSEL, istAblehnungscode } from './anmelde-fehler-codes';
 import type { Ablehnungscode } from './anmelde-fehler-codes';
 
@@ -38,12 +39,13 @@ const ALTE_GRUENDE_ZU_CODE: Record<string, Ablehnungscode> = {
 };
 
 export function merkeGrund(serverId: string, code: string): void {
-  if (istAblehnungscode(code)) {
-    letzterGrund.set(serverId, code);
-    return;
-  }
-  const abgebildet = ALTE_GRUENDE_ZU_CODE[code];
-  if (abgebildet) letzterGrund.set(serverId, abgebildet);
+  const aufgeloest = istAblehnungscode(code) ? code : ALTE_GRUENDE_ZU_CODE[code];
+  if (!aufgeloest) return;
+  letzterGrund.set(serverId, aufgeloest);
+  // Dieselbe Information in das Diagnose-Gedächtnis — hier läuft JEDE
+  // Anmelde-Ablehnung durch, ein Haken statt fünf. server_id statt hostname:
+  // der Bericht löst den Namen beim Anzeigen auf (s. KaeferDialog).
+  melde('anmeldung', `anmeldung_${aufgeloest}`, aufgeloest, { server_id: serverId });
 }
 
 export function vergissGrund(serverId: string): void {

@@ -13,9 +13,11 @@
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import SettingsDialog from './SettingsDialog.svelte';
+  import KaeferDialog from './diagnose/KaeferDialog.svelte';
   import StatusPicker from './StatusPicker.svelte';
   import SettingsIcon from '@lucide/svelte/icons/settings';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
+  import BugIcon from '@lucide/svelte/icons/bug';
 
   // `compact`: nur das Avatar-Symbol, kein Name + kein Chip-Hintergrund — für
   // die mobile GuildRail, wo der eigene User unten in der Server-Spalte sitzt.
@@ -51,6 +53,7 @@
 </script>
 
 <SettingsDialog bind:open={uiOverlays.settingsOpen} initialTab={uiOverlays.settingsInitialTab} />
+<KaeferDialog />
 
 {#snippet avatarBlock(sizeClass: string)}
   {#key avatarUrl}
@@ -74,6 +77,10 @@
   <DropdownMenu.Item onclick={() => uiOverlays.openSettings()} data-testid="open-settings">
     <SettingsIcon class="size-4" />
     {m.user_footer_settings()}
+  </DropdownMenu.Item>
+  <DropdownMenu.Item onclick={() => (uiOverlays.diagnoseOpen = true)} data-testid="open-diagnose">
+    <BugIcon class="size-4" />
+    {m.diagnose_melden()}
   </DropdownMenu.Item>
   <DropdownMenu.Separator />
   <DropdownMenu.Item onclick={onSignOut} data-testid="sign-out">
@@ -133,6 +140,18 @@
         {@render menuItems()}
       </DropdownMenu.Content>
     </DropdownMenu.Root>
+    <!-- Der sichtbare Käfer (Spec 2026-09-21 §5): ein Klick, kein Menü —
+         genau dafür ist er gebaut (Nutzer soll im Störfall nicht suchen). -->
+    <button
+      type="button"
+      class="text-text-muted hover:text-text-bright hover:bg-bg-hover rounded-lg p-1.5 transition-colors"
+      title={m.diagnose_melden()}
+      aria-label={m.diagnose_melden()}
+      onclick={() => (uiOverlays.diagnoseOpen = true)}
+      data-testid="bug-button"
+    >
+      <BugIcon class="size-4" />
+    </button>
     <StatusPicker />
   </div>
 {/if}

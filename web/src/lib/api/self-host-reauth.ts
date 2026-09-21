@@ -29,6 +29,7 @@ import { holeTicket, loeseTicketEin, TicketFehler } from './server-ticket';
 import { instancesApi } from './instances';
 import type { ServerEntry } from './servers.svelte';
 import { merkeGrund, vergissGrund } from './anmelde-fehler';
+import { melde } from '$lib/diagnose/app-diagnose';
 
 // Pro App-Session einmal die Cloud-Membership backfillen — deckt Server ab, die
 // schon vor dem Membership-Sync (oder als Nicht-Owner-Invite) lokal hinzugefügt
@@ -192,7 +193,12 @@ export function initSelfHostReauth(): void {
   setClientReauthAsync(reauthOnce);
   // Proaktiver Refresh: an jeden Token-Set/-Clear koppeln.
   sessionTokens.setChangeListener((serverId, action) => {
-    if (action === 'set') scheduleProactiveRefresh(serverId);
-    else cancelRefresh(serverId);
+    if (action === 'set') {
+      scheduleProactiveRefresh(serverId);
+      // Diagnose-Gedächtnis: Sitzungs-Beginn. Das 'clear' wird bewusst NICHT
+      // geloggt — reauth() räumt defensiv, bevor es neu mintet, jedes 'clear'
+      // wäre also ein falsches „Sitzungsende" direkt vor jedem Refresh.
+      melde('sitzung', 'sitzung_start', 'neue Server-Sitzung', { server_id: serverId });
+    } else cancelRefresh(serverId);
   });
 }

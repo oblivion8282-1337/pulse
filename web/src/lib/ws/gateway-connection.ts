@@ -27,6 +27,7 @@ import {
 } from '$lib/api/constants';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { auth } from '$lib/stores/auth.svelte';
+import { melde } from '$lib/diagnose/app-diagnose';
 import { sounds } from '$lib/sounds/engine';
 import { dispatch } from './handler-registry';
 import { bootstrapHandlersOnce } from './gateway-handlers-bootstrap';
@@ -622,6 +623,12 @@ export class GatewayConnection {
   }
 
   private _mapCloseCode(code: number): void {
+    // Diagnose-Gedächtnis: NUR unbeabsichtigte Closes laufen hier herein
+    // (wantConnected-Weiche in onclose) — ein bewusstes disconnect() erzeugt
+    // kein Ereignis. Der Code wird zur Kategorie, der Server in den Kontext.
+    melde('verbindung', `ws_closed_${code}`, `WebSocket geschlossen (${code})`, {
+      server_id: this.serverId
+    });
     switch (code) {
       case WS_CLOSE.TOKEN_EXPIRED: this.forceRefreshNext = true; this.state = 'closed'; return;
       case WS_CLOSE.SERVER_TOO_OLD: this.state = 'incompatible'; return;
