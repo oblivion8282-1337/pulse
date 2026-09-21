@@ -1,10 +1,5 @@
 """Anhaenge in die Cloud-Laufwerke der Beteiligten (Design §11).
 
-
-@pytest_asyncio.fixture(autouse=True)
-async def _enable_sqlite_foreign_keys(engine):
-    async with engine.begin() as conn:
-        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 Die Fehlerklasse, gegen die diese Datei steht, ist ausdruecklich nicht
 „falsches Ergebnis", sondern **stiller Fehlschlag**: ein Archiv, das nie
 schreibt, und ein Abrufweg, der eine formal gueltige Adresse auf geloeschte
@@ -26,6 +21,15 @@ import random
 
 import pytest
 import pytest_asyncio
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _enable_sqlite_foreign_keys(engine):
+    """SQLite ignoriert ``ON DELETE CASCADE`` ohne ``PRAGMA foreign_keys=ON``
+    je Verbindung. Die Test-Engine nutzt ``StaticPool`` (eine geteilte
+    In-Memory-Verbindung), deshalb genuegt ein einmaliges PRAGMA."""
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 
 from dcc_chat_gateway import ablage_anhang_verteilung as verteilung_mod
 from dcc_chat_gateway import s3 as s3_mod
