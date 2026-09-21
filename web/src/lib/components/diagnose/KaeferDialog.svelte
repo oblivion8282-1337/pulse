@@ -124,9 +124,8 @@
         window.location.origin === CLOUD_HOSTNAME
           ? '/api/auth/experimental-logs'
           : `${CLOUD_HOSTNAME}/api/auth/experimental-logs`;
-      // Bericht JETZT bauen — nicht die Öffnen-Vorschau posten: die Notiz
-      // des Nutzers und die während des Dialogs neu ankommenden Ereignisse
-      // gehören in den Versand (Bughunt P1: Notiz ging still verloren).
+      // Nicht die Öffnen-Vorschau posten: Notiz + während des Dialogs neu
+      // angekommene Ereignisse gehören in den Versand (Bughunt P1).
       const versand = bericht(vorschau.kopf, notiz.trim());
       // Sendezeitpunkt VOR dem Fetch merken: `leeren(bisTs)` löscht nach dem
       // Erfolg nur bis hierher — während des Fetch neu angekommenes bleibt.
@@ -160,9 +159,7 @@
 
   function alsDatei(): void {
     if (!vorschau) return;
-    // Der angezeigten Vorschau entsprechend — nicht aus dem (seit dem Öffnen
-    // gewachsenen) Ring neu bauen; Vorschau-Versprechen = Datei-Inhalt.
-    speichereAlsDatei(bericht(vorschau.kopf, notiz.trim()));
+    speichereAlsDatei(vorschau, 'pulse-diagnose');
   }
 
   const letzteEreignisse = $derived(vorschau ? vorschau.ereignisse.slice(-10).reverse() : []);

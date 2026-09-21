@@ -34,6 +34,7 @@ from dcc_auth.models_experimental import ExperimentalLog
 from dcc_auth.models_instances import UserInstanceMembership
 from dcc_auth.routes import _check_rate, _get_current_user, _require_admin
 from dcc_auth.snowflake import next_id
+from dcc_shared.snowflake import INT64_MAX, INT64_MIN
 
 log = logging.getLogger(__name__)
 
@@ -73,9 +74,8 @@ MAX_EVENTS = 250
 MAX_DICT_CHARS = 512 * 1024  # 512 KiB
 
 # Snowflake-IDs sind INT64 — asyncpg kann größere Werte nicht binden und
-# antwortet mit 500 statt 422 (gleiche Fehlerklasse wie routes.py::batch_users).
-_INT64_MIN = -(2**63)
-_INT64_MAX = 2**63 - 1
+# antwortet mit 500 statt 422 (gleiche Fehlerklasse wie routes.py::batch_users);
+# die Grenzen kommen aus dcc_shared, derselben Quelle wie next_id().
 
 
 def _parse_snowflake(wert: str, feld: str) -> int:
@@ -84,7 +84,7 @@ def _parse_snowflake(wert: str, feld: str) -> int:
         zahl = int(wert)
     except ValueError:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{feld} muss eine Zahl sein")
-    if not (_INT64_MIN <= zahl <= _INT64_MAX):
+    if not (INT64_MIN <= zahl <= INT64_MAX):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{feld} außerhalb des gültigen Bereichs")
     return zahl
 
@@ -161,6 +161,20 @@ class ExperimentalLogCreate(BaseModel):
     )
 
 
+def _deckel_pruefen(wert: Any, was: str, limit: int) -> None:
+    """Serialisierbarkeit (NaN/Infinity → Postgres-JSONB kann die nicht) und
+    Größen-Deckel in einem; Verstoß je 422, nicht 500."""
+    try:
+        groesse = len(json.dumps(wert, allow_nan=False))
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{was} enthält nicht-serialisierbare Werte",
+        )
+    if groesse > limit:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{was} zu groß")
+
+
 @router.post("/experimental-logs", status_code=status.HTTP_201_CREATED)
 async def submit_experimental_log(
     payload: ExperimentalLogCreate,
@@ -195,23 +209,8 @@ async def submit_experimental_log(
     # deckt nur log_text — kopf/bilanz/abschluss/werte wären sonst unbegrenzt.
     # `allow_nan=False` verwandelt NaN/Infinity-Inputs (Postgres-JSONB kann die
     # nicht speichern) von 500 in 422.
-    try:
-        groesse = len(
-            json.dumps(
-                {
-                    "system_info": payload.system_info,
-                    "report": payload.report.model_dump(mode="json") if payload.report else None,
-                },
-                allow_nan=False,
-            )
-        )
-    except (TypeError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Bericht enthält nicht-serialisierbare Werte",
-        )
-    if groesse > MAX_DICT_CHARS:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Bericht zu groß")
+    report_json = payload.report.model_dump(mode="json") if payload.report else None
+    _deckel_pruefen({"system_info": payload.system_info, "report": report_json}, "Bericht", MAX_DICT_CHARS)
 
     # Security-Audit 2026-09-16: statt des rohen XFF (client-kontrolliert,
     # spoofbare Attribution) dieselbe Trusted-Proxy-Auflösung wie überall.
@@ -230,7 +229,7 @@ async def submit_experimental_log(
         # rohes dict aus Pydantic kann Werte enthalten, die der JSON-Serializer
         # nicht kennt. Hier sind es heute nur Zahlen und Zeichenketten — aber
         # das gilt nur, solange niemand ein Feld ergänzt.
-        report=payload.report.model_dump(mode="json") if payload.report else None,
+        report=report_json,
         log_text=payload.log_text,
         client_ip=client_ip,
     )
@@ -490,23 +489,14 @@ async def submit_instance_diagnose(
 
     # Deckel + NaN-Abweisung (Postgres-JSONB kennt NaN/Infinity nicht — ohne
     # allow_nan=False wäre das ein 500 beim Insert, nicht ein 422 hier).
-    try:
-        paket_groesse = len(json.dumps(payload.paket, allow_nan=False))
-    except (TypeError, ValueError):
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Paket enthält nicht-serialisierbare Werte",
-        )
-    if paket_groesse > MAX_PAKET_CHARS:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Paket zu groß"
-        )
+    _deckel_pruefen(payload.paket, "Paket", MAX_PAKET_CHARS)
 
     # Security-Audit-Konvention (s. öffentlicher POST oben): Trusted-Proxy-
     # Auflösung statt rohen XFF, lokal importiert wie dort.
     from dcc_auth.routes import _client_ip  # noqa: PLC0415
 
-    kopf = payload.paket.get("kopf") if isinstance(payload.paket.get("kopf"), dict) else {}
+    roh_kopf = payload.paket.get("kopf")
+    kopf = roh_kopf if isinstance(roh_kopf, dict) else {}
     # Attributions-Vertrag: das Paket zählt ZUR Instanz in channel_id — ein
     # abweichendes kopf.instance_id (alter Container nach Instanz-Recycling,
     # oder absichtlich fremd gelabelt) wird hiermit autoritativ überschrieben.

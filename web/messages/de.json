@@ -3354,18 +3354,19 @@
   "admin_diagnose_verworfen": "vom Client verworfen",
   "admin_diagnose_notiz": "Notiz des Nutzers",
   "selfhost_diagnose_titel": "Diagnose-Paket an Pulse senden",
-  "selfhost_diagnose_beschreibung": "Sammelt den technischen Zustand dieses Servers (Start-Checkliste, Absturz-Zähler, Backups, Konfiguration, Cloud-Erreichbarkeit) und schickt ihn an die Pulse-Entwicklung — mit deinem Konto signiert.",
+  "selfhost_diagnose_beschreibung": "Sammelt den technischen Zustand dieses Servers und schickt ihn an die Pulse-Entwicklung — mit deinem Konto signiert.",
   "selfhost_diagnose_knopf": "Paket senden",
   "selfhost_diagnose_laeuft": "Wird gesendet …",
   "selfhost_diagnose_gesendet": "Danke! Das Server-Paket ist bei Pulse angekommen.",
   "selfhost_diagnose_fehler": "Der Versand hat nicht geklappt.",
   "selfhost_diagnose_als_datei": "Paket als Datei speichern",
   "selfhost_diagnose_ohne_instanz": "Dieser Server hat keine Instanz-Kennung — Paket kann nicht zugeordnet werden.",
-  "selfhost_diagnose_inhalt": "Enthalten: Start-Checkliste, Absturz-Zähler, Backup-Zusammenfassung, technische Konfigurationswerte (keine Passwörter/Keys), Cloud-Erreichbarkeit und die Bootstrap-Protokolle.",
+  "selfhost_diagnose_inhalt": "Enthalten: Start-Checkliste, Neustart-Zähler, Backup-Zusammenfassung, technische Konfigurationswerte (keine Passwörter/Keys), Cloud-Erreichbarkeit und die Bootstrap-Protokolle.",
   "diagnose_kopf_details": "Technische Kopfdaten zeigen (Gerät & Serverliste)",
   "admin_diagnose_laden_fehler": "Berichte konnten nicht geladen werden — versuche es später erneut.",
   "admin_diagnose_rolle_viewer": "Zuschauer",
   "admin_diagnose_rolle_sender": "Sender",
   "admin_diagnose_lade": "Lade Berichte …",
-  "selfhost_diagnose_server_offline": "Außerdem ist dieser Server gerade selbst nicht erreichbar — deshalb gibt es kein Paket zum Speichern. Prüfe, ob der Container läuft."
+  "selfhost_diagnose_server_offline": "Außerdem ist dieser Server gerade selbst nicht erreichbar — deshalb gibt es kein Paket zum Speichern. Prüfe, ob der Container läuft.",
+  "admin_diagnose_loeschen_fehler": "Bericht konnte nicht gelöscht werden — später erneut versuchen."
 }

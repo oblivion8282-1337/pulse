@@ -35,11 +35,6 @@ async def test_admin_bekommt_paket(client, admin_token, tmp_path, monkeypatch):
     (tmp_path / "setup-status").write_text(
         "1789925100\t01-init-data-dirs\tok\n1789925139\tfertig\tok\n", encoding="utf-8"
     )
-    log_dir = tmp_path / "logs"
-    log_dir.mkdir()
-    # /var/log/pulse ist fest verdrahtet — nur wenn es fehlt, bleibt der Block
-    # einfach leer (getestet durch Fehlen hier); wir überschreiben ihn nicht.
-
     # Credentials unterjubeln: die Whitelist darf sie NICHT durchlassen.
     monkeypatch.setenv("PULSE_CLOUD_CLIENT_SECRET", "ganz-geheim")
     monkeypatch.setenv("PULSE_HOSTNAME", "pulse.example.de")
@@ -51,7 +46,9 @@ async def test_admin_bekommt_paket(client, admin_token, tmp_path, monkeypatch):
     assert r.status_code == 200, r.text
     paket = r.json()
 
-    for block in ("kopf", "setup_status", "abstuerze", "backups", "konfiguration", "cloud"):
+    for block in (
+        "kopf", "setup_status", "abstuerze", "backups", "konfiguration", "cloud", "bootstrap_logs"
+    ):
         assert block in paket, block
     assert paket["setup_status"][-1] == "1789925139\tfertig\tok"
     assert paket["kopf"]["hostname"] == "pulse.example.de"

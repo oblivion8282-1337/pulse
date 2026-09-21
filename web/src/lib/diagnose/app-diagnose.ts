@@ -10,7 +10,7 @@
  * ankamen) ist genau die Klasse, die nur vom Gerät des Nutzers belegbar ist:
  * Ein Server-Log kann keinen Fehler enthalten, der den Server nie erreicht.
  *
- * **Importfrei — und das ist eine Last, kein Zufall.** Dieser Modul wird von
+ * **Importfrei — und das ist eine Last, kein Zufall.** Dieses Modul wird von
  * `anmelde-fehler.ts`, `server-ticket.ts`, `gateway-connection.ts` und dem
  * Guild-Erstellen importiert; ein Import HIERHIN zurück in eine dieser
  * Dateien (oder in alles, was Stores oder Paraglide zieht) baut einen
@@ -58,7 +58,7 @@
 /** Ein Ereignis im Ringpuffer. `ts` ist absolute Epoch-ms — der Bericht
  *  rechnet daraus relativ (eine rohe Client-Uhrzeit wäre ohne Zeitzonen-
  *  Kontext wertlos). `anzahl` trägt die schreibseitige Verdichtung. */
-export type RingEreignis = {
+type RingEreignis = {
 	ts: number;
 	/** Woher: 'anmeldung' | 'sitzung' | 'verbindung' | 'api' | 'stream' | … */
 	baustein: string;
@@ -76,11 +76,11 @@ export type RingEreignis = {
 type RingSpeicher = { ereignisse: RingEreignis[]; verworfen: number };
 
 const LS_KEY = 'pulse.diagnose.ring';
-const GESendet_KEY = 'pulse.diagnose.gesendet_am';
+const GESENDET_KEY = 'pulse.diagnose.gesendet_am';
 const MAX_EREIGNISSE = 250;
 const MAX_BYTES = 256 * 1024;
-const VERDICHTungsFENSTER_MS = 10_000;
-const SEND_DROSSel_MS = 60_000;
+const VERDICHTUNGSFENSTER_MS = 10_000;
+const SEND_DROSSLUNG_MS = 60_000;
 const TEXT_KAPPUNG = 200;
 
 let fallbackCache: RingSpeicher | null = null;
@@ -148,18 +148,19 @@ function storageSet(schluessel: string, wert: string): void {
 
 /** Deckel erzwingen: erst Anzahl, dann Bytes — mit NEUMESSUNG nach jedem
  *  Schnitt (While, terminiert, denn ein Ring ohne Ereignisse ist klein).
- *  DerSerialisiert-String wird vom Aufrufer durchgereicht, damit der Hot-
+ *  Der serialisierte String wird vom Aufrufer durchgereicht, damit der Hot-
  *  Pfad (`melde()` bei jedem Anmelde-Fehlversuch) nicht doppelt
  *  stringifiziert. */
 function begrenzen(ring: RingSpeicher): string {
-	while (true) {
-		const serialisiert = JSON.stringify(ring);
+	let serialisiert = JSON.stringify(ring);
+	while (ring.ereignisse.length > MAX_EREIGNISSE || serialisiert.length > MAX_BYTES) {
 		let ueber = ring.ereignisse.length - MAX_EREIGNISSE;
-		if (ueber <= 0 && serialisiert.length <= MAX_BYTES) return serialisiert;
 		if (ueber <= 0) ueber = Math.ceil(ring.ereignisse.length / 2);
-		ring.ereignisse = ring.ereignisse.slice(ueber);
 		ring.verworfen += ueber;
+		ring.ereignisse = ring.ereignisse.slice(ueber);
+		serialisiert = JSON.stringify(ring);
 	}
+	return serialisiert;
 }
 
 /** Ein Ereignis aufnehmen. Wirft nie — Diagnostik darf nie zur Störung
@@ -181,26 +182,30 @@ export function melde(
 		// unterscheiden sich im server_id — sie bleiben zwei Belege, sonst
 		// würde der zweite still verschwiegen.
 		const kontextSchluessel = kontext ? JSON.stringify(kontext) : '';
+		let ziel: RingEreignis | undefined;
 		for (let i = ring.ereignisse.length - 1; i >= 0 && i >= ring.ereignisse.length - 20; i--) {
 			const e = ring.ereignisse[i];
-			if (jetzt - e.ts > VERDICHTungsFENSTER_MS) break;
+			if (jetzt - e.ts > VERDICHTUNGSFENSTER_MS) break;
 			const eKontext = e.kontext ? JSON.stringify(e.kontext) : '';
 			if (e.kategorie === kategorie && e.text === text && eKontext === kontextSchluessel) {
-				e.anzahl += 1;
-				sichern(ring, begrenzen(ring));
-				return;
+				ziel = e;
+				break;
 			}
 		}
-		ring.ereignisse.push({
-			ts: jetzt,
-			baustein,
-			kategorie,
-			// Kappung hier statt im Bericht: ein vergessener langer String soll
-			// den 256-KiB-Deckel nicht sprengen können.
-			text: text.slice(0, TEXT_KAPPUNG),
-			kontext,
-			anzahl: 1
-		});
+		if (ziel) {
+			ziel.anzahl += 1;
+		} else {
+			ring.ereignisse.push({
+				ts: jetzt,
+				baustein,
+				kategorie,
+				// Kappung hier statt im Bericht: ein vergessener langer String soll
+				// den 256-KiB-Deckel nicht sprengen können.
+				text: text.slice(0, TEXT_KAPPUNG),
+				kontext,
+				anzahl: 1
+			});
+		}
 		sichern(ring, begrenzen(ring));
 	} catch {
 		// Absichtlich geschluckt.
@@ -217,27 +222,20 @@ export function leseRingpuffer(): RingEreignis[] {
  *  WÄHREND des Versand-Fetchs neu ankam, bleibt im Ring und geht mit dem
  *  nächsten Bericht raus. Ohne Argument: alles. */
 export function leeren(bisTs?: number): void {
-	const storage = speicher();
-	if (!storage) {
-		if (bisTs === undefined) {
-			fallbackCache = { ereignisse: [], verworfen: 0 };
-		} else if (fallbackCache) {
-			const behalten = fallbackCache.ereignisse.filter((e) => e.ts > bisTs);
-			fallbackCache.verworfen += fallbackCache.ereignisse.length - behalten.length;
-			fallbackCache.ereignisse = behalten;
-		}
-		return;
-	}
 	try {
 		if (bisTs === undefined) {
-			storage.removeItem(LS_KEY);
+			const storage = speicher();
+			if (storage) storage.removeItem(LS_KEY);
+			else fallbackCache = { ereignisse: [], verworfen: 0 };
 			return;
 		}
+		// laden() deckt beide Ablagen (localStorage ODER Fallback-Cache) — der
+		// Teillösch-Pfad braucht darum nur EINEN Codepfad.
 		const ring = laden();
 		const behalten = ring.ereignisse.filter((e) => e.ts > bisTs);
 		ring.verworfen += ring.ereignisse.length - behalten.length;
 		ring.ereignisse = behalten;
-		storage.setItem(LS_KEY, JSON.stringify(ring));
+		sichern(ring);
 	} catch {
 		// best-effort — der nächste Bericht enthält höchstens Duplikate.
 	}
@@ -261,6 +259,7 @@ export type AppBericht = {
 export function bericht(kopf: Record<string, unknown>, notiz: string): AppBericht {
 	const ring = laden();
 	const basis = ring.ereignisse[0]?.ts ?? Date.now();
+	const letzter = ring.ereignisse.at(-1);
 	const ereignisse: AppBericht['ereignisse'] = ring.ereignisse.map((e) => ({
 		s: Math.max(0, Math.round(((e.ts - basis) / 1000) * 10) / 10),
 		art: e.kategorie.slice(0, 48),
@@ -272,7 +271,7 @@ export function bericht(kopf: Record<string, unknown>, notiz: string): AppBerich
 		bilanz: {
 			ereignisse_gesamt: ring.ereignisse.reduce((summe, e) => summe + e.anzahl, 0),
 			erster: ring.ereignisse[0] ? new Date(ring.ereignisse[0].ts).toISOString() : null,
-			letzer: ring.ereignisse.at(-1) ? new Date(ring.ereignisse.at(-1)!.ts).toISOString() : null
+			letzer: letzter ? new Date(letzter.ts).toISOString() : null
 		},
 		ereignisse,
 		ereignisse_verworfen: ring.verworfen,
@@ -287,10 +286,10 @@ export function bericht(kopf: Record<string, unknown>, notiz: string): AppBerich
  *  die Wanduhr den alten Stand wieder erreicht. */
 export function darfJetztSenden(): boolean {
 	try {
-		const letzte = Number(speicher()?.getItem(GESendet_KEY) ?? 0);
+		const letzte = Number(speicher()?.getItem(GESENDET_KEY) ?? 0);
 		if (!letzte) return true;
 		const delta = Date.now() - letzte;
-		return delta < 0 || delta >= SEND_DROSSel_MS;
+		return delta < 0 || delta >= SEND_DROSSLUNG_MS;
 	} catch {
 		return true;
 	}
@@ -298,21 +297,27 @@ export function darfJetztSenden(): boolean {
 
 export function merkeUebertragung(): void {
 	try {
-		storageSet(GESendet_KEY, String(Date.now()));
+		storageSet(GESENDET_KEY, String(Date.now()));
 	} catch {
 		// best-effort
 	}
 }
 
 /** Fallback, wenn selbst die Cloud nicht erreichbar ist (§5 des Specs): der
- *  Bericht als Datei — der Nutzer kann ihn klassisch schicken. Wirft nie. */
-export function speichereAlsDatei(berichtObj: AppBericht): void {
+ *  Bericht als Datei — der Nutzer kann ihn klassisch schicken. Wirft nie.
+ *  Ponytail-Note: auch die Server-Paket-Komponente lädt über diese eine
+ *  Funktion (drittes Download-Vorkommen im Repo — ein eigener Helfer pro
+ *  Komponente wäre der zweite gewesen). */
+export function speichereAlsDatei(
+	inhalt: AppBericht | Record<string, unknown>,
+	dateinamePraefix: string
+): void {
 	try {
-		const blob = new Blob([JSON.stringify(berichtObj, null, 2)], { type: 'application/json' });
+		const blob = new Blob([JSON.stringify(inhalt, null, 2)], { type: 'application/json' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `pulse-diagnose-${new Date().toISOString().slice(0, 19)}.json`;
+		a.download = `${dateinamePraefix}-${new Date().toISOString().slice(0, 19)}.json`;
 		a.click();
 		// Verzögert revoken (Muster aus instances.ts): synchron würde der Browser
 		// den Blob-Download abbrechen, bevor er begonnen hat.

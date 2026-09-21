@@ -18,6 +18,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { adminApi } from '$lib/api/admin';
   import { reicheServerPaketEin } from '$lib/api/diagnose';
+  import { speichereAlsDatei } from '$lib/diagnose/app-diagnose';
   import { activeServer } from '$lib/stores/active-server.svelte';
 
   let busy = $state(false);
@@ -27,15 +28,7 @@
 
   function alsDatei(): void {
     if (!letztesPaket) return;
-    const blob = new Blob([JSON.stringify(letztesPaket, null, 2)], {
-      type: 'application/json'
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pulse-server-diagnose-${new Date().toISOString().slice(0, 19)}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    speichereAlsDatei(letztesPaket, 'pulse-server-diagnose');
   }
 
   async function senden(): Promise<void> {
@@ -49,10 +42,8 @@
     fehler = null;
     dateiOfferiert = false;
     try {
-      // 1. Paket vom EIGENEN Server holen ...
       const paket = await adminApi.selfHostDiagnosePaket();
       letztesPaket = paket;
-      // 2. ... und über den Cloud-Account des Betreibers einreichen.
       await reicheServerPaketEin(instanceId, paket);
       toast.success(m.selfhost_diagnose_gesendet());
     } catch (e) {

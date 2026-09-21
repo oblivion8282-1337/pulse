@@ -13,6 +13,8 @@
   import { Button } from '$lib/components/ui/button';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
   import { m } from '$lib/paraglide/messages.js';
   import {
@@ -76,20 +78,21 @@
       zeilen = zeilen.filter((z) => z.id !== id);
       details = null;
     } catch {
-      detailFehler = m.admin_diagnose_laden_fehler();
+      detailFehler = m.admin_diagnose_loeschen_fehler();
     }
   }
 
-  function zeit(iso: string): string {
-    return new Date(iso).toLocaleString();
-  }
+
 
   // Die Ereignisliste des Berichts ist dynamisch (alter Sender-Report hat
   // andere Felder als der App-Bericht) — hier defensiv lesen statt Typen
-  // zu behaupten, die der Sender nicht garantiert.
-  function ereignisse(d: DiagnoseDetails): { s: number; art: string; anzahl: number }[] {
+  // zu behaupten, die der Sender nicht garantiert. `text` ist das
+  // menschenlesbare Kernstück und gehört in die Ansicht (Bughunt S1#6).
+  function ereignisse(d: DiagnoseDetails): { s: number; art: string; anzahl: number; text?: string }[] {
     const liste = (d.report as { ereignisse?: unknown } | null)?.ereignisse;
-    return Array.isArray(liste) ? (liste as { s: number; art: string; anzahl: number }[]) : [];
+    return Array.isArray(liste)
+      ? (liste as { s: number; art: string; anzahl: number; text?: string }[])
+      : [];
   }
 
   function notiz(d: DiagnoseDetails): string | null {
@@ -142,7 +145,7 @@
       <Alert.Description>{fehler}</Alert.Description>
     </Alert.Root>
   {:else if zeilen.length === 0}
-    <p class="text-text-muted text-sm" data-testid="diagnose-leer">{m.admin_diagnose_leer()}</p>
+    <EmptyState message={m.admin_diagnose_leer()} testId="diagnose-leer" />
   {:else}
     <div class="overflow-x-auto">
       <table class="w-full text-left text-sm">
@@ -166,7 +169,7 @@
               onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && oeffnen(z.id)}
               data-testid="diagnose-zeile"
             >
-              <td class="py-2 pr-4 whitespace-nowrap">{zeit(z.created_at)}</td>
+              <td class="py-2 pr-4 whitespace-nowrap">{formatTimestamp(z.created_at)}</td>
               <td class="py-2 pr-4">{z.role ?? '—'}</td>
               <td class="py-2 pr-4 font-mono text-xs">{z.reason ?? '—'}</td>
               <td class="text-text-muted py-2 font-mono text-xs">{z.channel_id ?? '—'}</td>
@@ -206,7 +209,7 @@
       {/if}
 
       <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-        <div><span class="text-text-muted block">{m.admin_diagnose_zeit()}</span>{zeit(details.created_at)}</div>
+        <div><span class="text-text-muted block">{m.admin_diagnose_zeit()}</span>{formatTimestamp(details.created_at)}</div>
         <div><span class="text-text-muted block">{m.admin_diagnose_rolle()}</span>{details.role ?? '—'}</div>
         <div><span class="text-text-muted block">IP</span>{details.client_ip ?? '—'}</div>
         <div><span class="text-text-muted block">Version</span>{details.sidecar_version ?? '—'}</div>
@@ -230,7 +233,7 @@
           </p>
           <ul class="mt-1 space-y-0.5 font-mono text-xs">
             {#each ereignisse(details) as e, i (i)}
-              <li>t+{e.s}s · {e.art}{e.anzahl > 1 ? ` ×${e.anzahl}` : ''}</li>
+              <li>t+{e.s}s · {e.art}{e.anzahl > 1 ? ` ×${e.anzahl}` : ''}{e.text ? ` — ${e.text}` : ''}</li>
             {/each}
           </ul>
         </div>

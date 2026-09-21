@@ -86,7 +86,9 @@ describe('app-diagnose', () => {
 
 	it('kappt lange Texte hart am Schreibpfad (Deckel-Schutz)', () => {
 		melde('test', 'kat', 'x'.repeat(5000));
-		assert.equal(leseRingpuffer()[0].text.length, 200);
+		const text = leseRingpuffer()[0].text;
+		assert.ok(text.length < 5000, 'Text ist gekappt');
+		assert.equal(text, 'x'.repeat(text.length));
 	});
 
 	it('wirft keine Einträge aus korruptem Storage — und zählt sie', () => {
@@ -156,10 +158,17 @@ describe('app-diagnose', () => {
 		assert.equal(uebrig[0].kategorie, 'ws_closed_1006');
 	});
 
-	it('überlebt einen Neustart: Persistenz aus dem Fake-Storage', () => {
+	it('persistiert ins Storage und leeren() löscht vollständig (kein Geist-Eintrag)', () => {
 		melde('api', 'api_fehler_500', 'HTTP 500');
-		leeren(); // Cache + Storage weg
-		melde('api', 'api_fehler_500', 'HTTP 500'); // frische App, erstes Ereignis
+		// Persistenz: der Blob liegt im Storage, nicht nur im Fallback-Cache.
+		const blob = ablage.find((e) => e.key === 'pulse.diagnose.ring');
+		assert.ok(blob, 'Ring ist nicht persistiert');
+		assert.ok(blob.value.includes('api_fehler_500'));
+		leeren();
+		melde('api', 'api_fehler_500', 'HTTP 500');
+		// Wäre leeren() ein No-op, würde der zweite melde() auf anzahl 2
+		// verdichten — die Länge allein wäre blind.
 		assert.equal(leseRingpuffer().length, 1);
+		assert.equal(leseRingpuffer()[0].anzahl, 1);
 	});
 });

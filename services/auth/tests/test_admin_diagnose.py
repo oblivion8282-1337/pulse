@@ -181,11 +181,9 @@ async def _seed_instanz(session_factory, *, owner_id: int, hostname: str) -> int
 
 
 async def _user_id(session_factory, username: str) -> int:
-    from sqlalchemy import select as _select
-
     async with session_factory() as s:
         return (
-            await s.execute(_select(User).where(User.username == username))
+            await s.execute(select(User).where(User.username == username))
         ).scalar_one().id
 
 
