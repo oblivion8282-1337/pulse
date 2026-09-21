@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-
-from dcc_voice_signaling import ratelimit
 import json
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from dcc_voice_signaling import ratelimit
 from dcc_voice_signaling import routes as voice_routes
 
 router = APIRouter()

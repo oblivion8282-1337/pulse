@@ -7,6 +7,7 @@ voice-channel type discriminator are pinned here. Drift is caught by
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import httpx
@@ -283,17 +284,7 @@ async def _maybe_revoke_voice_pull(redis, channel_id: str, user_id: str) -> None
     # verlassen hat. Ponytail: die Restlücke (Rejoin NACH der Nachfrage)
     # bleibt; der Reaper heilt sie beim nächsten Lauf nicht, aber ein Mod
     # kann erneut ziehen.
-    import asyncio  # noqa: PLC0415
-
     async def _verzoegert_revoken() -> None:
-        # Gnadenfenster mit Presence-Nachfrage (Bughunt Runde 4), derselbe
-        # Schutz wie im Reaper ("never yanks a grant from a user who is
-        # still in the call"). LiveKit feuert bei einem vollen Reconnect
-        # participant_left + participant_joined im Sekundenabstand — ohne
-        # die Gnade riss der Flap den Pull-Grant (Zeile + VIEW/CONNECT-Bits)
-        # weg, obwohl der Nutzer nie bewusst verlassen hat. Ponytail: die
-        # Restluecke (Rejoin NACH der Nachfrage) bleibt; der Reaper heilt
-        # sie beim naechsten Lauf nicht, aber ein Mod kann erneut ziehen.
         await asyncio.sleep(_VOICE_PULL_GNADEN_S)
         try:
             if await redis.sismember(f"voice:room:channel-{channel_id}", user_id):

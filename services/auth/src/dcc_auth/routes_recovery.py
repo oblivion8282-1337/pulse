@@ -115,8 +115,6 @@ async def password_forgot(
         # gegen diesen sonst leeren Miss-Pfad war messbar. Ein Dummy-Argon2
         # (Muster aus /login, ~150 ms) frisst das Delta; passender Fehl-
         # Argon2 kostet in etwa einen echten Hash-Verify.
-        import asyncio  # noqa: PLC0415
-
         await asyncio.to_thread(verify_dummy_password, "equalizer")
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -277,14 +275,14 @@ async def email_verification_confirm(
     request: Request,
     session: SessionDep,
 ):
-    # Bughunt Runde 24: Brake nachreichen (Spiegel zu /password/reset) —
-    # der Endpoint war das einzige anonyme Token-Gate ganz ohne Drossel.
     """Anonymous endpoint — the token in the URL IS the auth.
 
     The verify link goes out in an email, so the recipient is by definition
     the address-owner. Requiring a bearer in addition would be cumbersome
     (the user may not be logged in on the device they click the link from).
     """
+    # Bughunt Runde 24: Brake nachreichen (Spiegel zu /password/reset) —
+    # der Endpoint war das einzige anonyme Token-Gate ganz ohne Drossel.
     from fastapi import HTTPException
 
     from dcc_auth.recovery import hash_token

@@ -40,6 +40,7 @@ from dcc_auth.routes import (
     _issue_tokens,
     _signer_dep,
 )
+from dcc_auth.email import resolve_smtp_config
 from dcc_auth.schemas import (
     EmailChangeConfirmIn,
     EmailChangeRequestIn,
@@ -48,7 +49,6 @@ from dcc_auth.schemas import (
     TokensOut,
 )
 from dcc_auth.security import JwtSigner, hash_password, verify_password
-from dcc_auth.email import resolve_smtp_config
 
 log = logging.getLogger(__name__)
 

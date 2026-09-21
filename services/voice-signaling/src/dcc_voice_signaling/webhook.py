@@ -99,6 +99,15 @@ def _as_str(m: bytes | str) -> str:
     return m.decode() if isinstance(m, bytes) else m
 
 
+def _sorted_members(raw: list[bytes | str], present: set[str]) -> list[str]:
+    """Set members as sorted strs, filtered to those in ``present``.
+
+    Snapshot hygiene (Bughunt Runde 46): the presence read above runs in
+    separate pipeline commands, so a concurrent leave/stop can leave an
+    entry that no longer has presence — such orphans must not render."""
+    return sorted(_as_str(m) for m in raw if _as_str(m) in present)
+
+
 def _is_camera(track) -> bool:  # noqa: ANN001
     """Return True if this TrackInfo represents a webcam (CAMERA source).
 
@@ -270,14 +279,10 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
     members_raw, streamers_raw, camera_raw, gast_stumm_raw = await pipe.execute()
     user_ids = sorted(_as_str(m) for m in members_raw)
     user_set = set(user_ids)
-    # Bughunt Runde 46: streaming/camera gegen user_ids filtern — der Read
-    # oben läuft in VIER getrennten Pipeline-Befehlen, ein dazwischen
-    # landendes leave/stop produzierte Snapshots, in denen jemand streamte,
-    # ohne im Raum zu sein (Kachel ohne Präsenz). Dieselbe Hygiene wie bei
-    # gast_stumm darunter; schließt zugleich den Pfad "verlorener
-    # Join-Webhook eines Mitglieds, aber track_published kam durch".
-    streaming_user_ids = sorted(_as_str(m) for m in streamers_raw if _as_str(m) in user_set)
-    camera_user_ids = sorted(_as_str(m) for m in camera_raw if _as_str(m) in user_set)
+    # Bughunt Runde 46: Presence-Hygiene gegen Pipeline-Race-Lücken — s.
+    # _sorted_members.
+    streaming_user_ids = _sorted_members(streamers_raw, user_set)
+    camera_user_ids = _sorted_members(camera_raw, user_set)
     # Gastnamen mitschicken — für eine Gast-Kennung gibt es beim Empfänger
     # keine zweite Quelle (s. ``VoiceStateSnapshot.gast_namen``).
     gast_namen: dict[str, str] = {}
@@ -295,9 +300,7 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
         gast_namen=gast_namen,
         # Nur Gäste, die auch wirklich im Raum sind — ein verwaister Eintrag
         # (participants_left ging verloren) würde sonst mitreisen.
-        gast_stumm=sorted(
-            _as_str(m) for m in gast_stumm_raw if _as_str(m) in set(user_ids)
-        ),
+        gast_stumm=_sorted_members(gast_stumm_raw, user_set),
     )
     await redis.publish(
         VOICE_EVENTS_CHANNEL,

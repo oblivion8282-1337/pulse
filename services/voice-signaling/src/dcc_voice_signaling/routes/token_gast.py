@@ -136,13 +136,6 @@ async def issue_gast_token(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="ticket expired")
 
     room = voice_routes._room_for_channel(payload.channel_id)
-    # Das Benutzerlimit wird NICHT mehr nur beim Ticket-Mint im chat-gateway
-    # geprüft, sondern auch hier (oben) — der Mint kann bis zu 4 h zurück-
-    # liegen, und „der Kanal war bei der Ausstellung nicht voll“ sagt über
-    # jetzt nichts mehr. Die Grenze kommt per internal-Route aus der
-    # chat-gateway-DB (keine zweite Wahrheit), die Belegung zählt dieser
-    # Dienst selbst aus dem gemeinsamen Redis-Schlüssel.
-
     # Feste Rechte, kein Resolver: sprechen, Kamera, zuhören. Kein
     # Bildschirm teilen (Zuschnitt der Funktion) und kein ``can_publish_data``
     # — der Datenkanal trägt in Pulse Fernsteuer- und Zeigerdaten, und die

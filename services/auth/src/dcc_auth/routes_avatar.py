@@ -10,7 +10,7 @@ import secrets
 from pathlib import Path
 
 import dcc_auth.config as _config
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -18,10 +18,10 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 # expand to >1 GB in RAM. 16 MP is more than enough for profile pictures.
 Image.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
 
-from dcc_auth.routes_profile import _invalidate_statement_cache
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.routes import _get_current_user
+from dcc_auth.routes_profile import _invalidate_statement_cache
 from dcc_auth.schemas import UserPublic
 
 router = APIRouter()
