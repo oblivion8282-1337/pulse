@@ -53,7 +53,19 @@ export async function nachrichtLoeschen(
   });
   if (!ok) return;
   const lokalLoeschenUndFrame = async (): Promise<void> => {
-    await lokalLoeschenUndFrame();
+    // Lokaler Grabstein (Verlauf + Sicherungs-Archiv) + Lösch-Frame an die
+    // Gegenseite über den verschlüsselten Sendeweg. Frame-Fehler wird
+    // sichtbar gemacht, die lokale Löschung bleibt trotzdem gültig.
+    verlaufNachrichtGeloescht(msg.channel_id, msg.id);
+    messages.remove(msg.channel_id, msg.id);
+    if (opts.partnerId) {
+      try {
+        await sendeLoeschung(msg.channel_id, opts.partnerId, msg.id);
+      } catch (e) {
+        toast.error(m.dm_page_delete_failed());
+        console.error(e);
+      }
+    }
   };
 
   if (msg.verschluesselt) {
