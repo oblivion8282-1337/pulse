@@ -21,9 +21,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
+from dcc_shared.events import ReportClosedEvent
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, and_, or_
+from sqlalchemy import and_, func, or_, select
 
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.complaint_escalate import (
@@ -404,8 +405,6 @@ async def resolve_report(
     # ihr Badge die geschlossene Meldung bis zum Reconnect weiter.
     manager = getattr(request.app.state, "connection_manager", None)
     if manager is not None:
-        from dcc_shared.events import ReportClosedEvent
-
         for gid in await guilds_for_report(session, report):
             await manager.publish_guild_event(
                 ReportClosedEvent(guild_id=str(gid), report_id=str(report.id))

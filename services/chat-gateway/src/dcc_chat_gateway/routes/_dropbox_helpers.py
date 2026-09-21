@@ -14,23 +14,16 @@ import contextlib
 import unicodedata
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
-
-from dcc_chat_gateway import s3
-from dcc_chat_gateway.models import (
-    DROPBOX_KIND_FILE,
-    DropboxConfig,
-    DropboxFile,
-)
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from dcc_chat_gateway.routes._dropbox_schemas import DropboxEntryOut
-from dcc_chat_gateway.snowflake import next_id
 from dcc_shared.events import (
     DropboxEntryPurgedEvent,
     DropboxQuotaUpdatedEvent,
 )
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from dcc_chat_gateway import s3
+from dcc_chat_gateway.models import DropboxConfig
+from dcc_chat_gateway.snowflake import next_id
 
 # Path + name validation -----------------------------------------------
 
@@ -256,9 +249,6 @@ async def locked_config(
 
 
 # Event helpers -------------------------------------------------------
-
-
-
 
 
 async def publish_purge_event(mgr, *, guild_id: int, entry_id: int, kind: int) -> None:

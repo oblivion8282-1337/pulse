@@ -26,10 +26,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated
 
+from dcc_shared.events import GuildUpdatedEvent
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.guild_limits import clamp_to_ceilings
 from dcc_chat_gateway.models import (
     Channel,
     Guild,
@@ -38,9 +40,8 @@ from dcc_chat_gateway.models import (
     MessageAttachment,
     Report,
 )
-from dcc_chat_gateway.guild_limits import clamp_to_ceilings
-from dcc_chat_gateway.routes._dropbox_policy import clamp_dropbox_quota_to_ceiling
 from dcc_chat_gateway.routes._deps import publish_guild_event
+from dcc_chat_gateway.routes._dropbox_policy import clamp_dropbox_quota_to_ceiling
 from dcc_chat_gateway.routes.admin import _audit
 from dcc_chat_gateway.schemas import (
     CommunityLimitsIn,
@@ -51,7 +52,6 @@ from dcc_chat_gateway.schemas import (
     SuspendCommunityIn,
 )
 from dcc_chat_gateway.security import OwnerUser
-from dcc_shared.events import GuildUpdatedEvent
 
 router = APIRouter(prefix="/owner")
 

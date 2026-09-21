@@ -35,19 +35,18 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.exc import IntegrityError
-
-from dcc_chat_gateway.routes._dropbox_helpers import with_quota_lock
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway import config as chat_config
+from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import AblagePulseLaufwerk, AblagePulseObjekt, DropboxConfig
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import guild_oder_404, mitglied_oder_403
+from dcc_chat_gateway.routes._dropbox_helpers import with_quota_lock
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 

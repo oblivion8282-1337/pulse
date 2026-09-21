@@ -22,11 +22,11 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten
 from dcc_chat_gateway.friend_helpers import (
     block_exists_either_way,
     friendship_exists,
 )
-from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten
 from dcc_chat_gateway.models import DirectMessageChannel, Friendship, Message, UserBlock
 from dcc_chat_gateway.routes._deps import CloudOnly, dm_member_check
 from dcc_chat_gateway.schemas import DMChannelCreateIn, DMChannelOut, DMMessageSearchHit

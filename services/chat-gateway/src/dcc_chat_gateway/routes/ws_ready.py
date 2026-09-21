@@ -50,6 +50,7 @@ from dcc_chat_gateway.friend_privacy import (
     DEFAULT_SHOW_IN_SEARCH,
 )
 from dcc_chat_gateway.friend_schemas import FriendRequestOut
+from dcc_chat_gateway.guild_limits import effective_wire_limits
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_VOICE,
     Channel,
@@ -79,7 +80,6 @@ from dcc_chat_gateway.presence_status import (
 )
 from dcc_chat_gateway.role_wire import role_wire_dict
 from dcc_chat_gateway.security import AuthenticatedUser
-from dcc_chat_gateway.guild_limits import effective_wire_limits
 
 log = logging.getLogger(__name__)
 

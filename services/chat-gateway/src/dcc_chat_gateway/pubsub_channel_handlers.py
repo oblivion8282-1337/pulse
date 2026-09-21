@@ -24,6 +24,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+# Side-effect: registers ``guild:events`` — kept in its own module so this
+# file stays under the 350-line policy.
+from dcc_chat_gateway import pubsub_channel_guild  # noqa: F401
 from dcc_chat_gateway.pubsub_channel_registry import register_channel_handler
 from dcc_chat_gateway.pubsub_channels import (
     ADMIN_EVENTS_CHANNEL,
@@ -33,10 +36,6 @@ from dcc_chat_gateway.pubsub_channels import (
 )
 from dcc_chat_gateway.pubsub_event_validation import maybe_drop
 from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL, now_ms
-
-# Side-effect: registers ``guild:events`` — kept in its own module so this
-# file stays under the 350-line policy.
-from dcc_chat_gateway import pubsub_channel_guild  # noqa: F401
 
 if TYPE_CHECKING:
     from dcc_chat_gateway.pubsub import ConnectionManager

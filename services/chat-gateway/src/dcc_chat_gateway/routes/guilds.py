@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from dcc_shared.events import (
     GuildDeletedEvent,
     GuildMemberAddedEvent,
@@ -13,21 +15,17 @@ from dcc_shared.events import (
 )
 from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from typing import Annotated
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import ratelimit
-from dcc_chat_gateway.community_categories import is_valid_category
 from dcc_chat_gateway.audit_log import write_audit_log
+from dcc_chat_gateway.community_categories import is_valid_category
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.routes._deps import guild_or_404
-from dcc_chat_gateway.routes._dropbox_helpers import validate_name
-from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limits
 from dcc_chat_gateway.guild_caps import enforce_member_cap
+from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limits
 from dcc_chat_gateway.models import (
-    MemberRole,
     AblagePulseObjekt,
     AblageZwischenlagerDatei,
     Channel,
@@ -36,6 +34,7 @@ from dcc_chat_gateway.models import (
     Guild,
     GuildMember,
     GuildSoundOverride,
+    MemberRole,
     Message,
     MessageAttachment,
     PermissionOverwrite,
@@ -48,13 +47,9 @@ from dcc_chat_gateway.remote_guard import (
     forget_devices_after_cascade,
     remove_devices_for_member,
 )
-from dcc_chat_gateway.stream_evict import end_active_streams_for_channels
-from dcc_chat_gateway.stream_evict import end_active_streams_for_member
-from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
-from dcc_chat_gateway.watch_evict import end_watch_parties_for_channels
-from dcc_chat_gateway.watch_evict import end_watch_parties_for_member
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import guild_or_404, require_member
+from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
 from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
 from dcc_chat_gateway.routes.guest_links import entwerte_link
@@ -70,10 +65,19 @@ from dcc_chat_gateway.schemas import (
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_chat_gateway.stream_evict import (
+    end_active_streams_for_channels,
+    end_active_streams_for_member,
+)
+from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
 from dcc_chat_gateway.voice_evict import (
     evict_all_from_voice_channels,
     evict_user_from_guild_voice,
     voice_channels_for_guild,
+)
+from dcc_chat_gateway.watch_evict import (
+    end_watch_parties_for_channels,
+    end_watch_parties_for_member,
 )
 
 router = APIRouter()

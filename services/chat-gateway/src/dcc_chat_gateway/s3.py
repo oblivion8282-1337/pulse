@@ -39,7 +39,6 @@ from botocore.credentials import Credentials
 from dcc_chat_gateway.config import get_settings
 
 
-
 def _make_client_kwargs(endpoint: str) -> dict:
     s = get_settings()
     return {

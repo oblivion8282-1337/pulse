@@ -75,8 +75,9 @@ STREAM_EVENTS_CHANNEL = "stream:events"
 # presence is read straight off `voice:room:*`. (media-svc has no guild→channel
 # map; chat-gateway does, so it does the per-channel lookup.)
 # Bughunt-Ponytail-Audit 2026-09-21: aus dcc_shared statt einer zweiten
-# Schreibweise (media-svc besitzt den Key).
-from dcc_shared.streaming import CHANNEL_STATE_KEY as STREAM_CHANNEL_STATE_KEY  # noqa: E402
+# Schreibweise (media-svc besitzt den Key). Re-Export unter dem etablierten
+# Namen — pubsub.py bezieht alle Kanal-Keys von hier.
+from dcc_shared.streaming import CHANNEL_STATE_KEY as STREAM_CHANNEL_STATE_KEY  # noqa: E402,F401
 
 # Per-user self-reported voice state (mic_muted / deafened). Written by the
 # WS `voice_self_state` op (chat-gateway owns this key — voice-signaling never

@@ -11,52 +11,35 @@ soft cap (PLAN.md §12.1).
 
 from __future__ import annotations
 
-import structlog
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request, status
-from sqlalchemy import and_, func, or_, select
+import structlog
+from dcc_shared.events import ChannelCreatedEvent
+from fastapi import APIRouter, HTTPException, Path, Request
+from sqlalchemy import func, select
 
-from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_DROPBOX,
-    DROPBOX_KIND_FOLDER,
     Channel,
     DropboxConfig,
-    DropboxFile,
     Guild,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.routes._deps import guild_oder_404, publish_guild_event
 from dcc_chat_gateway.routes._dropbox_access import require_dropbox_view
 from dcc_chat_gateway.routes._dropbox_helpers import (
     fresh_entry_id,
-    normalize_parent_path,
-    publish_purge_event,
     publish_quota_event,
-    utc_now,
     validate_name,
-    with_quota_lock,
 )
 from dcc_chat_gateway.routes._dropbox_policy import DropboxGuild, new_dropbox_config
 from dcc_chat_gateway.routes._dropbox_schemas import (
     DropboxChannelCreateIn,
     DropboxChannelOut,
     DropboxConfigOut,
-    DropboxEntriesOut,
-    DropboxEntryOut,
-    DropboxEntryPatchIn,
-    DropboxFolderCreateIn,
 )
-from dcc_chat_gateway.routes._dropbox_writes import (
-    commit_or_conflict,
-    like_prefix,
-    perform_restore,
-    perform_trash,
-)
-from dcc_chat_gateway.routes._deps import guild_oder_404, publish_guild_event
 from dcc_chat_gateway.security import CurrentUser
-from dcc_shared.events import ChannelCreatedEvent
 
 log = structlog.get_logger(__name__)
 

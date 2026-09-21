@@ -40,6 +40,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Annotated
 
+from dcc_shared import streaming
+from dcc_shared.events import StreamChatMessageEvent, StreamChatMessagePayload
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -59,8 +61,6 @@ from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.routes.streaming import _SLOT_MAX as _STREAM_SLOT_MAX
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
-from dcc_shared.events import StreamChatMessageEvent, StreamChatMessagePayload
-from dcc_shared import streaming
 
 log = logging.getLogger(__name__)
 

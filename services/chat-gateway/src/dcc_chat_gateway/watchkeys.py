@@ -46,10 +46,9 @@ import json
 import os
 import time
 
+from dcc_shared.events import WatchStateSnapshot
 from redis.asyncio import Redis
 from redis.exceptions import WatchError
-
-from dcc_shared.events import WatchStateSnapshot
 
 WATCH_STATE_KEY = "watch:channel-{channel_id}"
 WATCH_EVENTS_CHANNEL = "watch:events"

@@ -12,8 +12,8 @@ from dcc_shared.events import (
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 
-from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway import config as chat_config
+from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.guild_caps import enforce_channel_cap
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_DROPBOX,
@@ -33,18 +33,20 @@ from dcc_chat_gateway.permissions import (
     resolve_permissions,
     restricted_channel_ids,
 )
+from dcc_chat_gateway.remote_guard import (
+    collect_devices_for_cascade,
+    forget_devices_after_cascade,
+)
+from dcc_chat_gateway.routes._deps import guild_or_404, require_member
+
 # ponytail: validate_name lives in dropbox-helpers for now (only dropbox
 # routes used it). If a second non-dropbox consumer appears, lift it
 # into shared/dcc_shared/text.py. Importing across route modules is
 # intentional here — same package, no cycle.
 from dcc_chat_gateway.routes._dropbox_helpers import validate_name
-from dcc_chat_gateway.routes._deps import guild_or_404, require_member
-from dcc_chat_gateway.routes.guilds import _publish_guild_event
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
-from dcc_chat_gateway.remote_guard import (
-    collect_devices_for_cascade,
-    forget_devices_after_cascade,
-)
+from dcc_chat_gateway.routes.guest_links import entwerte_link
+from dcc_chat_gateway.routes.guilds import _publish_guild_event
 from dcc_chat_gateway.schemas import (
     ChannelIn,
     ChannelOut,
@@ -53,10 +55,9 @@ from dcc_chat_gateway.schemas import (
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
-from dcc_chat_gateway.routes.guest_links import entwerte_link
 from dcc_chat_gateway.stream_evict import end_active_streams_for_channels
-from dcc_chat_gateway.watch_evict import end_watch_parties_for_channels
 from dcc_chat_gateway.voice_evict import evict_all_from_voice_channels
+from dcc_chat_gateway.watch_evict import end_watch_parties_for_channels
 
 router = APIRouter()
 

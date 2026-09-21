@@ -52,11 +52,6 @@ from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import GuildPlugin, GuildPluginState
-from dcc_chat_gateway.routes.admin_plugins_publish import (
-    ALLOWLIST_CHANGED_CHANNEL,
-    publish_allowlist_changed,
-    publish_guild_plugins_disabled,
-)
 
 # Plugin-Module werden **innerhalb** der Route-Funktionen importiert,
 # weil ``dcc_chat_gateway.plugins.registry`` während des App-Bootstraps
@@ -68,6 +63,11 @@ from dcc_chat_gateway.routes.admin_plugins_publish import (
 # Constant darf vor dem App-Boot importierbar sein — ist eine Pure-
 # String-Konstante ohne Side-Effects.
 from dcc_chat_gateway.plugins.allowlist import HELLO_PLUGIN_NAME
+from dcc_chat_gateway.routes.admin_plugins_publish import (
+    ALLOWLIST_CHANGED_CHANNEL,
+    publish_allowlist_changed,
+    publish_guild_plugins_disabled,
+)
 from dcc_chat_gateway.security import AdminUser
 
 log = logging.getLogger(__name__)
@@ -188,7 +188,6 @@ async def add_plugin_to_allowlist(
         activate_plugin,
         discover_manifests,
     )
-
     from dcc_chat_gateway.plugins.registry import get_manager
 
     _validate_plugin_name(name)

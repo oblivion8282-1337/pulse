@@ -22,8 +22,8 @@ Prozess wirksam**: der PUT-Handler ruft :func:`activate_plugin` (lädt
 ``app.state.plugin_allowlist``-Snapshot unter Lock; der DELETE-Handler
 entfernt den Namen nur aus dem Snapshot — die im Loader-Lauf
 registrierten Op-Handler bleiben im Dispatch-Dict, sind aber durch das
-Allowlist-Gate (``ws_op_gate``) effektiv inert (siehe Doku in
-:func:`deactivate_plugin` für den Trade-off).
+Allowlist-Gate (``ws_op_gate``) effektiv inert (Begründung: siehe
+Doku in ``routes/admin_plugins.py``).
 
 Multi-Pod-Setup bekommt zusätzlich eine Redis-Pub/Sub-Notify
 ``plugin:allowlist:changed`` vom mutierenden Pod publisht; der
@@ -82,7 +82,7 @@ __all__ = [
     "activate_plugin",
     "discover_plugins_dir",
     "discover_manifests",
-        "load_all_with_allowlist",
+    "load_all_with_allowlist",
     "load_directory",
     "load_directory_with_allowlist",
 ]
@@ -212,8 +212,6 @@ def load_directory(
             loaded.append(manifest)
     log.info("loaded %d plugin(s) from %s", len(loaded), path)
     return loaded
-
-
 
 
 def _parse_manifests_in_dir(path: Path) -> list[tuple[Path, PluginManifest]]:
