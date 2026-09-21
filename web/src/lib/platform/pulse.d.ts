@@ -262,26 +262,6 @@ export interface PulseNetdiagApi {
   check(hostname: string): Promise<PulseNetdiagSchritt[] | null>;
 }
 
-/**
- * macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
- *
- * Sitzt im Electron-Hauptprozess statt im Sidecar, weil TCC die Freigabe dem
- * VERANTWORTLICHEN Prozess zuordnet: ein vom Hauptprozess gestarteter
- * Sidecar erbt Pulses Freigabe, der Systemdialog nennt also "Pulse" statt
- * eines Sidecar-Binaernamens (gemessen,
- * `docs/plans/2026-08-23-macos-eingabe-messungen.md`, Messung 1). Der
- * Sidecar selbst prueft nur noch einmal live nach, ob die geerbte Freigabe
- * fuer IHN gilt (`mac-hq-sidecar/src/berechtigung.rs`), fragt aber nie nach.
- */
-export interface PulseAccessibilityApi {
-  /**
-   * `prompt=true` wirft bei fehlender Freigabe EINMALIG den macOS-Systemdialog
-   * auf (pro Prozess-Lebensdauer merkt sich macOS, dass schon gefragt wurde)
-   * — deshalb nur auf eine Nutzerhandlung hin rufen, nie automatisch beim
-   * Gesundheitscheck. `prompt=false`/weggelassen fragt nur den Ist-Zustand ab.
-   */
-  isTrusted(prompt?: boolean): Promise<PulseAccessibilityResult>;
-}
 
 // ── Host-Lifecycle types (③a) ────────────────────────────────────────────────
 
@@ -417,18 +397,6 @@ export interface PulseHostApi {
   setupWindows(): Promise<{ ok: boolean }>;
 }
 
-/** OS-global keyboard shortcuts (background toggles). The renderer hands main
- *  the background-capable bindings (voice/stream toggles), already converted to
- *  Electron accelerators, and dispatches `onTrigger` ids through its own handler
- *  registry — so they fire while Pulse is unfocused. Main-side in `shortcuts.ts`.
- *  Optional — only present under a current Electron shell. */
-export interface PulseShortcutsApi {
-  /** Replace the registered global accelerators. Push on boot + on every rebind. */
-  setGlobal(list: Array<{ id: string; accelerator: string }>): Promise<void>;
-  /** Fires with the action id when a registered global shortcut is pressed.
-   *  Returns an unsubscribe function. */
-  onTrigger(cb: (id: string) => void): () => void;
-}
 
 export interface PulseApi {
   platform: 'electron';
@@ -468,9 +436,6 @@ export interface PulseApi {
   shortcuts?: PulseShortcutsApi;
   clipboard?: PulseClipboardApi;
   files?: PulseFilesApi;
-  /** macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
-   *  Nur unter Electron vorhanden; ausserhalb von macOS liefert sie stets
-   *  `{trusted:true}` zurueck. */
   /** Netzdiagnose eines Self-Host-Servers (nur Electron). */
   netdiag?: PulseNetdiagApi;
   /** Host-Lifecycle-Bridge (③a). Nur unter Electron vorhanden. */
@@ -536,7 +501,6 @@ export interface PulsePlayerOptions {
 export interface PulsePlayerApi {
   /** false, wenn das Binary fehlt — dann NICHT umschalten. */
   available(): Promise<boolean>;
-  health(): Promise<PulsePlayerResult>;
   open(params: {
     url: string;
     title?: string;
@@ -590,7 +554,6 @@ export interface PulsePlayerApi {
   /** Darf dieser Zuschauer eine Fernsteuerung anfragen? Zeigt den Knopf in der
    *  Bedienleiste des Fensters; der Klick kommt als `player:remoteRequest`. */
   anfragbar?(session: number, anfragbar: boolean): Promise<PulsePlayerResult>;
-  setOption(session: number, key: string, value: unknown): Promise<PulsePlayerResult>;
   setOptions(session: number, options: PulsePlayerOptions): Promise<PulsePlayerResult>;
   /** Zaehler plus `decoder`, `hardware_decode`, `surface_format` — damit ist
    *  von aussen belegbar, welcher Decoder und welche Bittiefe anliegen. */
