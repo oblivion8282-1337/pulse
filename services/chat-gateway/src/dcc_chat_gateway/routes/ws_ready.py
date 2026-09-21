@@ -473,14 +473,16 @@ async def build_and_send_ready_frame(
             await set_presence_status(redis, user.id, durable)
         else:
             own_presence_status = STATUS_ONLINE
-    peer_statuses_raw = await get_presence_statuses_bulk(redis, list(all_peer_ids))
-    # ``get_presence_statuses_bulk`` defaults missing Redis keys to "online"
-    # — fine for users with a socket open, wrong for offline peers who'd
-    # stick as "online" in the friend-list filter until their next connect.
-    # Intersect with the manager's live socket set so only actually-online
-    # peers enter the map; absent keys fall through to 'offline' in the
-    # frontend's ``displayStatus``.
+    # Bughunt-Entscheidung 4.3 (2026-09-21): der Intersect mit der
+    # Live-Socket-Menge passiert VOR dem Bulk-Fetch, nicht danach — der
+    # MGET lief sonst über ALLE Mitglieder ALLER Guilds (O(n) je Connect),
+    # obwohl hinterher nur die online Peers in die Map kommen. Offline
+    # Peers fallen ohnehin durch den Filter; ohne Status-Key im Client
+    # → 'offline' via displayStatus. Der Deckel ist damit die Instanz-
+    # Größen an CONCURRENT Sockets statt an Gesamtmitgliedern.
     online_peer_ids = set(manager.online_user_ids())
+    gezielte_peers = [uid for uid in all_peer_ids if str(uid) in online_peer_ids]
+    peer_statuses_raw = await get_presence_statuses_bulk(redis, gezielte_peers)
     user_presence_statuses: dict[str, str] = {
         str(uid): _mask(st)
         for uid, st in peer_statuses_raw.items()
