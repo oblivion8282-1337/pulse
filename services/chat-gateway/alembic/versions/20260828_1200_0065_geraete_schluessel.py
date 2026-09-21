@@ -11,12 +11,15 @@ Gefuehrt wird das Buendel ueber ``(user_id, device_pubkey)``, nicht ueber
 Zertifikat fuer denselben Pubkey aus, ein an der cert_id haengendes Buendel
 wuerde monatlich verwaisen.
 
-Diese Revision haengt bewusst an 0063 und nicht an 0064_drop_community_invites:
-der Drop liegt auf einem eigenen Zweig. Landen beide, hat Alembic zwei Koepfe
-und `alembic upgrade head` bricht ab. Der Waechter
-tests/test_alembic_koepfe.py wird dann rot; die Behebung ist eine Zeile —
-down_revision hier auf den dann vorhandenen Kopf setzen. Die Nummer 0065 ist
-schon so vergeben, dass die Reihenfolge stimmt.
+Diese Revision haengt bewusst an 0063 und nicht an dem parallelen Zweig
+0064_message_pinned_at, der ebenfalls von 0063 abzweigt. Historisch hiess
+der Zweig 0064_drop_community_invites; die beiden Koepfe sind inzwischen
+durch die Merge-Revision 220119df9614 (down_revision-Tuple) vereint —
+`alembic upgrade head` bricht NICHT mehr ab, und der Waechter
+tests/test_alembic_koepfe.py wacht weiter. Bitte die down_revisions dieser
+Datei NICHT mehr von Hand umbiegen: das wuerde die Merge-Eltern auf einen
+Strang legen und die Kette brechen. Die Nummer 0065 ist schon so vergeben,
+dass die Reihenfolge stimmt.
 
 Revision ID: 0065_geraete_schluessel
 Revises: 0063_einladungen_ohne_dm

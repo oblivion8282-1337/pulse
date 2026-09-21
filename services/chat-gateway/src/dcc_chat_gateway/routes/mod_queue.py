@@ -23,7 +23,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, and_
+from sqlalchemy import func, select, and_, or_
 
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.complaint_escalate import (
@@ -533,11 +533,15 @@ async def list_audit_log(
     current: CurrentUser,
     limit: int = Query(default=50, ge=1, le=200),
     before: datetime | None = Query(default=None),
+    before_id: int | None = Query(default=None),
 ) -> list[AuditLogItem]:
     """Return audit-log entries for this guild (MANAGE_GUILD only).
 
     Paginated by ``before`` timestamp (exclusive upper bound on
-    ``created_at``); newest entries first within the window.
+    ``created_at``), mit ``before_id`` als Komposit-Tiebreak — dieselbe
+    Begründung wie im Meldungs-Queue (Bughunt Runde 39): ``func.now()`` ist
+    Transaktionszeit, eine Seitengrenze mitten in einer
+    Gleichzeitigkeits-Gruppe übersprang sonst deren Rest.
     """
     from dcc_chat_gateway.models import ModAuditLog
 
@@ -545,8 +549,16 @@ async def list_audit_log(
 
     stmt = select(ModAuditLog).where(ModAuditLog.guild_id == guild_id)
     if before is not None:
-        stmt = stmt.where(ModAuditLog.created_at < before)
-    stmt = stmt.order_by(ModAuditLog.created_at.desc()).limit(limit)
+        if before_id is not None:
+            stmt = stmt.where(
+                or_(
+                    ModAuditLog.created_at < before,
+                    and_(ModAuditLog.created_at == before, ModAuditLog.id < before_id),
+                )
+            )
+        else:
+            stmt = stmt.where(ModAuditLog.created_at < before)
+    stmt = stmt.order_by(ModAuditLog.created_at.desc(), ModAuditLog.id.desc()).limit(limit)
 
     rows = (await session.execute(stmt)).scalars().all()
     return [
