@@ -224,6 +224,12 @@ async def list_dm_channels(
             DirectMessageChannel.last_message_id.desc().nullslast(),
             DirectMessageChannel.id.desc(),
         )
+        # Bughunt-Entscheidung 4.11b: defensiver Deckel — die Liste war die
+        # einzige ungebundene .all() unter den Listenrouten. 500 Gespräch ist
+        # jenseits jedes realen Kontexts (Freund-Gate begrenzt das Wachstum
+        # ohnehin); der wichtigste Teil der Ordnung (neueste aktiv) bleibt
+        # vollständig erhalten.
+        .limit(500)
     )
     rows = (await session.execute(stmt)).scalars().all()
     others = {
