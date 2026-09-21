@@ -63,9 +63,15 @@ async def _dm_erstellen(client, token_a: str, uid_b: int) -> str:
     return r.json()["id"]
 
 
-async def _bundel_seeden(session_factory, *, user_id: int, device_pubkey: str) -> None:
+async def _bundel_seeden(session_factory, *, user_id: int, device_pubkey: str, verfallen: bool = False) -> None:
     """Legt ein Empfaenger-Buendel direkt in die DB — Task 2 prueft das
-    EINLIEFERN, nicht das Veroeffentlichen (Task 2 der Etappe B)."""
+    EINLIEFERN, nicht das Veroeffentlichen (Task 2 der Etappe B).
+    ``verfallen`` setzt den Grabstein — seit Migration 0091
+    (uq_device_key_bundles_pubkey_live) sind ZWEI LIVE-Zeilen zu einem
+    Pubkey ueber Konten hinweg DB-seitig unmoeglich; kollidierende
+    Zweit-Buendel existieren nur noch als Grabsteine."""
+    from datetime import UTC, datetime
+
     from dcc_chat_gateway.models import DeviceKeyBundle
     from dcc_chat_gateway.snowflake import next_id
 
@@ -74,6 +80,7 @@ async def _bundel_seeden(session_factory, *, user_id: int, device_pubkey: str) -
             DeviceKeyBundle(
                 id=next_id(), user_id=user_id, device_pubkey=device_pubkey,
                 curve25519="curve-" + device_pubkey,
+                verfallen_am=datetime.now(UTC) if verfallen else None,
             )
         )
         await s.commit()
@@ -518,14 +525,17 @@ async def test_alle_empfaenger_uebersprungen_wird_gemeldet_statt_still_204(
 async def test_kollidierender_pubkey_unter_fremdem_konto_bricht_die_anfrage_nicht(
     client, app, session_factory, _auth_signer, friend_pair
 ):
-    """FIX 2. Die DB-Eindeutigkeit ist das Paar ``(user_id, device_pubkey)``
+    """FIX 2. Die DB-Eindeutigkeit war das Paar ``(user_id, device_pubkey)``
     (``UniqueConstraint`` in ``models/geraete_schluessel.py``), NICHT der
-    Pubkey allein — zwei Konten koennen theoretisch denselben Pubkey fuehren,
-    z. B. ein geloeschtes und neu registriertes Konto mit demselben lokal
-    gespeicherten Geraeteschluessel. Eine ungescopte Suche wirft dann
-    ``MultipleResultsFound`` und reisst die ganze Anfrage mit sich — auch die
-    Zustellung an einen voellig unbeteiligten, echten Empfaenger im selben
-    Kanal."""
+    Pubkey allein — zwei Konten konnten denselben Pubkey fuehren (z. B.
+    verfallenes Geraet des alten Kontos + neues Konto mit demselben lokal
+    gespeicherten Schluessel), eine ungescopte Suche warf dann
+    ``MultipleResultsFound`` und riss die ganze Anfrage mit. Seit Migration
+    0091 (uq_device_key_bundles_pubkey_live) sind LIVE-Duplikate DB-seitig
+    ausgeschlossen — das zweite Buendel existiert nur noch ALS GRABSTEIN,
+    und genau daran haelt sich dieser Test: die Skopierung von
+    ``_bundle_laden`` muss auch daneben liegen, ohne die Zustellung an den
+    echten Empfaenger zu beruehren."""
     from dcc_chat_gateway.models import DmZustellung
     from sqlalchemy import select
 
@@ -537,7 +547,7 @@ async def test_kollidierender_pubkey_unter_fremdem_konto_bricht_die_anfrage_nich
 
     pubkey = "kollidierend"
     await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pubkey)
-    await _bundel_seeden(session_factory, user_id=uid_fremd, device_pubkey=pubkey)
+    await _bundel_seeden(session_factory, user_id=uid_fremd, device_pubkey=pubkey, verfallen=True)
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
