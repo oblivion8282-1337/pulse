@@ -352,11 +352,16 @@ async def register(
         conflict_row = (
             await session.execute(
                 select(
-                    (User.username == payload.username).label("u_taken"),
+                    # LOWER-Vergleich: Migration 0053 (uq_users_username_lower)
+                    # erzwingt Fall-Varianten auf DB-Ebene — die Re-Abfrage
+                    # muss denselben Vergleich fahren, sonst lief ein
+                    # Fallkollisions-Race in das generische „conflict“ statt
+                    # in die hilfreiche username_taken-Antwort mit Vorschlägen.
+                    (func.lower(User.username) == payload.username.lower()).label("u_taken"),
                     (User.email == payload.email.lower()).label("e_taken"),
                 ).where(
                     or_(
-                        User.username == payload.username,
+                        func.lower(User.username) == payload.username.lower(),
                         User.email == payload.email.lower(),
                     )
                 )

@@ -585,9 +585,23 @@ class RecoveryPackageIn(BaseModel):
     """Undurchsichtiger Block — der Server sieht nur base64-Text, nie den
     Inhalt. ``ciphertext`` heisst so, weil er es sein MUSS: der Client
     verschlüsselt mit einem aus dem Wiederherstellungs-Satz abgeleiteten
-    Schlüssel, bevor er hierher gesendet wird."""
+    Schlüssel, bevor er hierher gesendet wird.
+
+    ``password`` seit Bughunt-Entscheidung 4.2 (2026-09-21): das Päckchen
+    ist die EINZIGE serverseitige Kopie des Archiv-Schlüssel-Bündels — ein
+    Überschreiben ist dauerhafter Datenverlust und verlangt denselben
+    Beweis wie jedes Geschwister-Endpoint, das die Konto-Postur mindert
+    (Passwort-Wechsel, TOTP-Setup, Passkey-Anmeldung)."""
 
     ciphertext: Annotated[str, Field(min_length=1, max_length=RECOVERY_PACKAGE_MAX_B64)]
+    password: _CurrentPasswordField
+
+
+class RecoveryPackageDeleteIn(BaseModel):
+    """Widerruf des Päckchens (DELETE) — vernichtet die einzige serverseitige
+    Kopie, also derselbe Beweis wie beim Überschreiben."""
+
+    password: _CurrentPasswordField
 
 
 class RecoveryPackageOut(BaseModel):
