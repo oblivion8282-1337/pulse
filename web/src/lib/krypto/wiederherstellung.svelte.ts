@@ -77,7 +77,7 @@ async function sammleVerbindungen(): Promise<PaeckchenVerbindung[]> {
  * ist). Gibt den Code in Anzeigeform zurück — **einmalig**, der Aufrufer
  * zeigt ihn und lässt ihn danach fallen; diese Funktion behält ihn nicht.
  */
-export async function erzeugeUndSichere(): Promise<string> {
+export async function erzeugeUndSichere(passwort: string): Promise<string> {
 	const kontoId = pruefeAngemeldet();
 	const code = erzeugeCode();
 	const bytes = codeBytes(normalisiere(code));
@@ -87,7 +87,10 @@ export async function erzeugeUndSichere(): Promise<string> {
 		kontoId,
 		verbindungen,
 	});
-	await putRecoveryPackage(bytesZuBase64(paeckchen));
+	// Passwortpflicht (Entscheidung 4.2): der Server nimmt das Päckchen nur
+	// noch gegen den Kontobeweis ab — ein gestohlener Token allein darf die
+	// einzige serverseitige Kopie nicht überschreiben.
+	await putRecoveryPackage(bytesZuBase64(paeckchen), passwort);
 	return code;
 }
 

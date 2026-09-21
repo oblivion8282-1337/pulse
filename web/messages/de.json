@@ -3176,6 +3176,8 @@
   "wiederherstellung_erneuern_knopf": "Neuen Code erzeugen",
   "wiederherstellung_erzeugen_erfolg": "Neuer Wiederherstellungs-Code gesichert.",
   "wiederherstellung_erzeugen_fehler": "Der Code konnte nicht gesichert werden.",
+  "wiederherstellung_passwort_label": "Konto-Passwort",
+  "wiederherstellung_passwort_noetig": "Bitte Konto-Passwort eingeben — der Server nimmt das Wiederherstellungs-Päckchen nur gegen den Passwort-Beweis ab.",
   "wiederherstellung_stand": "Zuletzt erneuert am {datum}.",
   "wiederherstellung_titel": "Wiederherstellung",
   "wiederherstellung_wahrheit_endgueltig": "Ohne diesen Code ist das Archiv nach Verlust aller Geräte endgültig verloren — auch für uns.",

@@ -3176,6 +3176,8 @@
   "wiederherstellung_erneuern_knopf": "Generate new code",
   "wiederherstellung_erzeugen_erfolg": "New recovery code saved.",
   "wiederherstellung_erzeugen_fehler": "The code could not be saved.",
+  "wiederherstellung_passwort_label": "Account password",
+  "wiederherstellung_passwort_noetig": "Please enter your account password — the server only accepts the recovery package with password proof.",
   "wiederherstellung_stand": "Last renewed on {datum}.",
   "wiederherstellung_titel": "Recovery",
   "wiederherstellung_wahrheit_endgueltig": "Without this code, the archive is lost for good once every device is gone — even we can't recover it.",
