@@ -19,7 +19,7 @@ still appear exactly once per guild they belong to.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -226,7 +226,7 @@ async def list_mod_queue(
     ),
     limit: int = Query(default=50, ge=1, le=200),
     before: datetime | None = Query(default=None),
-    before_id: int | None = Query(default=None),
+    before_id: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
 ) -> list[ReportItem]:
     """Return reports scoped to this guild, filtered by status.
 
@@ -533,7 +533,7 @@ async def list_audit_log(
     current: CurrentUser,
     limit: int = Query(default=50, ge=1, le=200),
     before: datetime | None = Query(default=None),
-    before_id: int | None = Query(default=None),
+    before_id: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
 ) -> list[AuditLogItem]:
     """Return audit-log entries for this guild (MANAGE_GUILD only).
 

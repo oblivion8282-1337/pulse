@@ -96,7 +96,7 @@ async def get_stats(
 async def list_users(
     session: SessionDep,
     _actor: Annotated[User, Depends(_require_admin)],
-    before: Annotated[int | None, Query(ge=0)] = None,
+    before: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     q: Annotated[str | None, Query(max_length=100)] = None,
     filter: Annotated[str | None, Query(pattern="^(admins|disabled|self_host)$")] = None,
@@ -345,7 +345,7 @@ async def revoke_invite(
 async def get_audit_log(
     session: SessionDep,
     _actor: Annotated[User, Depends(_require_admin)],
-    before: Annotated[int | None, Query(ge=0)] = None,
+    before: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ):
     """Newest-first, snowflake-id cursor (same pattern as ``/users``)."""

@@ -86,8 +86,8 @@ async def list_messages(
     channel_id: int,
     session: SessionDep,
     current: CurrentUser,
-    before: Annotated[int | None, Query(ge=0)] = None,
-    after: Annotated[int | None, Query(ge=0)] = None,
+    before: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
+    after: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ):
     # Resolve the channel as guild-or-DM and enforce access in one go.

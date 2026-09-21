@@ -13,6 +13,7 @@ from dcc_shared.events import (
 )
 from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS
 from fastapi import APIRouter, HTTPException, Query, Request, status
+from typing import Annotated
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -969,7 +970,7 @@ async def list_members(
     session: SessionDep,
     current: CurrentUser,
     limit: int = Query(100, ge=1, le=500),
-    after_user_id: int | None = Query(None),
+    after_user_id: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
 ):
     await require_member(session, guild_id, current.id)
     stmt = (

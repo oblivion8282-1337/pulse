@@ -227,7 +227,7 @@ async def list_complaints(
     session: SessionDep,
     _actor: Annotated[User, Depends(_require_admin)],
     complaint_status: Annotated[str, Query(alias="status")] = "new",
-    before: Annotated[int | None, Query(ge=0)] = None,
+    before: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[ComplaintOut]:
     """List complaints filtered by status. Newest-first, snowflake-cursor.

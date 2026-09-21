@@ -120,7 +120,12 @@ export async function listModQueue(
   guildId: string,
   status?: ReportStatus
 ): Promise<Report[]> {
-  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  // limit=200 (Server-Maximum, Bughunt Runde 50): das Badge zählt ALLE
+  // offenen Meldungen — bei stillschweigenden Default-50 war die Liste
+  // ab 51 unerreichbar, während das Banner weiter "80 offen" behauptete.
+  const qs = status
+    ? `?status=${encodeURIComponent(status)}&limit=200`
+    : '?limit=200';
   return request<Report[]>(`/guilds/${guildId}/mod-queue${qs}`);
 }
 
@@ -163,14 +168,20 @@ export async function escalateReport(guildId: string, reportId: string): Promise
 
 /**
  * Holt den Guild-Audit-Log (Mod-Aktionen chronologisch absteigend).
- * Setzt MANAGE_GUILD voraus. Pagination via `before` (ISO-Timestamp).
+ * Setzt MANAGE_GUILD voraus. Pagination via `before` (ISO-Timestamp) plus
+ * `before_id` als Tiebreak — created_at ist Transaktionszeit, mehrere
+ * Einträge einer Transaktion teilen sich die Mikrosekunde, und ohne den
+ * ID-Tiebreak übersprang „Mehr laden“ den Rest so einer Gruppe (Bughunt
+ * Runde 50; serverseitig Runde 39).
  */
 export async function listAuditLog(
   guildId: string,
   limit = 50,
-  before?: string
+  before?: string,
+  beforeId?: string
 ): Promise<AuditLogEntry[]> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (before) params.set('before', before);
+  if (beforeId) params.set('before_id', beforeId);
   return request<AuditLogEntry[]>(`/guilds/${guildId}/mod-audit-log?${params}`);
 }

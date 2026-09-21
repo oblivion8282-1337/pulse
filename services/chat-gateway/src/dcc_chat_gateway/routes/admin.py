@@ -317,7 +317,7 @@ async def patch_permissions(
 async def get_audit_log(
     session: SessionDep,
     _actor: AdminUser,
-    before: Annotated[int | None, Query(ge=0)] = None,
+    before: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ):
     """Newest-first, snowflake-id cursor."""

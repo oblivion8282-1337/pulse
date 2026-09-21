@@ -126,7 +126,7 @@ async def list_communities(
     session: SessionDep,
     _actor: OwnerUser,
     q: Annotated[str | None, Query(max_length=64)] = None,
-    before: Annotated[int | None, Query(ge=0)] = None,
+    before: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> CommunityListOut:
     """Newest-first, snowflake-id cursor. Member count + storage bytes are
