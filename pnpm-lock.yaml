@@ -75,9 +75,6 @@ importers:
       '@inlang/paraglide-js':
         specifier: ^2.18.1
         version: 2.18.1(typescript@5.9.3)
-      '@internationalized/date':
-        specifier: ^3.12.1
-        version: 3.12.1
       '@lucide/svelte':
         specifier: ^1.14.0
         version: 1.14.0(svelte@5.57.0)

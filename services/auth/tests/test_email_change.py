@@ -31,7 +31,7 @@ def _bearer(login_r) -> dict[str, str]:
     return {"Authorization": f"Bearer {login_r.json()['access_token']}"}
 
 
-async @pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True)
 def _smtp_konfiguriert(monkeypatch):
     """Bughunt Runde 24: der E-Mail-Wechsel antwortet jetzt 503, wenn keine
     SMTP-Konfiguration existiert (fail-loud statt stiller 204-Erfolgs-

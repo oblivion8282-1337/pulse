@@ -14,7 +14,7 @@ import { isElectron } from '$lib/platform/runtime';
 import type { PulsePlayerOptions, PulsePlayerResult } from '$lib/platform/pulse.d';
 
 /** Zustand einer Wiedergabe-Sitzung, wie ihn der Player meldet. */
-export type PlayerState = 'connecting' | 'playing' | 'stalled' | 'closed' | 'failed';
+export type PlayerState = 'connecting' | 'playing' | 'closed' | 'failed';
 
 export interface PlayerStateEvent {
   ev: 'player:state';
