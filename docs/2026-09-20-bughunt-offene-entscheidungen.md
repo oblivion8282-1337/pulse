@@ -1,5 +1,15 @@
 # Bughunt 2026-09-20 — offene Entscheidungen & bewusst Aufgeschobenes
 
+> **STAND 2026-09-21 (Entscheidungs-Umsetzung, siehe Teil 5 unten).**
+> Erledigt/entschieden seither: 1.1 (Garage prod+self-host), 2.1 (User-
+> name-lower-Index, Migration 0053), 2b.1 (OTK-Nachfüllen je Zyklus,
+> Runde 36), 2b.4 (Pulse-Quota als Reservierungsbilanz, Runde 37),
+> 3.5 (Komposit-Cursor, Runden 23+39), 4.1 (Dev-Stacks auf Garage),
+> 4.2 (Recovery-Passwortpflicht), 4.6+4.7 (TOCTOU atomar), 4.9
+> (bewusst akzeptiert — Kommentar in googleClient.ts), 4.10 (Loopback
+> In-Flight + listening-Check). Die Abschnitte unten sind Historie und
+> Bewusstseins-Bestand — bei Wiedervorlage den Stand hier prüfen.
+
 Ergebnis der beiden Bughunt-Runden vom 2026-09-20 (Branch `bughunt-2026-09-20`).
 Alles unten ist **verifiziert**, aber ausdrücklich NICHT gefixt — entweder, weil
 eine Betreiber-Entscheidung fehlt, oder weil Aufwand/Nutzen/Design es hergeben.
@@ -335,3 +345,38 @@ Listener bauen (sequenzielle Idempotenz ist gefixt); `oauthStart` prüft
 - Postfach-Einliefern in Ablage-Kanälen gated nur auf VIEW_CHANNEL
   (dokumentierte Regel in `_postfach_deps.py`; SEND-entzogene Mitglieder
   können dort zustellen) — Regel bestätigen oder ändern.
+
+---
+
+# Teil 5: Entscheidungs-Umsetzung (2026-09-21)
+
+Die vier Antworten aus der Abstimmung und ihre Umsetzung:
+
+1. **Dev-Stacks → Garage** (war 4.1): Root-Compose und dev-remote laufen auf
+   `dxflrs/garage:v1.1.0` (`infra/garage/garage.toml`), Bootstrap via
+   `scripts/dev-garage-init.sh` (Bucket + GK-Key; Credentials in
+   `.garage-dev-credentials`, gitignored, werden von dev-up.fish als
+   S3_ACCESS_KEY/S3_SECRET_KEY exportiert — Garage erzwingt GK-Format,
+   minioadmin ist als Key-ID ungueltig). dev-remote behält ausnahmsweise
+   Service-/Container-Namen `minio`, weil VPS-.env und nginx den DNS-Namen
+   adressieren (README §2b). **Nebenbefund**: die Prod-Garage hatte zwei
+   DOA-Bugs — `command ["-c", …]` ohne Entrypoint (Crash-Loop) und S3-API
+   auf 3900 gegen Verbraucher auf 9000; beide mitgefixt.
+2. **Recovery-Paket Passwortpflicht** (war 4.2): PUT/DELETE verlangen
+   `password` (verify_password wie die Geschwister), Klient fragt inline
+   ab (WiederherstellungBlock), i18n de/en.
+3. **Google-Secret akzeptiert** (war 4.9): Kommentar in
+   `web/src/lib/sicherung/googleClient.ts` dokumentiert die Abwägung.
+4. **Quick Wins**: Username-lower-Unique (Migration auth 0053 + Modell +
+   lower-Re-Query im /register-IntegrityError-Pfad), OTK-Cap via
+   FOR UPDATE auf der Bundle-Zeile + partieller Unique-Index für
+   Erst-Pubkeys (Migration chat-gateway 0091 + 409-Fang), watch_start
+   Party-Cap atomar per Lua-HLEN-Guard, Electron-Loopback mit
+   In-Flight-Versprechen + listening-Check.
+
+Offen bleiben (unverändert): 4.3 Presence-Skalierung, 4.4
+password/forgot-Timing, 4.5 nginx-1G, 4.8 Statement-Cache pro Prozess,
+4.11-Reste, 2.1-Rest-Doku (erledigt durch 0053), 2.3 voice_override,
+2.4 Gate-Enumeration, 2.5 dev-up.fish-Loops, 2b.2/2b.3 Zwischenlager,
+2c tote Regler, 2d Push-Restposten, 2e/2f Voice-/Session-Design, 3.x
+kosmetisch/UX.
