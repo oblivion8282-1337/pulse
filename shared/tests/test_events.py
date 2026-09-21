@@ -258,6 +258,11 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "report_id": "42",
         "reason_code": "spam",
     },
+    "report_closed": {
+        "op": "report_closed",
+        "guild_id": "5",
+        "report_id": "42",
+    },
     "guild_membership_revoked": {
         "op": "guild_membership_revoked",
         "guild_id": "5",

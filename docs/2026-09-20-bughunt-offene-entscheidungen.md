@@ -1,5 +1,39 @@
 # Bughunt 2026-09-20 — offene Entscheidungen & bewusst Aufgeschobenes
 
+> **STAND 2026-09-21 (Abend) — Entscheidungs-Reste PUNKT FÜR PUNKT ABGEARBEITET.**
+> Umgesetzt: 6.1 (PCP-Renewal ½ Lifetime), 6.2 (Weiterreich-Antwort-Cap
+> 4 MiB), 6.3 (Kick/Ban-Rangfilter clientseitig + Kanal-Scope für Voice-
+> Knöpfe; 403-Toasts bestanden), 6.4 (Presence instance-lokal geseedet —
+> Intersect VOR dem MGET), 6.6 (alle sieben Kleinigkeiten), 2.5 (dev-up.
+> fish-Loops), 2b.2 (Zwischenlager unter with_quota_lock), 2b.3
+> (Festigungs-Grabsteine im Verzeichnis, Cap 200), 2c (tote Regler
+> entfernt, Dev-Port-Knobs korrigiert), 2d (ReportClosedEvent + Invite-
+> Push bleibt Doku, pushsubscriptionchange bleibt Doku), 3.1 (Gast-TTL
+> 403 + „Besprechung vorbei"-Tick), 3.2 (Trägerliste live), 3.3 (Knopf-
+> Label), 3.4 (Composer-Restore mit melden-Kette), 3.6 (i18n-Vollaus-
+> merzung inkl. ~25 Avatar-Initialen), 4.4 (Forgot-Equalizer), 4.8
+> (Statement-Cache in Redis), 4.11a (Login case-insensitive), 4.11b
+> (DM-LIMIT, setup-uv v4, Postfach-Policy-Doku), 2.3 (voice_override
+> atomar per Lua), 2.4 (Gate-Codes uniformiert).
+>
+> **Nicht umgesetzt — bewusst:**
+> * **2.1 D3D11-Ring-Leak**: Windows-FFI-Lifetime-Refactor (GpuBild auf
+>   Arc<Ringplatz>), ohne Windows-Testbox nicht verifizierbar; die
+>   Codekommentare dokumentieren, dass ein vorschneller Versuch den
+>   Prozess reisst. Bleibt als eigener, Windows-verifizierter Turn.
+> * **6.5 Reconcile-Fenster**: 30-s-Selbstheilung reicht; dokumentiert.
+> * **2d**: Mod-Queue −1-Broadcast (ReportClosedEvent) UND Invite-Push
+>   (fan_out_community_invite_push, beide Einladungswege) umgesetzt;
+>   nur pushsubscriptionchange bleibt Design-Backlog (Key-Versorgung
+>   im Service-Worker).
+> * **4.5 als FEHLALARM entlarvt**: das per-Guild-Limit ist im Schema
+>   bereits auf 1 GiB geklemmt (le=1_073_741_824) — nginx 1g und Server
+>   sind konsistent; die 4-TiB-Grenze betraf nur das rohe size-Feld.
+> * **2e/2f Design-Rest**: Gast-Token-Refresh, DUPLICATE_IDENTITY-Teardown,
+>   Geräte-Bindung beim "Überall abmelden" bleiben Protokoll-Backlog
+>   (Force-Mute-Anzeige + die zwei Log-Härtungen aus 2f sind umgesetzt).
+
+
 > **STAND 2026-09-21 (Entscheidungs-Umsetzung, siehe Teil 5 unten).**
 > Erledigt/entschieden seither: 1.1 (Garage prod+self-host), 2.1 (User-
 > name-lower-Index, Migration 0053), 2b.1 (OTK-Nachfüllen je Zyklus,
