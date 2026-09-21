@@ -20,6 +20,15 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from dcc_chat_gateway import s3 as s3_mod
+
+@pytest_asyncio.fixture(autouse=True)
+async def _enable_sqlite_foreign_keys(engine):
+    """SQLite kaskadiert ``ON DELETE`` nur mit ``PRAGMA foreign_keys=ON``
+    je Verbindung. Die Test-Engine nutzt ``StaticPool`` (eine geteilte
+    In-Memory-Verbindung), deshalb genuegt ein einmaliges PRAGMA."""
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
+
 from dcc_chat_gateway.models import DmAnhangBezug, DmNutzlast, MessageAttachment
 
 pytestmark = pytest.mark.usefixtures("cloud_mode")

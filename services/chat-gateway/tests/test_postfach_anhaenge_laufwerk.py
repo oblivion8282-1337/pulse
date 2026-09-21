@@ -1,5 +1,10 @@
 """Anhaenge in die Cloud-Laufwerke der Beteiligten (Design §11).
 
+
+@pytest_asyncio.fixture(autouse=True)
+async def _enable_sqlite_foreign_keys(engine):
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 Die Fehlerklasse, gegen die diese Datei steht, ist ausdruecklich nicht
 „falsches Ergebnis", sondern **stiller Fehlschlag**: ein Archiv, das nie
 schreibt, und ein Abrufweg, der eine formal gueltige Adresse auf geloeschte

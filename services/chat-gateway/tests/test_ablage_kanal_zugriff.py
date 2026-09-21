@@ -1,4 +1,9 @@
 """``ablage_kanal_zugriff.py`` — Schluesselabruf ueber einen gemeinsamen
+
+@pytest_asyncio.fixture(autouse=True)
+async def _enable_sqlite_foreign_keys(engine):
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 Ablage-Kanal, ohne dass eine gemeinsame Community allein reicht.
 
 Baut Guild/Channel/Rollen direkt ueber die Modelle auf (wie

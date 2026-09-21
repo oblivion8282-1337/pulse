@@ -592,13 +592,3 @@ async def everyone_remote_control_entfernen(client, owner_token: str, gid) -> No
     )
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def _enable_sqlite_foreign_keys(engine):
-    """SQLite ignoriert ``ON DELETE CASCADE`` ohne ``PRAGMA foreign_keys=ON``
-    je Verbindung (Ponytail Runde 3: 7 identische Kopien aus den
-    Einzeldateien hierher gezogen). Die Test-Engine nutzt ``StaticPool``
-    (eine geteilte In-Memory-Verbindung), deshalb genuegt ein einmaliges
-    PRAGMA. Postgres (Prod) erzwingt FKs ohnehin.
-    """
-    async with engine.begin() as conn:
-        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")

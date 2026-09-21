@@ -12,6 +12,15 @@ import random
 
 import pytest
 import pytest_asyncio
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _enable_sqlite_foreign_keys(engine):
+    """SQLite kaskadiert ``ON DELETE`` nur mit ``PRAGMA foreign_keys=ON``
+    je Verbindung. Die Test-Engine nutzt ``StaticPool`` (eine geteilte
+    In-Memory-Verbindung), deshalb genuegt ein einmaliges PRAGMA."""
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 from sqlalchemy.exc import IntegrityError
 
 # ---------------------------------------------------------------------------

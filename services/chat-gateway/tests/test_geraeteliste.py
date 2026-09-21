@@ -1,5 +1,6 @@
 """Die eigene Geraeteliste und der Widerruf (Spec §3b, Punkt 4).
 
+
 Jede Pruefung hier ist gegen den Zustand VOR dieser Aenderung rot: bis zum
 2026-08-30 gab es weder ``GET /keys/geraete`` (404) noch ``DELETE
 /keys/geraete`` (405), und es existierte ueberhaupt kein Weg, ein einzelnes
