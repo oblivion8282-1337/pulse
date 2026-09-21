@@ -825,6 +825,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
  *  sidecar operations. The set contains exactly the ops declared in pulse.d.ts
  *  and exposed via the preload. */
 const ALLOWED_GSR_OPS = new Set([
+  // Bughunt Pass 4 REGRESSION FIX: 'health' wurde im Ponytail-Durchlauf
+  // versehentlich mit dem toten player.health together entfernt — der
+  // Sidecar health probe ist aber der EINZIGE Weg, stream.gsrAvailable
+  // zu setzen. Ohne diesen Op startet der Sidecar nie und der Raketen-
+  // Knopf bleibt für immer unsichtbar.
+  'health',
   'gpu_info',
   'list_monitors',
   'list_windows',
