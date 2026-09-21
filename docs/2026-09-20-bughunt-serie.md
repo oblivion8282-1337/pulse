@@ -250,3 +250,53 @@ Kondensiert je Fix (Details im Commit-Log):
   garage-init (toml-Render, Layout, Bucket, Key-Import), Prod-Compose
   + nginx-Upstream + .env GARAGE_RPC_SECRET; Live-Probe der s3.py-
   Oberfläche gegen dxflrs/garage:v1.1.0 bestanden.
+
+---
+
+# Teil 4: Runden 33–42 (Fortsetzung, gleicher Tag)
+
+## Plan
+
+| Runde | Linse | Status |
+|-------|-------|--------|
+| 33 | Desktop/Remote + Reste-Sammlung aus Agenten-Sweeps | erledigt — Passkey-only-Lücke identifiziert (Realisierung in 34), Remote-Input/Watch als sauber verifiziert |
+| 34 | MFA-Beweislast (Passkey-only-Konten) | erledigt — letzter Passkey-Delete verlangt Backup-Code (Server erzwingt, UI-Feld, i18n, Test mit Replay-Gegenprobe) |
+| 35 | WS-Ops & Postfach-Handler (Agenten-Sweep + Realisierung) | erledigt — Postfach-Bundle-Cache + Bremse 60/min, int64-Klemme in parse_snowflake_int, zustellung_ids-Deckel, Abholen-LIMIT, Schluesselmaterial-Längen |
+| 36 | Key-Bundle/OTK-Flows (Agenten-Sweep + Realisierung) | erledigt — OTK-Nachfüllen am Ende JEDES Postfach-Zyklus (Vorrat verblieb sonst im Seitenleben leer → Fallback-Schlüssel-Dauernutzung); Claim-Budget war bereits je Gerät — Fehlalarm verifiziert; Docstring berichtigt |
+| 37 | Upload/Media-Pipeline (Agenten-Sweep + Realisierung) | erledigt — Reaper/Sweep-Bedingungen im DELETE wiederholt (Bind-Rennen = Blob-Verlust), Pulse-Quota als Reservierungsbilanz + Ankündigungs-Sweep, Purge-S3 als deferred_s3 nach Commit, Sound-Temp-Orphan, Icon-Unlink-Order, Bind-Dedupe |
+| 38 | OAuth-Flows (Agenten-Sweep + Realisierung) | erledigt — Adapter pflegen Auffrischungs-Token im closure nach (rotierende Anbieter brannen sonst ab), Google-/Dropbox-Fehlerpfade sichtbar + Einmal-Hygiene, Loopback escaped, state 128 Bit |
+| 39 | SQL/Raw-Queries (Agenten-Sweep + Realisierung) | erledigt — Mod-Audit-Log-Komposit-Cursor (gleiche Familie wie Runde 23), Migrations-0065-Docstring entschärft (verrät einen Kettensprenger); Injection-/Index-/Alembic-Prüfung sauber |
+| 40 | MFA/Recovery-Flows (Agenten-Sweep + Realisierung) | erledigt — _consume_second_factor sperrt Nutzer-Zeile zentral (TOTP-Replay-Restrisiko auf Nicht-Login-Verbrauchern), Passkey-Delete-Zweier-Rennen geschlossen, je-Konto-Bremsen auf 4 Geschwistern |
+| 41 | CI/Workflows-Drift (Agenten-Sweep + Realisierung) | erledigt — refresh-checksums.sh wieder benutzbar (MinIO-Pflicht raus), Restore-Runbook auf Garage/Backup-Container, flatpak/allinone-Pfadfilter, Kommentar-Drift |
+| 42 | Regression + Abschluss | erledigt — Backend-Gesamtsuite + Web + Desktop grün; Protokoll + Entscheidungs-Doc fortgeschrieben |
+
+## Bekannt (Erweiterung: Teil 4 — NICHT wieder melden)
+
+* Postfach: Bundle-/Fremd-EXISTS-Caches je Anfrage; Bremse postfach
+  60/min; Abholen LIMIT an der Quota; zustellung_ids ≤ 500.
+* parse_snowflake_int int64-Klemme (alle WS-Verbraucher); Key-Material
+  ≤ 128 Zeichen (curve25519/rueckfall/onetime-Elemente ≤ 100er-Batch).
+* OTK-Nachfüllen im postfachZyklus (auch leerer Zyklus); Claim-Budget
+  ist bereits je Gerät (Agenten-Befund war Fehlalarm).
+* Reaper/Sweeps: SELECT-Bedingungen im DELETE + .returning() für Keys;
+  Pulse-Quota zählt angekündigte Groesse (Reservierungsbilanz) mit
+  Ankündigungs-Sweep (1 Tag); Purge-Ablage als deferred_s3.
+* OAuth: Adapter-Closure-Token-Mitpflege + kopf() je Aufruf; Google-
+  Fehlerpfade browser+electron sichtbar (escaped); state 128 Bit;
+  sessionStorage-Hygiene in State-Mismatch-Zweigen.
+* Mod-Audit-Log before_id-Komposit; _consume_second_factor FOR UPDATE;
+  Passkey-Delete-Sperre; _check_account_rate auf totp_disable/
+  backup_regen/webauthn_delete/account_delete; refresh-checksums ohne
+  MinIO; restore.md garage/backup-Container.
+
+## Abschlussbilanz Teil 4 (2026-09-20)
+
+* **Runden 33–42: 8 Fix-Commits** (MFA ×2, Gateway ×2, Web ×1,
+  Media ×1, OAuth ×1, Infra ×1) — Serie gesamt: **~115 Fixes**.
+* **Neue Entscheidungen:** 4.1–4.11 in
+  `docs/2026-09-20-bughunt-offene-entscheidungen.md` (akuteste:
+  Dev-Stacks auf MinIO — Umstellungstreihe unvollständig — und
+  Recovery-Paket ohne Wieder-Auth).
+* **Gates:** Backend-Gesamtsuite grün (Einzelworker-Rest wie gehabt),
+  svelte-check 0, Web 1190/1190, Desktop 191/193 (2 bekannte
+  Umgebungs-Tests), esbuild grün.

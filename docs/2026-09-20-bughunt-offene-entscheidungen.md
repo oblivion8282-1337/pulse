@@ -261,3 +261,77 @@ Gefundene, aber vollständig unfallfreie Zonen der Runde (pulse-whip/zeitbasis/
 bildmarke, krypto-Kern, media-svc, relay-frps-plugin, desktop IPC/Updater, WS-
 Kern/Messages-Stores des Webs) sind in den Commit-Botschaften der Runde
 dokumentiert — wer nachforschen will: `git log bughunt-2026-09-20 --oneline`.
+
+---
+
+# Teil 4: Runden 33–42 (2026-09-20, Fortsetzung)
+
+## Neue offene Punkte (Reihenfolge: akuteste zuerst)
+
+### 4.1 Dev-Stacks laufen noch auf MinIO
+Root-`docker-compose.yml` (Services `minio`, `minio-init`, Volume
+`miniodata`) und `infra/dev-remote/docker-compose.yml` sind von der
+Garage-Umstellung NICHT erfasst (die deckte nur `infra/prod` +
+`infra/self-host`). Wenn MinIO im Dev betriebsblind bleibt: dokumentieren;
+sonst: nächste Umstellungsstufe (dann auch `MINIO_ENDPOINT`-Env-Namen in
+compose + backup.sh konsolidieren — backup.sh funktioniert heute gegen
+Garage, weil Garage S3 spricht, die Namen lügen aber).
+
+### 4.2 Recovery-Paket PUT/DELETE ohne Wieder-Authentifizierung
+`routes_recovery_package.py`: ein gestohlener Bearer/Session-Token kann das
+einzige serverseitige Archiv-Schlüssel-Bündel überschreiben/löschen —
+Dauer-Datenverlust mit schwächerem Beweis als jedem Geschwister-Endpoint
+(Passwort verlangt wäre konsistent; Klient müsste dann in Kopplungs-/Ablage-
+Flows eine Passwortabfrage einbauen → API+UX-Entscheidung).
+
+### 4.3 `ws_ready` Presence-Fan-out skaliert ungedeckelt
+Jeder WebSocket-Connect lädt ALLE Mitglieder ALLER eigenen Guilds +
+Redis-MGET je Peer. Bei `community_max_members`-großen Communitys wird der
+Connect zur O(n)-Last. Paging/Deckel oder Diff-basierte Presence nötig.
+
+### 4.4 `POST /password/forgot` Timing-Oracle (Rest)
+Existierende Konten machen UPDATE+INSERT+Commit (+SMTP-Auflösung), Treffer
+verursachen ~ms Commit-Delta hinter dem uniformen 204. `/login` hat dafür
+den Dummy-Argon2-Equalizer — hier fehlt das Gegenstück.
+
+### 4.5 nginx `client_max_body_size 1g` vs. dynamisches Attachment-Limit
+Admin kann `attachment_max_size_bytes` > 1 GiB setzen (Schema erlaubt bis
+4 TiB): Presign gelingt, PUT stirbt am 413. Entweder Server-seitig auf
+1 GiB klemmen oder nginx-Standort anheben (Signatur nagelt die Größe eh).
+
+### 4.6 OTK-Cap-TOCTOU + Erstveröffentlichungs-409-Restrisiko
+`POST /keys/onetime`: Count-lesen-then-insert kann den 100er-Cap leicht
+überschreiten (nur gegen das eigene Konto). Erstveröffentlichung: zwei
+Konten können denselben device_pubkey im selben Augenblick belegen
+(Unique-Index nur (user_id, pubkey)) → MultipleResultsFound-500 im
+Postfach-Weg. Partieller Unique-Index auf device_pubkey / bewachter
+INSERT-Upsert.
+
+### 4.7 `watch_start` Party-Cap check-then-write (TOCTOU)
+Max-Parties-je-Kanal ist überschreitbar unter Gleichzeitigkeit; Muster von
+`kopplung.py` (Befund 5, Runde 1–2) atomar nachziehen (Lua-HLEN-guard).
+
+### 4.8 Profil-Statement-Cache pro Prozess (auth)
+`routes_profile.py::_STATEMENT_CACHE` (24 h TTL) wirkt nur im eigenen
+Worker — nach Umbenennung/Avatar läuft bis 24 h das alte signierte
+Statement. Redis-Cache oder frisch signieren.
+
+### 4.9 Google-Client-Secret im Browser-Bundle
+`VITE_SICHERUNG_GDRIVE_WEB_GEHEIMNIS` landet im JS-Bundle + Klartext in
+`ziele.ts`. Dokumentiert als empirische Google-Zwänge — sauber wäre
+installed-type-Registrierung mit PKCE oder serverseitiger Tausch.
+
+### 4.10 Electron-Loopback: In-Flight-Verdopplung + toter Listener
+`sicherungRuecklauf.ts`: zwei gleichzeitige `oauthPort`-Aufrufe können zwei
+Listener bauen (sequenzielle Idempotenz ist gefixt); `oauthStart` prüft
+`server === null`, aber nicht `server.listening`.
+
+### 4.11 Weitere kleine Reste
+- `list_dm_channels`: ungebundenes `.all()` (selbstbehaftet, aber die
+  einzige ungedeckelte Listenroute).
+- Login matcht Username case-sensitiv, Registrierung reserviert
+  case-insensitiv — Absicht? (sonst Kandidat für Klienten-Verwirrung).
+- `setup-uv@v3` in ci.yml (Hygiene: v4 existiert).
+- Postfach-Einliefern in Ablage-Kanälen gated nur auf VIEW_CHANNEL
+  (dokumentierte Regel in `_postfach_deps.py`; SEND-entzogene Mitglieder
+  können dort zustellen) — Regel bestätigen oder ändern.
