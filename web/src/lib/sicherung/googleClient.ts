@@ -36,6 +36,12 @@ type GdriveVerbindungRecord = {
 const DESKTOP_KUNDEN_ID = import.meta.env.VITE_SICHERUNG_GDRIVE_KUNDEN_ID ?? '';
 const DESKTOP_GEHEIMNIS = import.meta.env.VITE_SICHERUNG_GDRIVE_GEHEIMNIS ?? '';
 const WEB_KUNDEN_ID = import.meta.env.VITE_SICHERUNG_GDRIVE_WEB_KUNDEN_ID ?? '';
+// Bughunt-Entscheidung 4.9 (2026-09-20): dieses Secret liegt im ausgelieferten
+// JS-Bundle und ist damit öffentlich — BEWUSST akzeptiert. Es wirkt nur am
+// Google-Token-Endpoint (nicht als Zugangs-Berechtigung) und Google behandelt
+// Secrets von installierten Clients ohnehin als nicht-vertraulich; PKCE
+// trägt die eigentliche Absicherung. Sauberer wäre ein serverseitiger
+// Tausch — erst wenn der Sicherungs-Flow ohnehin angefasst wird.
 const WEB_GEHEIMNIS = import.meta.env.VITE_SICHERUNG_GDRIVE_WEB_GEHEIMNIS ?? '';
 
 /** Lokaler Schlüssel des Rückkehr-Tabs → Einstellungssektion (Browser-Weg). */
