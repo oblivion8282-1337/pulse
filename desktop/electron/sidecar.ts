@@ -77,7 +77,6 @@ interface SpawnTarget {
   args: string[];
 }
 
-
 /** Cached result of the first successful `resolveSidecarSpawn()` call.
  *  The resolved path never changes during a session; memoising it avoids
  *  repeated filesystem walks on Windows respawns (finding 159). */
@@ -312,14 +311,6 @@ class SidecarManager {
   constructor(private readonly slot = 0) {}
 
   private child: ChildProcessWithoutNullStreams | null = null;
-
-  /** Läuft gerade ein Kindprozess? (Bughunt Runde 7: der Diagnose-Upload
-   *  will NUR bei einem lebenden Sidecar fragen — sonst spawnt der erste
-   *  `call` lautlos einen neuen Waisen-Prozess, dessen stdin niemand
-   *  schließt.) */
-  istGestartet(): boolean {
-    return this.child !== null && !this.child.killed;
-  }
   private rl: readline.Interface | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
@@ -343,6 +334,14 @@ class SidecarManager {
    *  gone: `call()` refuses during shutdown anyway. */
   get isRunning(): boolean {
     return this.child !== null && this._shuttingDown === null;
+  }
+
+  /** Läuft gerade ein Kindprozess? (Bughunt Runde 7: der Diagnose-Upload
+   *  will NUR bei einem lebenden Sidecar fragen — sonst spawnt der erste
+   *  `call` lautlos einen neuen Waisen-Prozess, dessen stdin niemand
+   *  schließt.) */
+  istGestartet(): boolean {
+    return this.child !== null && !this.child.killed;
   }
 
   /** Send `{op, id, ...params}` to the sidecar and resolve with the full response
@@ -444,15 +443,6 @@ class SidecarManager {
    *  short grace. Stdin zuerst zu schliessen ist die schonendste Stufe: der
    *  Sidecar beendet seine Leseschleife von selbst, statt mitten im Lesen ein
    *  Signal zu bekommen. */
-  /** Bughunt Runde 44: SIGKILL ohne Leiter — für den Quit-Backstop in
-   *  main.ts, der kürzer ist als die normale Shutdown-Leiter. Kein
-   *  Aufräumen, kein Warten: der Prozess soll weg, bevor die App endet. */
-  killHard(): void {
-    const child = this.child;
-    if (!child) return;
-    try { child.kill('SIGKILL'); } catch { /* schon tot */ }
-  }
-
   async shutdown(): Promise<void> {
     if (this._shuttingDown) return this._shuttingDown;
 
@@ -463,6 +453,15 @@ class SidecarManager {
       this._shuttingDown = null;
     });
     return this._shuttingDown;
+  }
+
+  /** Bughunt Runde 44: SIGKILL ohne Leiter — für den Quit-Backstop in
+   *  main.ts, der kürzer ist als die normale Shutdown-Leiter. Kein
+   *  Aufräumen, kein Warten: der Prozess soll weg, bevor die App endet. */
+  killHard(): void {
+    const child = this.child;
+    if (!child) return;
+    try { child.kill('SIGKILL'); } catch { /* schon tot */ }
   }
 
   private async _doShutdown(child: ChildProcessWithoutNullStreams): Promise<void> {

@@ -241,6 +241,11 @@ let mainWindow: BrowserWindow | null = null;
 // that actually quits is the tray's "Beenden" entry, which sets this flag
 // before calling `app.quit()`. The window's `close` handler honours it.
 let isQuitting = false;
+// Der Tray-"Beenden"-Callback — Client- und Server-Boot teilen ihn.
+const quitApp = (): void => {
+  isQuitting = true;
+  app.quit();
+};
 
 // ── Deep-Link / Invite-Handler ───────────────────────────────────────────────
 // Validation + buffering lives in `deeplink.ts` (kept out of this file for the
@@ -1625,7 +1630,7 @@ async function bootClient(): Promise<void> {
   migriereAufStandardAn();
   wireSidecar();
   wirePlayer();
-    wireNetdiag();
+  wireNetdiag();
   wireScreenShare();
   wireNotify(() => mainWindow);
   wireSicherungRuecklauf();
@@ -1634,13 +1639,7 @@ async function bootClient(): Promise<void> {
   wireGlobalShortcuts(() => mainWindow);
 
   createWindow();
-  createTray(
-    () => mainWindow,
-    () => {
-      isQuitting = true;
-      app.quit();
-    }
-  );
+  createTray(() => mainWindow, quitApp);
 
   // Auto-Update: registriert die Renderer-Events + IPC-Handler und startet den
   // Boot- + periodischen Hintergrund-Check in EINEM Aufruf. Inert (Cleanup =
@@ -1689,11 +1688,7 @@ async function bootServer(): Promise<void> {
   wirePower();
   wireClipboard();
   createWindow();
-  createTray(
-    () => mainWindow,
-    () => { isQuitting = true; app.quit(); },
-    { variant: 'server' },
-  );
+  createTray(() => mainWindow, quitApp, { variant: 'server' });
 }
 
 app.whenReady().then(() => void (SERVER_MODE ? bootServer() : bootClient()));

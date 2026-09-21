@@ -537,14 +537,6 @@ class PlayerManager {
    * vertraeglich mit electron-updater, der an `quit` haengt, nicht an
    * `before-quit`.
    */
-  /** Bughunt Runde 44: SIGKILL ohne Leiter — für den Quit-Backstop in
-   *  main.ts (s. SidecarManager.killHard). */
-  killHard(): void {
-    const child = this.child;
-    if (!child || child.killed) return;
-    try { child.kill('SIGKILL'); } catch { /* schon tot */ }
-  }
-
   async shutdown(): Promise<void> {
     // Die Frist gilt fuer einen Prozess, den es gleich nicht mehr gibt —
     // zuerst weg damit, auch im frueh zurueckspringenden Fall unten. Sonst
@@ -590,6 +582,14 @@ class PlayerManager {
     this.rl?.close();
     this.rl = null;
     this.child = null;
+  }
+
+  /** Bughunt Runde 44: SIGKILL ohne Leiter — für den Quit-Backstop in
+   *  main.ts (s. SidecarManager.killHard). */
+  killHard(): void {
+    const child = this.child;
+    if (!child || child.killed) return;
+    try { child.kill('SIGKILL'); } catch { /* schon tot */ }
   }
 }
 
