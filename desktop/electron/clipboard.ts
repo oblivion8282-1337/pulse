@@ -25,20 +25,6 @@ import { open, stat } from 'node:fs/promises';
 const MAX_READ_BYTES = 100 * 1024 * 1024; // 100 MiB
 
 export function wireClipboard(): void {
-  // Clipboard image → PNG bytes. Returns null when the clipboard holds no image
-  // (e.g. a plain-text copy) so the renderer can fall through to text paste.
-  ipcMain.handle('clipboard:readImage', (): Uint8Array | null => {
-    try {
-      const img = clipboard.readImage();
-      if (img.isEmpty()) return null;
-      const png = img.toPNG();
-      if (!png || png.length === 0) return null;
-      return new Uint8Array(png);
-    } catch {
-      return null;
-    }
-  });
-
   // Read a dropped file's bytes by absolute path. The path originates from
   // webUtils.getPathForFile in the preload (real drop only) — see module doc.
   ipcMain.handle('file:readPath', async (_e, path: unknown): Promise<Uint8Array | null> => {

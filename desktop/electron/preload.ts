@@ -195,7 +195,6 @@ contextBridge.exposeInMainWorld('pulse', {
    */
   player: {
     available: (): Promise<boolean> => ipcRenderer.invoke('player:available'),
-    health: () => playerCall('health'),
     open: (params: unknown) => playerCall('open', params),
     close: (session: number) => playerCall('close', { session }),
     /** **Direktverbindung (P2P):** die zwei Signaling-RPCs des Players —
@@ -207,8 +206,6 @@ contextBridge.exposeInMainWorld('pulse', {
       playerCall('direct_start', { session }),
     directSignal: (session: number, answer: string): Promise<unknown> =>
       playerCall('direct_signal', { session, answer }),
-    setOption: (session: number, key: string, value: unknown) =>
-      playerCall('set_option', { session, key, value }),
     setOptions: (session: number, options: unknown) =>
       playerCall('set_option', { session, options }),
     stats: (session: number) => playerCall('stats', { session }),
@@ -483,16 +480,6 @@ contextBridge.exposeInMainWorld('pulse', {
       if (!path) return Promise.resolve(null);
       return ipcRenderer.invoke('file:readPath', path);
     },
-  },
-
-  // macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
-  // Auf anderen Plattformen liefert der Hauptprozess einfach {trusted:true}
-  // zurueck -- dort gibt es keine Huerde. Begruendung, wieso das hierher statt
-  // in den Sidecar gehoert (TCC-Vererbung auf den Elternprozess), und der
-  // vorgeschriebene Hinweistext stehen in `main.ts::wireAccessibility`.
-  accessibility: {
-    isTrusted: (prompt?: boolean): Promise<{ trusted: boolean; hint?: string }> =>
-      ipcRenderer.invoke('accessibility:isTrusted', prompt === true),
   },
 
   // Netzdiagnose eines Self-Host-Servers. Der Renderer bekommt von Chromium

@@ -262,22 +262,6 @@ export interface PulseNetdiagApi {
   check(hostname: string): Promise<PulseNetdiagSchritt[] | null>;
 }
 
-/** Antwort von `pulse.accessibility.isTrusted()`. */
-export interface PulseAccessibilityResult {
-  /** Ist DIESER Prozess (also der vom Hauptprozess gestartete Sidecar,
-   *  s. `main.ts::wireAccessibility`) aktuell fuer Eingabe-Injektion vertraut?
-   *  Ausserhalb von macOS immer `true` — dort gibt es keine Huerde. */
-  trusted: boolean;
-  /** Nur gesetzt, wenn `trusted === false`. Der vorgeschriebene Hinweistext
-   *  (main-seitig gebaut, damit er nie neu erfunden und dabei verkuerzt wird):
-   *  die Freigabe haengt an der Code-Signatur, das mac-DMG ist nur ad-hoc
-   *  signiert, und nach jedem Update bleibt der Haken in den
-   *  Systemeinstellungen SICHTBAR STEHEN, obwohl er nicht mehr gilt. Eine
-   *  Anzeige, die nur "Freigabe fehlt" sagt, fuehrt dazu, dass jemand den
-   *  bestehenden (wirkungslosen) Haken anklickt und sich wundert. */
-  hint?: string;
-}
-
 /**
  * macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
  *
@@ -487,7 +471,6 @@ export interface PulseApi {
   /** macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
    *  Nur unter Electron vorhanden; ausserhalb von macOS liefert sie stets
    *  `{trusted:true}` zurueck. */
-  accessibility?: PulseAccessibilityApi;
   /** Netzdiagnose eines Self-Host-Servers (nur Electron). */
   netdiag?: PulseNetdiagApi;
   /** Host-Lifecycle-Bridge (③a). Nur unter Electron vorhanden. */

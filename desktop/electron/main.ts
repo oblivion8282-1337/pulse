@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage, systemPreferences } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -70,7 +70,6 @@ import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
 import { diagnostiziere } from './localBackend/netdiag';
 import { checkCredsSupersede } from './serverSupersede';
-import { startAdresse } from './startAdresse';
 
 /** Intervall für den periodischen Ablöse-Check (③c-Ergänzung) — 10 Min sind
  *  träge genug, um den Registry-Token-Realm nicht spürbar zu belasten, aber
@@ -429,11 +428,15 @@ function createWindow(): void {
     if (loadCreds({ get: storeGet, set: storeSet })) {
       mainWindow.loadFile(path.join(__dirname, 'server.html'));
     } else {
-      mainWindow.loadURL(startAdresse(PROD_URL, true));
+      // Startadresse NIE die Wurzel: `/` ist seit 2026-09-09 die Cloud-
+      // Landingpage. Server-App-Login → `/login` (NICHT `/app`: jede
+      // Navigation dorthin gilt startLoginWatch als Login-Erfolg);
+      // Normal-App → `/app` (die Hülle schickt Ohne-Sitzung nach /login).
+      mainWindow.loadURL(new URL('/login', PROD_URL).href);
       startLoginWatch(mainWindow);
     }
   } else {
-    void mainWindow.loadURL(startAdresse(TARGET_URL, false));
+    void mainWindow.loadURL(new URL('/app', TARGET_URL).href);
     if (OPEN_DEVTOOLS) mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 }
@@ -817,7 +820,6 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
  *  sidecar operations. The set contains exactly the ops declared in pulse.d.ts
  *  and exposed via the preload. */
 const ALLOWED_GSR_OPS = new Set([
-  'health',
   'gpu_info',
   'list_monitors',
   'list_windows',
@@ -1249,37 +1251,6 @@ function wireNetdiag(): void {
   });
 }
 
-function wireAccessibility(): void {
-  ipcMain.handle('accessibility:isTrusted', (_e, prompt: unknown) => {
-    if (process.platform !== 'darwin') {
-      // Keine Bedienungshilfen-Huerde ausserhalb von macOS -- die Frage
-      // stellt sich dort nicht, also gibt es auch nichts zu verweigern.
-      return { trusted: true };
-    }
-    // `prompt=true` wirft bei fehlender Freigabe EINMALIG den Systemdialog auf
-    // (macOS merkt sich pro Prozess-Lebensdauer, dass schon gefragt wurde) --
-    // deshalb geht dieser Aufruf NIE automatisch los, sondern nur auf eine
-    // Nutzerhandlung hin (Knopf in den Einstellungen).
-    const trusted = systemPreferences.isTrustedAccessibilityClient(prompt === true);
-    if (trusted) return { trusted: true };
-    return {
-      trusted: false,
-      // Der Haken in den Systemeinstellungen bleibt nach einem App-Update
-      // sichtbar STEHEN, obwohl er nicht mehr gilt -- die Freigabe haengt an
-      // der Code-Signatur, und das mac-DMG ist nur ad-hoc signiert. Wer nur
-      // "Freigabe erteilen" liest, klickt den bestehenden Haken an und
-      // wundert sich, warum die Fernsteuerung trotzdem nicht geht. Dieser
-      // Hinweistext ist deshalb die einzige Quelle fuer den ganzen Weg --
-      // jede kuenftige Anzeige soll ihn woertlich zeigen, nicht neu erfinden.
-      hint:
-        'Pulse braucht die Bedienungshilfen-Freigabe, um diesen Rechner fernsteuerbar ' +
-        'zu machen. Steht Pulse schon in Systemeinstellungen -> Datenschutz & ' +
-        'Sicherheit -> Bedienungshilfen, wirkt der Haken aber nicht (z. B. nach einem ' +
-        'Update): den Eintrag ENTFERNEN und NEU HINZUFUEGEN -- der Haken bleibt nach ' +
-        'jedem Update sichtbar stehen, auch wenn er nicht mehr gilt.',
-    };
-  });
-}
 
 // ── Settings persistence (E1c) ──────────────────────────────────────────────
 // A tiny key-value store backed by `<userData>/pulse-stream.json` (see store.ts).
@@ -1654,8 +1625,7 @@ async function bootClient(): Promise<void> {
   migriereAufStandardAn();
   wireSidecar();
   wirePlayer();
-  wireAccessibility();
-  wireNetdiag();
+    wireNetdiag();
   wireScreenShare();
   wireNotify(() => mainWindow);
   wireSicherungRuecklauf();

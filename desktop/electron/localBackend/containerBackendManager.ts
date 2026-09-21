@@ -20,7 +20,7 @@ import { app } from 'electron';
 
 import type { BootstrapCreds } from './pairing.ts';
 import { detectRuntime, ensureMachine, rtExec, type ContainerRuntime } from './containerRuntime.ts';
-import { waitFor, httpHealth } from './health.ts';
+import { httpHealth } from './health.ts';
 
 export const CONTAINER_NAME = 'pulse-host';
 export const DATA_VOLUME = 'pulse-host-data';
