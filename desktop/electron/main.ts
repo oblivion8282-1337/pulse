@@ -1270,18 +1270,15 @@ function wireNetdiag(): void {
 const ALLOWED_STORE_KEYS = new Set([
   'profile_name',
   'server_name',
+  // Quelle (`capture_source`/`capture_source_1`/`capture_sources`) und Ton
+  // (`audio_mode`/`audio_app`): der Renderer schreibt sie seit dem 2026-09-20
+  // nicht mehr (Dialog-Öffnen resettet auf die Vorgabe). Die Schlüssel
+  // bleiben erlaubt, damit bestehende Store-Dateien lesbar bleiben — gelesen
+  // wird nichts davon.
   'capture_source',
-  // Capture source for the second HQ stream (slot 1). Superseded by
-  // `capture_sources` below and no longer written — kept allowed so an existing
-  // store file stays readable (the renderer migrates the value on load).
   'capture_source_1',
-  // Capture sources for every HQ stream slot ≥ 1, as `{ "<slot>": "<source>" }`.
-  // One field per slot would mean one allowlist entry per slot, and the slot
-  // ceiling is a sanity bound (99), not an expected stream count.
   'capture_sources',
   'audio_mode',
-  // Persisted stream-settings that were missing from the allowlist (they are
-  // in the renderer's PERSIST_KEYS, so without these the store rejected them).
   'audio_app',
   'excluded_apps',
   'overrides',

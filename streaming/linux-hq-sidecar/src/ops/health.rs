@@ -12,7 +12,7 @@
 //!
 //! Auf Linux ist der Encoder VAAPI (AMD/Intel) bzw. NVENC (Nvidia) — beides
 //! über das gelinkte FFmpeg. `video_codecs` ist die echt hardware-encodierbare
-//! Menge (Phase 3: echte Probe; Phase 1: statisch h264+av1). `tls_backend`
+//! Menge aus der Open-Probe (`caps`; Phase 3/4 sind gelandet). `tls_backend`
 //! verrät, ob `tls_verify=0` für self-signed MediaMTX-certs mit dem
 //! System-FFmpeg funktioniert (GnuTLS/OpenSSL ja; siehe tls_probe-Example).
 //!
@@ -45,8 +45,10 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         "is_flatpak": std::path::Path::new("/.flatpak-info").exists(),
         "vendor": vendor_slug,
         "display_server": detect_display_server(),
-        // Codecs (Phase 4: echte Open-Probe pro Vendor; aktuell statisch h264+av1).
-        "video_codecs": caps.codecs,
+        // Codecs aus der echten Open-Probe (`caps`) — nur was sich mit
+        // HW-Frames-Kontext öffnet; Reihenfolge: Fähigkeits-Leiter. Fehlt das
+        // Feld, ist die Probe noch nicht definitiv (s.
+        // `caps::gemeldete_video_codecs`).
         // Zusatzfeld gegenüber Python/win/mac: kann diese Karte 10 bit je
         // Farbkanal encodieren (impliziert AV1)? Ältere Sidecars melden es
         // nicht — Konsumenten müssen `undefined` als false lesen.
@@ -69,6 +71,9 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     });
     if let Some(p) = path {
         gsr["path"] = Value::String(p);
+    }
+    if let Some(codecs) = caps::gemeldete_video_codecs() {
+        gsr["video_codecs"] = json!(codecs);
     }
 
     let mut out = Map::new();

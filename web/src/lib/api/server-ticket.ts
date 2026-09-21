@@ -16,6 +16,7 @@
 import { request } from './client';
 import { renewSession } from './cookie-client';
 import { istAblehnungscode } from './anmelde-fehler-codes';
+import { melde } from '$lib/diagnose/app-diagnose';
 import type { Ablehnungscode } from './anmelde-fehler-codes';
 
 /**
@@ -108,6 +109,12 @@ export async function loeseTicketEin(
   } catch {
     // Ein Netzfehler ist ein eigener Grund und kein „ungültiges Ticket". Die
     // Vermischung der beiden war der Kern der alten Sammelmeldung.
+    // Genau DIESER Fehler war der 2026-09-21-Fall (Community anlegen → „nicht
+    // erreichbar", Server-Log leer): er passiert auf dem Gerät und erreicht den
+    // Server nie — ohne Gedächtnis hier ist er unbelegbar.
+    melde('anmeldung', 'fetch_failed', 'POST /api/chat/session nicht erreichbar', {
+      hostname: serverHostname
+    });
     throw new TicketFehler('network');
   }
 

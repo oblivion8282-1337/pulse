@@ -24,13 +24,19 @@
 //! auf. `Window::enumerate` liefert nur sichtbare Top-Level-Fenster (kein
 //! Tool-/Child-Window, nicht der eigene Prozess); wir filtern zusätzlich
 //! Einträge mit leerem Titel raus (Hintergrund-Helfer ohne sinnvollen Namen).
+//!
+//! `width`/`height` ist die ANGEZEIGTE Echtgröße: bei minimierten Fenstern aus
+//! `rcNormalPosition` statt dem GetWindowRect-Stummel (Vollbild-Spiel nach
+//! Fokus-Verlust an Pulse — s. `window_size` unten).
 
 use anyhow::{Result, anyhow};
 use serde_json::{Map, Value, json};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
+use windows::Win32::UI::WindowsAndMessaging::IsIconic;
 use windows_capture::window::Window;
 
+use crate::capture::source::placement_normal_rect;
 use crate::system::app_name::display_name_for_pid;
 
 /// Ist das Fenster von DWM „cloaked" (= komponiert, aber unsichtbar)?
@@ -61,6 +67,25 @@ fn is_cloaked(w: &Window) -> bool {
     ok.is_ok() && cloaked != 0
 }
 
+/// Angezeigte Fenstergröße in Pixeln.
+///
+/// `w.width()/height()` (GetWindowRect) ist für minimierte Fenster unbrauchbar:
+/// Windows parkt die bei ≈(-32000,-32000) mit Stummelgröße (~160×32). Ein
+/// Vollbild-Spiel ist beim Öffnen des Pickers aus Pulse heraus aber IMMER
+/// minimiert — seine echte Größe steht nur im wiederhergestellten Rekt
+/// (gleiche Quelle wie der Resolver, `capture::source::resolve_minimized`).
+/// Schlägt die Abfrage fehl: 0/0 (= „unbekannt") statt einer Falschgröße —
+/// Kachel-Untertitel und Auflösungs-Override-Labels behandeln 0 schon.
+fn window_size(w: &Window) -> (i32, i32) {
+    let hwnd = HWND(w.as_raw_hwnd());
+    if unsafe { IsIconic(hwnd) }.as_bool() {
+        return placement_normal_rect(hwnd)
+            .map(|r| (r.right - r.left, r.bottom - r.top))
+            .unwrap_or((0, 0));
+    }
+    (w.width().unwrap_or(0), w.height().unwrap_or(0))
+}
+
 pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     let windows = Window::enumerate().map_err(|e| anyhow!("Window::enumerate: {e}"))?;
 
@@ -77,14 +102,15 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
             // selbst passt auf Win64 in 32 Bit (Windows-Handle-Garantie), also
             // round-trippt er JS-sicher und zurück via `from_raw_hwnd`.
             let id = w.as_raw_hwnd() as isize as i64;
+            let (width, height) = window_size(w);
             let mut entry = json!({
                 "id": id,
                 "title": title,
                 // process_name() kann fehlschlagen (Zugriffsrechte) → dann
                 // leerer App-Name, die UI zeigt nur den Titel.
                 "app": w.process_name().unwrap_or_default(),
-                "width": w.width().unwrap_or(0),
-                "height": w.height().unwrap_or(0),
+                "width": width,
+                "height": height,
             });
             // Lesbarer Name (Task-Manager-Schreibweise); nur setzen wenn
             // vorhanden — das Frontend unterscheidet „fehlt" von „leer".

@@ -32,6 +32,7 @@ import { capabilities } from '$lib/stores/capabilities.svelte';
 import { effectiveHqLimits } from '$lib/stream/guildLimits';
 import {
   applyVideoMode,
+  codecAnpassungFuerGpu,
   gpuHasAv1,
   gpuHasHevc,
   clampResolution,
@@ -180,7 +181,9 @@ export async function loadCatalogs(): Promise<void> {
     // The HQ-stream panel is channel-mode only (push into the current voice
     // channel, explicit codec/res/bitrate/fps). Force the profile; the capture
     // source is platform-dependent — Linux always uses the Wayland portal,
-    // Windows + macOS pick a concrete monitor (persisted choice wins if valid).
+    // Windows + macOS a concrete monitor. Quelle und Ton sind nicht mehr
+    // persistiert; `platzZuruecksetzen` (vom Panel, vor und nach diesem
+    // Laden aufgerufen) setzt die Vorgabe je Platz.
     if (isWindows() || isMac()) {
       verfalleneWahlenErsetzen();
     } else {
@@ -191,18 +194,28 @@ export async function loadCatalogs(): Promise<void> {
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     // Default codec/bitrate — only if the user hasn't already saved a value.
+    // Der Codec folgt der GPU-Staffel (AV1 vor HEVC vor H.264, 8 bit): wer
+    // nie gewählt hat, startet auf dem Besten, das seine Karte encodieren
+    // kann. NUR bei DEFINITIVER Fähigkeitsliste: Hat die Sidecar-Probe noch
+    // kein Ergebnis (Feld fehlt — Sidecar frisch gestartet, GPU-Reset), wird
+    // nichts vorgegeben und nichts herabgestuft, statt die gespeicherte Wahl
+    // still auf H.264 zu zerstören (`codecAnpassungFuerGpu`).
     // Für die Bildrate steht seither kein Default mehr hier: „Standard" im
     // FPS-Feld heißt gerade, dass die Oberfläche nichts mitgibt und der
     // Sidecar seine Vorgabe nimmt (`FPS_STANDARD`) — eine Vorbelegung auf 60
     // hätte den Eintrag nie sichtbar werden lassen.
-    const hasAv1 = av1Nutzbar(streamSettings.gpu_info?.video_codecs);
-    const hasHevc = gpuHasHevc(streamSettings.gpu_info?.video_codecs);
+    const codecListe = streamSettings.gpu_info?.video_codecs;
+    const codecsBekannt = Array.isArray(codecListe);
+    const hasAv1 = av1Nutzbar(codecListe);
+    const hasHevc = gpuHasHevc(codecListe);
     const defaults: OverrideSet = {};
-    if (!streamSettings.overrides.codec) defaults.codec = hasAv1 ? 'av1' : 'h264';
-    // Coerce a previously-saved codec this GPU can't encode (e.g. 'av1' carried
-    // over to an H.264-only machine) back to the baseline.
-    else if (streamSettings.overrides.codec === 'av1' && !hasAv1) defaults.codec = 'h264';
-    else if (streamSettings.overrides.codec === 'hevc' && !hasHevc) defaults.codec = 'h264';
+    const codecEntschluss = codecAnpassungFuerGpu(
+      codecsBekannt,
+      hasAv1,
+      hasHevc,
+      streamSettings.overrides.codec,
+    );
+    if (codecEntschluss) defaults.codec = codecEntschluss;
     if (streamSettings.overrides.bitrate_kbps === undefined) defaults.bitrate_kbps = 4000;
     if (Object.keys(defaults).length > 0) {
       streamSettings.overrides = { ...streamSettings.overrides, ...defaults };
@@ -210,8 +223,13 @@ export async function loadCatalogs(): Promise<void> {
     // 10 bit hängt an AV1 UND an der Hardware. Fällt eines von beidem weg (der
     // Codec ist gerade auf H.264 zurückgenommen worden, oder die Maschine kann
     // es nicht), muss die Bittiefe mitfallen — sonst zeigt das Feld eine Wahl,
-    // die der Sidecar beim Start still auf 8 bit zurücknimmt.
-    if (streamSettings.overrides.bit_depth === 10 && !tenBitPossible()) {
+    // die der Sidecar beim Start still auf 8 bit zurücknimmt. Gleiches Gate wie
+    // der Codec: bei unbekannter Fähigkeitsliste wird nichts gelöscht.
+    if (
+      codecsBekannt &&
+      streamSettings.overrides.bit_depth === 10 &&
+      !tenBitPossible()
+    ) {
       streamSettings.overrides = applyVideoMode(
         streamSettings.overrides,
         streamSettings.overrides.codec ?? 'h264',
@@ -219,7 +237,8 @@ export async function loadCatalogs(): Promise<void> {
     }
     // Und dasselbe für HDR — hier sogar dringender: ein mitgereister Wunsch
     // bricht den Start ab, statt still auf etwas Kleineres zurückzufallen.
-    if (streamSettings.overrides.hdr === true && !hdrPossible()) {
+    // Auch hier: ohne definitive Antwort bleibt der Wunsch stehen.
+    if (codecsBekannt && streamSettings.overrides.hdr === true && !hdrPossible()) {
       const { hdr: _hdrWeg, ...rest } = streamSettings.overrides;
       streamSettings.overrides = rest;
     }
