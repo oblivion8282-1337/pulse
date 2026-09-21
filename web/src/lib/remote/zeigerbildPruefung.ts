@@ -106,6 +106,3 @@ export function pruefeBild(wert: unknown): Zeigerbild | undefined {
  * brauchen. Der Weg über [`pruefeBild`] ist der Regelfall: er gibt ein Bild
  * zurück, das **nur** geprüfte Felder trägt.
  */
-export function istBild(wert: unknown): wert is Zeigerbild {
-  return pruefeBild(wert) !== undefined;
-}

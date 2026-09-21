@@ -7,7 +7,7 @@
  * in `pulse-fernsteuerung/src/zeigerbuch.rs` erzeugt (seit 2026-08-23 dort,
  * vorher im Windows-Sidecar), und dieselbe Datei prüfen auch die beiden
  * Rust-Enden. Der Grund steht ausführlich in der Datei — kurz: am 2026-08-17
- * verlangte [`istBild`] vier Zahlenfelder, die die Kurzform gar nicht hat.
+ * verlangte [`pruefeBild`] vier Zahlenfelder, die die Kurzform gar nicht hat.
  * Beide Seiten hatten grüne Tests, weil keiner über die Sprachgrenze sah.
  *
  * Ein Test, der sich seine Beispiele selbst ausdenkt, hätte das **nicht**
@@ -24,7 +24,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
-import { istBild, pruefeBild } from '../src/lib/remote/zeigerbildPruefung.ts';
+import { pruefeBild } from '../src/lib/remote/zeigerbildPruefung.ts';
 
 type Form = { _was: string; bild: unknown };
 
@@ -32,7 +32,7 @@ const pruefstein = JSON.parse(
   readFileSync(new URL('../../streaming/zeigerbild-formen.json', import.meta.url), 'utf8'),
 ) as { formen: Form[] };
 
-describe('istBild gegen den Prüfstein des Senders', () => {
+describe('pruefeBild gegen den Prüfstein des Senders', () => {
   it('kennt überhaupt Formen — eine leere Datei wäre ein grüner Test ohne Aussage', () => {
     assert.ok(Array.isArray(pruefstein.formen));
     assert.ok(pruefstein.formen.length >= 2, 'mindestens Kurz- und Vollform');
@@ -40,7 +40,7 @@ describe('istBild gegen den Prüfstein des Senders', () => {
 
   for (const form of pruefstein.formen) {
     it(`nimmt an: ${form._was.slice(0, 60)}…`, () => {
-      assert.equal(istBild(form.bild), true);
+      assert.notEqual(pruefeBild(form.bild), undefined);
     });
   }
 
@@ -56,11 +56,11 @@ describe('istBild gegen den Prüfstein des Senders', () => {
       return b && b.daten === undefined;
     });
     assert.ok(kurz, 'der Prüfstein muss eine Kurzform enthalten');
-    assert.equal(istBild(kurz.bild), true);
+    assert.notEqual(pruefeBild(kurz.bild), undefined);
   });
 });
 
-describe('istBild ist fail-closed', () => {
+describe('pruefeBild ist fail-closed', () => {
   it('weist Fremdmaterial ab', () => {
     for (const schlecht of [
       null,
@@ -87,7 +87,7 @@ describe('istBild ist fail-closed', () => {
       { id: 'abc', w: 2, h: 2, hx: 0, hy: 0, daten: 123 },
       { id: 'abc', w: 2, h: 2, hx: 0, hy: 0, daten: 'A'.repeat(8193) },
     ]) {
-      assert.equal(istBild(schlecht), false, JSON.stringify(schlecht));
+      assert.equal(pruefeBild(schlecht), undefined, JSON.stringify(schlecht));
     }
   });
 

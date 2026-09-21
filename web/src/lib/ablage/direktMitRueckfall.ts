@@ -43,12 +43,6 @@ import { istAbprall } from './abprallEntscheidung.ts';
  *  über Pulse umgeschaltet? Modul-weiter Arbeitsspeicher, s. Kopfkommentar. */
 const aufPulseFestgelegt = new Set<string>();
 
-/** Für die Verbindungsanzeige/Diagnose: ist dieses Ziel in dieser Sitzung
- *  schon auf den Umweg über Pulse festgelegt? */
-export function istAufPulseFestgelegt(schluessel: string): boolean {
-	return aufPulseFestgelegt.has(schluessel);
-}
-
 export interface RueckfallZiel {
 	/** Eindeutige Kennung des Ziels (z. B. `kanal:<id>` oder `guild:<id>`) —
 	 *  trennt die Merkung je Ziel; zwei Kanäle dürfen sich nicht gegenseitig

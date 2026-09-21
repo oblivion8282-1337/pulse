@@ -37,17 +37,6 @@ export function webauthnSupported(): boolean {
   );
 }
 
-/** Best-effort: is a built-in authenticator (Touch ID / Windows Hello)
- *  available? Used only to tailor copy — never to gate functionality. */
-export async function platformAuthenticatorAvailable(): Promise<boolean> {
-  if (!webauthnSupported()) return false;
-  try {
-    return await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-  } catch {
-    return false;
-  }
-}
-
 // ---- options decode / credential encode ------------------------------------
 
 /** Map the server's JSON options into the BufferSource-typed shape that

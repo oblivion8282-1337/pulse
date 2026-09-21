@@ -40,16 +40,6 @@ export async function getRecoveryPackage(): Promise<RecoveryPackageOut> {
   return request<RecoveryPackageOut>('/me/recovery-package', { endpoint: 'auth' });
 }
 
-/** Der Widerruf ohne Neuausstellung — räumt nur auf. Idempotent.
- *  `password` Pflicht (Entscheidung 4.2), wie beim PUT. */
-export async function deleteRecoveryPackage(password: string): Promise<void> {
-  await request<void>('/me/recovery-package', {
-    method: 'DELETE',
-    body: { password },
-    endpoint: 'auth'
-  });
-}
-
 /** True für den 404-Fall „kein Päckchen für dieses Konto" — nie für einen
  *  echten Verbindungsfehler (der ist eine `ApiError` mit anderem Status oder
  *  eine `NetworkError`, s. `api/client.ts`). */

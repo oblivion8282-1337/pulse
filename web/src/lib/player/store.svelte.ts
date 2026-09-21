@@ -95,16 +95,6 @@ export async function loadPlayerSettings(): Promise<void> {
   playerSettings.loaded = true;
 }
 
-export function setUseNativePlayer(v: boolean): void {
-  playerSettings.useNativePlayer = v;
-  void saveAll({ useNativePlayer: v });
-}
-
-export function setNativePlayerOnlyTenBit(v: boolean): void {
-  playerSettings.onlyTenBit = v;
-  void saveAll({ nativePlayerOnlyTenBit: v });
-}
-
 // ── Sitzung ─────────────────────────────────────────────────────────────────
 
 export class NativePlayerSession {

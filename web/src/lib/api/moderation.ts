@@ -145,16 +145,6 @@ export async function resolveReport(
 }
 
 /**
- * Markiert einen neuen Report als `triaged` (ein Mod kümmert sich darum).
- * Idempotent; bereits aufgelöste/verworfene Reports → 409.
- */
-export async function triageReport(guildId: string, reportId: string): Promise<Report> {
-  return request<Report>(`/guilds/${guildId}/mod-queue/${reportId}/triage`, {
-    method: 'POST'
-  });
-}
-
-/**
  * Reicht eine Meldung an den Plattform-Betreiber hoch (Beschwerde-Postfach).
  * Für Fälle, die ein Community-Mod nicht allein lösen sollte (CSAM/illegal,
  * plattformweiter Bann, Beschwerde über die Community selbst). Die Meldung
