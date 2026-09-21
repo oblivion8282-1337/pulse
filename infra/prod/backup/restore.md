@@ -104,15 +104,17 @@ rm /tmp/pg-restore.dump
 If `pg_restore` complains about pre-existing objects you can re-run with
 `--clean --if-exists`; with a fresh-created DB it shouldn't be needed.
 
-## 3. Full MinIO bucket restore (`pulse-attachments`)
+## 3. Full object-store bucket restore (`pulse-attachments`, Garage)
 
 ```bash
 # 1) Stop the only producer of attachments.
 docker compose stop chat-gateway
 
-# 2) Wipe + recreate the bucket from inside MinIO itself.
-docker compose exec -T minio sh -c '
-    mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" &&
+# 2) Wipe + recreate the bucket — von BACKUP-Container aus (Bughunt Runde
+#    41: der `minio`-Service heisst seit der Garage-Umstellung `garage`, und
+#    in GAR KEINEM der beiden laeuft `mc`; Garage ist reiner S3-Endpoint).
+docker compose exec -T backup sh -c '
+    mc alias set local "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" &&
     mc rb --force --dangerous local/pulse-attachments &&
     mc mb local/pulse-attachments
 '
@@ -183,7 +185,7 @@ dead disk's `/var/lib/docker/volumes/pulse_pulse_backups/`).
    ```
 5. Bring up the data layer only:
    ```bash
-   docker compose up -d postgres redis minio minio-init backup
+   docker compose up -d postgres redis garage backup
    ```
 6. Verify the repo opens: `docker compose exec backup restic snapshots`.
 7. Follow §2 (Postgres), §3 (MinIO), §4 (avatars + icons) in that order.
