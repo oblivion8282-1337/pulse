@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+
+from dcc_voice_signaling import ratelimit
 import json
 from typing import Annotated
 
@@ -57,6 +59,13 @@ async def internal_evict_from_voice(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
         )
+    # Bughunt Runde 46: Bremse VOR dem Vergleich (Spiegel zu chat-gateway/
+    # auth-svc, Audit 2026-09) — Ratenguesses auf das Service-Geheimnis
+    # wurden sonst nicht gedrosselt. Key = Client-IP, der Aufrufer ist ein
+    # anderer Dienst; das Loopback-Binding bleibt die Netzgrenze.
+    client_ip = request.client.host if request.client else "unknown"
+    if not ratelimit.check("internal_secret", client_ip):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded")
     if not hmac.compare_digest(x_pulse_internal_secret or "", expected):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="bad service token")
 

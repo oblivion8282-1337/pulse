@@ -304,3 +304,47 @@ async def test_gast_token_in_vollen_kanal_abgewiesen(client, auth_signer, app, m
         await redis.delete("voice:room:channel-555")
         await redis.aclose()
         app.state.redis = None
+
+
+@pytest.mark.asyncio
+async def test_voice_limit_crasht_den_token_mint_nicht(client, auth_signer, monkeypatch):
+    """Bughunt Runde 46: ``_voice_limit`` las ``voice_routes._http_client`` —
+    das Package re-exportiert nur die FUNKTIONEN, nie das mutierte Global,
+    der Zugriff war also ein garantiertes AttributeError AUSSERHALB des
+    Fail-open-try: 500 statt Token für JEDEN Gast, sobald
+    INTERNAL_SERVICE_SECRET + CHAT_GATEWAY_URL gesetzt sind (die
+    Normal-Konfiguration). Der Test fährt genau diese Konfiguration mit
+    gelogenem httpx-Client und verlangt 200 plus berücksichtigtes Limit.
+    """
+    import dcc_voice_signaling.routes as voice_routes
+    from dcc_voice_signaling.routes import chat_gateway as cg
+
+    einstellungen = voice_routes.get_settings().model_copy(
+        update={
+            "internal_service_secret": "test-secret",
+            "chat_gateway_url": "http://127.0.0.1:8002",
+        }
+    )
+    monkeypatch.setattr(voice_routes, "get_settings", lambda: einstellungen)
+
+    gesehene_header: list[dict[str, str]] = []
+
+    class _Resp:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {"user_limit": 5}
+
+    class _Client:
+        async def request(self, methode, url, headers=None):
+            gesehene_header.append(headers or {})
+            assert "/internal/channels/555/voice-limit" in url
+            return _Resp()
+
+    monkeypatch.setattr(cg, "_http_client", _Client())
+
+    r = await client.post(
+        "/gast/token", json={"channel_id": "555"}, headers=auth(_ticket(auth_signer))
+    )
+    assert r.status_code == 200, r.text
+    assert gesehene_header and gesehene_header[0].get("X-Pulse-Internal-Secret") == "test-secret"

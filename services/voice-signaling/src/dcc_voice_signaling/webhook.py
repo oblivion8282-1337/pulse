@@ -269,8 +269,15 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
     pipe.smembers(gast_stumm_key(room_name))
     members_raw, streamers_raw, camera_raw, gast_stumm_raw = await pipe.execute()
     user_ids = sorted(_as_str(m) for m in members_raw)
-    streaming_user_ids = sorted(_as_str(m) for m in streamers_raw)
-    camera_user_ids = sorted(_as_str(m) for m in camera_raw)
+    user_set = set(user_ids)
+    # Bughunt Runde 46: streaming/camera gegen user_ids filtern — der Read
+    # oben läuft in VIER getrennten Pipeline-Befehlen, ein dazwischen
+    # landendes leave/stop produzierte Snapshots, in denen jemand streamte,
+    # ohne im Raum zu sein (Kachel ohne Präsenz). Dieselbe Hygiene wie bei
+    # gast_stumm darunter; schließt zugleich den Pfad "verlorener
+    # Join-Webhook eines Mitglieds, aber track_published kam durch".
+    streaming_user_ids = sorted(_as_str(m) for m in streamers_raw if _as_str(m) in user_set)
+    camera_user_ids = sorted(_as_str(m) for m in camera_raw if _as_str(m) in user_set)
     # Gastnamen mitschicken — für eine Gast-Kennung gibt es beim Empfänger
     # keine zweite Quelle (s. ``VoiceStateSnapshot.gast_namen``).
     gast_namen: dict[str, str] = {}

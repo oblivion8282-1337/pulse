@@ -50,7 +50,14 @@ async def _voice_limit(channel_id: str) -> int:
     secret = settings.internal_service_secret
     if not secret or not settings.chat_gateway_url:
         return 0
-    client = voice_routes._http_client
+    # Bughunt Runde 46: hier stand `voice_routes._http_client` — das Package
+    # re-exportiert nur die FUNKTIONEN, nie das mutierte Global, der Zugriff
+    # war also garantiert ein AttributeError AUSSERHALB des Fail-open-try
+    # darunter: 500 statt Token für JEDEN Gast in jeder korrekt
+    # konfigurierten Deployment (Secret + Gateway-URL gesetzt). Über das
+    # Modul gehen, dort lebt und mutiert das Global (Re-Export würde den
+    # importzeitigen None einfrieren).
+    client = voice_routes._chat_gateway._http_client
     if client is None:
         return 0
     try:
