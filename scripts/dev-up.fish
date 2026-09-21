@@ -80,8 +80,26 @@ end
 
 # --- Container --------------------------------------------------------------
 
-_info "Container starten (Postgres + Redis + MinIO + LiveKit)"
+_info "Container starten (Postgres + Redis + Garage + LiveKit)"
 docker compose --profile voice up -d >/dev/null 2>&1; or _die "docker compose root failed"
+
+# Garage-Bootstrap (Bucket + Key, idempotent) — das dxflrs-Image hat keine
+# Shell, darum host-seitig per exec (Bughunt-Entscheidung 4.1). Fehler sind
+# kein _die: der Stack ist auch ohne Bucket startbar, der naechste Lauf
+# wiederholt den Bootstrap.
+if not sh scripts/dev-garage-init.sh >/dev/null 2>&1
+    _warn "Garage-Bootstrap scheiterte — Anhaenge sind erst nach erneutem dev-up nutzbar"
+end
+
+# Garage-S3-Credentials (GK…-Key, von dev-garage-init.sh erzeugt) an die
+# uvicorn-Services durchreichen — die config.py-Defaults (minioadmin) sind
+# unter Garage ungueltig (Bughunt-Entscheidung 4.1).
+if test -f .garage-dev-credentials
+    set -l gk (grep -m1 "^GARAGE_S3_KEY=" .garage-dev-credentials | string replace -r "^GARAGE_S3_KEY=" "")
+    set -l gs (grep -m1 "^GARAGE_S3_SECRET=" .garage-dev-credentials | string replace -r "^GARAGE_S3_SECRET=" "")
+    set -gx S3_ACCESS_KEY $gk
+    set -gx S3_SECRET_KEY $gs
+end
 
 # PULSE_DEV_SKIP_MEDIAMTX=1 laesst MediaMTX weg — fuer Arbeiten an Chat, Voice
 # oder UI, die den Streaming-Pfad gar nicht anfassen. Grund fuer den Schalter:

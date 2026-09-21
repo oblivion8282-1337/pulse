@@ -106,7 +106,10 @@ services:
     image: dxflrs/garage:v1.1.0
     container_name: pulse_garage
     restart: unless-stopped
-    command: ["-c", "/etc/garage.toml"]
+    # Bughunt Runde 42: hier stand ["-c", "/etc/garage.toml"] — das Image hat
+    # KEINEN Entrypoint (CMD ist [/garage, server]), "-c" wurde als Programm
+    # ausgeführt und der Container landete im Crash-Loop. Volle Befehlszeile.
+    command: ["/garage", "-c", "/etc/garage.toml", "server"]
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - pulse_garage:/var/lib/garage

@@ -155,3 +155,4 @@ web/.ablage-int/
 
 # Lokaler Redis-Snapshot des Test-Laefs
 dump.rdb
+.garage-dev-credentials
