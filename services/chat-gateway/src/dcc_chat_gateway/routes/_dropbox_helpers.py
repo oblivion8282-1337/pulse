@@ -19,7 +19,6 @@ from fastapi import HTTPException
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.models import (
     DROPBOX_KIND_FILE,
-    Channel,
     DropboxConfig,
     DropboxFile,
 )
@@ -281,41 +280,6 @@ def entry_dict(entry: DropboxFile) -> dict[str, object]:
     interchangeably."""
 
     return DropboxEntryOut.model_validate(entry).model_dump(mode="json")
-
-
-async def resolve_or_create_dropbox_channel(
-    session, guild_id: int, *, name: str = "ablage"
-) -> Channel:
-    """Lazy-resolve the dropbox channel — re-creates on the
-    finish-upload path if the row was deleted between mint and finish.
-    ``routes.dropbox._get_or_create_dropbox_channel`` is the equivalent
-    for the routes-side first-access path; this one lives here so the
-    upload module doesn't need to import the route module."""
-
-    from dcc_chat_gateway.models import CHANNEL_TYPE_DROPBOX  # avoid cycle
-
-    stmt = (
-        select(Channel)
-        .where(
-            Channel.guild_id == guild_id,
-            Channel.type == CHANNEL_TYPE_DROPBOX,
-        )
-        .order_by(Channel.position.desc())
-        .limit(1)
-    )
-    channel = (await session.execute(stmt)).scalars().first()
-    if channel is not None:
-        return channel
-    channel = Channel(
-        id=fresh_entry_id(),
-        guild_id=guild_id,
-        name=name,
-        type=CHANNEL_TYPE_DROPBOX,
-        position=0,
-    )
-    session.add(channel)
-    await session.flush()
-    return channel
 
 
 async def serialize_entry(session, entry: DropboxFile) -> DropboxEntryOut:

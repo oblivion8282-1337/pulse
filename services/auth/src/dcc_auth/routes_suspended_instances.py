@@ -225,10 +225,6 @@ async def suspended_instances(
 # ---------------------------------------------------------------------------
 
 
-def _require_internal_secret(authorization: str | None = Header(default=None)) -> None:
-    """Dependency: reject requests without a matching INTERNAL_SERVICE_SECRET."""
-    from dcc_auth.config import get_settings
-
     secret = get_settings().internal_service_secret
     if not secret:
         raise HTTPException(

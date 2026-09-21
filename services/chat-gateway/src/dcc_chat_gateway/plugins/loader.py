@@ -83,8 +83,7 @@ __all__ = [
     "deactivate_plugin",
     "discover_plugins_dir",
     "discover_manifests",
-    "load_all",
-    "load_all_with_allowlist",
+        "load_all_with_allowlist",
     "load_directory",
     "load_directory_with_allowlist",
 ]
@@ -216,21 +215,6 @@ def load_directory(
     return loaded
 
 
-def load_all(*, manager: PluginManager | None = None) -> list[PluginManifest]:
-    """Discover the default plugin directory + load it.
-
-    No-op (returns ``[]``) if no plugin directory is found.
-
-    **Allowlist-Bypass.** Diese Variante ignoriert die Allowlist und
-    aktiviert alles. Wird nur noch in Tests benutzt
-    (``test_plugin_loader.py``), die ohne DB-Setup laufen — die echte
-    chat-gateway-Lifespan ruft :func:`load_all_with_allowlist`.
-    """
-    path = discover_plugins_dir()
-    if path is None:
-        log.info("no plugin directory discovered; plugin loader idle")
-        return []
-    return load_directory(path, manager=manager)
 
 
 def _parse_manifests_in_dir(path: Path) -> list[tuple[Path, PluginManifest]]:

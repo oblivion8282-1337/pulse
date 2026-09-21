@@ -74,7 +74,9 @@ STREAM_EVENTS_CHANNEL = "stream:events"
 # `GET /guilds/{id}/stream-state` re-sync response — the same way voice
 # presence is read straight off `voice:room:*`. (media-svc has no guild→channel
 # map; chat-gateway does, so it does the per-channel lookup.)
-STREAM_CHANNEL_STATE_KEY = "stream:channel:{channel_id}"
+# Bughunt-Ponytail-Audit 2026-09-21: aus dcc_shared statt einer zweiten
+# Schreibweise (media-svc besitzt den Key).
+from dcc_shared.streaming import CHANNEL_STATE_KEY as STREAM_CHANNEL_STATE_KEY  # noqa: E402
 
 # Per-user self-reported voice state (mic_muted / deafened). Written by the
 # WS `voice_self_state` op (chat-gateway owns this key — voice-signaling never

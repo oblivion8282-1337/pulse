@@ -15,10 +15,6 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from dcc_chat_gateway.friend_privacy import (
-    DM_POLICY_VALUES,
-    FRIEND_REQ_POLICY_VALUES,
-)
 from dcc_chat_gateway.schemas import SnowflakeId
 
 
@@ -105,26 +101,6 @@ class BlockOut(BaseModel):
         return _id_str(v)
 
 
-# ---- Privacy -------------------------------------------------------------
-
-
-def _validate_dm_policy(v: int) -> int:
-    if v not in DM_POLICY_VALUES:
-        raise ValueError(
-            f"dm_policy must be one of {sorted(DM_POLICY_VALUES)}, got {v}"
-        )
-    return v
-
-
-def _validate_friend_req_policy(v: int) -> int:
-    if v not in FRIEND_REQ_POLICY_VALUES:
-        raise ValueError(
-            "friend_request_policy must be one of "
-            f"{sorted(FRIEND_REQ_POLICY_VALUES)}, got {v}"
-        )
-    return v
-
-
 class PrivacyOut(BaseModel):
     """The user's effective privacy settings.
 
@@ -148,24 +124,3 @@ class PrivacyUpdate(BaseModel):
         int | None, Field(default=None, ge=0, le=255)
     ] = None
     show_in_search: bool | None = None
-
-
-# ---- User search (returned by auth-svc, mirrored here for typing) -------
-
-
-class UserSearchHit(BaseModel):
-    """Wire shape for one search hit returned by ``GET /users/search``.
-
-    Re-exposed here only so chat-gateway tests + frontend can import a
-    matching shape from a single place; the actual endpoint lives in
-    auth-svc.
-    """
-
-    id: int
-    username: str
-    display_name: str | None = None
-    avatar_url: str | None = None
-
-    @field_serializer("id")
-    def _ser_id(self, v: int) -> str:
-        return _id_str(v)

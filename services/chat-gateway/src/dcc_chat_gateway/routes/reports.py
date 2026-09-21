@@ -38,7 +38,6 @@ from dcc_chat_gateway.snowflake import next_id
 
 router = APIRouter()
 
-_VALID_REASON_CODES = {"spam", "harassment", "illegal", "csam", "other"}
 _REASON_LABELS = {
     "spam": "Spam",
     "harassment": "Belästigung",

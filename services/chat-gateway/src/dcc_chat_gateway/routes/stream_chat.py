@@ -60,15 +60,16 @@ from dcc_chat_gateway.routes.streaming import _SLOT_MAX as _STREAM_SLOT_MAX
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 from dcc_shared.events import StreamChatMessageEvent, StreamChatMessagePayload
+from dcc_shared import streaming
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Mirror of media-svc's ACTIVE_KEY + voice-signaling's VOICE_STREAMING_KEY.
+# VOICE_STREAMING_KEY bleibt ein lokaler Spiegel (voice-signaling hat
+# bewusst kein dcc_shared-Dependency); ACTIVE_KEY kommt aus dcc_shared.
 # Duplicated rather than imported because the services share no code on purpose
 # (see CLAUDE.md / streamkeys.py note) — keep in sync if either key renames.
-_ACTIVE_KEY = "stream:active:channel-{channel_id}-{user_id}"
 # Slots 1.._STREAM_SLOT_MAX append a ``-s<slot>`` suffix to the active key
 # (slot 0 keeps the legacy, suffix-less spelling).
 _VOICE_STREAMING_KEY = "voice:room:channel-{channel_id}:streaming"
@@ -155,7 +156,7 @@ async def post_stream_chat(
     # is almost always streaming exactly one screen. ``EXISTS k1 k2 …`` returns
     # the COUNT of keys that exist, which is exactly the "any slot live?"
     # question asked here.
-    active_key = _ACTIVE_KEY.format(channel_id=channel_id, user_id=streamer_id)
+    active_key = streaming.ACTIVE_KEY.format(channel_id=channel_id, user_id=streamer_id)
     voice_streaming_key = _VOICE_STREAMING_KEY.format(channel_id=channel_id)
     pipe = redis.pipeline(transaction=False)
     pipe.exists(

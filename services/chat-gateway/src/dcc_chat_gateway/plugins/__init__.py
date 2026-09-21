@@ -26,12 +26,11 @@ Discovery
 * Override: env var ``PULSE_PLUGINS_DIR`` — absolute path.
 
 The loader is **opt-in** for production code: nothing imports it
-automatically. The chat-gateway lifespan calls ``load_all()`` once at
+automatically. The chat-gateway lifespan calls ``load_all_with_allowlist()`` once at
 startup. Tests can call ``load_directory(path)`` against a temp dir.
 
 Public API
 ~~~~~~~~~~
-* :func:`load_all`             — convenience wrapper: discover dir + load
 * :func:`load_directory(path)` — load every plugin in ``path``
 * :class:`PluginManager`       — full lifecycle (activate/deactivate)
 * :class:`PluginManifest`      — pydantic model for parsed ``plugin.toml``
@@ -57,7 +56,6 @@ from dcc_chat_gateway.plugins.loader import (
     deactivate_plugin,
     discover_manifests,
     discover_plugins_dir,
-    load_all,
     load_all_with_allowlist,
     load_directory,
     load_directory_with_allowlist,
@@ -99,7 +97,6 @@ __all__ = [
     "ensure_hello_in_allowlist",
     "get_manager",
     "list_allowed_names",
-    "load_all",
     "load_all_with_allowlist",
     "load_directory",
     "load_directory_with_allowlist",

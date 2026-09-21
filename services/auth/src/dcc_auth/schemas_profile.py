@@ -10,19 +10,6 @@ from pydantic import BaseModel, Field
 from dcc_auth.schemas import USERNAME_PATTERN
 
 
-class ProfileStatement(BaseModel):
-    statement_id: str
-    user_id: str
-    username: str
-    display_name: str | None = None
-    avatar_hash: str | None = None
-    profile_color: str | None = None
-    profile_color_secondary: str | None = None
-    profile_gradient_angle: int | None = None
-    iat: int
-    exp: int
-
-
 class ProfileUpdateRequest(BaseModel):
     # avatar_hash is intentionally NOT writable here: it must only ever be set
     # by POST /me/avatar, which derives it from the SHA-256 of the actually

@@ -220,18 +220,6 @@ async def read_party(redis: Redis, channel_id: str, party_id: str) -> dict | Non
     return _parse_state(raw)
 
 
-async def read_parties(redis: Redis, channel_id: str) -> list[dict]:
-    """All active party states in a channel (unordered). Each dict carries its
-    own ``party_id`` field."""
-    raw = await redis.hgetall(WATCH_STATE_KEY.format(channel_id=channel_id))
-    out: list[dict] = []
-    for value in (raw or {}).values():
-        data = _parse_state(value)
-        if data is not None:
-            out.append(data)
-    return out
-
-
 async def read_states_for(redis: Redis, channel_ids: list[str]) -> list[dict]:
     """``[{"channel_id": ..., "party_id": ..., "state": {...}}, ...]`` for every
     active party across the given channels. Channels with no party are omitted.
