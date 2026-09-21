@@ -57,24 +57,32 @@ export function register(ctx: HandlerContext): void {
   });
 
   registerWsHandler('permissions_updated', (evt) => {
-    capabilities.apply({
-      allow_guild_creation: evt.allow_guild_creation,
-      allow_member_invites: evt.allow_member_invites,
-      guild_sound_max_size_bytes: evt.guild_sound_max_size_bytes,
-      hq_bitrate_min_kbps: evt.hq_bitrate_min_kbps,
-      hq_bitrate_max_kbps: evt.hq_bitrate_max_kbps,
-      hq_fps_min: evt.hq_fps_min,
-      hq_fps_max: evt.hq_fps_max,
-      hq_resolution_max: evt.hq_resolution_max,
-      ns_bitrate_min_kbps: evt.ns_bitrate_min_kbps,
-      ns_bitrate_max_kbps: evt.ns_bitrate_max_kbps,
-      ns_fps_min: evt.ns_fps_min,
-      ns_fps_max: evt.ns_fps_max,
-      ns_resolution_max: evt.ns_resolution_max,
-      cam_resolution_max: evt.cam_resolution_max,
-      cam_fps_max: evt.cam_fps_max,
-      voice_bitrate_max_kbps: evt.voice_bitrate_max_kbps
-    });
+    // Bughunt Runde 51: capabilities ist der Spiegel des AKTIVEN Servers —
+    // das Event eines BACKGROUND-Servers (Cloud-Admin toggelt, während der
+    // User auf dem Self-Host sitzt) überschrieb sonst dessen Encoder-Klemmen
+    // und UI-Gates bis zum nächsten Wechsel. Nur der aktive Server wendet an;
+    // der pro-Server-Cache unten refreshed trotzdem immer.
+    const quelle = (evt as { _serverId?: string })._serverId ?? activeServer.current?.id;
+    if (!quelle || quelle === activeServer.serverId) {
+      capabilities.apply({
+        allow_guild_creation: evt.allow_guild_creation,
+        allow_member_invites: evt.allow_member_invites,
+        guild_sound_max_size_bytes: evt.guild_sound_max_size_bytes,
+        hq_bitrate_min_kbps: evt.hq_bitrate_min_kbps,
+        hq_bitrate_max_kbps: evt.hq_bitrate_max_kbps,
+        hq_fps_min: evt.hq_fps_min,
+        hq_fps_max: evt.hq_fps_max,
+        hq_resolution_max: evt.hq_resolution_max,
+        ns_bitrate_min_kbps: evt.ns_bitrate_min_kbps,
+        ns_bitrate_max_kbps: evt.ns_bitrate_max_kbps,
+        ns_fps_min: evt.ns_fps_min,
+        ns_fps_max: evt.ns_fps_max,
+        ns_resolution_max: evt.ns_resolution_max,
+        cam_resolution_max: evt.cam_resolution_max,
+        cam_fps_max: evt.cam_fps_max,
+        voice_bitrate_max_kbps: evt.voice_bitrate_max_kbps
+      });
+    }
     // Server-Name live nachziehen, wenn der Admin umbenannt hat — kein Reload
     // nötig. "" = zurückgesetzt (Adresse zeigen); Feld fehlt = unverändert.
     // Der Quell-Server ist auf dem Event gestempelt (_serverId), Fallback aktiv.

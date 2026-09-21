@@ -266,6 +266,10 @@ class VoicePresenceStore {
     this.cameraByChannel = {};
     this.userStatesByChannel = {};
     this.overrideByChannel = {};
+    // Bughunt Runde 51: die sechste Karte war beim clear() vergessen
+    // (Nachzügler aus dem Gast-Links-Bau) — Gastnamen des Vorgängers
+    // überlebten den Kontowechsel bis zum nächsten ready.
+    this.gastNamenByChannel = {};
   }
 }
 
