@@ -121,12 +121,10 @@ geladen werden sollen) kommt in Schritt 6.
 * **Default:** Repo-internes `plugins/`-Verzeichnis im Pulse-Root.
 * **Override:** Env-Var `PULSE_PLUGINS_DIR` setzt einen alternativen Pfad
   (z. B. `~/.pulse/plugins/` für Self-Host).
-* **Frontend:** Plugin-Verzeichnis wird per Vite `import.meta.glob` zur
-  Build-Zeit eingelesen; ein `plugins.json` listet pro Build die
-  enthaltenen Plugin-Namen + Frontend-Entry-Pfade. Generierung über
-  einen kleinen Sync-Step (s. `web/scripts/sync-plugins.mjs` oder
-  direkt im Vite-Plugin — Schritt 4 lädt initial nur den im Repo
-  vorhandenen Skelett-Plugin `hello`).
+* **Frontend:** Plugin-Verzeichnis wird per Vite `import.meta.glob`
+  zur Build-Zeit eingelesen (`web/src/lib/plugins/loader.ts`). Ein
+  `plugins.json`/`sync-plugins.mjs` ist NIE gebaut worden (Ponytail-
+  Audit 2026-09-21: Plan-Reste aus Schritt 4).
 * **Server-Side Plugin-Activate-Status** (Schritt 6) wird in einer
   `plugin_settings`-Tabelle persistiert; Schritt 4 hat *alle* gefundenen
   Plugins automatisch aktiv.
