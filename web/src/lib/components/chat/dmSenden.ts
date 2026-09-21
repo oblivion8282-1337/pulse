@@ -26,6 +26,10 @@ export interface DmSendeAuftrag {
   e2eDmsEnabled: boolean;
   cloudRoute: { serverId?: string };
   pendingOptimisticTimeouts: Map<string, ReturnType<typeof setTimeout>>;
+  /** Entscheidung 3.4: genau einmal gerufen, wenn der verschlüsselte Weg
+   *  festgelesen hat (true = zugestellt, false = fehlgeschlagen). Ohne den
+   *  Callback verhält sich der Weg wie bisher (Composer bleibt geleert). */
+  melden?: (ok: boolean) => void;
 }
 
 export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
@@ -40,7 +44,8 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
     anhaenge,
     e2eDmsEnabled,
     cloudRoute,
-    pendingOptimisticTimeouts
+    pendingOptimisticTimeouts,
+    melden
   } = auftrag;
   if (!userId) return;
 
@@ -86,6 +91,7 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
       try {
         ergebnis = await sendeVerschluesselt(cid, partnerId, text, kanonischeId, anhaenge);
       } catch (err) {
+        melden?.(false);
         // Ein UNERWARTETER Fehler (Bughunt 2026-08-28, zweiter Fund):
         // `sendeVerschluesselt` liefert die BEKANNTEN Faelle (204 =
         // zugestellt, 404 = Route fehlt) regulaer zurueck, nicht per Wurf.
@@ -103,6 +109,7 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
       }
       if (ergebnis?.art === 'verschluesselt') {
         messages.upsert(ergebnis.nachricht);
+        melden?.(true);
         return;
       }
       // NICHTS eingeliefert (kein Zielgeraet auf einer der beiden Seiten,
@@ -111,6 +118,7 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
       // Weg nicht mehr. Seit der Aufhebung der Koexistenz-Regel (2026-09-12)
       // ist das der Restfall: ein Konto ueberhaupt ohne Geraet mit
       // Schluesseln (nie angemeldet, oder alles verfallen).
+      melden?.(false);
       toast.error(m.dm_page_send_failed(), { description: m.dm_page_senden_kein_geraet() });
     });
     return;

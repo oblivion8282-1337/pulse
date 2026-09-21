@@ -175,7 +175,8 @@
     text: string,
     replyToId: string | null,
     attachmentIds: string[],
-    anhaenge: AnhangAngabe[] = []
+    anhaenge: AnhangAngabe[] = [],
+    melden?: (ok: boolean) => void
   ) {
     sendeDmNachricht({
       userId: auth.user?.id ?? null,
@@ -188,7 +189,8 @@
       anhaenge,
       e2eDmsEnabled: E2E_DMS_ENABLED,
       cloudRoute,
-      pendingOptimisticTimeouts
+      pendingOptimisticTimeouts,
+      melden
     });
   }
 

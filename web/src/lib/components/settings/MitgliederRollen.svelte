@@ -233,6 +233,14 @@
     try {
       if (on) await rolesApi.assign(guildId, userId, role.id);
       else await rolesApi.unassign(guildId, userId, role.id);
+      // Entscheidung 3.2: die gemeinsame Trägerliste mitschreiben — sie
+      // pflegt `rollen` nur im laden(); die Gruppierung links und die
+      // Trägerzahlen der Rangleiste folgten sonst erst nach dem
+      // Wiederöffnen des Dialogs.
+      const aktuell = new Set(liste.rollen[userId] ?? []);
+      if (on) aktuell.add(role.id);
+      else aktuell.delete(role.id);
+      liste.rollen = { ...liste.rollen, [userId]: [...aktuell] };
     } catch (err) {
       const rollback = new Set(mitgliedRollen[userId] ?? existing);
       if (on) rollback.delete(role.id);

@@ -128,7 +128,12 @@ async def issue_gast_token(
         # hätte den LiveKit-Grant bis zu 59 s ÜBER das Ticket hinaus
         # verlängert (Audit 2026-09); für den Gast ist das dasselbe wie
         # abgelaufen.
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="ticket expired")
+        # Entscheidung 3.1 (2026-09-21): 403 wie im media-svc-WHEP-Pfad —
+        # vorher 404 dort 403, die Gast-Oberfläche konnte „Besprechung
+        # vorbei" nicht vom Rest unterscheiden. Das Uniform-404 des
+        # LINK-Pfads (chat-gateway routes/gast.py) bleibt unangetastet:
+        # hier hält der Gast den Link-Code bereits in der Hand.
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="ticket expired")
 
     room = voice_routes._room_for_channel(payload.channel_id)
     # Das Benutzerlimit wird NICHT mehr nur beim Ticket-Mint im chat-gateway

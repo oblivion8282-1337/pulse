@@ -234,14 +234,14 @@ async def test_lese_token_eines_anderen_bleiben_unberuehrt(app):
 async def test_gast_token_in_letzter_minute_wird_abgewiesen(client, auth_signer):
     """Der alte max(60, …)-Floor verlängerte den LiveKit-Grant bis zu 59 s
     ÜBER das Ticket hinaus. Jetzt gibt es in den letzten 60 s gar kein
-    Token mehr — für den Gast dasselbe wie abgelaufen (404)."""
+    Token mehr — für den Gast dasselbe wie abgelaufen (403, Entscheidung 3.1)."""
     ticket = _ticket(auth_signer, channel_id="555", ttl_s=30)
     r = await client.post(
         "/gast/token",
         json={"channel_id": "555"},
         headers=auth(ticket),
     )
-    assert r.status_code == 404
+    assert r.status_code == 403
 
 
 def test_livekit_identitaet_eines_gastes_traegt_kein_user_praefix():

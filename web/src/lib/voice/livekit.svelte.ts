@@ -504,6 +504,15 @@ class VoiceRoom {
     // wir machen hier nur das LiveKit-API + applyNoiseFilter/#attachLocalAnalyser
     // und rollbacken `micEnabled` im Fehlerfall.
     if (this.micEnabled) {
+      // Entscheidung 2e: ein Server-Force-Mute (Override) lehnt den Publish
+      // serverseitig ab — der Connect meldete dann "Mikrofon-Zugriff
+      // fehlgeschlagen", dabei ist der Browser-Zugriff gar nicht das Problem.
+      // Bekannter Override → klare Ansage statt generischem Geräte-Fehler.
+      if (this.#selfOverride().muted) {
+        this.micEnabled = false;
+        this.error = m.voice_admin_mute_aktiv();
+        return;
+      }
       try {
         await room.localParticipant.setMicrophoneEnabled(true, this.#audioCaptureDefaults());
         // Der teuerste Abbruchpunkt: hier existiert die Mikrofonspur bereits.
@@ -521,7 +530,10 @@ class VoiceRoom {
           return;
         }
         this.micEnabled = false;
-        this.error = micErrorMessage(e);
+        // Auch hier: Override-Abweisung (LiveKit-Grant ohne Mic) klar benennen.
+        this.error = this.#selfOverride().muted
+          ? m.voice_admin_mute_aktiv()
+          : micErrorMessage(e);
       }
     }
     // Re-check again after setMicEnabled() — same risk of a concurrent connect
