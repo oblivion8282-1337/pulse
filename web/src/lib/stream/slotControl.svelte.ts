@@ -8,7 +8,7 @@
  * it inside a `$derived` for reactivity.
  */
 import { runningStreamSlots, MAX_STREAM_SLOTS, markStopped } from './state.svelte';
-import { gsr } from './gsr';
+import { sidecar } from './sidecar';
 
 /** Lowest free slot for a new stream (0..MAX-1), or -1 when all are in use. */
 export function nextFreeStreamSlot(): number {
@@ -27,7 +27,7 @@ export function nextFreeStreamSlot(): number {
  *  Streamers ist „der Mensch hat geklickt" keine Frage, die je offen war. */
 export async function stopSlot(slot: number, grund?: string): Promise<boolean> {
   try {
-    await gsr.stop(slot, grund);
+    await sidecar.stop(slot, grund);
     // Reconcile locally: the fresh (respawned) sidecar emits no `stopped` event,
     // so without this a stop after a crash would leave the UI stuck on "live".
     markStopped(slot);

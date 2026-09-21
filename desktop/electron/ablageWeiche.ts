@@ -18,7 +18,7 @@
  *
  * **Steht hier, weil ihn ZWEI Stellen im Hauptprozess schicken**: das
  * Aufräumen nach einem Renderer-Neuladen und der Trägerwechsel
- * (`gsr:ablageEnde`). Als Literal an beiden Stellen wäre er eine Behauptung,
+ * (`sidecar:ablageEnde`). Als Literal an beiden Stellen wäre er eine Behauptung,
  * die an einer davon veralten kann; die Hülle selbst gehört
  * `$lib/remote/ablageHuelle.ts`, und das ist genau die Datei, die der
  * Hauptprozess nicht importieren kann.

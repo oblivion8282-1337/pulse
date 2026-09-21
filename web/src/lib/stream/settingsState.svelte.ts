@@ -10,7 +10,7 @@
  * `localStorage` im reinen Browser.
  */
 
-import type { GsrGpuInfo, GsrMonitor, GsrWindow } from './gsr';
+import type { SidecarGpuInfo, SidecarMonitor, SidecarWindow } from './sidecar';
 import { debounce, loadAll, saveAll } from './persistence';
 import { RESOLUTION_VALUES, type OverrideSet } from './settingsCatalog';
 
@@ -52,11 +52,11 @@ export const streamSettings = $state({
   // Catalogs from sidecar (filled by `loadCatalogs()`)
   available_audio_apps: [] as string[],
   // Display monitors — only populated on Windows (Linux uses the portal picker).
-  available_monitors: [] as GsrMonitor[],
-  available_windows: [] as GsrWindow[],
+  available_monitors: [] as SidecarMonitor[],
+  available_windows: [] as SidecarWindow[],
 
   // GPU info cache (filled by `loadCatalogs()` → consumed by the codec default).
-  gpu_info: null as GsrGpuInfo | null,
+  gpu_info: null as SidecarGpuInfo | null,
 
   // Diagnostics
   catalogs_loaded: false,

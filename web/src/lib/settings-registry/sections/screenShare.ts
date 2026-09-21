@@ -1,6 +1,6 @@
 /**
  * `screenShare` section — codec/resolution/fps/bitrate for the LiveKit
- * browser-side screen-share path (NOT the GSR-HQ path; that lives in
+ * browser-side screen-share path (NOT the sidecar-HQ path; that lives in
  * `lib/stream/persistence.ts` and is Electron-only).
  *
  * Legacy migration: this used to live in the separate `dcc.screenShareSettings`

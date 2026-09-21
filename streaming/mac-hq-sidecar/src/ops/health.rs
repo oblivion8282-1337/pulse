@@ -3,7 +3,7 @@
 //! Wire-form mirrors `gsr-sidecar/control.py::op_health`:
 //!
 //! ```jsonc
-//! {"ok": true, "gsr": {"available": ..., "source": ..., "is_flatpak": ...,
+//! {"ok": true, "sidecar": {"available": ..., "source": ..., "is_flatpak": ...,
 //!                       "path": ..., "version": ..., "vendor": ...,
 //!                       "display_server": ..., "video_codecs": [...],
 //!                       "capture_options": [...], "has_flv_patch": ...}}
@@ -13,7 +13,7 @@
 //! `video_codecs` list is the *real* hardware-encodable set, probed by
 //! [`crate::caps`] (h264/hevc baseline; av1 only on AV1-capable silicon + an
 //! FFmpeg with `av1_videotoolbox`). The renderer's `state.svelte.ts` flips
-//! `stream.gsrAvailable` on `gsr.available` (with `isMac()`) to ungate the
+//! `stream.sidecarAvailable` on `sidecar.available` (with `isMac()`) to ungate the
 //! HQ-Stream button, and `gpuHasAv1(video_codecs)` to gate the codec choice.
 
 use anyhow::Result;
@@ -33,7 +33,7 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         crate::berechtigung::mithoeren_stand(),
     );
 
-    let mut gsr = json!({
+    let mut sidecar = json!({
         "available": true,
         "source": "builtin",
         "is_flatpak": false,
@@ -66,11 +66,11 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         "remote_input_grund": grund,
     });
     if let Some(p) = path {
-        gsr["path"] = Value::String(p);
+        sidecar["path"] = Value::String(p);
     }
 
     let mut out = Map::new();
-    out.insert("gsr".to_string(), gsr);
+    out.insert("sidecar".to_string(), sidecar);
     Ok(out)
 }
 
@@ -90,8 +90,8 @@ mod tests {
     #[test]
     fn feld_remote_input_ist_vorhanden_und_bool() {
         let out = handle(Map::new()).expect("health darf nicht fehlschlagen");
-        let gsr = out.get("gsr").expect("gsr-Objekt fehlt");
-        let feld = gsr.get("remote_input").expect("remote_input fehlt in health.gsr");
+        let sidecar = out.get("sidecar").expect("sidecar-Objekt fehlt");
+        let feld = sidecar.get("remote_input").expect("remote_input fehlt in health.sidecar");
         assert!(feld.is_boolean(), "remote_input ist kein Bool: {feld:?}");
     }
 
@@ -103,9 +103,9 @@ mod tests {
     #[test]
     fn grund_und_faehigkeit_widersprechen_sich_nicht() {
         let out = handle(Map::new()).expect("health schlug fehl");
-        let gsr = out.get("gsr").expect("gsr fehlt");
-        let kann = gsr.get("remote_input").and_then(Value::as_bool).expect("remote_input fehlt");
-        let grund = gsr
+        let sidecar = out.get("sidecar").expect("sidecar fehlt");
+        let kann = sidecar.get("remote_input").and_then(Value::as_bool).expect("remote_input fehlt");
+        let grund = sidecar
             .get("remote_input_grund")
             .and_then(Value::as_str)
             .expect("remote_input_grund fehlt");

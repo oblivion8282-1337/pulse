@@ -30,7 +30,7 @@
  * direkt zu sprechen — und die Messung „was bringt P2P?" wäre wertlos.
  */
 
-import { gsr } from '$lib/stream/gsr';
+import { sidecar } from '$lib/stream/sidecar';
 import { aktiverDirektPlatz } from '$lib/devices/wecken';
 import { onDirectState } from '$lib/player/client';
 import { nativePlayerSessions } from '$lib/player/store.svelte';
@@ -224,7 +224,7 @@ export async function hostBereit(
   const slot = aktiverDirektPlatz();
   if (slot === null) return;
   setze('verbinde');
-  hostAbo = await gsr.onEvent((ev) => {
+  hostAbo = await sidecar.onEvent((ev) => {
     if (ev.ev !== 'direct_state' || ev.slot !== undefined && ev.slot !== slot) return;
     if (ev.state === 'live') setze('live');
     else if (ev.state === 'failed') {
@@ -239,7 +239,7 @@ export async function hostBereit(
       // außen: der Steuernde sieht den Fehlschlag an seinem eigenen
       // Zeitablauf. Ein `bild_answer` mit Fehlertext wäre ein Kanal, über
       // den ein Host lügen könnte.
-      const antwort = await gsr.directOffer(slot, sdp);
+      const antwort = await sidecar.directOffer(slot, sdp);
       if (!antwort?.ok || typeof antwort.sdp !== 'string') {
         setze('fehlgeschlagen');
         return;
@@ -264,7 +264,7 @@ export function hostOffer(sdp: string): void {
 /** Host-Seite aufräumen — Sitzungsende. Löst die Direktverbindung am Sidecar. */
 export function hostEnde(): void {
   const slot = aktiverDirektPlatz();
-  if (slot !== null) void gsr.directStop(slot);
+  if (slot !== null) void sidecar.directStop(slot);
   if (hostAbo) {
     hostAbo();
     hostAbo = null;

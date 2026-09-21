@@ -1,5 +1,5 @@
 <!--
-  StreamPanel — die HQ-Stream-UI (GSR), eingebettet im Voice-Channel-View
+  StreamPanel — die HQ-Stream-UI (Sidecar), eingebettet im Voice-Channel-View
   (HqStreamDialog → StreamPanel). Immer Channel-Modus: gestreamt wird in den
   aktuellen Voice-Channel (per-Channel MediaMTX-Pfad `channel-<id>`, Token vom
   chat-gateway). Capture: Linux über das Wayland-Portal (Portal-Dialog wählt
@@ -7,10 +7,10 @@
   Kein Server-/Profil-Picker mehr — nur Codec/Auflösung/Bitrate/FPS + Audio.
 
   Gating:
-  - `gsr.available()` false → komplett ausblenden (reiner Browser, keine
+  - `sidecar.available()` false → komplett ausblenden (reiner Browser, keine
     Electron-Sidecar-Bridge).
-  - Bridge da aber `health.gsr.available` false → "GSR nicht verfügbar"-Banner
-    statt Controls (einmalig via `gsr.health()` beim Mount geprüft).
+  - Bridge da aber `health.sidecar.available` false → "Sidecar nicht verfügbar"-Banner
+    statt Controls (einmalig via `sidecar.health()` beim Mount geprüft).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -19,7 +19,7 @@
   import RocketIcon from '@lucide/svelte/icons/rocket';
 
   import { isWindows, isMac } from '$lib/platform/runtime';
-  import { gsr, type GsrHealth } from '../gsr';
+  import { sidecar, type SidecarHealth } from '../sidecar';
   import { loadCatalogs, platzZuruecksetzen, quelleAufVorgabe, captureSourceForSlot, streamSettings } from '../settings.svelte';
 
   import { m } from '$lib/paraglide/messages.js';
@@ -47,7 +47,7 @@
   // 672-px-Spalte. Ohne Auswahl (Linux) bleibt alles wie bisher einspaltig.
   const hasSourcePicker = isWindows() || isMac();
 
-  let health = $state<GsrHealth | null>(null);
+  let health = $state<SidecarHealth | null>(null);
   let healthError = $state<string | null>(null);
 
   onMount(() => {
@@ -62,8 +62,8 @@
     bereit = true;
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
-    if (!gsr.available()) return;
-    void gsr.health().then((h) => { health = h; }).catch((e) => { healthError = String(e); });
+    if (!sidecar.available()) return;
+    void sidecar.health().then((h) => { health = h; }).catch((e) => { healthError = String(e); });
     void loadCatalogs();
   });
 
@@ -85,10 +85,10 @@
     quelleAufVorgabe(slot);
   });
 
-  let gsrAvailable = $derived(!!health?.gsr?.available);
+  let sidecarAvailable = $derived(!!health?.sidecar?.available);
 </script>
 
-{#if gsr.available()}
+{#if sidecar.available()}
   <section class="glass-panel flex flex-col gap-4 rounded-2xl p-4" data-testid="stream-panel">
     <header class="flex items-center gap-2">
       <RocketIcon class="text-primary size-5" />
@@ -104,16 +104,16 @@
         <AlertTriangleIcon class="mt-0.5 size-4 shrink-0" />
         <span>{m.stream_panel_bridge_error({ error: healthError })}</span>
       </div>
-    {:else if health && !gsrAvailable}
+    {:else if health && !sidecarAvailable}
       <div
         class="flex items-start gap-2 rounded-md border border-amber-700/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-200"
         role="alert"
-        data-testid="stream-panel-gsr-missing"
+        data-testid="stream-panel-sidecar-missing"
       >
         <AlertTriangleIcon class="mt-0.5 size-4 shrink-0" />
         <div class="flex flex-col gap-0.5">
-          <span class="font-medium">{m.stream_panel_gsr_unavailable_title()}</span>
-          <span>{m.stream_panel_gsr_unavailable_body()}</span>
+          <span class="font-medium">{m.stream_panel_sidecar_unavailable_title()}</span>
+          <span>{m.stream_panel_sidecar_unavailable_body()}</span>
         </div>
       </div>
     {:else if !channelId}

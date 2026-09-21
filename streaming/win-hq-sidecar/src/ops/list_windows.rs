@@ -3,7 +3,7 @@
 //! Windows-only: Linux hat keinen In-App-Picker (der Wayland-Portal-Dialog
 //! wählt die Quelle beim Stream-Start). WGC hat keinen Portal-Dialog — ohne
 //! diese Op kann der User nur Monitore wählen, keine einzelne App. Shape
-//! (deckungsgleich mit dem Frontend-Typ `GsrWindow`):
+//! (deckungsgleich mit dem Frontend-Typ `SidecarWindow`):
 //!
 //! ```jsonc
 //! {"ok": true,

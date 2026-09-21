@@ -46,14 +46,14 @@
   // dass der Sidecar es in `video_codecs` meldet (RTX 40xx, neuere Intel/AMD;
   // auf heutiger Mac-Hardware nie — Begründung an `av1Nutzbar`). H.264 ist die
   // Grundlinie und steht immer da. 10 bit verlangt zusätzlich
-  // `health.gsr.ten_bit` — es hängt am Encoder, nicht am Codec.
+  // `health.sidecar.ten_bit` — es hängt am Encoder, nicht am Codec.
   //
   // Ein nicht angebotener Eintrag ist besser als ein angebotener, der beim
   // Start still zurückgenommen wird: der Nutzer sähe sonst „AV1 10 bit" im Feld
   // und bekäme 8 bit, ohne dass irgendwo etwas dazu steht.
   //
   // HDR hat zusätzlich zwei eigene Bedingungen: die Maschine muss es tragen
-  // (`health.gsr.hdr` — belegt für AV1 über AMF auf AMD und AV1 über NVENC auf
+  // (`health.sidecar.hdr` — belegt für AV1 über AMF auf AMD und AV1 über NVENC auf
   // NVIDIA; hier stand bis zum 2026-08-11 „allein AV1 über AMF auf AMD") und es
   // gibt den Weg nur unter Windows. Fehlt eines, taucht der Eintrag gar nicht
   // erst auf — dieselbe Regel wie oben, nur eine Zeile tiefer.
@@ -332,7 +332,7 @@
          2026-08-02, und aus demselben Grund.
 
          Die Bedingungen sind mitgewandert und unveraendert: nur Windows, und
-         nur wenn der Sidecar es meldet (`health.gsr.hdr` — belegt fuer AV1
+         nur wenn der Sidecar es meldet (`health.sidecar.hdr` — belegt fuer AV1
          ueber AMF auf AMD und AV1 ueber NVENC auf NVIDIA; hier stand bis zum
          2026-08-11 „allein AV1 ueber AMF auf AMD"). Linux und macOS koennen die Aufnahme
          heute nicht in 16-Bit-Fliesskomma holen, dort gaebe es nichts zu senden.

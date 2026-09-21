@@ -20,7 +20,7 @@
  */
 
 import { chatApi } from '$lib/api/chat';
-import { gsr } from './gsr';
+import { sidecar } from './sidecar';
 import { buildStartArgs, pushProtokoll, tenBitPossible } from './settings.svelte';
 import { resolveSlotLabel, resolveStreamLabel } from './label';
 import { streamSettings } from './settingsState.svelte';
@@ -61,7 +61,7 @@ export async function streamStarten(
     try {
       // Den lesbaren Namen (etwa „Monitor 1", „Chrome") einmal beim Start
       // auflösen, damit die Auswahl der Zuschauer den Stream benennen kann, ohne
-      // die GSR-Kataloge zu haben.
+      // die Sidecar-Kataloge zu haben.
       //
       // **Beim Standplatz-Gerät aus der WIRKLICH aufgenommenen Quelle**, nicht
       // aus der Slot-Einstellung des Besitzers: der Platz wird beim Wecken frei
@@ -124,7 +124,7 @@ export async function streamStarten(
       standplatz,
       p2p,
     );
-    const r = await gsr.start(args, slot);
+    const r = await sidecar.start(args, slot);
     if (r && !r.ok) return { ok: false, stufe: 'start', fehler: r.error };
     // Für den Auto-Neustart nach einer Auflösungsänderung merken, was der
     // Neustart sonst nirgends erführe: den Kanal — und beim Standplatz-Gerät

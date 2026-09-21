@@ -58,7 +58,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { isMobile } from '$lib/platform/runtime';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
-import { gsr } from '$lib/stream/gsr';
+import { sidecar } from '$lib/stream/sidecar';
 import { runningStreamSlots } from '$lib/stream/state.svelte';
 
 export type { ScreenShareTrack, CameraTrack };
@@ -612,7 +612,7 @@ class VoiceRoom {
     // No-op im Browser (keine Sidecar-Bridge) und wenn nichts läuft. ALLE
     // laufenden Slots stoppen — jeder zusätzliche Stream hängt am selben Channel.
     for (const slot of runningStreamSlots()) {
-      void gsr.stop(slot).catch(() => undefined);
+      void sidecar.stop(slot).catch(() => undefined);
     }
     if (opts.reason === 'user') {
       // Explizites Verlassen (Auflegen / Channel-Wechsel) → kein Auto-Rejoin

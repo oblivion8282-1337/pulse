@@ -18,7 +18,7 @@
  * Spiegelung ab, zeigt die UI eine andere Größe an als gesendet wird; bei
  * Änderungen an einer der beiden Seiten also die andere mitziehen.
  */
-import type { GsrMonitor, GsrWindow } from './gsr';
+import type { SidecarMonitor, SidecarWindow } from './sidecar';
 import { MONITOR_CAPTURE_PREFIX, WINDOW_CAPTURE_PREFIX } from './settingsCatalog';
 
 /** Pixel-Box je Stufe — muss zu `ops/start.rs::parse_overrides` und
@@ -59,7 +59,7 @@ export function fitWithinBox(
  */
 export function sourceSize(
   captureSource: string | undefined | null,
-  catalogs: { monitors: readonly GsrMonitor[]; windows: readonly GsrWindow[] },
+  catalogs: { monitors: readonly SidecarMonitor[]; windows: readonly SidecarWindow[] },
 ): SourceSize | null {
   const src = (captureSource ?? '').trim();
   if (!src || src === 'portal') return null;

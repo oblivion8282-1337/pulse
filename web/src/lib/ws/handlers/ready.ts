@@ -312,7 +312,7 @@ export function register(
     // liest `stream.fernsteuerbar`, und das steht nach dem Start eine Weile auf
     // seiner Vorgabe `false` — nicht weil der Rechner nichts kann, sondern weil
     // noch niemand gefragt hat. Die erste Abfrage muss dafür den Sidecar
-    // starten (lazy beim ersten `gsr:call`), die WebSocket-Verbindung braucht
+    // starten (lazy beim ersten `sidecar:call`), die WebSocket-Verbindung braucht
     // keinen Prozessstart und ist deshalb regelmässig früher da. Hier stand die
     // Prüfung bis zum 2026-08-26 unmittelbar, gewann das Rennen fast immer —
     // und da es kein Nachmelden gibt, blieb das Gerät die ganze Sitzung lang

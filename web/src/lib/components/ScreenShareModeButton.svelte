@@ -1,7 +1,7 @@
 <!--
   ScreenShareModeButton — kombinierter Split-Button für Screensharing.
 
-  Wenn HQ verfügbar (Electron + Linux/Windows/macOS + gsrAvailable + STREAM-Permission):
+  Wenn HQ verfügbar (Electron + Linux/Windows/macOS + sidecarAvailable + STREAM-Permission):
     [Aktion/Stop | ▾ Modus  bzw. + Weiterer Stream]
     - linke Hälfte: kein Stream → Start-Dialog; genau ein Stream → Stop; mehrere
       Streams → Dropdown zum Auswählen, welcher beendet wird.
@@ -51,7 +51,7 @@
   });
 
   let hqAvailable = $derived(
-    isElectron() && (isLinux() || isWindows() || isMac()) && stream.gsrAvailable && canStream
+    isElectron() && (isLinux() || isWindows() || isMac()) && stream.sidecarAvailable && canStream
   );
 
   // Modus aus localStorage lesen; default 'hq' wenn verfügbar, sonst 'normal'

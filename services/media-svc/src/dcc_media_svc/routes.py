@@ -168,7 +168,7 @@ class StreamTokenIn(BaseModel):
     # **Kann der Sidecar dieses Streamers Eingaben einspielen?** Reist genau wie
     # ``ten_bit`` mit bis zum Zuschauer — dort entscheidet sich, ob der Knopf
     # „Fernsteuerung anfragen" ueberhaupt erscheint. Der Wert kommt aus der
-    # Fähigkeitsmeldung des Sidecars (``health.gsr.remote_input``), nicht aus
+    # Fähigkeitsmeldung des Sidecars (``health.sidecar.remote_input``), nicht aus
     # dem Betriebssystem des Streamers: massgeblich ist, was das Programm kann,
     # das die Frames am Ende einspielen muesste. Fehlt das Feld (Linux-Sidecar,
     # aeltere Clients), gilt ``False`` — fail-closed.

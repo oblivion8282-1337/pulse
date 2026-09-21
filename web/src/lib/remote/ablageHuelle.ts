@@ -3,7 +3,7 @@
  *
  * **Zwei Wege, eine Tür.** Hinunter an Player oder Sidecar geht sowohl ein
  * Rahmen der Gegenseite (`_signal`) als auch ein interner Anstoss des eigenen
- * Renderers (`neuBitte`, `stop`) — beides über `gsr:ablage`. Der Leitungsweg
+ * Renderers (`neuBitte`, `stop`) — beides über `sidecar:ablage`. Der Leitungsweg
  * reicht dabei die **rohe** Nutzlast der Gegenstelle durch: das Format lebt an
  * genau einer Stelle im Baum (`streaming/pulse-ablage`), und eine zweite
  * Prüfung hier liefe auseinander.

@@ -142,7 +142,7 @@
     // (Globales Desktop-PTT bewusst nicht vorhanden — es braeuchte einen nativen
     // Key-Listener für Hold-to-Talk, Aufwand/Nutzen passt nicht. Das In-Fenster-
     // PTT in VoiceChannelView, Taste aus settings.voice.pttKey, ist der aktive Pfad.)
-    // Wire the GSR-sidecar event channel into the reactive stream-state store.
+    // Wire the sidecar event channel into the reactive stream-state store.
     // No-op outside Electron; safe to call eagerly because the sidecar itself is
     // still lazy-spawned (the first invoke is what brings Python up).
     let disposeStream: (() => void) | undefined;

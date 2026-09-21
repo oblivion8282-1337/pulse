@@ -1,14 +1,14 @@
 /**
- * Typed bridge to the GSR sidecar.
+ * Typed bridge to the desktop sidecar.
  *
- * Since E1b the sidecar is a Python child process owned by the Electron main
+ * Since E1b the sidecar is a child process owned by the Electron main
  * process (`desktop/electron/sidecar.ts`); the renderer talks to it through the
- * `window.pulse.gsr.*` API the preload exposes (each method is an
- * `ipcRenderer.invoke('gsr:call', op, params)` under the hood, events arrive on
- * `gsr:event`). Before E1b this wrapped the Tauri `gsr_*` commands +
+ * `window.pulse.sidecar.*` API the preload exposes (each method is an
+ * `ipcRenderer.invoke('sidecar:call', op, params)` under the hood, events arrive on
+ * `sidecar:event`). Before E1b this wrapped the Tauri `gsr_*` commands +
  * `gsr://event` — the exported API here is unchanged; only the transport moved.
  *
- * In a plain browser (`!gsr.available()`) every method returns `null`/`false`
+ * In a plain browser (`!sidecar.available()`) every method returns `null`/`false`
  * and never throws — the streaming UI is hidden in that case anyway, but it's
  * useful that the module is import-safe everywhere.
  *
@@ -22,10 +22,10 @@ import { isElectron } from '$lib/platform/runtime';
 
 // ── Response types ──────────────────────────────────────────────────────────
 
-/** `{"ok":true, gsr: {...}}` from `gsr_health`. */
-export interface GsrHealth {
+/** `{"ok":true, sidecar: {...}}` from the `health` op. */
+export interface SidecarHealth {
   ok: boolean;
-  gsr: {
+  sidecar: {
     available: boolean;
     source: string;
     is_flatpak: boolean;
@@ -82,7 +82,7 @@ export interface GsrHealth {
   };
 }
 
-export interface GsrGpuInfo {
+export interface SidecarGpuInfo {
   ok: boolean;
   vendor?: string;
   card_path?: string;
@@ -91,7 +91,7 @@ export interface GsrGpuInfo {
   error?: string;
 }
 
-export interface GsrListApplicationAudio {
+export interface SidecarListApplicationAudio {
   ok: boolean;
   applications?: string[];
   error?: string;
@@ -100,7 +100,7 @@ export interface GsrListApplicationAudio {
 /** One display monitor, as reported by the Windows sidecar's `list_monitors`.
  *  `index` is 1-based and round-trips as the `"Monitor: <index>"` capture
  *  source the sidecar resolves via `Monitor::from_index`. */
-export interface GsrMonitor {
+export interface SidecarMonitor {
   index: number;
   name: string;
   primary: boolean;
@@ -117,13 +117,13 @@ export interface GsrMonitor {
   x?: number;
   y?: number;
 }
-export interface GsrListMonitors {
+export interface SidecarListMonitors {
   ok: boolean;
-  monitors?: GsrMonitor[];
+  monitors?: SidecarMonitor[];
   error?: string;
 }
 
-export interface GsrWindow {
+export interface SidecarWindow {
   /** Opaque per-window id — macOS CoreGraphics window id, Windows HWND. Both
    *  round-trip as the `capture: "window:<id>"` token (resolved by the
    *  platform sidecar). */
@@ -138,20 +138,20 @@ export interface GsrWindow {
   width: number;
   height: number;
 }
-export interface GsrListWindows {
+export interface SidecarListWindows {
   ok: boolean;
-  windows?: GsrWindow[];
+  windows?: SidecarWindow[];
   error?: string;
 }
 
-export interface GsrBuildArgv {
+export interface SidecarBuildArgv {
   ok: boolean;
   binary?: string;
   argv?: string[];
   error?: string;
 }
 
-export interface GsrStartArgs {
+export interface SidecarStartArgs {
   profile: string;
   /** Pulse-channel pathway: server profile built via `ServerProfile.from_channel`.
    *  This is the only pathway — Pulse always streams into a voice channel.
@@ -193,12 +193,12 @@ export interface GsrStartArgs {
   av_offset_ms?: number;
 }
 
-export interface GsrStartResult {
+export interface SidecarStartResult {
   ok: boolean;
   argv?: string[];
   error?: string;
 }
-export interface GsrStopResult {
+export interface SidecarStopResult {
   ok: boolean;
   running?: boolean;
   note?: string;
@@ -207,7 +207,7 @@ export interface GsrStopResult {
 
 // ── Event types (forwarded from the sidecar) ────────────────────────────────
 
-export type GsrEventBody =
+export type SidecarEventBody =
   | { ev: 'state'; state: 'idle' | 'starting' | 'live' | 'error' | 'stopped'; running: boolean; uptime_s: number }
   | { ev: 'fps'; fps: number; uptime_s: number }
   | { ev: 'log'; line: string }
@@ -248,62 +248,62 @@ export type GsrEventBody =
  *  it came from (0 = primary stream, 1 = a second concurrent stream). `slot` is
  *  absent only when an older shell that predates multi-stream sends the event,
  *  in which case consumers treat it as slot 0. */
-export type GsrEvent = GsrEventBody & { slot?: number };
+export type SidecarEvent = SidecarEventBody & { slot?: number };
 
 // ── Bridge helpers ──────────────────────────────────────────────────────────
 
 type Unlisten = () => void;
 
-/** The `window.pulse.gsr` bridge, or `null` when not running inside Electron. */
-function bridge(): NonNullable<Window['pulse']>['gsr'] | null {
+/** The `window.pulse.sidecar` bridge, or `null` when not running inside Electron. */
+function bridge(): NonNullable<Window['pulse']>['sidecar'] | null {
   if (typeof window === 'undefined') return null;
-  return window.pulse?.gsr ?? null;
+  return window.pulse?.sidecar ?? null;
 }
 
-export const gsr = {
+export const sidecar = {
   /** True iff we're inside the Electron shell and the sidecar bridge is present.
    *  (Cheap — does not actually call the sidecar; use `health()` for that.) */
   available(): boolean {
     return isElectron() && bridge() !== null;
   },
 
-  async health(): Promise<GsrHealth | null> {
+  async health(): Promise<SidecarHealth | null> {
     const b = bridge();
-    return b ? ((await b.health()) as GsrHealth) : null;
+    return b ? ((await b.health()) as SidecarHealth) : null;
   },
-  async gpuInfo(): Promise<GsrGpuInfo | null> {
+  async gpuInfo(): Promise<SidecarGpuInfo | null> {
     const b = bridge();
-    return b ? ((await b.gpuInfo()) as GsrGpuInfo) : null;
+    return b ? ((await b.gpuInfo()) as SidecarGpuInfo) : null;
   },
   /** Enumerate display monitors. Windows-only in practice — on Linux the
    *  portal dialog handles source selection, so callers gate on `isWindows()`. */
-  async listMonitors(): Promise<GsrListMonitors | null> {
+  async listMonitors(): Promise<SidecarListMonitors | null> {
     const b = bridge();
-    return b ? ((await b.listMonitors()) as GsrListMonitors) : null;
+    return b ? ((await b.listMonitors()) as SidecarListMonitors) : null;
   },
   /** Enumerate capturable windows (macOS source picker). */
-  async listWindows(): Promise<GsrListWindows | null> {
+  async listWindows(): Promise<SidecarListWindows | null> {
     const b = bridge();
-    return b ? ((await b.listWindows()) as GsrListWindows) : null;
+    return b ? ((await b.listWindows()) as SidecarListWindows) : null;
   },
-  async listApplicationAudio(): Promise<GsrListApplicationAudio | null> {
+  async listApplicationAudio(): Promise<SidecarListApplicationAudio | null> {
     const b = bridge();
-    return b ? ((await b.listApplicationAudio()) as GsrListApplicationAudio) : null;
+    return b ? ((await b.listApplicationAudio()) as SidecarListApplicationAudio) : null;
   },
-  async buildArgv(args: GsrStartArgs): Promise<GsrBuildArgv | null> {
+  async buildArgv(args: SidecarStartArgs): Promise<SidecarBuildArgv | null> {
     const b = bridge();
-    return b ? ((await b.buildArgv(args)) as GsrBuildArgv) : null;
+    return b ? ((await b.buildArgv(args)) as SidecarBuildArgv) : null;
   },
   /** Start a stream in `slot` (0 = primary, 1 = a second concurrent stream). */
-  async start(args: GsrStartArgs, slot = 0): Promise<GsrStartResult | null> {
+  async start(args: SidecarStartArgs, slot = 0): Promise<SidecarStartResult | null> {
     const b = bridge();
-    return b ? ((await b.start(args, slot)) as GsrStartResult) : null;
+    return b ? ((await b.start(args, slot)) as SidecarStartResult) : null;
   },
   /** Stop the stream in `slot` (default 0). `grund` ist reine Diagnose und
    *  landet in der Protokollzeile des Befehls (s. `preload.ts`). */
-  async stop(slot = 0, grund?: string): Promise<GsrStopResult | null> {
+  async stop(slot = 0, grund?: string): Promise<SidecarStopResult | null> {
     const b = bridge();
-    return b ? ((await b.stop(slot, grund)) as GsrStopResult) : null;
+    return b ? ((await b.stop(slot, grund)) as SidecarStopResult) : null;
   },
 
   /** **Direktverbindung (P2P):** den Offer-SDP des Steuernden in den Sidecar
@@ -320,16 +320,16 @@ export const gsr = {
   },
 
   /**
-   * Subscribe to sidecar events (the `gsr:event` IPC channel). Returns a
+   * Subscribe to sidecar events (the `sidecar:event` IPC channel). Returns a
    * disposer. No-op (returns immediately) in a plain browser.
    *
    * Stays `async` for signature compatibility with the previous Tauri-based
    * implementation (callers `await` it) — the underlying preload `onEvent` is
    * synchronous and returns the unsubscribe function directly.
    */
-  async onEvent(cb: (ev: GsrEvent) => void): Promise<Unlisten> {
+  async onEvent(cb: (ev: SidecarEvent) => void): Promise<Unlisten> {
     const b = bridge();
     if (!b) return () => {};
-    return b.onEvent((ev) => cb(ev as GsrEvent));
+    return b.onEvent((ev) => cb(ev as SidecarEvent));
   },
 };

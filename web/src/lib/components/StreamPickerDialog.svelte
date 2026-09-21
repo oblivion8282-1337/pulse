@@ -5,7 +5,7 @@
   open directly) — see lib/stream/hqTile.ts::chooseHqForUser. Mirrors
   WatchPartyPickerDialog 1:1, plus an "Alle ansehen" entry.
 
-  The viewer doesn't know each stream's capture-source type (no GSR catalogs on
+  The viewer doesn't know each stream's capture-source type (no sidecar catalogs on
   the receiving side), so a fixed monitor icon is used; the descriptive label
   (from stream_state, e.g. "Monitor 1" / "Chrome") carries the distinction.
 -->

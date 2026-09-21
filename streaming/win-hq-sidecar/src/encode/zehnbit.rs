@@ -79,12 +79,12 @@ pub fn pruefen(disable_zc: bool, pfad: EncodePath) -> Result<()> {
 }
 
 /// Kann diese Maschine 10 bit in AV1 senden — über den Weg, der wirklich
-/// läuft? Antwortet `health.gsr.ten_bit`.
+/// läuft? Antwortet `health.sidecar.ten_bit`.
 pub fn verfuegbar(vendor: &str, codecs: &[String]) -> bool {
     verfuegbar_fuer(vendor, codecs, VideoCodec::Av1)
 }
 
-/// Dasselbe für HEVC (Main 10) — Antwortet `health.gsr.hevc_ten_bit`.
+/// Dasselbe für HEVC (Main 10) — Antwortet `health.sidecar.hevc_ten_bit`.
 ///
 /// Getrennt geführt seit dem 2026-09-13, weil die beiden Fragen
 /// auseinanderfallen: Main-10-Encode gibt es ab ~2015 (NVENC GM206/Pascal,
@@ -179,7 +179,7 @@ mod tests {
     }
 
     /// HEVC Main 10 seit dem 2026-09-13 dieselbe Frage mit eigenem Antwort-
-    /// feld (`health.gsr.hevc_ten_bit`): auf NVIDIA/AMD (D3D11-Weg) ja, auf
+    /// feld (`health.sidecar.hevc_ten_bit`): auf NVIDIA/AMD (D3D11-Weg) ja, auf
     /// Intel (CPU-Pipeline) nein, für H.264 nie — die Fragen fallen KEINE
     /// mehr aufeinander zurück, sonst würde eine Karte ohne AV1-Encode eine
     /// `ten_bit`-Zusage über HEVC mitbekommen, die die UI am falschen Codec
