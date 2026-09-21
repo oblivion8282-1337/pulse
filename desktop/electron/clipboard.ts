@@ -51,10 +51,25 @@ export function wireClipboard(): void {
       // actual read at MAX_READ_BYTES and reject anything that exceeds it.
       if (!info.isFile() || info.size > MAX_READ_BYTES) return null;
       handle = await open(path, 'r');
-      // Read up to one byte past the cap so we can detect an over-limit file.
-      const cap = Buffer.allocUnsafe(MAX_READ_BYTES + 1);
+      // Entscheidung 6.6: erst stat-size-begrenzt lesen, nur an der Cap-
+      // Grenze zusätzlich ein Byte — vorher wurde JEDE Datei (auch ein
+      // 5-KB-Bild) mit einem 100-MiB-Puffer gelesen. Special files (size 0,
+      // beliebige Bytes) fallen in den gepufferten Pfad und prüfen dort.
+      const sicherheitsPlus = 1;
+      const chunkGroesse = Math.min(info.size, MAX_READ_BYTES) + sicherheitsPlus;
+      const cap = Buffer.allocUnsafe(chunkGroesse);
       const { bytesRead } = await handle.read(cap, 0, cap.length, 0);
       if (bytesRead > MAX_READ_BYTES) return null;
+      // Nachlesen: stat-size-0-Sonderdateien können mehr liefern als ein
+      // Chunk — weiterlesen, bis MAX_READ_BYTES erreicht/überschritten.
+      if (bytesRead === chunkGroesse && info.size === 0) {
+        const gross = Buffer.allocUnsafe(MAX_READ_BYTES + 1);
+        cap.copy(gross, 0);
+        const { bytesRead: weitere } = await handle.read(gross, bytesRead, gross.length - bytesRead, bytesRead);
+        const gesamt = bytesRead + weitere;
+        if (gesamt > MAX_READ_BYTES) return null;
+        return new Uint8Array(gross.subarray(0, gesamt));
+      }
       return new Uint8Array(cap.subarray(0, bytesRead));
     } catch {
       return null;

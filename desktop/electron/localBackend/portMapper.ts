@@ -87,10 +87,52 @@ function udpRequest(gateway: string, port: number, packet: Buffer, timeoutMs: nu
   });
 }
 
+// Entscheidung 6.1 (2026-09-21): PCP/NAT-PMP-Mappings haben eine Lifetime
+// (Vorgabe 1 h) und verfielen bislang still — nach einer Stunde lief
+// direktes Medien-Routing nur noch über ICE-Pfadauswahl. Ein Intervall
+// erneuert die MAPPings bei ~½ Lifetime, solange das Hosting läuft.
+const RENEW_FAKTOR = 0.5;
+let renewalTimer: ReturnType<typeof setTimeout> | null = null;
+let letzteMappingEingabe: MapMediaPortsInput | null = null;
+
+/** Stoppt die Erneuerung (App-Shutdown / Hosting-Ende). */
+export function stopMappingRenewal(): void {
+  if (renewalTimer !== null) {
+    clearTimeout(renewalTimer);
+    renewalTimer = null;
+  }
+  letzteMappingEingabe = null;
+}
+
+/**
+ * Erneuert die MAPPings periodisch. Fehlversuche sind best-effort —
+ * ein Ausfall des Routers wird beim nächsten Intervall erneut versucht;
+ * schlägt eine Runde KOMPLETT fehl, läuft der nächste trotzdem weiter
+ * (kein Error-Splitting, kein Callback — die Erreichbarkeits-Diagnose
+ * meldet den Zustand eh bei jedem Start).
+ */
+function starteRenewal(input: MapMediaPortsInput, lifetimeMs: number): void {
+  stopMappingRenewal();
+  letzteMappingEingabe = input;
+  const erneuere = async (): Promise<void> => {
+    if (letzteMappingEingabe === null) return;
+    try {
+      await mapMediaPorts(letzteMappingEingabe);
+    } catch {
+      /* best-effort — nächstes Intervall versucht wieder */
+    }
+    renewalTimer = setTimeout(() => { void erneuere(); }, lifetimeMs);
+  };
+  renewalTimer = setTimeout(() => { void erneuere(); }, lifetimeMs);
+  // Der Timer soll die App NICHT am Beenden hindern (Tests hängen sonst
+  // am offenen Event-Loop-Handle); feuern tut er trotzdem, solange läuft.
+  renewalTimer.unref?.();
+}
+
 export async function mapMediaPorts(input: MapMediaPortsInput): Promise<MapMediaPortsResult> {
   const unsupported: MapMediaPortsResult = { verdict: 'unsupported', wanIp: null, openPorts: [], failedPorts: [] };
 
-  const gateway = input.gateway ?? discoverGateway();
+  const gateway = input.gateway ?? (await discoverGateway());
   if (!gateway) return unsupported;
 
   const pmPort = input.natpmpPort ?? NATPMP_PORT;
@@ -160,6 +202,16 @@ export async function mapMediaPorts(input: MapMediaPortsInput): Promise<MapMedia
   const verdict: MapVerdict = failedPorts.length === 0 && openPorts.length === allPorts.length
     ? 'mapped'
     : 'partial';
+
+  // Erneuerung nur anwerfen, wenn überhaupt gemappt wurde; bei 'partial'
+  // werden die offenen Ports mit erneuert, die fehlgeschlagenen versuchen
+  // es erneut (ein Router, der einen Port ablehnte, lehnt ihn meist
+  // weiter — schadet nicht).
+  if (verdict === 'mapped' || verdict === 'partial') {
+    starteRenewal(input, Math.max(30_000, lifetime * 1_000 * RENEW_FAKTOR));
+  } else {
+    stopMappingRenewal();
+  }
 
   return { verdict, wanIp, openPorts, failedPorts };
 }

@@ -655,7 +655,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:status', () => hl.getStatus());
   // server.html ruft das bei jedem UI-Refresh — Zustands-Abgleich ist ein
   // No-Op außerhalb 'idle', also billig genug für jeden Aufruf.
-  ipcMain.handle('host:refresh', async () => {
+  ipcMain.handle('host:refresh', async (e) => {
+    // Entscheidung 6.6: dasselbe Gate wie start/stop — der Aufruf führt
+    // einen podman/docker-inspect aus; eine fern geladene howispulse.com-
+    // Seite soll ihn nicht in Dauerschleife treten können.
+    if (!localSenderOnly(e)) return hl.getStatus();
     await syncLifecycleFromContainer();
     return hl.getStatus();
   });
