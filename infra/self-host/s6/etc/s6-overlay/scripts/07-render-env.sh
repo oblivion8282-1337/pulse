@@ -16,7 +16,6 @@ chown pulse:pulse /etc/pulse
 
 PG_PASS=$(cat "${KEYS}/postgres.password")
 INTERNAL_SECRET=$(cat "${KEYS}/internal_service.token")
-CERT_CHALLENGE=$(cat "${KEYS}/cert_challenge.secret")
 LIVEKIT_KEY=$(cat "${KEYS}/livekit.key")
 LIVEKIT_SECRET=$(cat "${KEYS}/livekit.secret")
 MINIO_USER=$(cat "${KEYS}/minio.user")
@@ -102,15 +101,6 @@ export MEDIA_SVC_URL='http://127.0.0.1:8004'
 export AUTH_SVC_URL='http://127.0.0.1:8001'
 export AUTH_JWKS_URL='http://127.0.0.1:8001/.well-known/jwks.json'
 
-# Cert-login challenge HMAC
-export CHAT_GATEWAY_CHALLENGE_SECRET='${CERT_CHALLENGE}'
-
-# Cert-JWT audience check (credential_validator): Certs tragen die Audience
-# der CLOUD ("dcc" — siehe infra/prod/.env.example JWT_AUDIENCE), NICHT das
-# lokale JWT_AUDIENCE=pulse-self-host oben. Ohne diese Var bleibt der
-# aud-Check auf Self-Hosts aus (Opt-in-Default).
-export PULSE_JWT_AUDIENCE=dcc
-
 # LiveKit (voice-signaling mints tokens with these; livekit-server validates)
 export LIVEKIT_API_KEY='${LIVEKIT_KEY}'
 export LIVEKIT_API_SECRET='${LIVEKIT_SECRET}'
@@ -144,7 +134,8 @@ export WEBAUTHN_ORIGIN='https://${PULSE_HOSTNAME}'
 # Snowflake worker IDs (single-container — fixed)
 export SNOWFLAKE_WORKER_ID_AUTH=1
 export SNOWFLAKE_WORKER_ID_CHAT=2
-export SNOWFLAKE_WORKER_ID_VOICE=3
+# (Entscheidung 2c, 2026-09-21: SNOWFLAKE_WORKER_ID_VOICE entfernt —
+# voice-signaling prägt keine Snowflakes, der Knob war ein No-op.)
 
 # Self-host identity.
 export PULSE_HOSTNAME='${PULSE_HOSTNAME}'
