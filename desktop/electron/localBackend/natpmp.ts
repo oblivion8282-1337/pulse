@@ -35,8 +35,24 @@ export function parsePcpMapResponse(
   if (buf.length < 60 || buf.readUInt8(0) !== 2) return null;
   const resultCode = buf.readUInt8(3);
   const lifetime = buf.readUInt32BE(4);
-  const externalPort = buf.readUInt16BE(30);
-  const externalIp = `${buf.readUInt8(44)}.${buf.readUInt8(45)}.${buf.readUInt8(46)}.${buf.readUInt8(47)}`;
+  // Bughunt Runde 44: hier stand 30 — das liegt im MAPPING NONCE (24..35,
+  // Zufallsbytes, die der Router unverändert zurückschickt). RFC 6887 §7.2:
+  // Antwort-Header 24 Oktette, dann Nonce 24..35, protocol 36, reserved
+  // 37..39, internal port 40..41, ASSIGNED EXTERNAL PORT 42..43, external
+  // IP 44..59. Der Vergleich externalPort === port traf deshalb praktisch
+  // nie zu — jede echte PCP-Verkabelung lief auf "partial"/"needs-your-
+  // help", obwohl der Router die Mappings angelegt hatte (die eigenen
+  // Test-Fixtures bauten dieselbe falsche Lay-out und hielten grün).
+  const externalPort = buf.readUInt16BE(42);
+  // Die 128-Bit-Adresse @44..59 ist RFC-konform IPv4-mapped (::ffff:a.b.c.d
+  // → a.b.c.d @56..59). Zweitbug derselben Stelle: vorher wurde 44..47
+  // gelesen — die vier NULL-Bytes des Mapped-Präfix, d. h. die WAN-IP war
+  // immer 0.0.0.0. Lenient-Fallback 44..47 für Router, die rohes IPv4
+  // schicken.
+  const externalIp =
+    buf.readUInt16BE(54) === 0xffff
+      ? `${buf.readUInt8(56)}.${buf.readUInt8(57)}.${buf.readUInt8(58)}.${buf.readUInt8(59)}`
+      : `${buf.readUInt8(44)}.${buf.readUInt8(45)}.${buf.readUInt8(46)}.${buf.readUInt8(47)}`;
   return { resultCode, lifetime, externalPort, externalIp };
 }
 

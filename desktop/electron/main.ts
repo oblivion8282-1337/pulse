@@ -1759,6 +1759,18 @@ app.on('before-quit', (event) => {
     // eigenen before-quit-Listener — sonst koennte die Bound-Race oben schon
     // abgelaufen sein, bevor der Player-Prozess sein SIGTERM verarbeitet hat.
     Promise.all([...allSidecars().map((s) => s.shutdown()), playerManager.shutdown()]),
-    new Promise<void>((r) => setTimeout(r, 3_000)),
+    // Bughunt Runde 44: 3 s Backstop — kuerzer als die Shutdown-Leiter der
+    // Kinder (Sidecar 4.5 s bis SIGKILL, Player aehnlich). Hielt ein Kind
+    // SIGTERM nicht stand, gewann der Backstop, `app.quit()` lief fertig,
+    // und das Kind ueberlebte als Waise (Windows: stirbt nicht mit dem
+    // Elternteil). Jetzt: SIGKILL an alle lebenden Prozesse, BEVOR fertig
+    // gemeldet wird.
+    new Promise<void>((r) =>
+      setTimeout(() => {
+        for (const s of allSidecars()) s.killHard();
+        playerManager.killHard();
+        r();
+      }, 3_000)
+    ),
   ]).then(done, done);
 });

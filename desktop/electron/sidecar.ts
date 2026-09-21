@@ -444,6 +444,15 @@ class SidecarManager {
    *  short grace. Stdin zuerst zu schliessen ist die schonendste Stufe: der
    *  Sidecar beendet seine Leseschleife von selbst, statt mitten im Lesen ein
    *  Signal zu bekommen. */
+  /** Bughunt Runde 44: SIGKILL ohne Leiter — für den Quit-Backstop in
+   *  main.ts, der kürzer ist als die normale Shutdown-Leiter. Kein
+   *  Aufräumen, kein Warten: der Prozess soll weg, bevor die App endet. */
+  killHard(): void {
+    const child = this.child;
+    if (!child) return;
+    try { child.kill('SIGKILL'); } catch { /* schon tot */ }
+  }
+
   async shutdown(): Promise<void> {
     if (this._shuttingDown) return this._shuttingDown;
 
