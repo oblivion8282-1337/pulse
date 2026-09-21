@@ -436,8 +436,6 @@ contextBridge.exposeInMainWorld('pulse', {
     },
     /** Heruntergeladenes Update installieren + sofort neu starten (Banner-Button). */
     restartNow: (): Promise<void> => ipcRenderer.invoke('updates:restart'),
-    /** Manueller Re-Check (optional — der Start-Check läuft automatisch in main). */
-    check: (): Promise<void> => ipcRenderer.invoke('updates:check'),
   },
 
   // OS-global keyboard shortcuts (background toggles). The renderer pushes the
@@ -462,14 +460,10 @@ contextBridge.exposeInMainWorld('pulse', {
     keepAwake: (on: boolean): Promise<boolean> => ipcRenderer.invoke('power:keepAwake', on),
   },
 
-  // Clipboard + dropped-file byte access. The sandboxed remote renderer can't
-  // read the bytes of a pasted/dropped OS file (size 0 → upload 422); these
-  // route through native main-process reads (`clipboard.ts`).
-  clipboard: {
-    /** Current clipboard image as PNG bytes, or null if the clipboard holds
-     *  no image (so the caller can fall through to a normal text paste). */
-    readImage: (): Promise<Uint8Array | null> => ipcRenderer.invoke('clipboard:readImage'),
-  },
+  // Dropped-file byte access. The sandboxed remote renderer can't read the
+  // bytes of a pasted/dropped OS file (size 0 → upload 422); main reads them
+  // natively (`clipboard.ts` — dessen readImage-Brücke ist mit der Entfernung
+  // des Main-Handlers entfallen).
   files: {
     /** Read the bytes of a genuinely dropped File. The OS path is resolved here
      *  from the File via webUtils (a JS-constructed File yields '' → null), then

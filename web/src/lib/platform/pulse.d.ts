@@ -202,8 +202,6 @@ export interface PulseUpdatesApi {
   onReady(cb: (data: { version: string; autoRestart: boolean }) => void): () => void;
   /** Install the downloaded update and restart now (banner button). */
   restartNow(): Promise<void>;
-  /** Manually re-trigger an update check (the start-up check runs automatically). */
-  check(): Promise<void>;
 }
 
 /** Display-sleep inhibitor bridge. The renderer (`$lib/platform/wakeLock`)
@@ -219,7 +217,6 @@ export interface PulsePowerApi {
  *  clipboard image as PNG bytes via the main process. Null when the clipboard
  *  holds no image. Optional — only present under a current Electron shell. */
 export interface PulseClipboardApi {
-  readImage(): Promise<Uint8Array | null>;
 }
 
 /** Native dropped-file byte access (drag & drop). Resolves a genuinely dropped

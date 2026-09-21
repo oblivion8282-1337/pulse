@@ -49,7 +49,6 @@ function alsOverwriteSchnappschuss(ow: Overwrite): OverwriteSnapshot {
 }
 
 /** Wire-Überschreibungen (Strings) auf BigInt bringen. */
-
 /** Dieselbe Umwandlung mit Anzeigenamen je Überschreibung. */
 export function benannteOverwrites(
   roh: readonly Overwrite[],

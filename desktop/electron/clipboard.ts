@@ -1,12 +1,11 @@
 /**
- * Pulse desktop shell — native clipboard + dropped-file byte access.
+ * Pulse desktop shell — dropped-file byte access.
  *
  * The desktop app loads the *remote* web app in a sandboxed renderer, where the
  * bytes of a pasted or OS-dropped file come through empty (size 0 → upload 422).
  * This module gives the renderer two native escape hatches so paste + drag-drop
  * of images/files work in the app the same way they do in a browser:
  *
- *   clipboard:readImage  — current clipboard image as PNG bytes (or null)
  *   file:readPath        — the bytes of a file at an absolute path
  *
  * Security: `file:readPath` is an arbitrary-file read, but the renderer *page*
@@ -17,7 +16,7 @@
  * the size as a backstop against a huge accidental read.
  */
 
-import { ipcMain, clipboard } from 'electron';
+import {ipcMain} from 'electron';
 import { open, stat } from 'node:fs/promises';
 
 // Hard ceiling so a single read can't blow up memory. The server enforces the
