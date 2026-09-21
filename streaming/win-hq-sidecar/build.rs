@@ -2,12 +2,13 @@
 //! damit `cargo run` ohne PATH-Augmentation funktioniert.
 //!
 //! Windows-DLL-Suche schaut zuerst neben der `.exe` — wir legen sie also dort
-//! ab. Quelle: `ffmpeg-dist/n8.1-lgpl-shared/bin/*.dll` (selbst gebaut, s.
-//! `scripts/build-ffmpeg-patched.ps1`).
+//! ab. Quelle: `ffmpeg-dist/n8.1-lgpl-shared/bin/*.dll` (per `fetch-ffmpeg.ps1`
+//! gezogen; das frühere `build-ffmpeg-patched.ps1` mit dem Intra-Refresh-Patch
+//! wurde 2026-08-21 entfernt).
 //!
 //! **Das `cargo:rerun-if-changed` je Quell-DLL unten reicht als Auslöser nicht
 //! verlässlich**, wenn das ganze Zielverzeichnis ausgetauscht wird — deshalb
-//! stupst `build-ffmpeg-patched.ps1` diese Datei zusätzlich an. Beide
+//! stösst `fetch-ffmpeg.ps1` diese Datei zusätzlich an. Beide
 //! Mechanismen sind Absicht; wer einen davon entfernt, riskiert den Zustand,
 //! der schon einmal eine halbe Stunde gekostet hat: `ffmpeg.exe -h` zeigt das
 //! neue FFmpeg, das Programm läuft mit den alten DLLs daneben.
