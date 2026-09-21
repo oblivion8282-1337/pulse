@@ -2,7 +2,7 @@
 #
 # Local dev stack — one-shot up.
 #
-# Brings up containers (Postgres / Redis / LiveKit / MediaMTX), runs Alembic
+# Brings up containers (Postgres / Redis / Garage / LiveKit), runs Alembic
 # upgrades, starts the 5 uvicorn services with `--reload`, the Vite dev server,
 # and Electron pointed at localhost:5173. Idempotent — safe to re-run.
 #

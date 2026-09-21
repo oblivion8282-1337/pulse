@@ -2,12 +2,11 @@
 #
 #   . (Join-Path $PSScriptRoot 'lib\gemeinsam.ps1')
 #
-# Warum eine eigene Datei: `fetch-ffmpeg.ps1` und `build-ffmpeg-patched.ps1`
-# beantworten dieselbe Frage ("kennt dieses FFmpeg unseren Patch?") und stolpern
-# ueber dieselbe PowerShell-5.1-Eigenart. Zweimal geschrieben liefe beides
-# irgendwann auseinander - und zwar unbemerkt, weil beide Kopien fuer sich
-# plausibel aussehen. Das bash-Gegenstueck ist `scripts/lib/gepatchter-klon.sh`
-# im Repo-Wurzelverzeichnis, aus genau demselben Grund entstanden.
+# Warum eine eigene Datei: `fetch-ffmpeg.ps1` ist heute der einzige Konsument
+# (das 2026-08-21 entfernte `build-ffmpeg-patched.ps1` war der zweite) — die
+# Lib blieb, weil der Patch-Check ueber dieselbe PowerShell-5.1-Eigenart
+# stolpert. Das bash-Gegenstueck ist `scripts/lib/gepatchter-klon.sh` im
+# Repo-Wurzelverzeichnis, aus demselben Grund entstanden.
 #
 # REIN ASCII, ohne Umlaute und Gedankenstriche: Windows PowerShell 5.1 liest ein
 # `.ps1` ohne BOM als ANSI, und aus dem UTF-8-Byte eines Gedankenstrichs wird
