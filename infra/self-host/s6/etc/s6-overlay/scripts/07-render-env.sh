@@ -175,11 +175,8 @@ export GUILD_ICON_UPLOAD_DIR='${DATA}/uploads/guild-icons'
 #  - INTERNAL  = loopback, server-seitige Ops (delete/head/list/storageinfo).
 #  - PUBLIC    = die über Caddy erreichbare Adresse, mit der presigned URLs
 #                signiert werden (Path-Style → https://host/<bucket>/<key>).
-# MINIO_SERVER_URL gibt MinIO denselben Public-Host für die eigene Signatur-
-# Prüfung — sonst lehnt MinIO die vom chat-gateway signierte URL ab. (Bei
-# PULSE_TLS_MODE=behind-proxy terminiert der externe Proxy TLS; der Browser
-# nutzt weiterhin https://${PULSE_HOSTNAME}, daher hier immer https.)
-export MINIO_SERVER_URL='https://${PULSE_HOSTNAME}'
+# MINIO_SERVER_URL entfernt (Ponytail-Audit 2026-09-21): Garage wird
+# ausschliesslich über garage.toml konfiguriert, keine Env-Obergabe.
 export S3_INTERNAL_ENDPOINT='http://127.0.0.1:9000'
 export S3_PUBLIC_ENDPOINT='https://${PULSE_HOSTNAME}'
 export S3_REGION=us-east-1

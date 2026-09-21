@@ -32,6 +32,7 @@ node scripts/cdp/observe.mjs 9222
 | `launch.fish <port> <profile> [url]` | Startet Chromium mit CDP auf `<port>`, eigenem Profil unter `/tmp/pulse-cdp-profile-<profile>/`. Default-URL `http://127.0.0.1:5173/`. |
 | `observe.mjs <port>` | Hängt sich an :`<port>` an, loggt Console-Events, pageerrors, fehlgeschlagene Requests und HTTP-4xx/5xx-Antworten nach `/tmp/pulse-cdp-events-<port>.log`. Mit `tail -f` mitlesen. |
 | `shot.mjs <port> <output> [--full]` | Schreibt einen Screenshot des ersten Pulse-Tabs (:5173) auf `<port>`. `--full` macht `fullPage:true`. |
+| `pw.mjs <port>` | Playwright-Verbindung über CDP (:`<port>`) für ad-hoc-Automatisierung — gemeinsame Vorlage, kein eigener Ablauf. |
 | `drive.mjs <port> <action> [args…]` | Aktive UI-Steuerung. Actions: `navigate <path>`, `click <selector>`, `fill <selector> <value>`, `eval <js>`, `wait-for <selector>`, `login <identifier> <password>`. |
 
 ## Typischer Multi-User-Test

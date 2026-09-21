@@ -100,7 +100,9 @@ services:
     <<: *base
     image: dxflrs/garage:v1.1.0
     container_name: pulsetest_minio
-    command: ["-c", "/etc/garage.toml"]
+    # Runde-42-Nachzieher: das Image hat keinen Entrypoint — ["-c", …]
+    # exec'd "-c" als Programm (Crash-Loop). Fix wie Prod/Root-Compose.
+    command: ["/garage", "-c", "/etc/garage.toml", "server"]
     volumes:
       - ../garage/garage.toml:/etc/garage.toml:ro
       - garagedata:/var/lib/garage
