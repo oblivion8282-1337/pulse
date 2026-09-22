@@ -72,7 +72,10 @@ function loadDotenv(path: string): Record<string, string> {
   }
 }
 
-async function waitFor(url: string, timeoutMs = 15_000): Promise<void> {
+async function waitFor(url: string, timeoutMs = 90_000): Promise<void> {
+  // 90s statt 15s: unter Last (mehrere parallele uv-Resolutions, kalter
+  // Cache) braucht uvicorn laenger, und ein false-negative hier wirft die
+  // ganze Suite weg, bevor ein einziger Test lief.
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
     try {
@@ -294,19 +297,20 @@ function startService(name: string, env: NodeJS.ProcessEnv, port: number, cwd: s
  * Vier dauerhaft rote Tests sind vier Tests, die keine Regression mehr melden
  * koennen — deshalb wird die Voraussetzung jetzt hergestellt statt angenommen.
  *
- * `up -d` ist idempotent und laesst laufende Container in Ruhe. `minio-init`
- * legt den Bucket an und beendet sich (Exit 0) — das ist kein Fehler.
+ * `up -d` ist idempotent und laesst laufende Container in Ruhe. Bucket +
+ * Key anlegen uebernimmt `scripts/dev-garage-init.sh` (das Garage-Image hat
+ * keinen Init-Container — dasselbe Bild wie im Dev-Stack, Bughunt 4.1).
  */
 function ensureInfra() {
   const cwd = resolve(__dirname, '../../..');
   try {
-    execSync(`${COMPOSE} up -d postgres redis minio minio-init`, { cwd, stdio: 'ignore' });
+    execSync(`${COMPOSE} up -d postgres redis garage`, { cwd, stdio: 'ignore' });
   } catch (e) {
     // Laut, nicht still: ohne Infrastruktur scheitert die Suite ohnehin, aber
     // sie soll es HIER sagen und nicht als Testfehlschlag zwanzig Zeilen
     // spaeter.
     throw new Error(
-      `Die Test-Infrastruktur liess sich nicht starten (${COMPOSE} up -d postgres redis minio minio-init). ` +
+      `Die Test-Infrastruktur liess sich nicht starten (${COMPOSE} up -d postgres redis garage). ` +
         `Laeuft der Container-Dienst? Ursprungsfehler: ${e}`
     );
   }
@@ -315,6 +319,13 @@ function ensureInfra() {
 export default async function globalSetup() {
   ensureInfra();
   const dotenv = loadDotenv(resolve(ROOT, '.env'));
+  // Garage-S3-Credentials (GK…-Key) schlagen den (stale) MinIO-Stand aus
+  // .env — dieselbe Reihenfolge wie dev-up.fish für die Dev-Services.
+  const garageCreds = loadDotenv(resolve(ROOT, '.garage-dev-credentials'));
+  if (garageCreds.GARAGE_S3_KEY) {
+    dotenv.S3_ACCESS_KEY = garageCreds.GARAGE_S3_KEY;
+    dotenv.S3_SECRET_KEY = garageCreds.GARAGE_S3_SECRET;
+  }
   const pgUser = dotenv.POSTGRES_USER ?? 'dcc';
   const pgPort = dotenv.POSTGRES_PORT ?? '5434';
   const pgPassword = dotenv.POSTGRES_PASSWORD ?? '';
