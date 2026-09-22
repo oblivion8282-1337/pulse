@@ -141,18 +141,11 @@
         {@render menuItems()}
       </DropdownMenu.Content>
     </DropdownMenu.Root>
-    <!-- Der sichtbare Käfer (Spec 2026-09-21 §5): ein Klick, kein Menü —
-         genau dafür ist er gebaut (Nutzer soll im Störfall nicht suchen). -->
-    <button
-      type="button"
-      class="text-text-muted hover:text-text-bright hover:bg-bg-hover rounded-lg p-1.5 transition-colors"
-      title={m.diagnose_melden()}
-      aria-label={m.diagnose_melden()}
-      onclick={() => (uiOverlays.diagnoseOpen = true)}
-      data-testid="bug-button"
-    >
-      <BugIcon class="size-4" />
-    </button>
+    <!-- Der sichtbare Käfer ist am 2026-09-22 in die GuildRail gewandert
+         (direkt über dem Server-Symbol, Wunsch nach der Erst-Version hier im
+         Footer). Dieser Footer-Button ist seither weg — der Menü-Eintrag
+         unten bleibt als Einstieg (auch der einzige auf Mobil, wo die Rail
+         versteckt ist), und der Dialog selbst bleibt hier gemountet. -->
     <StatusPicker />
   </div>
 {/if}
