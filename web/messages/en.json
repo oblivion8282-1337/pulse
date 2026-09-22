@@ -3051,5 +3051,7 @@
   "admin_diagnose_rolle_sender": "Sender",
   "admin_diagnose_lade": "Loading reports …",
   "selfhost_diagnose_server_offline": "Also, this server is currently unreachable — that is why there is no package to save. Check whether the container is running.",
-  "admin_diagnose_loeschen_fehler": "Could not delete report — try again later."
+  "admin_diagnose_loeschen_fehler": "Could not delete report — try again later.",
+  "settings_dev_sidecar_defect_label": "Simulate sidecar failure (test)",
+  "settings_dev_sidecar_defect_desc": "Stream starts fail from now on as if the stream helper were broken — no real stream operation is touched. For failure-mode testing of the report-a-problem report. Off again after an app restart."
 }

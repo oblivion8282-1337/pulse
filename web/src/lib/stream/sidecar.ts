@@ -296,6 +296,17 @@ export const sidecar = {
   },
   /** Start a stream in `slot` (0 = primary, 1 = a second concurrent stream). */
   async start(args: SidecarStartArgs, slot = 0): Promise<SidecarStartResult | null> {
+    // DEV-Fehlerinjektion (2026-09-22, Käfer-Test): ist der Schalter im
+    // Experimental-Tab gesetzt, schlägt JEDER Start so fehl, wie ein kaputter
+    // Sidecar es täte — die echte Brücke wird nie angerufen, der echte
+    // Sidecar läuft unberührt weiter. Der Fehlertext fließt über
+    // `streamStarten` in Slot-State, Toast UND den Käfer-Ring.
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('pulse.dev.sidecarKaputt') === '1') {
+      return {
+        ok: false,
+        error: 'DEV-Fehlerinjektion: Sidecar-Start schlägt fehl (Schalter „Sidecar-Fehler simulieren“ in den Einstellungen)'
+      };
+    }
     const b = bridge();
     return b ? ((await b.start(args, slot)) as SidecarStartResult) : null;
   },

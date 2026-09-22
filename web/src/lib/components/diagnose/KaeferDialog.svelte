@@ -171,8 +171,14 @@
       // relativen URL den Bericht in die Datenbank SEINES Servers legen — dort
       // sieht ihn der Super-Admin nie. Scheitert das an CORS (Origin nicht
       // freigegeben), greift der Datei-Fallback unten.
+      // AUSNAHME Dev-Stack (2026-09-22, `import.meta.env.DEV` = Vite-Dev-
+      // Server, im Prod-Build konstant false): der echte Cloud-Versand wäre
+      // CORS-blockt (Prod-Allowlist ohne localhost) und die ganze Schleife
+      // wäre untestbar — im Dev geht der Bericht deshalb an den LOKALEN
+      // Stack (Vite-Proxy → auth :8001), landet in der Dev-Datenbank und ist
+      // in der Admin-Ansicht „Diagnose“ begutachtbar.
       const ziel =
-        window.location.origin === CLOUD_HOSTNAME
+        window.location.origin === CLOUD_HOSTNAME || import.meta.env.DEV
           ? '/api/auth/experimental-logs'
           : `${CLOUD_HOSTNAME}/api/auth/experimental-logs`;
       // Nicht die Öffnen-Vorschau posten: Notiz + während des Dialogs neu

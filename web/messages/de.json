@@ -3051,5 +3051,7 @@
   "admin_diagnose_rolle_sender": "Sender",
   "admin_diagnose_lade": "Lade Berichte …",
   "selfhost_diagnose_server_offline": "Außerdem ist dieser Server gerade selbst nicht erreichbar — deshalb gibt es kein Paket zum Speichern. Prüfe, ob der Container läuft.",
-  "admin_diagnose_loeschen_fehler": "Bericht konnte nicht gelöscht werden — später erneut versuchen."
+  "admin_diagnose_loeschen_fehler": "Bericht konnte nicht gelöscht werden — später erneut versuchen.",
+  "settings_dev_sidecar_defect_label": "Sidecar-Fehler simulieren (Test)",
+  "settings_dev_sidecar_defect_desc": "Stream-Starts schlagen ab sofort fehl, als wäre der Stream-Helfer kaputt — ohne dass echter Streambetrieb berührt wird. Für die Störfall-Probe des Problem-melden-Berichts. Nach App-Neustart aus."
 }

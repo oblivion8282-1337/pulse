@@ -26,6 +26,7 @@ import { resolveSlotLabel, resolveStreamLabel } from './label';
 import { streamSettings } from './settingsState.svelte';
 import { startMerken, type StandplatzStart } from './neustartGedaechtnis';
 import { stream } from './state.svelte';
+import { melde } from '$lib/diagnose/app-diagnose';
 
 export type StartErgebnis =
   | { ok: true }
@@ -125,7 +126,16 @@ export async function streamStarten(
       p2p,
     );
     const r = await sidecar.start(args, slot);
-    if (r && !r.ok) return { ok: false, stufe: 'start', fehler: r.error };
+    if (r && !r.ok) {
+      // Start-Fehlschläge (z. B. DEV-Fehlerinjektion „Sidecar kaputt“) laufen
+      // über den Rückgabewert, nicht über ein error-Ereignis — ohne diesen
+      // Ruf sähe der Käfer-Ring nur die Folgewirkung, nie die Ursache.
+      melde('stream', 'stream_sender_start_fehler', r.error ?? 'Start abgelehnt', {
+        slot,
+        kanal: channelId
+      });
+      return { ok: false, stufe: 'start', fehler: r.error };
+    }
     // Für den Auto-Neustart nach einer Auflösungsänderung merken, was der
     // Neustart sonst nirgends erführe: den Kanal — und beim Standplatz-Gerät
     // den ganzen Satz, sonst startet der Rechner mit den Einstellungen seines
@@ -136,6 +146,12 @@ export async function streamStarten(
     if (!p2p) startMerken(slot, { channelId, standplatz });
     return { ok: true };
   } catch (fehler) {
+    melde(
+      'stream',
+      'stream_sender_start_fehler',
+      fehler instanceof Error ? fehler.message : 'Start throw',
+      { slot, kanal: channelId, stufe: 'wurf' }
+    );
     return { ok: false, stufe: 'start_wurf', fehler };
   }
 }

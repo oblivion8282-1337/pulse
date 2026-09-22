@@ -31,6 +31,7 @@
 -->
 <script lang="ts">
   import PlugZapIcon from '@lucide/svelte/icons/plug-zap';
+  import BugIcon from '@lucide/svelte/icons/bug';
   import { onMount } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
@@ -39,6 +40,14 @@
   // bis dahin soll das Haekchen nicht faelschlich leer aussehen.
   let uploadLogs = $state(true);
   let ready = $state(false);
+
+  // DEV-Fehlerschalter „Sidecar kaputt“ (2026-09-22): ein localStorage-Flag,
+  // KEIN dauerhafter Zustand — gelesen wird es in `sidecar.ts::start()`, wo
+  // jeder Stream-Start mit einer echten Fehlermeldung abgewiesen wird, ohne
+  // dass die echte Sidecar-Brücke je angerufen wird. Zweck: die Störfall-
+  // Probe für den Käfer-Report — schlagen Start-Fehler ordnungsgemäß durch
+  // Toast, Slot-Zustand UND Diagnose-Ring?
+  let sidecarKaputt = $state(false);
 
   onMount(async () => {
     try {
@@ -51,6 +60,7 @@
     } catch {
       // Store nicht erreichbar (sollte auf dem Desktop nicht passieren) — Defaults.
     }
+    sidecarKaputt = localStorage.getItem('pulse.dev.sidecarKaputt') === '1';
     ready = true;
   });
 
@@ -64,6 +74,16 @@
     } catch {
       uploadLogs = !next;
     }
+  }
+
+  function onToggleSidecarKaputt(e: Event): void {
+    const next = (e.currentTarget as HTMLInputElement).checked;
+    sidecarKaputt = next;
+    // absichtlich OHNE Rollback: localStorage wirft praktisch nie, und ein
+    // haengengebliebenes Haekchen nach gescheitertem Schreiben waere hier
+    // das kleinere Uebel gegenueber einer still nicht greifenden Injektion.
+    if (next) localStorage.setItem('pulse.dev.sidecarKaputt', '1');
+    else localStorage.removeItem('pulse.dev.sidecarKaputt');
   }
 
 </script>
@@ -94,6 +114,31 @@
         </span>
         <span class="text-text-muted text-xs">
           {m.settings_compat_logs_desc()}
+        </span>
+      </span>
+    </label>
+  </div>
+
+  <!-- DEV-Fehlerschalter „Sidecar kaputt“: Testwerkzeug für den Käfer-Bericht.
+       Bewusst HIER (Experimental = das Probe-Labor), bewusst ohne dauerhafte
+       Speicherung — App-Neustart nimmt den Schalter zurück, ein vergessenes
+       Haekchen kann keinen echten Stream killen. -->
+  <div class="border-border flex flex-col gap-3 rounded-2xl border p-4">
+    <label class="flex items-start gap-3">
+      <Checkbox
+        class="mt-0.5 shrink-0"
+        checked={sidecarKaputt}
+        disabled={!ready}
+        onchange={onToggleSidecarKaputt}
+        data-testid="dev-sidecar-kaputt-toggle"
+      />
+      <span class="flex min-w-0 flex-1 flex-col gap-1">
+        <span class="text-text-bright flex items-center gap-1.5 text-sm font-medium">
+          <BugIcon class="size-4" />
+          {m.settings_dev_sidecar_defect_label()}
+        </span>
+        <span class="text-text-muted text-xs">
+          {m.settings_dev_sidecar_defect_desc()}
         </span>
       </span>
     </label>
