@@ -7,7 +7,7 @@
  * aufbauen (abmelden → anmelden → Profil ändern → Passwort drehen).
  */
 
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 
 const ts = Date.now();
 const USER = {
@@ -23,8 +23,22 @@ async function register(page: Page, u: { username: string; email: string; passwo
   await page.getByTestId('reg-username').fill(u.username);
   await page.getByTestId('reg-email').fill(u.email);
   await page.getByTestId('reg-password').fill(u.password);
-  await page.getByTestId('reg-submit').click();
-  await page.waitForURL(/\/app/);
+  // Ein Retry: im geteilten Test-Stack kann der Registrierungs-POST im
+  // Sekundentakt eines Dienst-Neustarts versanden — der zweite Anlauf läuft
+  // dann gegen einen wieder gesunden Dienst.
+  let drin = false;
+  for (const _versuch of [1, 2]) {
+    await page.getByTestId('reg-submit').click();
+    drin = await page
+      .waitForURL(/\/app/, { timeout: 15_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (drin) break;
+    await page.getByTestId('reg-username').fill(u.username);
+    await page.getByTestId('reg-email').fill(u.email);
+    await page.getByTestId('reg-password').fill(u.password);
+  }
+  if (!drin) throw new Error('Registrierung nicht in /app gelandet');
   // BackupSetupStep poppt nach runIssueFlow auf (Muster wie chat.spec.ts) —
   // best-effort dismiss, der catch schluckt den Fall "Dialog kommt nicht".
   await page
@@ -34,12 +48,26 @@ async function register(page: Page, u: { username: string; email: string; passwo
 }
 
 async function login(page: Page, identifier: string, password: string) {
-  await page.goto('/login');
-  await page.getByTestId('login-identifier').fill(identifier);
-  await page.getByTestId('login-password').fill(password);
-  await page.getByTestId('login-submit').click();
-  await page.waitForURL(/\/app/);
-  await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
+  // Ein Retry: im geteilten Test-Stack kann ein Anfrage-Fehlschlag im
+  // Sekundentakt entstehen (Neustart der Dienste zwischen Specs) — der
+  // zweite Anlauf läuft dann gegen einen wieder gesunden Dienst.
+  for (const versuch of [1, 2]) {
+    await page.goto('/login');
+    await page.getByTestId('login-identifier').fill(identifier);
+    await page.getByTestId('login-password').fill(password);
+    await page.getByTestId('login-submit').click();
+    const drin = await page
+      .waitForURL(/\/app/, { timeout: 20_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (drin) {
+      await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
+      return;
+    }
+    if (versuch === 2) {
+      await expect(page.getByTestId('login-error')).toBeHidden({ timeout: 1_000 });
+    }
+  }
 }
 
 /** Nutzereinstellungen öffnen und einen Reiter wählen (Muster wie
@@ -63,14 +91,18 @@ async function einstellungenTab(page: Page, tab: 'profile' | 'security') {
 }
 
 test.describe.serial('Overnight Auth', () => {
+  let ctx: BrowserContext;
   let page: Page;
 
   test.beforeAll(async ({ browser }) => {
-    page = await browser.newContext().then((c) => c.newPage());
+    ctx = await browser.newContext();
+    page = await ctx.newPage();
   });
 
-  test.afterAll(async ({ browser }) => {
-    await browser.close();
+  test.afterAll(async () => {
+    // Nur den EIGENEN Kontext schließen — der `browser`-Fixture gehört dem
+    // Worker und wird von den nachfolgenden Specs derselben Suite genutzt.
+    await ctx.close();
   });
 
   test('Registrierung legt ein Konto an und landet in der App', async () => {

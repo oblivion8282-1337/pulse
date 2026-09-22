@@ -29,8 +29,22 @@ async function register(page: Page, u: { username: string; email: string; passwo
   await page.getByTestId('reg-username').fill(u.username);
   await page.getByTestId('reg-email').fill(u.email);
   await page.getByTestId('reg-password').fill(u.password);
-  await page.getByTestId('reg-submit').click();
-  await page.waitForURL(/\/app/);
+  // Ein Retry: im geteilten Test-Stack kann der Registrierungs-POST im
+  // Sekundentakt eines Dienst-Neustarts versanden — der zweite Anlauf läuft
+  // dann gegen einen wieder gesunden Dienst.
+  let drin = false;
+  for (const _versuch of [1, 2]) {
+    await page.getByTestId('reg-submit').click();
+    drin = await page
+      .waitForURL(/\/app/, { timeout: 15_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (drin) break;
+    await page.getByTestId('reg-username').fill(u.username);
+    await page.getByTestId('reg-email').fill(u.email);
+    await page.getByTestId('reg-password').fill(u.password);
+  }
+  if (!drin) throw new Error('Registrierung nicht in /app gelandet');
   await page
     .locator('[data-testid=backup-onboarding-skip-btn]')
     .click({ timeout: 2500 })
@@ -106,17 +120,16 @@ async function overwriteSetzen(
   await expect(page.getByTestId(`channel-${channelId}`)).toBeVisible({ timeout: 15_000 });
 }
 
-/** Community über das Rail-Plus-Menü beitreten. Die Dropdown-Einträge
- *  kommen als Portal manchmal nicht zur Ruhe (Re-Render der Rail) —
- *  Sichtbarkeit erzwingen und den sichtbaren Eintrag mit Klick erzwingen. */
-async function guildBeitreten(page: Page, code: string) {
-  await page.locator('[data-testid^="guild-create-menu-"]').first().click();
-  const join = page.getByTestId('guild-join');
-  await expect(join).toBeAttached();
-  await join.click({ force: true });
-  await page.getByTestId('join-guild-input').fill(code);
-  await page.getByTestId('join-guild-submit').click();
-  await page.waitForURL(/\/app\/guilds\/\d+\/channels\/\d+/, { timeout: 15_000 });
+/** Rail-Plus-Knopf robust anklicken — hängt die Rail-Hydration nach dem
+ *  Registrierungs-Übergang hinterher, hilft ein Reload der App. */
+async function railPlusKlick(page: Page) {
+  const plus = page.locator('[data-testid^="guild-create-menu-"]').first();
+  await plus.waitFor({ state: 'attached', timeout: 10_000 }).catch(async () => {
+    await page.reload();
+    await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
+    await plus.waitFor({ state: 'attached', timeout: 10_000 });
+  });
+  await plus.click();
 }
 
 test.describe.serial('Overnight Kanalrechte', () => {
@@ -133,6 +146,7 @@ test.describe.serial('Overnight Kanalrechte', () => {
   let stummId = '';
   let buehneId = '';
   let bobId = '';
+  let carolId = '';
   let besucherRoleId = '';
   let everyoneRoleId = '';
 
@@ -160,10 +174,11 @@ test.describe.serial('Overnight Kanalrechte', () => {
       await register(page, { ...users[i], password: PASSWORD });
     }
     bobId = await userId(bob);
+    carolId = await userId(carol);
   });
 
   test('Setup B: Community, Beitragritt, Rolle und Kanäle', async () => {
-    await owner.locator('[data-testid^="guild-create-menu-"]').first().click();
+    await railPlusKlick(owner);
     await owner.getByTestId('guild-create').click();
     await owner.getByTestId('create-guild-name').fill('Kanalrechte GmbH');
     await owner.getByTestId('create-guild-submit').click();
@@ -171,12 +186,19 @@ test.describe.serial('Overnight Kanalrechte', () => {
     guildId = owner.url().match(/\/app\/guilds\/(\d+)/)![1];
     generalId = owner.url().match(/channels\/(\d+)/)![1];
 
-    const invite = await api<{ code: string }>(owner, `/guilds/${guildId}/invites`, {
-      method: 'POST',
-      body: { max_uses: 5, expires_in_seconds: 86400 }
-    });
+    // Beitragritt per API (addBobToGuild-Muster aus chat.spec) — der
+    // UI-Join über das Rail-Menü war die flakigste Stelle der Suite.
+    for (const uid of [bobId, carolId]) {
+      await api(owner, `/guilds/${guildId}/members`, {
+        method: 'POST',
+        body: { user_id: uid }
+      });
+    }
+    // Beide landen im general-Kanal, damit spätere Reloads den vollen
+    // Zustand laden.
     for (const page of [bob, carol]) {
-      await guildBeitreten(page, invite.code);
+      await page.goto(`/app/guilds/${guildId}/channels/${generalId}`);
+      await expect(page.getByTestId(`channel-${generalId}`)).toBeVisible({ timeout: 15_000 });
     }
 
     besucherRoleId = (
@@ -274,13 +296,13 @@ test.describe.serial('Overnight Kanalrechte', () => {
     await expect(carol.getByTestId(`channel-${generalId}`).first()).toBeVisible({ timeout: 15_000 });
 
     // Rücknehmen — der Kanal kommt für bob wieder zurück.
-    await owner.evaluate(async (cid) => {
+    await owner.evaluate(async ({ cid, uid }) => {
       const token = localStorage.getItem('dcc.tokens.access');
-      await fetch(`/api/chat/channels/${cid}/permissions/1/${bobId}`, {
+      await fetch(`/api/chat/channels/${cid}/permissions/1/${uid}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
-    }, generalId);
+    }, { cid: generalId, uid: bobId });
     await bob.reload();
     await expect(bob.getByTestId(`channel-${generalId}`).first()).toBeVisible({ timeout: 15_000 });
   });

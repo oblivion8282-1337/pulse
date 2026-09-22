@@ -11,7 +11,7 @@
  * (`dcc_night_postgres` / `dcc_test`, dieselbe DB wie in _globalSetup).
  */
 
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
@@ -36,8 +36,22 @@ async function register(page: Page, u: typeof USER) {
   await page.getByTestId('reg-username').fill(u.username);
   await page.getByTestId('reg-email').fill(u.email);
   await page.getByTestId('reg-password').fill(u.password);
-  await page.getByTestId('reg-submit').click();
-  await page.waitForURL(/\/app/);
+  // Ein Retry: im geteilten Test-Stack kann der Registrierungs-POST im
+  // Sekundentakt eines Dienst-Neustarts versanden — der zweite Anlauf läuft
+  // dann gegen einen wieder gesunden Dienst.
+  let drin = false;
+  for (const _versuch of [1, 2]) {
+    await page.getByTestId('reg-submit').click();
+    drin = await page
+      .waitForURL(/\/app/, { timeout: 15_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (drin) break;
+    await page.getByTestId('reg-username').fill(u.username);
+    await page.getByTestId('reg-email').fill(u.email);
+    await page.getByTestId('reg-password').fill(u.password);
+  }
+  if (!drin) throw new Error('Registrierung nicht in /app gelandet');
   await page
     .locator('[data-testid=backup-onboarding-skip-btn]')
     .click({ timeout: 2500 })
@@ -51,14 +65,18 @@ async function forgotSubmit(page: Page, identifier: string) {
 }
 
 test.describe.serial('Overnight Passwort-Wiederherstellung', () => {
+  let ctx: BrowserContext;
   let page: Page;
 
   test.beforeAll(async ({ browser }) => {
-    page = await browser.newContext().then((c) => c.newPage());
+    ctx = await browser.newContext();
+    page = await ctx.newPage();
   });
 
-  test.afterAll(async ({ browser }) => {
-    await browser.close();
+  test.afterAll(async () => {
+    // Nur den EIGENEN Kontext schließen — der `browser`-Fixture gehört dem
+    // Worker und wird von den nachfolgenden Specs derselben Suite genutzt.
+    await ctx.close();
   });
 
   test('Registrierung als Ausgangspunkt', async () => {

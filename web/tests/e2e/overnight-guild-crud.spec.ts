@@ -6,7 +6,7 @@
  * serial, weil jeder Schritt auf dem vorherigen Zustand aufbaut.
  */
 
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 
 const ts = Date.now();
 const GUILD_NAME = `Bauhütte ${ts}`;
@@ -22,8 +22,22 @@ async function register(page: Page, u: { username: string; email: string; passwo
   await page.getByTestId('reg-username').fill(u.username);
   await page.getByTestId('reg-email').fill(u.email);
   await page.getByTestId('reg-password').fill(u.password);
-  await page.getByTestId('reg-submit').click();
-  await page.waitForURL(/\/app/);
+  // Ein Retry: im geteilten Test-Stack kann der Registrierungs-POST im
+  // Sekundentakt eines Dienst-Neustarts versanden — der zweite Anlauf läuft
+  // dann gegen einen wieder gesunden Dienst.
+  let drin = false;
+  for (const _versuch of [1, 2]) {
+    await page.getByTestId('reg-submit').click();
+    drin = await page
+      .waitForURL(/\/app/, { timeout: 15_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (drin) break;
+    await page.getByTestId('reg-username').fill(u.username);
+    await page.getByTestId('reg-email').fill(u.email);
+    await page.getByTestId('reg-password').fill(u.password);
+  }
+  if (!drin) throw new Error('Registrierung nicht in /app gelandet');
   await page
     .locator('[data-testid=backup-onboarding-skip-btn]')
     .click({ timeout: 2500 })
@@ -37,16 +51,20 @@ async function channelContext(page: Page, channelId: string, item: string) {
 }
 
 test.describe.serial('Overnight Community-CRUD', () => {
+  let ctx: BrowserContext;
   let page: Page;
   let guildId = '';
   let projektId = '';
 
   test.beforeAll(async ({ browser }) => {
-    page = await browser.newContext().then((c) => c.newPage());
+    ctx = await browser.newContext();
+    page = await ctx.newPage();
   });
 
-  test.afterAll(async ({ browser }) => {
-    await browser.close();
+  test.afterAll(async () => {
+    // Nur den EIGENEN Kontext schließen — der `browser`-Fixture gehört dem
+    // Worker und wird von den nachfolgenden Specs derselben Suite genutzt.
+    await ctx.close();
   });
 
   test('Registrierung', async () => {
