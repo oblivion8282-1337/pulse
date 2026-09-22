@@ -13,6 +13,7 @@ import { toast } from 'svelte-sonner';
 import { sidecar, type SidecarEvent } from './sidecar';
 import { gesundheitTor } from './gesundheitTor';
 import { m } from '$lib/paraglide/messages.js';
+import { melde } from '$lib/diagnose/app-diagnose';
 
 const MAX_LOG_LINES = 50;
 
@@ -287,6 +288,18 @@ function applyEvent(ev: SidecarEvent): void {
   const slot = ev.slot ?? 0;
   const s = streamForSlot(slot);
   applyEventInner(s, ev);
+  // Sendungs-Meilensteine ins Diagnose-Gedächtnis (Käfer-Knopf): die ZEITACHSE
+  // der Sendungen — live/fehler/stopp je Slot. Der Sidecar-Log geht zwar beim
+  // Stream-Ende automatisch weg (Experimental-Schalter), aber der Käfer-Bericht
+  // sah bis 2026-09-22 weder Beginn noch Ende einer Sendung, geschweige denn
+  // den Fehler dazwischen. Melde() verdichtet selbst (10-s-Fenster).
+  if (ev.ev === 'error') {
+    melde('stream', 'stream_sender_fehler', ev.message, { slot });
+  } else if (ev.ev === 'state' && ev.state === 'live' && !wasRunning[slot]) {
+    melde('stream', 'stream_sender_live', 'Sendung live', { slot });
+  } else if (ev.ev === 'stopped') {
+    melde('stream', 'stream_sender_stopp', 'Sendung gestoppt', { slot });
+  }
   // Arm the startup watchdog while we're still `starting`; clear it on any
   // other state (`live`/`error`/`stopped`/`idle`) so a normal start never trips.
   if (s.state === 'starting') armStartWatchdog(slot);

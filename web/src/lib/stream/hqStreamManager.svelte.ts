@@ -26,6 +26,7 @@ import { connectWhep, WhepError, type WhepSession } from './whep';
 import { DiagnoseSammler } from './diagnose-bericht';
 import { sendeDiagnoseBericht } from './diagnose-senden';
 import { WhepStatsReader, type StreamStats } from './whep-stats';
+import { melde } from '$lib/diagnose/app-diagnose';
 import { VolumeBoost } from './volumeBoost';
 import { getStreamVolume, setStreamVolume } from './streamVolume';
 import { FreezeRecycler, FREEZE_RECYCLE_MAX } from './freezeRecycle';
@@ -422,6 +423,15 @@ export class ManagedHqStream {
     const wait = RETRY_MS[Math.min(this.#attempt, RETRY_MS.length - 1)];
     this.#attempt += 1;
     this.phase = 'retrying';
+    // Jeder Fehlversuch ins Käfer-Gedächtnis: der Wiedereinstieg ist die
+    // Uhrzeit, zu der der Zuschauer „es ruckelt/steht" erlebt hat — die Zahl
+    // der Versuche sagt, wie hart der Kampf war.
+    melde(
+      'stream',
+      'stream_whep_wiedereinstieg',
+      `WHEP-Sitzung fehlgeschlagen — neuer Versuch ${this.#attempt}`,
+      { kanal: this.channelId, sender: this.userId, slot: this.slot },
+    );
     this.#retryTimer = setTimeout(() => {
       this.#retryTimer = undefined;
       void this.#start();
@@ -440,6 +450,16 @@ export class ManagedHqStream {
             `(${this.#freeze.versuche}/${FREEZE_RECYCLE_MAX})`,
           next.diagnostic,
         );
+        // Zuschauer-Meilenstein ins Käfer-Gedächtnis (2026-09-22): Einfrieren
+        // ist das Symptom, nach dem am häufigsten gefragt wird — ohne diesen
+        // Eintrag zeigte der Käfer-Bericht nur die Folgewirkung (Neuaufbau).
+        melde(
+          'stream',
+          'stream_whep_einfrieren',
+          `Bild ${next.freezeSeconds.toFixed(1)} s eingefroren — Sitzung erneuert ` +
+            `(${this.#freeze.versuche}/${FREEZE_RECYCLE_MAX})`,
+          { kanal: this.channelId, sender: this.userId, slot: this.slot },
+        );
         return true;
       case 'aufgeben':
         // Nur EINMAL umschalten: sonst überschriebe jede Sekunde denselben
@@ -448,6 +468,12 @@ export class ManagedHqStream {
           this.phase = 'error';
           this.detail = m.hq_stream_frozen_give_up();
           console.warn('[whep] dauerhaft eingefroren, aufgegeben', next.diagnostic);
+          melde(
+            'stream',
+            'stream_whep_einfrieren_aufgegeben',
+            'Bild dauerhaft eingefroren — Kachel aufgegeben',
+            { kanal: this.channelId, sender: this.userId, slot: this.slot },
+          );
         }
         return false;
       case 'weiter':
@@ -659,6 +685,13 @@ export const hqStreams = {
 
   get(channelId: string, userId: string, slot = 0): ManagedHqStream | null {
     return registry.get(keyOf(channelId, userId, slot)) ?? null;
+  },
+
+  /** Alle momentan offenen Kachel-Verbindungen — für den Stream-Snapshot im
+   *  Käfer-Bericht (Kopf „stream.zuschauer"), 2026-09-22. Kopie, damit am
+   *  Aufrufer nichts kaputtgeht; Reihenfolge ist Einfüge-Reihenfolge. */
+  liste(): ManagedHqStream[] {
+    return [...registry.values()];
   },
 
   close(channelId: string, userId: string, slot = 0): void {

@@ -40,6 +40,12 @@
     speichereAlsDatei
   } from '$lib/diagnose/app-diagnose';
   import type { AppBericht } from '$lib/diagnose/app-diagnose';
+  import {
+    stream as streamZustand,
+    streamForSlot,
+    runningStreamSlots
+  } from '$lib/stream/state.svelte';
+  import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
 
   let open = $derived(uiOverlays.diagnoseOpen);
 
@@ -53,6 +59,50 @@
   let dateiOfferiert = $state(false);
   let vorschau = $state<AppBericht | null>(null);
   let autoCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Stream-Momentaufnahme für den Berichtskopf (2026-09-22): WAS lief beim
+   *  Klick — Sendungen dieses Rechners (Zustand/FPS/Laufzeit/Fehler) und die
+   *  offenen Zuschau-Kacheln mit ihren Live-Zahlen. Schließt die Lücke, dass
+   *  der Käfer die Streaming-Welt nicht sah (die automatischen Berichte des
+   *  Experimental-Schalters gehen nur bei Stream-ENDE, nicht auf Klick).
+   *  Alles schon Erhobene — kein neuer Sammel-Motor. */
+  function streamKontext(): Record<string, unknown> {
+    const sendungen = runningStreamSlots().map((slot) => {
+      const s = streamForSlot(slot);
+      return {
+        slot,
+        zustand: s.state,
+        fps: s.fps,
+        laufzeit_s: s.uptimeS,
+        fehler: s.error ? s.error.slice(0, 120) : null
+      };
+    });
+    const zuschauer = hqStreams.liste().map((ms) => ({
+      kanal: ms.channelId,
+      sender: ms.userId,
+      slot: ms.slot,
+      phase: ms.phase,
+      ruht_im_eigenen_fenster: ms.ruhend,
+      stats: ms.stats
+        ? {
+            aufloesung: ms.stats.res,
+            fps: ms.stats.fps,
+            bitrate: ms.stats.bitrate,
+            codec: ms.stats.codec,
+            eingefroren_seit_s: ms.stats.freezeSeconds,
+            mikro_ruckler_gesamt: ms.stats.microStutters,
+            frames_dekodiert: ms.stats.diagnostic.framesDecoded,
+            frames_verworfen: ms.stats.diagnostic.framesDropped,
+            pakete_verloren: ms.stats.diagnostic.packetsLost
+          }
+        : null
+    }));
+    return {
+      sidecar_verfuegbar: streamZustand.sidecarAvailable,
+      sendungen,
+      zuschauer_kacheln: zuschauer
+    };
+  }
 
   // Kopf beim Öffnen bauen — Serverliste/UA holen wir hier (mit Stores), damit
   // das Gedächtnis-Modul selbst importfrei bleiben kann.
@@ -68,6 +118,7 @@
         })),
         aktiver_server:
           serversStore.find(activeServer.serverId)?.hostname ?? CLOUD_HOSTNAME ?? null,
+        stream: streamKontext(),
         erstellt: new Date().toISOString()
       },
       notiz.trim()
