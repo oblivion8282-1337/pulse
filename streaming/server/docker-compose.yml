@@ -107,7 +107,7 @@ services:
     container_name: streaming-player
     restart: unless-stopped
     ports:
-      - "8000:80"
+      - "127.0.0.1:8000:80"
     volumes:
       - ./player.html:/usr/share/nginx/html/index.html:ro
     labels:
