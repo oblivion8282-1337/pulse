@@ -6,13 +6,16 @@
  * navigiert in den neuen Kanal.
  */
 import { goto } from '$app/navigation';
+import { toast } from 'svelte-sonner';
 import { chatApi } from '$lib/api/chat';
 import { rolesApi } from '$lib/api/roles';
 import type { Channel, Guild } from '$lib/api/types';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
+import { activeServer } from '$lib/stores/active-server.svelte';
 import { melde } from '$lib/diagnose/app-diagnose';
+import { netzUrsacheFuer } from './joinByHost';
 
 export async function erstelleCommunity(name: string): Promise<void> {
   let erstellt: { g: Guild; c: Channel } | null = null;
@@ -44,12 +47,31 @@ export async function erstelleCommunity(name: string): Promise<void> {
     // (netz). `goto` ist bewusst NICHT im try: ein Navigationsfehler nach
     // erfolgreichem Anlegen wäre kein api_fehler.
     const status = (err as { status?: number })?.status;
+    const netz = !(typeof status === 'number' && status > 0);
     melde(
       'api',
-      `api_fehler_${typeof status === 'number' && status > 0 ? status : 'netz'}`,
+      `api_fehler_${netz ? 'netz' : status}`,
       'Community anlegen fehlgeschlagen',
       { aktion: 'community_erstellen' }
     );
+    // Gordons Fall, Nutzer-Seite (2026-09-22): kam die Anfrage NIE an und
+    // läuft der aktive Server selbst gehostet, ist das keine App-Störung,
+    // sondern eine Netz-Konfiguration — der Nutzer braucht die SCHICHT als
+    // Handlungshinweis („Name löst nicht auf" / „Port zu" / „Proxy reicht
+    // WebSockets nicht durch" …), sonst steht er vor „nicht erreichbar".
+    // Fire-and-forget: der Hinweis kommt Sekunden später als Toast, der
+    // Befund geht in den Ring (netdiag im Desktop, sonst WS-Kette; steht
+    // die Kette, gibt es auch keinen Hinweis — nichts erfinden).
+    const server = activeServer.current;
+    if (netz && server && !server.isCloud) {
+      void netzUrsacheFuer(server.hostname).then(({ text, befund }) => {
+        melde('verbindung', `netzprobe_${befund}`, text ?? 'Kette steht — keine Netz-Ursache gefunden', {
+          server: server.hostname,
+          aktion: 'community_erstellen'
+        });
+        if (text) toast.error(text);
+      });
+    }
     // Bughunt Runde 26-Navigation: bei CREATE-Fehler zur Guild statt Waise.
     if (erstellt) await goto(`/app/guilds/${erstellt.g.id}`);
     throw err;
