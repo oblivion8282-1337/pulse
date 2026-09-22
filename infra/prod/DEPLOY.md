@@ -14,7 +14,7 @@ is one Docker Compose project (`name: pulse`) in `~/pulse/infra/prod/`.
 App images (`ghcr.io/oblivion8282-1337/pulse-*`) are built by
 `.github/workflows/ci.yml` on every push to `main` and auto-pulled on the server
 by a **user crontab** running `infra/prod/pulse-update.sh` every 5 min (scoped
-pull+`up -d` of the app services + migrate one-shots). postgres / redis / minio /
+pull+`up -d` of the app services + migrate one-shots). postgres / redis / garage /
 mediamtx / livekit are pinned in the compose file and deliberately NOT
 auto-updated. **No Watchtower** — it mounted the Docker socket (= root on the
 host); the cron script keeps the updater as a small host script with no socket
@@ -440,6 +440,36 @@ Dockerfile`) runs restic-encrypted snapshots of Postgres + MinIO + avatars
 - `maintenance` — Sunday 05:00 (`forget --prune` 7d/4w/6m per tag + `check`)
 
 Schedule + script live in `infra/prod/backup/{crontab,backup.sh}`.
+
+## Storage: MinIO → Garage (Umgestellt 2026-09-22)
+
+Der Objektspeicher für Anhänge ist Garage (Service `garage`, Bucket
+`pulse-attachments`). Wichtig: **App-Images und compose/Infra rollen
+getrennt** — die Images kommen per cron, Infra-Änderungen nur per rsync +
+manuelllem `up -d`. Am 2026-09-22 rollte das neue pulse-web/chat-gateway-Image
+bereits auf Garage, während der Server noch ohne `garage`-Container lief —
+Folge: Uploads (PUT /pulse-attachments) und alte Anhänge gingen mit **502**,
+bis die Umstellung komplett war. Ablauf der Umstellung (Referenz):
+
+```sh
+# lokal: Infra auf den Server bringen (Doku oben, gleiche rsync-Zeile)
+# auf dem Server, in ~/pulse/infra/prod:
+openssl rand -hex 32   # → rpc_secret in garage/garage.toml ersetzen
+docker compose up -d garage
+# Bootstrap: siehe garage/garage.toml-Kommentar (layout, bucket, GK-Schlüssel)
+# S3_ACCESS_KEY/S3_SECRET_KEY in .env auf den GK-Schlüssel setzen, dann:
+docker compose up -d chat-gateway
+# Bestandsdaten aus MinIO (lief damals noch als Container `minio`):
+docker run --rm --network pulse-net --entrypoint /bin/sh \
+  -e U=… -e P=… -e GK=… -e SK=… minio/mc:RELEASE.2025-08-13T08-35-41Z -c \
+  'mc alias set old http://minio:9000 $U $P; mc alias set new http://garage:9000 $GK $SK; \
+   mc mirror --preserve old/pulse-attachments new/pulse-attachments'
+# Backup-Sidecar auf Garage umstellen (neue compose def zieht S3_*-Schlüssel):
+docker compose --profile backup up -d backup
+```
+
+MinIO bleibt danach als Rückfall laufen (orphan im compose-Projekt) und kann
+nach einer Ruhefrist entfernt werden.
 
 ### Setup (one-time, when ready to enable backups)
 

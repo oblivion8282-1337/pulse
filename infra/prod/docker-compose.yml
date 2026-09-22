@@ -135,8 +135,11 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       PGDATABASE: ${POSTGRES_DB:-dcc}
       MINIO_ENDPOINT: http://garage:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      # GK-Schlüssel aus dem Garage-Bootstrap (== S3_ACCESS_KEY/SECRET, mit
+      # denen chat-gateway signiert). MINIO_ROOT_USER kann Garage nicht
+      # kennen — der Import solcher IDs scheitert am GK-Format (2026-09-22).
+      MINIO_ACCESS_KEY: ${S3_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${S3_SECRET_KEY}
     volumes:
       - pulse_backups:/repo
       - pulse_minio_stage:/var/cache/pulse-backup

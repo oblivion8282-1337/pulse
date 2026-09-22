@@ -12,8 +12,13 @@
 #   docker compose exec garage /garage layout assign -z dc1 -c 1G <NODE-ID>
 #   docker compose exec garage /garage layout apply --version 1
 #   docker compose exec garage /garage bucket create pulse-attachments
-#   docker compose exec garage /garage key import --yes "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" -n pulse
-#   docker compose exec garage /garage bucket allow --read --write pulse-attachments --key "$MINIO_ROOT_USER"
+#   docker compose exec garage /garage key create pulse   # Key ID (GK…) + Secret notieren
+#   docker compose exec garage /garage bucket allow --read --write pulse-attachments --key <GK…>
+# Und S3_ACCESS_KEY/S3_SECRET_KEY in der .env auf dieses Paar setzen
+# (chat-gateway neu starten). NICHT `key import` mit MINIO_ROOT_USER versuchen:
+# Garage-Key-IDs müssen mit GK beginnen, der Import scheitert an
+# "Invalid key format" (Prod 2026-09-22).
+# Bestandsdaten aus MinIO übernehmen: mc mirror (siehe DEPLOY.md §Storage).
 
 metadata_dir = "/var/lib/garage/meta"
 data_dir = "/var/lib/garage/data"
