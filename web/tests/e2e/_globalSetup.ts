@@ -181,25 +181,25 @@ function clearSharedAuthRedisCache(redisUrl: string): void {
   );
 }
 
-function ensureTestDb(postgresUser: string) {
+function ensureTestDb(postgresUser: string, dbName = 'dcc_test') {
   const cwd = resolve(__dirname, '../../..');
   // CREATE DATABASE has no IF NOT EXISTS — check first, then create.
   const check = execSync(
-    `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='dcc_test'"`,
+    `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${dbName}'"`,
     { cwd }
   )
     .toString()
     .trim();
   if (check !== '1') {
     execSync(
-      `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d postgres -c "CREATE DATABASE dcc_test"`,
+      `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d postgres -c "CREATE DATABASE ${dbName}"`,
       { cwd }
     );
   }
   // Alembic stores alembic_version in the service schema, so the schemas
   // must exist before the first migration run.
   execSync(
-    `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d dcc_test -c "CREATE SCHEMA IF NOT EXISTS auth; CREATE SCHEMA IF NOT EXISTS chat;"`,
+    `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d ${dbName} -c "CREATE SCHEMA IF NOT EXISTS auth; CREATE SCHEMA IF NOT EXISTS chat;"`,
     { cwd }
   );
 }
@@ -331,16 +331,22 @@ export default async function globalSetup() {
   const pgPassword = dotenv.POSTGRES_PASSWORD ?? '';
 
   // Ensure the dedicated test database exists (never touches dcc).
-  ensureTestDb(pgUser);
+  // Eigene Datenbank/Redis-DB fuer diesen Lauf, Vorgabe unverändert dcc_test
+  // und /1. Wer parallel fährt (mehrere Bughunt-Agenten teilen sich Postgres
+  // und Redis), setzt PULSE_E2E_DB/PULSE_E2E_REDIS_DB — sonst löscht das
+  // TRUNCATE eines Laufs die Nutzer mitten im Lauf des anderen.
+  const testDb = process.env.PULSE_E2E_DB ?? 'dcc_test';
+  const redisDb = process.env.PULSE_E2E_REDIS_DB ?? '1';
+  ensureTestDb(pgUser, testDb);
 
   const baseEnv = {
     ...process.env,
     ...dotenv,
     POSTGRES_HOST: 'localhost',
     POSTGRES_PORT: pgPort,
-    POSTGRES_DB: 'dcc_test',
-    DATABASE_URL: `postgresql+asyncpg://${pgUser}:${pgPassword}@localhost:${pgPort}/dcc_test`,
-    REDIS_URL: 'redis://localhost:6380/1',
+    POSTGRES_DB: testDb,
+    DATABASE_URL: `postgresql+asyncpg://${pgUser}:${pgPassword}@localhost:${pgPort}/${testDb}`,
+    REDIS_URL: `redis://localhost:6380/${redisDb}`,
     AUTH_JWKS_URL: `http://127.0.0.1:${E2E_AUTH_PORT}/.well-known/jwks.json`,
     JWT_PRIVATE_KEY_FILE: resolve(ROOT, 'secrets/jwt_private.pem'),
     JWT_PUBLIC_KEY_FILE: resolve(ROOT, 'secrets/jwt_public.pem'),

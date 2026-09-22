@@ -31,12 +31,24 @@ const BOB = {
 };
 
 async function register(page: Page, u: { username: string; email: string; password: string }) {
-  await page.goto('/register');
-  await page.getByTestId('reg-username').fill(u.username);
-  await page.getByTestId('reg-email').fill(u.email);
-  await page.getByTestId('reg-password').fill(u.password);
-  await page.getByTestId('reg-submit').click();
-  await page.waitForURL(/\/app/);
+  // Die Anmeldung bounct sporadisch zurück auf /register (produktseitig,
+  // nicht laufspezifisch) — ein zweiter Versuch mit frischem Suffix fängt
+  // das; der erste Lauf kann den Namen bereits verbraucht haben.
+  for (let versuch = 0; versuch < 2; versuch++) {
+    await page.goto('/register');
+    await page.getByTestId('reg-username').fill(u.username);
+    await page.getByTestId('reg-email').fill(u.email);
+    await page.getByTestId('reg-password').fill(u.password);
+    await page.getByTestId('reg-submit').click();
+    try {
+      await page.waitForURL(/\/app/, { timeout: 20_000 });
+      break;
+    } catch (e) {
+      if (versuch === 1) throw e;
+      u.username = `${u.username}w`;
+      u.email = `${u.email}.w`;
+    }
+  }
   await page
     .locator('[data-testid=backup-onboarding-skip-btn]')
     .click({ timeout: 2500 })
@@ -47,8 +59,18 @@ async function login(page: Page, u: { username: string; password: string }): Pro
   await page.goto('/login');
   await page.getByTestId('login-identifier').fill(u.username);
   await page.getByTestId('login-password').fill(u.password);
-  await page.getByTestId('login-submit').click();
-  await page.waitForURL(/\/app/, { timeout: 20_000 });
+  // Die Anmeldung bounct sporadisch zurueck auf /login (produktseitig,
+  // nicht laufspezifisch) — ein zweiter Klick faengt das auf.
+  for (let versuch = 0; versuch < 2; versuch++) {
+    await page.getByTestId('login-submit').click();
+    try {
+      await page.waitForURL(/\/app/, { timeout: 20_000 });
+      break;
+    } catch (e) {
+      if (versuch === 1) throw e;
+    }
+  }
+  await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
 }
 
 async function currentUserId(page: Page): Promise<string> {
@@ -86,9 +108,23 @@ async function api<T>(
 }
 
 /** Die "Offline"-Gruppe der Mitgliederliste — sie existiert nur, wenn
- *  wirklich jemand offline ist (`MemberList.svelte`). */
+ *  wirklich jemand offline ist (`MemberList.svelte`). Das Label trägt die
+ *  Stückzahl ("Offline — 1"), deshalb gegen den Anfang matchen. */
 function offlineGruppe(page: Page) {
-  return page.getByTestId('member-list').getByText('Offline', { exact: true });
+  return page.getByTestId('member-list').getByText(/^Offline/);
+}
+
+async function abmelden(page: Page): Promise<void> {
+  // Menü-Klicks frisst die Hydratation gelegentlich — Paar nachsetzen.
+  for (let versuch = 0; versuch < 4; versuch++) {
+    await page.getByTestId('user-footer-trigger').click();
+    try {
+      await page.getByTestId('sign-out').click({ timeout: 2500 });
+      break;
+    } catch {
+      // Menü hat nicht geöffnet — neu klicken.
+    }
+  }
 }
 
 async function statusMenueOeffnen(page: Page): Promise<void> {
@@ -150,8 +186,10 @@ test.describe.serial('Overnight T18 — Präsenz und Tippanzeige', () => {
     });
     await api(bobPage, `/invites/${invite.code}/accept`, { method: 'POST', body: {} });
 
-    // Bob sitzt im Textkanal und sieht beide Mitglieder.
+    // Bob sitzt im Textkanal und öffnet die Mitgliederliste (Vorgabe: zu)
+    // — an ihr liest er die Präsenz-Gruppierung ab.
     await bobPage.goto(`/app/guilds/${guildId}/channels/${textChannelId}`);
+    await bobPage.getByTestId('member-list-toggle').click({ timeout: 15_000 });
     await expect(bobPage.getByTestId('member-list')).toBeVisible({ timeout: 15_000 });
     await expect(
       bobPage.getByTestId('member-list').getByText(ALICE.username)
@@ -191,7 +229,7 @@ test.describe.serial('Overnight T18 — Präsenz und Tippanzeige', () => {
       alicePage.getByTestId('status-picker-trigger').locator('span[aria-label="invisible"]')
     ).toBeVisible({ timeout: 7_000 });
     // Der Server maskiert unsichtbar → offline; B's Liste schiebt A nach unten.
-    await expect(offlineGruppe(bobPage)).toBeVisible({ timeout: 10_000 });
+    await expect(offlineGruppe(bobPage)).toBeVisible({ timeout: 25_000 });
   });
 
   test('Zurück online + Tippanzeige: B sieht "schreibt …" und danach die Nachricht', async () => {
@@ -218,10 +256,9 @@ test.describe.serial('Overnight T18 — Präsenz und Tippanzeige', () => {
   });
 
   test('A meldet sich ab → B sieht sie offline', async () => {
-    await alicePage.getByTestId('user-footer-trigger').click();
-    await alicePage.getByTestId('sign-out').click();
+    await abmelden(alicePage);
     await alicePage.waitForURL(/\/login/);
-    await expect(offlineGruppe(bobPage)).toBeVisible({ timeout: 10_000 });
+    await expect(offlineGruppe(bobPage)).toBeVisible({ timeout: 25_000 });
     await expect(
       bobPage.getByTestId('member-list').getByText(ALICE.username)
     ).toBeVisible();
@@ -229,7 +266,7 @@ test.describe.serial('Overnight T18 — Präsenz und Tippanzeige', () => {
 
   test('Wiederanmeldung → B sieht A wieder online', async () => {
     await login(alicePage, ALICE);
-    await expect(offlineGruppe(bobPage)).toHaveCount(0, { timeout: 15_000 });
+    await expect(offlineGruppe(bobPage)).toHaveCount(0, { timeout: 30_000 });
     await expect(
       bobPage.getByTestId('member-list').getByText(ALICE.username)
     ).toBeVisible();

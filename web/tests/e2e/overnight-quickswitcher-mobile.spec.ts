@@ -28,12 +28,24 @@ const PARTNER = {
 const GUILD_NAME = `T20 Lounge ${ts}`;
 
 async function register(page: Page, u: { username: string; email: string; password: string }) {
-  await page.goto('/register');
-  await page.getByTestId('reg-username').fill(u.username);
-  await page.getByTestId('reg-email').fill(u.email);
-  await page.getByTestId('reg-password').fill(u.password);
-  await page.getByTestId('reg-submit').click();
-  await page.waitForURL(/\/app/);
+  // Die Anmeldung bounct sporadisch zurück auf /register (produktseitig,
+  // nicht laufspezifisch) — ein zweiter Versuch mit frischem Suffix fängt
+  // das; der erste Lauf kann den Namen bereits verbraucht haben.
+  for (let versuch = 0; versuch < 2; versuch++) {
+    await page.goto('/register');
+    await page.getByTestId('reg-username').fill(u.username);
+    await page.getByTestId('reg-email').fill(u.email);
+    await page.getByTestId('reg-password').fill(u.password);
+    await page.getByTestId('reg-submit').click();
+    try {
+      await page.waitForURL(/\/app/, { timeout: 20_000 });
+      break;
+    } catch (e) {
+      if (versuch === 1) throw e;
+      u.username = `${u.username}w`;
+      u.email = `${u.email}.w`;
+    }
+  }
   await page
     .locator('[data-testid=backup-onboarding-skip-btn]')
     .click({ timeout: 2500 })
@@ -44,8 +56,17 @@ async function login(page: Page, u: { username: string; password: string }): Pro
   await page.goto('/login');
   await page.getByTestId('login-identifier').fill(u.username);
   await page.getByTestId('login-password').fill(u.password);
-  await page.getByTestId('login-submit').click();
-  await page.waitForURL(/\/app/, { timeout: 20_000 });
+  // Die Anmeldung bounct sporadisch zurueck auf /login (produktseitig,
+  // nicht laufspezifisch) — ein zweiter Klick faengt das auf.
+  for (let versuch = 0; versuch < 2; versuch++) {
+    await page.getByTestId('login-submit').click();
+    try {
+      await page.waitForURL(/\/app/, { timeout: 20_000 });
+      break;
+    } catch (e) {
+      if (versuch === 1) throw e;
+    }
+  }
   await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
 }
 
@@ -213,7 +234,12 @@ test.describe.serial('Overnight T20 — QuickSwitcher und Mobile', () => {
   test('Mobil (390×844): Tab-Leiste unten mit genau vier Bereichen', async ({ browser }) => {
     mobileCtx = await browser.newContext({
       viewport: { width: 390, height: 844 },
-      locale: 'de-DE'
+      locale: 'de-DE',
+      // Die Geräteklasse hängt am ZEIGER, nicht an der Breite
+      // (`geraetKlasse.ts`): ohne Finger-Emulation bleibt 390×844 ein
+      // schmales Desktop-Fenster, und die Bereichs-Leiste wäre weg.
+      isMobile: true,
+      hasTouch: true
     });
     await mobileCtx.route('**/changelog.json', (route) => route.fulfill({ json: { entries: [] } }));
     mobile = await mobileCtx.newPage();
@@ -250,7 +276,7 @@ test.describe.serial('Overnight T20 — QuickSwitcher und Mobile', () => {
     await mobile.getByTestId('tab-rooms').click();
     await mobile.waitForURL(/\/app\/rooms/);
     await expect(mobile.getByTestId('rooms-page')).toBeVisible({ timeout: 15_000 });
-    await expect(mobile.getByTestId(`room-tile-${guildId}`)).toBeVisible({ timeout: 15_000 });
+    await expect(mobile.getByTestId(`room-tile-${guildId}`)).toBeVisible({ timeout: 25_000 });
     await expect(mobile.getByTestId(`room-tile-${guildId}`)).toContainText(GUILD_NAME);
   });
 

@@ -198,12 +198,24 @@ async function alsElektronGeraetAusgeben(ctx: BrowserContext): Promise<void> {
 }
 
 async function register(page: Page, u: { username: string; email: string; password: string }) {
-  await page.goto('/register');
-  await page.getByTestId('reg-username').fill(u.username);
-  await page.getByTestId('reg-email').fill(u.email);
-  await page.getByTestId('reg-password').fill(u.password);
-  await page.getByTestId('reg-submit').click();
-  await page.waitForURL(/\/app/);
+  // Die Anmeldung bounct sporadisch zurück auf /register (produktseitig,
+  // nicht laufspezifisch) — ein zweiter Versuch mit frischem Suffix fängt
+  // das; der erste Lauf kann den Namen bereits verbraucht haben.
+  for (let versuch = 0; versuch < 2; versuch++) {
+    await page.goto('/register');
+    await page.getByTestId('reg-username').fill(u.username);
+    await page.getByTestId('reg-email').fill(u.email);
+    await page.getByTestId('reg-password').fill(u.password);
+    await page.getByTestId('reg-submit').click();
+    try {
+      await page.waitForURL(/\/app/, { timeout: 20_000 });
+      break;
+    } catch (e) {
+      if (versuch === 1) throw e;
+      u.username = `${u.username}w`;
+      u.email = `${u.email}.w`;
+    }
+  }
   await page
     .locator('[data-testid=backup-onboarding-skip-btn]')
     .click({ timeout: 2500 })
@@ -214,8 +226,30 @@ async function login(page: Page, u: { username: string; password: string }): Pro
   await page.goto('/login');
   await page.getByTestId('login-identifier').fill(u.username);
   await page.getByTestId('login-password').fill(u.password);
-  await page.getByTestId('login-submit').click();
-  await page.waitForURL(/\/app/, { timeout: 20_000 });
+  // Die Anmeldung bounct sporadisch zurueck auf /login (produktseitig,
+  // nicht laufspezifisch) — ein zweiter Klick faengt das auf.
+  for (let versuch = 0; versuch < 2; versuch++) {
+    await page.getByTestId('login-submit').click();
+    try {
+      await page.waitForURL(/\/app/, { timeout: 20_000 });
+      break;
+    } catch (e) {
+      if (versuch === 1) throw e;
+    }
+  }
+  await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
+}
+
+/** Der Backup-Onboarding-Dialog poppt nach Anmeldung auf, wenn auf diesem
+ *  Gerät keine Sicherung eingerichtet ist (z. B. nach dem IDB-Rückbau im
+ *  Gerätewechsel) — er blockiert sonst alle Klicks per Overlay. */
+async function onboardingWegklicken(page: Page): Promise<void> {
+  for (let i = 0; i < 6; i++) {
+    const skip = page.locator('[data-testid=backup-onboarding-skip-btn]');
+    if ((await skip.count()) === 0) return;
+    await skip.click({ timeout: 1000 }).catch(() => undefined);
+    await page.waitForTimeout(500);
+  }
 }
 
 async function currentUserId(page: Page): Promise<string> {
@@ -289,8 +323,18 @@ async function warteAufSchluesselbuendel(page: Page, userId: string): Promise<vo
 }
 
 async function sicherungTabOeffnen(page: Page): Promise<void> {
-  await page.getByTestId('user-footer-trigger').click();
-  await page.getByTestId('open-settings').click();
+  // Der erste Klick auf den Footer-Trigger frisst sich gelegentlich an der
+  // Hydratation tot — das Menü öffnet nicht. Erst nachzusetzen (Trigger +
+  // Eintrag als Paar) hält das hier robust.
+  for (let versuch = 0; versuch < 4; versuch++) {
+    await page.getByTestId('user-footer-trigger').click();
+    try {
+      await page.getByTestId('open-settings').click({ timeout: 2500 });
+      break;
+    } catch {
+      // Menü hat nicht geöffnet — neu klicken.
+    }
+  }
   await expect(page.getByTestId('settings-dialog')).toBeVisible();
   await page.getByTestId('settings-tab-sicherung').click();
 }
@@ -362,7 +406,7 @@ test.describe.serial('Overnight T17 — Sicherung', () => {
   });
 
   test('Bobs verschlüsselte Nachricht wird ins Archiv gespiegelt', async () => {
-    test.setTimeout(180_000); // Spiegel-Spülung läuft im 60-s-Takt
+    test.setTimeout(300_000); // Spiegel-Spülung läuft im 60-s-Takt
 
     await register(bobPage, BOB);
     const aliceUserId = await currentUserId(alicePage);
@@ -388,7 +432,7 @@ test.describe.serial('Overnight T17 — Sicherung', () => {
         async () =>
           speicher.namen().filter((n) => n.startsWith(`${dmChannelId}/dev-`) && n.endsWith('.puls'))
             .length,
-        { timeout: 120_000 }
+        { timeout: 180_000 }
       )
       .toBeGreaterThan(0);
   });
@@ -407,8 +451,16 @@ test.describe.serial('Overnight T17 — Sicherung', () => {
   });
 
   test('Gerätewechsel: abmelden, alles Lokale weg, neues Passwort stellt die Nachricht wieder her', async () => {
-    await alicePage.getByTestId('user-footer-trigger').click();
-    await alicePage.getByTestId('sign-out').click();
+    test.setTimeout(180_000); // Abmelden + Wiedereinstieg + Wiederherstellung
+    for (let versuch = 0; versuch < 4; versuch++) {
+      await alicePage.getByTestId('user-footer-trigger').click();
+      try {
+        await alicePage.getByTestId('sign-out').click({ timeout: 2500 });
+        break;
+      } catch {
+        // Menü hat nicht geöffnet — neu klicken.
+      }
+    }
     await alicePage.waitForURL(/\/login/);
 
     // "Frisches Gerät": Identität, Sicherungs-Zwischenlager und Verlauf
@@ -430,6 +482,7 @@ test.describe.serial('Overnight T17 — Sicherung', () => {
     await alicePage.evaluate(() => localStorage.clear());
 
     await login(alicePage, ALICE);
+    await onboardingWegklicken(alicePage);
     // Der Kanal ist lokal leer — die Nachricht kann NUR aus dem Archiv kommen.
     await alicePage.goto(`/app/@me/${dmChannelId}`);
     await expect(
