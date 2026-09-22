@@ -254,10 +254,22 @@ export type SidecarEvent = SidecarEventBody & { slot?: number };
 
 type Unlisten = () => void;
 
-/** The `window.pulse.sidecar` bridge, or `null` when not running inside Electron. */
+/** The `window.pulse.sidecar` bridge, or `null` when not running inside Electron.
+ *
+ *  Rückfall auf den alten Namen `gsr` (Hüllen bis einschließlich 0.1.84): die
+ *  Umbenennung 2026-09-20 rollte am 2026-09-22 über den RENDERER aus, bevor
+ *  die App-Hüllen der Nutzer aktualisiert waren — ohne diesen Rückfall war
+ *  die Brücke auf jeder alten Hülle „verschwunden" und der HQ-Knopf
+ *  ausgeblendet (Meldung 2026-09-22: HQ fehlt bei Nutzern auf 0.1.84,
+ *  AMD Linux wie Windows — Plattform war Zufall, nur der Versionsstand
+ *  zählte). Der Wire-Vertrag ist identisch (s. pulse.d.ts); sobald der
+ *  letzte Nutzer ≥0.1.85 steht, kann der Rückfall entfallen. */
 function bridge(): NonNullable<Window['pulse']>['sidecar'] | null {
   if (typeof window === 'undefined') return null;
-  return window.pulse?.sidecar ?? null;
+  const pulse = window.pulse as
+    | (NonNullable<Window['pulse']> & { gsr?: NonNullable<Window['pulse']>['sidecar'] })
+    | undefined;
+  return pulse?.sidecar ?? pulse?.gsr ?? null;
 }
 
 export const sidecar = {
