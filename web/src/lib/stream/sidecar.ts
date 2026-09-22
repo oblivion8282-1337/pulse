@@ -301,7 +301,13 @@ export const sidecar = {
     // Sidecar es täte — die echte Brücke wird nie angerufen, der echte
     // Sidecar läuft unberührt weiter. Der Fehlertext fließt über
     // `streamStarten` in Slot-State, Toast UND den Käfer-Ring.
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('pulse.dev.sidecarKaputt') === '1') {
+    // `import.meta.env.DEV` ist im Prod-Build konstant false — Injektion UND
+    // Schalter (SettingsExperimental) sind dort vollständig abwesend.
+    if (
+      import.meta.env.DEV &&
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem('pulse.dev.sidecarKaputt') === '1'
+    ) {
       return {
         ok: false,
         error: 'DEV-Fehlerinjektion: Sidecar-Start schlägt fehl (Schalter „Sidecar-Fehler simulieren“ in den Einstellungen)'
