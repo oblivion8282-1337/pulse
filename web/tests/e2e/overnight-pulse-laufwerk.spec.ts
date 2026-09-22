@@ -176,7 +176,7 @@ test.describe.serial('T12 — Pulse-Laufwerk API', () => {
           });
           return r.status;
         } catch (e) {
-          window.__t12err = String(e);
+          (window as unknown as { __t12err: string }).__t12err = String(e);
           return -1;
         }
       }, mint.body!.upload_url);

@@ -26,7 +26,14 @@ export default defineConfig({
   // Rest seiner Datei als "did not run" mit. Fahren:
   //   pnpm exec playwright test tests/e2e/e2e-dm-hetzner.spec.ts \
   //     --config=tests/e2e/playwright.hetzner.config.ts
-  testIgnore: ['**/_*.ts', '**/e2e-dm-hetzner.spec.ts'],
+  // Dasselbe gilt fuer die beiden Zwei-Geraete-Varianten
+  // (hintergrund/verlauf), die denselben Remote-Stack voraussetzen.
+  testIgnore: [
+    '**/_*.ts',
+    '**/e2e-dm-hetzner.spec.ts',
+    '**/e2e-dm-hintergrund-hetzner.spec.ts',
+    '**/e2e-dm-verlauf-hetzner.spec.ts'
+  ],
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,

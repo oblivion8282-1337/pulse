@@ -192,7 +192,11 @@ async function alsElektronGeraetAusgeben(ctx: BrowserContext): Promise<void> {
         set: leer,
         setAll: leer
       },
-      notify: leer
+      // Vertrag wie die echte Electron-Bridge (und der Stub in
+      // `_hetzner-helfer.ts`): `notify.onClick` ist eine Funktion, die den
+      // Unsubscribe liefert. Blosse `leer`-Funktion ließ `+layout.svelte`
+      // bei jedem Start mit „notifyApi.onClick is not a function" crashten.
+      notify: { show: async () => 'stub', onClick: () => () => undefined }
     };
   });
 }
@@ -427,12 +431,16 @@ test.describe.serial('Overnight T17 — Sicherung', () => {
     ).toBeVisible({ timeout: 10_000 });
 
     // Die Segment-Datei dieses Kanals landet im geteilten Ordner.
+    // ponytail: Spülung im 60-s-Takt (SPUEL_VERZOEGERUNG_MS) — unter
+    // Parallel-Last anderer Specs verpasst der erste Takt die Nachricht
+    // gern, der zweite trifft; 240s = 4 Takte statt 3. Erhöhter Aufwand
+    // (echten Flush anstoßen statt auf den Takt warten) lohnt nicht.
     await expect
       .poll(
         async () =>
           speicher.namen().filter((n) => n.startsWith(`${dmChannelId}/dev-`) && n.endsWith('.puls'))
             .length,
-        { timeout: 180_000 }
+        { timeout: 240_000 }
       )
       .toBeGreaterThan(0);
   });
@@ -452,6 +460,9 @@ test.describe.serial('Overnight T17 — Sicherung', () => {
 
   test('Gerätewechsel: abmelden, alles Lokale weg, neues Passwort stellt die Nachricht wieder her', async () => {
     test.setTimeout(180_000); // Abmelden + Wiedereinstieg + Wiederherstellung
+    // Der vorige Test lässt den Settings-Dialog offen — dessen Overlay
+    // frisst jeden Klick auf den User-Footer. Ein ESC schließt ihn.
+    await alicePage.keyboard.press('Escape');
     for (let versuch = 0; versuch < 4; versuch++) {
       await alicePage.getByTestId('user-footer-trigger').click();
       try {

@@ -81,10 +81,15 @@ class PresenceStore {
   }
 
   apply(userId: string, online: boolean): void {
-    if (online) this.onlineIds.add(userId);
-    else this.onlineIds.delete(userId);
-    // Svelte 5 $state<Set> doesn't track Set mutation — reassign for reactivity.
-    this.onlineIds = this.onlineIds;
+    // Neues Set statt Selbstzuweisung: `this.x = this.x` auf dieselbe
+    // Referenz löst bei $state-Klassenfeldern KEINE Ableitungen aus — die
+    // Mitgliederliste blieb beim Disconnect-Ereignis stehengelassen (Bug
+    // 2026-09-22: „Abgemeldete Nutzer rutschen nicht in die Offline-Gruppe").
+    // Die In-Place-Mutation war da, nur die Benachrichtigung fehlte.
+    const next = new Set(this.onlineIds);
+    if (online) next.add(userId);
+    else next.delete(userId);
+    this.onlineIds = next;
   }
 
   /** Apply a ``presence_status_changed`` for a peer (masked value — caller

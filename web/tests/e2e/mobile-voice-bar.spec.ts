@@ -24,7 +24,9 @@ test.describe('Sprach-Knopfreihe auf dem Handy', () => {
   let guildId: string;
 
   test.beforeAll(async ({ browser }) => {
-    page = await browser.newPage({ viewport: HANDY });
+    // Geraeteklasse haengt am ZEIGER (geraetKlasse.ts) — ohne
+    // Finger-Emulation bleibt HANDY ein schmales Desktop-Fenster.
+    page = await (await browser.newContext({ viewport: HANDY, locale: 'de-DE', isMobile: true, hasTouch: true })).newPage();
     await page.goto('/register');
     await page.getByTestId('reg-username').fill(`voice_${TAG}`);
     await page.getByTestId('reg-email').fill(`voice_${TAG}@dcc-test.example.com`);

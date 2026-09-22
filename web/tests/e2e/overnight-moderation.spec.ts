@@ -220,7 +220,7 @@ test.describe.serial('T13 — Moderations-Warteschlange', () => {
   });
 
   test('Abschließen mit Grund → Meldung in „Erledigt", Badge weg', async () => {
-    const reportId = (await chatApi<{ id: string }>(modPage, 'GET', `/guilds/${gid}/mod-queue?status=new`))
+    const reportId = (await chatApi<{ id: string }[]>(modPage, "GET", `/guilds/${gid}/mod-queue?status=new`))
       .body![0].id;
     const resolved = await chatApi<{ status: string; resolution_note: string }>(
       modPage,
@@ -271,7 +271,7 @@ test.describe.serial('T13 — Moderations-Warteschlange', () => {
     await expect(modPage.getByTestId('modqueue-tab-badge')).toHaveText('1', { timeout: 10_000 });
 
     // … zweite per API.
-    const rest = await chatApi<{ id: string }>(modPage, 'GET', `/guilds/${gid}/mod-queue?status=new`);
+    const rest = await chatApi<{ id: string }[]>(modPage, "GET", `/guilds/${gid}/mod-queue?status=new`);
     expect(rest.body!.length).toBe(1);
     const dismissed = await chatApi(modPage, 'POST', `/guilds/${gid}/mod-queue/${rest.body![0].id}/resolve`, {
       resolution: 'dismissed'

@@ -39,21 +39,35 @@ def assert_single_worker(service: str) -> None:
     """Siehe Modul-Docstring. Löst ``RuntimeError`` im zweiten Prozess aus."""
     if os.environ.get("PULSE_ALLOW_MULTIPLE_WORKERS") == "1":
         return
-    if service in _locks:
-        return  # gleicher Prozess (Tests) — ein Prozess, ein Zähler
     if fcntl is None:  # pragma: no cover — Windows ohne Container/WSL
         return
-    pfad = os.path.join(tempfile.gettempdir(), f"pulse-singleworker-{service}.lock")
+    if service in _locks:
+        return  # gleicher Prozess (Tests) — ein Prozess, ein Zähler
+    # pytest-xdist: jeder Worker ist eine eigene Prozess-Domain (das Wurzel-
+    # conftest gibt ihm schon einen eigenen Redis-Server). Ohne Suffix
+    # haette nur EIN von N Workern den Lock und alle anderen wuerfen bei
+    # jedem App-Startup im Test — der Guard schuetzt Deployments auf einem
+    # Host, nicht Testlaufoptiken. Kindprozesse erben die Umgebungsvariable,
+    # also greift der Guard im Guard-Test weiterhin echt. Der Suffix landet
+    # nur im DATEINAMEN; der Memo-Schluessel in ``_locks`` bleibt logisch
+    # (roh), damit Aufrufer wie der eigenen-Tests-Fixture unter beiden Modi
+    # denselben Schluessel vorfinden.
+    pfad_service = service
+    xdist = os.environ.get("PYTEST_XDIST_WORKER")
+    if xdist:
+        pfad_service = f"{service}@{xdist}"
+    pfad = os.path.join(tempfile.gettempdir(), f"pulse-singleworker-{pfad_service}.lock")
     fd = os.open(pfad, os.O_CREAT | os.O_RDWR, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         os.close(fd)
         raise RuntimeError(
-            f"another '{service}' process already holds the single-worker lock — "
-            "running multiple workers/instances would silently multiply every "
-            "in-process rate limit (brute-force budgets included). Run exactly "
-            "one worker per service, or set PULSE_ALLOW_MULTIPLE_WORKERS=1 "
-            "AFTER moving the rate limiters to Redis."
+            f"another '{pfad_service}' process already holds the single-worker lock "
+            f"(lock file: {pfad}) — running multiple workers/instances would "
+            "silently multiply every in-process rate limit (brute-force budgets "
+            "included). Run exactly one worker per service, or set "
+            "PULSE_ALLOW_MULTIPLE_WORKERS=1 AFTER moving the rate limiters to "
+            "Redis."
         ) from None
     _locks[service] = fd

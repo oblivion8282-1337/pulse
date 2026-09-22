@@ -7,7 +7,7 @@
  * API mit `expires_in_seconds: 1` an — der Prüfling bleibt der Beitritt.
  */
 
-import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import { test, expect, type Page, type BrowserContext, type Locator } from '@playwright/test';
 
 const ts = Date.now();
 const ALICE = {
@@ -103,7 +103,7 @@ test.describe.serial('Overnight T9 — Einladungen', () => {
   let danPage: Page;
   let gastCtx: BrowserContext;
   let guildId = '';
-  let sprachkanal = '';
+  let sprachkanal: Locator;
   let einladung = '';
 
   test.beforeAll(async ({ browser }) => {

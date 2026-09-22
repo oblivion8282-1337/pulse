@@ -74,8 +74,19 @@ async function login(page: Page, u: { username: string; password: string }): Pro
 }
 
 async function guildSettingsTab(page: Page, guildId: string, tab: string): Promise<void> {
-  await page.getByTestId(`guild-${guildId}`).click({ button: 'right' });
-  await page.getByTestId('guild-settings').click();
+  // Unter Parallel-Last der anderen Specs rendert die Guild-Rail zwischendurch
+  // neu und reißt das offene Kontextmenü mit ab — der Klick aufs Menü-Item
+  // würde dann ewig auf ein nie wieder kommendes Element warten. Darum: Menü
+  // bei Detach einfach neu öffnen (Muster wie `abmelden`).
+  for (let versuch = 0; versuch < 4; versuch++) {
+    await page.getByTestId(`guild-${guildId}`).click({ button: 'right' });
+    try {
+      await page.getByTestId('guild-settings').click({ timeout: 2_500 });
+      break;
+    } catch {
+      // Menü wurde abgebaut — neu öffnen.
+    }
+  }
   await expect(page.getByTestId('guild-settings-dialog')).toBeVisible();
   await page.getByTestId(`settings-tab-${tab}`).click();
 }
@@ -209,9 +220,24 @@ test.describe.serial('Overnight T19 — Entdecken und Plugins', () => {
     await owner.getByTestId('admin-tab-settings').click();
     await expect(owner.getByTestId('admin-plugins')).toBeVisible();
     const toggle = owner.getByTestId('admin-plugin-toggle-tamagotchi');
+    // Retry/erneuter Lauf: die Allowlist ist INSTANZ-global — der erste
+    // Versuch hat tamagotchi evtl. schon freigeschaltet. Erst neutralisieren.
+    if ((await toggle.getAttribute('aria-checked')) === 'true') {
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-checked', 'false', { timeout: 7_000 });
+    }
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 7_000 });
+    // Ein Klick kann verpuffen, wenn der PATCH der Normalisierung noch
+    // unterwegs ist — bis zu dreimal klicken, bis das Switch-Attribut folgt.
+    for (let versuch = 0; versuch < 3; versuch++) {
+      await toggle.click();
+      try {
+        await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 7_000 });
+        break;
+      } catch {
+        if (versuch === 2) throw new Error('tamagotchi allowlist toggle blieb OFF');
+      }
+    }
   });
 
   test('Guild-Settings: Tamagotchi ON → Widget erscheint im Kanal', async () => {

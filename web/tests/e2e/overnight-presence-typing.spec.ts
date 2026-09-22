@@ -199,6 +199,7 @@ test.describe.serial('Overnight T18 — Präsenz und Tippanzeige', () => {
 
     // ponytail: Seed statt echtem Voice-Join — Begruendung im Modulkopf.
     await bobPage.evaluate(({ kanalId, uid }) => {
+      // @ts-expect-error - Vite-served path resolved at browser runtime
       return import('/src/lib/stores/voicePresence.svelte.ts').then((m) =>
         m.voicePresence.seed([{ channel_id: kanalId, user_ids: [uid] }])
       );

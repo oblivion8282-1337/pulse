@@ -31,12 +31,27 @@ const GAST = {
 };
 
 async function register(page: Page, u: { username: string; email: string; password: string }) {
+  // Die Anmeldung bounct sporadisch zurueck auf /register (produktseitig) —
+  // ein zweiter Klick faengt das auf (Muster wie in den anderen Specs).
   await page.goto('/register');
   await page.getByTestId('reg-username').fill(u.username);
   await page.getByTestId('reg-email').fill(u.email);
   await page.getByTestId('reg-password').fill(u.password);
-  await page.getByTestId('reg-submit').click();
-  await page.waitForURL(/\/app/);
+  for (let versuch = 0; versuch < 2; versuch++) {
+    await page.getByTestId('reg-submit').click();
+    try {
+      await page.waitForURL(/\/app/, { timeout: 20_000 });
+      break;
+    } catch {
+      if (versuch === 1) throw new Error('register blieb auf /register haengen');
+      // Erster Klick kann den Account schon angelegt haben (Antwort
+      // verloren gegangen) — der zweite Versuch braucht frische Namen.
+      u.username = `${u.username}w`;
+      u.email = `${u.email}.w`;
+      await page.getByTestId('reg-username').fill(u.username);
+      await page.getByTestId('reg-email').fill(u.email);
+    }
+  }
   await page
     .locator('[data-testid=backup-onboarding-skip-btn]')
     .click({ timeout: 2500 })
@@ -169,6 +184,9 @@ test.describe('Pulse-Laufwerk — Community-Dateiablage', () => {
       hasText: 'hallo-geheim.txt'
     });
     await halloKarte.locator('[data-testid^=community-ablage-loeschen-]').click();
+    // Bughunt 2026-09-20 (Runde 2): auch EINZELNE Dateien fragen jetzt nach,
+    // bevor sie endgültig weg sind — der Confirm gehört zum Löschklick dazu.
+    await page.getByTestId('confirm-dialog-confirm').click();
     await expect(ansicht.getByText('hallo-geheim.txt')).toHaveCount(0);
 
     // Ordner löschen — mit Rückfrage (enthält bericht.txt)

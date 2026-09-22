@@ -11,7 +11,7 @@
 import { ChildProcess, spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { E2E_AUTH_PORT, E2E_CHAT_PORT, E2E_WEB_PORT, E2E_BASE_URL } from './_ports';
 
 /**
@@ -116,6 +116,7 @@ async function truncateDb(env: NodeJS.ProcessEnv) {
     TRUNCATE
       chat.message_attachments,
       chat.admin_audit_log,
+      chat.reports,
       chat.messages,
       chat.guild_members,
       chat.channels,
@@ -339,7 +340,7 @@ export default async function globalSetup() {
   const redisDb = process.env.PULSE_E2E_REDIS_DB ?? '1';
   ensureTestDb(pgUser, testDb);
 
-  const baseEnv = {
+  const baseEnv: NodeJS.ProcessEnv = {
     ...process.env,
     ...dotenv,
     POSTGRES_HOST: 'localhost',
@@ -384,7 +385,7 @@ export default async function globalSetup() {
   await applyMigrations(baseEnv, 'dcc-auth', resolve(ROOT, 'services/auth'));
   await applyMigrations(baseEnv, 'dcc-chat-gateway', resolve(ROOT, 'services/chat-gateway'));
   await truncateDb(baseEnv);
-  clearSharedAuthRedisCache(baseEnv.REDIS_URL);
+  clearSharedAuthRedisCache(baseEnv.REDIS_URL ?? `redis://localhost:6380/${redisDb}`);
 
   // Kill only previously-spawned test services (from the last run's pid file).
   // This cleans up stale test processes after a crash without touching the
@@ -405,6 +406,16 @@ export default async function globalSetup() {
   // rather than silently testing the wrong DB.
   assertPortFree(E2E_AUTH_PORT);
   assertPortFree(E2E_CHAT_PORT);
+
+  // Eigene TMPDIR-Instanz für die E2E-Services: assert_single_worker (flock
+  // auf <tmp>/pulse-singleworker-<svc>.lock) würde sonst mit einem laufenden
+  // Dev-Stack kollidieren — der hält dieselbe Lockdatei, und die Suite stiebe
+  // im Lifespan ab („another 'auth' process already holds the lock"), obwohl
+  // Dev und E2E jeweils je genau einen Worker haben (eigene DB, eigener
+  // Redis-DB, eigene In-Process-Limiter).
+  const e2eTmp = resolve(ROOT, 'node_modules/.dcc-e2e-tmp');
+  mkdirSync(e2eTmp, { recursive: true });
+  baseEnv.TMPDIR = e2eTmp;
 
   startService('dcc-auth', baseEnv, E2E_AUTH_PORT, resolve(ROOT, 'services/auth'));
   startService('dcc-chat-gateway', baseEnv, E2E_CHAT_PORT, resolve(ROOT, 'services/chat-gateway'));

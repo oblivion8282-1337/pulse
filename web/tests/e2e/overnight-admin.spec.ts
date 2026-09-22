@@ -157,17 +157,24 @@ test.describe.serial('T14 — Server-Admin-Panel', () => {
 
   test('Einstellungen: DM-Limits persistieren (und zurücksetzen)', async () => {
     const sizeInput = admin.getByTestId('dm-max-size-input');
-    await expect(sizeInput).toHaveValue('25', { timeout: 7_000 });
-    await sizeInput.fill('40');
+    // Ausgangswert nicht hardcoden: andere Specs in demselben Lauf (z.B.
+    // admin.spec) aendern das Limit ebenfalls und lassen ihren Wert stehen.
+    const original = await sizeInput.inputValue();
+    const alternativ = original === '40' ? '41' : '40';
+    await sizeInput.fill(alternativ);
     await admin.getByTestId('dm-limits-save').click();
     await admin.reload();
     await admin.getByTestId('admin-tab-settings').click();
-    await expect(admin.getByTestId('dm-max-size-input')).toHaveValue('40', { timeout: 7_000 });
+    await expect(admin.getByTestId('dm-max-size-input')).toHaveValue(alternativ, {
+      timeout: 7_000
+    });
 
     // Sauber zurückstellen — der Wert darf nicht in den nächsten Lauf lecken
-    await admin.getByTestId('dm-max-size-input').fill('25');
+    await admin.getByTestId('dm-max-size-input').fill(original);
     await admin.getByTestId('dm-limits-save').click();
-    await expect(admin.getByTestId('dm-max-size-input')).toHaveValue('25', { timeout: 7_000 });
+    await expect(admin.getByTestId('dm-max-size-input')).toHaveValue(original, {
+      timeout: 7_000
+    });
   });
 
   test('Einstellungen: Backup-Bereich rendert', async () => {

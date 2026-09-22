@@ -12,7 +12,7 @@
  * Auflegen-Knopf existiert.
  */
 
-import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import { test, expect, type Page, type BrowserContext, type Locator } from '@playwright/test';
 
 const ts = Date.now();
 const OWNER = {
@@ -45,7 +45,7 @@ test.describe.serial('Overnight T10 — Sprachkanal', () => {
   let gastCtx: BrowserContext;
   let gastPage: Page;
   let guildId = '';
-  let voiceKanal = '';
+  let voiceKanal: Locator;
 
   test.beforeAll(async ({ browser }) => {
     ownerCtx = await browser.newContext();
