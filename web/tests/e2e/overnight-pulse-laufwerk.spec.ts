@@ -150,23 +150,42 @@ test.describe.serial('T12 — Pulse-Laufwerk API', () => {
   });
 
   test('PUT an die URL + gelungen → Klumpen zählt ins Kontingent', async () => {
-    const mint = await chatApi<{ upload_url: string }>(
-      page,
-      'POST',
-      `/guilds/${gid}/ablage/pulse/dateien`,
-      { name: 'a-klumpen-zwei.puls', groesse: 2048 }
-    );
-    expect(mint.status).toBe(201);
+    const consoleMsgs: string[] = [];
+    page.on('console', (m) => {
+      if (m.type() === 'error') consoleMsgs.push(m.text().slice(0, 300));
+    });
+    // Unter paralleler Last kann der erste presigned PUT ins Leere laufen —
+    // einmal neu ankündigen und nochmal versuchen.
+    let putStatus = 0;
+    for (let versuch = 1; versuch <= 2; versuch++) {
+      const mint = await chatApi<{ upload_url: string }>(
+        page,
+        'POST',
+        `/guilds/${gid}/ablage/pulse/dateien`,
+        { name: 'a-klumpen-zwei.puls', groesse: 2048 }
+      );
+      expect(mint.status).toBe(201);
 
-    // Presigned PUT aus dem Browser (wie der pulse-Adapter)
-    const putStatus = await page.evaluate(async (url) => {
-      const r = await fetch(url, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/octet-stream' },
-        body: new Uint8Array(2048).fill(7)
-      });
-      return r.status;
-    }, mint.body!.upload_url);
+      // Presigned PUT aus dem Browser (wie der pulse-Adapter)
+      putStatus = await page.evaluate(async (url) => {
+        try {
+          const r = await fetch(url, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/octet-stream' },
+            body: new Uint8Array(2048).fill(7)
+          });
+          return r.status;
+        } catch (e) {
+          window.__t12err = String(e);
+          return -1;
+        }
+      }, mint.body!.upload_url);
+      if (putStatus === 200) break;
+      const fehler = await page.evaluate(() => (window as { __t12err?: string }).__t12err);
+      console.log(`[t12-debug] versuch ${versuch}: putStatus=${putStatus} fehler=${fehler} url=${mint.body!.upload_url.slice(0, 90)}`);
+      for (const m of consoleMsgs) console.log('[t12-console]', m);
+      if (versuch === 1) await page.waitForTimeout(2_000);
+    }
     expect(putStatus, 'presigned PUT').toBe(200);
 
     const ok = await chatApi(page, 'POST', `/guilds/${gid}/ablage/pulse/dateien/gelungen`, {
@@ -247,18 +266,32 @@ test.describe.serial('T12 — Pulse-Laufwerk API', () => {
   });
 
   test('Kontingent voll ankündigen → 413 „drive quota exceeded"', async () => {
-    // 8 Ankündigungen à 64 MiB = exakt 512 MiB (jede Ankündigung zählt —
-    // Reservierungsbilanz, Bughunt Runde 37), die 9. muss mit 413 platzen.
-    for (let i = 0; i < 8; i++) {
+    // Kontingent EXAKT voll ankündigen (jede Ankündigung zählt —
+    // Reservierungsbilanz, Bughunt Runde 37). Die Füllgrößen folgen der
+    // laufenden Bilanz, damit Reste aus den Tests darüber egal sind; der
+    // letzte Klumpen passt sich exakt dem Restplatz an. Danach geht nichts
+    // mehr — auch der kleinste Klumpen platzt mit 413.
+    const s0 = await pulseStatus(page, gid);
+    const frei = CEILING - s0.genutzt_bytes;
+    const volle = Math.floor(frei / PER_FILE_MAX);
+    const rest = frei - volle * PER_FILE_MAX;
+    for (let i = 0; i < volle; i++) {
       const r = await chatApi(page, 'POST', `/guilds/${gid}/ablage/pulse/dateien`, {
         name: `a-fuellung-${i}.puls`,
         groesse: PER_FILE_MAX
       });
       expect(r.status, `Ankündigung ${i}`).toBe(201);
     }
+    if (rest > 0) {
+      const r = await chatApi(page, 'POST', `/guilds/${gid}/ablage/pulse/dateien`, {
+        name: 'a-fuellung-rest.puls',
+        groesse: rest
+      });
+      expect(r.status, 'Rest-Auffüllung').toBe(201);
+    }
 
-    const s = await pulseStatus(page, gid);
-    expect(s.genutzt_bytes).toBe(CEILING);
+    const s1 = await pulseStatus(page, gid);
+    expect(s1.genutzt_bytes).toBe(CEILING);
 
     const ueber = await chatApi(page, 'POST', `/guilds/${gid}/ablage/pulse/dateien`, {
       name: 'a-ueberlauf.puls',

@@ -62,13 +62,25 @@ async function login(page: Page, identifier: string, password: string = PASSWORD
   await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
 }
 
-/** Einstellungen → Speicher-Reiter öffnen (Wiederherstellungs-Block lebt dort). */
-async function oeffneSpeicherEinstellungen(page: Page) {
+/**
+ * Einstellungen → Speicher-Reiter öffnen (Wiederherstellungs-Block lebt
+ * dort). Gibt false zurück, wenn der Reiter in diesem Build versteckt ist —
+ * `settingsTabs.ts` hat „storage" auskommentiert („bleibt versteckt, bis sie
+ * freigegeben wird"); der Block samt UI-Flüssen ist dann unerreichbar und
+ * die zugehörigen Tests skippen mit Verweis auf diese Stelle.
+ */
+async function oeffneSpeicherEinstellungen(page: Page): Promise<boolean> {
   await page.getByTestId('user-footer-trigger').click();
   await page.getByTestId('open-settings').click();
   await expect(page.getByTestId('settings-dialog')).toBeVisible();
-  await page.getByTestId('settings-tab-storage').click();
+  const tab = page.getByTestId('settings-tab-storage');
+  if ((await tab.count()) === 0) {
+    await page.keyboard.press('Escape');
+    return false;
+  }
+  await tab.click();
   await expect(page.getByTestId('wiederherstellung-block')).toBeVisible();
+  return true;
 }
 
 /** Einstellungen → Sicherheit-Reiter (Passkey-Sektion). */
@@ -99,17 +111,17 @@ test.describe.serial('T15 — Wiederherstellung', () => {
 
     // Community + Ablage-Kanal + Laufwerk verbinden — die lokale Verbindung
     // (Schlüssel liegt auf diesem Gerät) ist der Päckchen-Inhalt.
-    const gid = await page.evaluate(async () => {
+    const gid = await page.evaluate(async (guildName) => {
       const token = localStorage.getItem('dcc.tokens.access');
       const r = await fetch('/api/chat/guilds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: `Recover Guild ${ts}` })
+        body: JSON.stringify({ name: guildName })
       });
       const body = await r.json();
       if (!r.ok) throw new Error(`guild create failed: ${r.status}`);
       return body.id as string;
-    });
+    }, `Recover Guild ${ts}`);
 
     await page.goto(`/app/rooms/${gid}`);
     await page.getByTestId('channel-create').click();
@@ -127,7 +139,11 @@ test.describe.serial('T15 — Wiederherstellung', () => {
   });
 
   test('Erzeugen fragt Passwort ab und zeigt den Code EINMAL', async () => {
-    await oeffneSpeicherEinstellungen(page);
+    const sichtbar = await oeffneSpeicherEinstellungen(page);
+    test.skip(
+      !sichtbar,
+      'Reiter „Speicher" ist in diesem Build versteckt (settingsTabs.ts: storage auskommentiert) — der Wiederherstellungs-Block ist damit unerreichbar. API-Deckung läuft in den Nachbar-Tests.'
+    );
 
     const block = page.getByTestId('wiederherstellung-block');
     // Noch kein Päckchen → kein „Stand"
@@ -161,6 +177,25 @@ test.describe.serial('T15 — Wiederherstellung', () => {
   });
 
   test('Päckchen liegt serverseitig (GET 200)', async () => {
+    // Wenn der UI-Weg skippte, steht kein Päckchen da — dann eines per API
+    // ablegen (der Server sieht nur undurchsichtiges Base64), damit GET,
+    // Einlösen-Fehlweg und DELETE weiter real bleiben.
+    if (!recoveryCode) {
+      const put = await page.evaluate(
+        async (passwort) => {
+          const token = localStorage.getItem('dcc.tokens.access');
+          return (
+            await fetch('/api/auth/me/recovery-package', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ ciphertext: 'ZmVpbkVlMnRFMnN0', password: passwort })
+            })
+          ).status;
+        },
+        PASSWORD
+      );
+      expect(put).toBe(200);
+    }
     const r = await page.evaluate(async () => {
       const token = localStorage.getItem('dcc.tokens.access');
       const resp = await fetch('/api/auth/me/recovery-package', {
@@ -185,6 +220,10 @@ test.describe.serial('T15 — Wiederherstellung', () => {
   });
 
   test('Einlösen am neuen Gerät bringt die Verbindungen zurück', async ({ browser }) => {
+    test.skip(
+      !recoveryCode,
+      'setzt den Erzeugen-UI-Durchlauf voraus, der ohne sichtbaren Speicher-Reiter skippt'
+    );
     const neuCtx = await browser.newContext();
     const neu = await neuCtx.newPage();
     await login(neu, OWNER.username);
@@ -209,6 +248,10 @@ test.describe.serial('T15 — Wiederherstellung', () => {
   });
 
   test('Falscher Code → verständliche Fehlermeldung', async ({ browser }) => {
+    test.skip(
+      !recoveryCode,
+      'setzt den Erzeugen-UI-Durchlauf voraus, der ohne sichtbaren Speicher-Reiter skippt'
+    );
     const neuCtx = await browser.newContext();
     const neu = await neuCtx.newPage();
     await login(neu, OWNER.username);
@@ -239,21 +282,18 @@ test.describe.serial('T15 — Wiederherstellung', () => {
     expect(falsch).toBe(401);
 
     // Richtiges Passwort: Päckchen weg, Stand-Verschwinden nach Neuladen
-    const ok = await page.evaluate(async () => {
+    const ok = await page.evaluate(async (passwort) => {
       const token = localStorage.getItem('dcc.tokens.access');
       return (
         await fetch('/api/auth/me/recovery-package', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ password: PASSWORD })
+          body: JSON.stringify({ password: passwort })
         })
       ).status;
-    });
+    }, PASSWORD);
     expect(ok).toBe(204);
 
-    await page.reload();
-    await oeffneSpeicherEinstellungen(page);
-    await expect(page.getByTestId('wiederherstellung-stand')).toHaveCount(0);
     const status = await page.evaluate(async () => {
       const token = localStorage.getItem('dcc.tokens.access');
       return (
@@ -263,6 +303,12 @@ test.describe.serial('T15 — Wiederherstellung', () => {
       ).status;
     });
     expect(status).toBe(404);
+
+    // Wenn der Speicher-Reiter da ist, ist auch der „Stand" weg
+    if (await oeffneSpeicherEinstellungen(page)) {
+      await expect(page.getByTestId('wiederherstellung-stand')).toHaveCount(0);
+      await page.keyboard.press('Escape');
+    }
   });
 });
 
@@ -280,10 +326,18 @@ test.describe.serial('T15 — Passkeys (gemockte Zeremonie)', () => {
   test.beforeAll(async ({ browser }) => {
     const ctx = await browser.newContext();
     page = await ctx.newPage();
+  });
 
+  test.afterAll(async () => {
+    await page?.context().close();
+  });
+
+  test('Registrieren + Sicherheits-Reiter öffnen (Zeremonie-Mocks scharf)', async () => {
     // navigator.credentials.create fälschen — die encode-Seite braucht nur
-    // id/rawId/clientDataJSON/attestationObject (Route-Mock verifiziert eh nichts).
-    await ctx.addInitScript(() => {
+    // id/rawId/clientDataJSON/attestationObject (Route-Mock verifiziert eh
+    // nichts). Init-Script + Routen an der PAGE hängen, damit sie garantiert
+    // vor der ersten Navigation scharf sind.
+    await page.addInitScript(() => {
       const fake = {
         id: 'e2e-passkey-id-1',
         rawId: new TextEncoder().encode('e2e-passkey-id-1').buffer,
@@ -300,7 +354,7 @@ test.describe.serial('T15 — Passkeys (gemockte Zeremonie)', () => {
       navigator.credentials.get = async () => fake;
     });
 
-    await ctx.route('**/api/auth/webauthn/register/options', async (route) => {
+    await page.route('**/api/auth/webauthn/register/options', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -317,7 +371,7 @@ test.describe.serial('T15 — Passkeys (gemockte Zeremonie)', () => {
         })
       });
     });
-    await ctx.route('**/api/auth/webauthn/register/verify', async (route) => {
+    await page.route('**/api/auth/webauthn/register/verify', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -334,27 +388,18 @@ test.describe.serial('T15 — Passkeys (gemockte Zeremonie)', () => {
         })
       });
     });
-    await ctx.route('**/api/auth/webauthn/credentials', async (route) => {
+    await page.route('**/api/auth/webauthn/credentials', async (route) => {
       if (route.request().method() === 'GET') {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([
-            {
-              id: CRED_ID,
-              name: 'E2E Touch ID',
-              aaguid: null,
-              transports: ['internal'],
-              created_at: new Date().toISOString(),
-              last_used_at: null
-            }
-          ])
+          body: JSON.stringify([])
         });
         return;
       }
       await route.continue();
     });
-    await ctx.route(`**/api/auth/webauthn/credentials/${CRED_ID}`, async (route) => {
+    await page.route(`**/api/auth/webauthn/credentials/${CRED_ID}`, async (route) => {
       if (route.request().method() === 'DELETE') {
         await route.fulfill({
           status: 200,
@@ -365,18 +410,16 @@ test.describe.serial('T15 — Passkeys (gemockte Zeremonie)', () => {
       }
       await route.continue();
     });
+
+    await register(page, PASSKEY_USER);
+    await oeffneSicherheitseinstellungen(page);
   });
 
   test.afterAll(async () => {
     await page?.context().close();
   });
 
-  test('Registrieren + Sicherheits-Reiter öffnen', async () => {
-    await register(page, PASSKEY_USER);
-    await oeffneSicherheitseinstellungen(page);
-  });
-
-  test('Passkey hinzufügen → Zeile erscheint', async () => {
+  test('Passkey hinzufügen → Zeile erscheint → löschen → Zeile weg', async () => {
     await page.getByTestId('passkeys-add').click();
     const dialog = page.getByTestId('passkey-add-dialog');
     await expect(dialog).toBeVisible();
@@ -386,18 +429,32 @@ test.describe.serial('T15 — Passkeys (gemockte Zeremonie)', () => {
 
     await expect(page.getByTestId('passkey-row')).toHaveCount(1, { timeout: 10_000 });
     await expect(page.getByTestId('passkey-row').first()).toContainText('E2E Touch ID');
-  });
+    // Der Wizard schließt sich selbst (keine Backup-Codes → kein Codes-Schritt).
+    try {
+      await expect(dialog).toBeHidden({ timeout: 10_000 });
+    } catch (e) {
+      const errText = await page
+        .getByTestId('passkey-add-error')
+        .textContent()
+        .catch(() => null);
+      throw new Error(`Add-Dialog blieb offen. Fehlermeldung im Dialog: ${errText ?? '(keine)'}`);
+    }
 
-  test('Passkey löschen (mit Passwort) → Zeile weg', async () => {
+    // Löschen: Zwei-Tipp-Freigabe + Passwortpflicht; letzter Passkey ohne
+    // TOTP verlangt zusätzlich einen Backup-Code (Runde 34) — der Route-Mock
+    // nimmt den Code ohnehin ohne Prüfung.
     const row = page.getByTestId('passkey-row').first();
     await row.getByTestId('passkey-delete').click();
     await row.getByTestId('passkey-delete-password').fill(PASSWORD);
+    const backup = row.getByTestId('passkey-delete-backup-code');
+    if (await backup.isVisible()) await backup.fill('E2E-BACKUP-CODE');
     await row.getByTestId('passkey-delete-confirm').click();
     await expect(page.getByTestId('passkey-row')).toHaveCount(0, { timeout: 10_000 });
   });
 });
 
 test('Login ignoriert Groß-/Kleinschreibung', async ({ browser }) => {
+  test.setTimeout(120_000);
   const regCtx = await browser.newContext();
   const reg = await regCtx.newPage();
   await register(reg, CASE_USER);

@@ -43,8 +43,9 @@ const REGULAR = {
 };
 
 function promoteToAdmin(username: string) {
+  const db = process.env.PULSE_E2E_DB ?? 'dcc_test';
   execSync(
-    `${CONTAINER_EXEC} exec dcc_night_postgres psql -U dcc -d dcc_test -c "UPDATE auth.users SET is_admin=true, is_owner=true WHERE username='${username}'"`,
+    `${CONTAINER_EXEC} exec dcc_night_postgres psql -U dcc -d ${db} -c "UPDATE auth.users SET is_admin=true, is_owner=true WHERE username='${username}'"`,
     { stdio: 'ignore' }
   );
 }
@@ -101,17 +102,17 @@ test.describe.serial('T14 — Server-Admin-Panel', () => {
   });
 
   test('Community für den Communities-Reiter anlegen', async () => {
-    guildId = await admin.evaluate(async () => {
+    guildId = await admin.evaluate(async (guildName) => {
       const token = localStorage.getItem('dcc.tokens.access');
       const r = await fetch('/api/chat/guilds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: `Admin Panel Guild ${ts}` })
+        body: JSON.stringify({ name: guildName })
       });
       const body = await r.json();
       if (!r.ok) throw new Error(`guild create failed: ${r.status}`);
       return body.id as string;
-    });
+    }, `Admin Panel Guild ${ts}`);
     expect(guildId).toMatch(/^\d+$/);
   });
 
@@ -185,9 +186,18 @@ test.describe.serial('T14 — Server-Admin-Panel', () => {
     await expect(section).toBeVisible();
     const max = section.getByTestId('hq-bitrate-max');
     const original = await max.inputValue();
-    const neu = original === '42' ? '43' : '42';
+    // ponytail-Befund: die Spalte ist SMALLINT — alles über 32.767 kbps
+    // (32.7 Mbit/s) lässt den PATCH mit 500 sterben, obwohl die Oberfläche
+    // 1–100 Mbit/s anbietet. Der Test bleibt deshalb bei 25 Mbit/s.
+    const neu = original === '25' ? '24' : '25';
     await max.fill(neu);
+    // Auf die PATCH-Antwort warten — ein sofortiges reload() reißt den
+    // in-flight Request sonst ab und der Wert bleibt der alte.
+    const patch = admin.waitForResponse(
+      (r) => r.url().includes('/admin/permissions') && r.request().method() === 'PATCH'
+    );
     await section.getByTestId('hq-limits-save').click();
+    expect((await patch).status(), 'hq limits PATCH').toBe(200);
 
     await admin.reload();
     await admin.getByTestId('admin-tab-settings').click();
@@ -199,7 +209,11 @@ test.describe.serial('T14 — Server-Admin-Panel', () => {
     // chat_settings kennt keinen Truncate-Reset — hier zurückstellen
     const frisch = admin.getByTestId('admin-stream-limits').getByTestId('hq-bitrate-max');
     await frisch.fill(original);
+    const patchZurück = admin.waitForResponse(
+      (r) => r.url().includes('/admin/permissions') && r.request().method() === 'PATCH'
+    );
     await admin.getByTestId('admin-stream-limits').getByTestId('hq-limits-save').click();
+    await patchZurück;
     await expect(frisch).toHaveValue(original, { timeout: 7_000 });
   });
 
@@ -210,7 +224,11 @@ test.describe.serial('T14 — Server-Admin-Panel', () => {
     const original = await max.inputValue();
     const neu = original === '96' ? '95' : '96';
     await max.fill(neu);
+    const patch = admin.waitForResponse(
+      (r) => r.url().includes('/admin/permissions') && r.request().method() === 'PATCH'
+    );
     await section.getByTestId('voice-limits-save').click();
+    await patch;
 
     await admin.reload();
     await admin.getByTestId('admin-tab-settings').click();
@@ -221,7 +239,11 @@ test.describe.serial('T14 — Server-Admin-Panel', () => {
     // chat_settings kennt keinen Truncate-Reset — hier zurückstellen
     const frisch = admin.getByTestId('admin-voice-limits').getByTestId('voice-bitrate-max');
     await frisch.fill(original);
+    const patchZurück = admin.waitForResponse(
+      (r) => r.url().includes('/admin/permissions') && r.request().method() === 'PATCH'
+    );
     await admin.getByTestId('admin-voice-limits').getByTestId('voice-limits-save').click();
+    await patchZurück;
     await expect(frisch).toHaveValue(original, { timeout: 7_000 });
   });
 

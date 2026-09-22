@@ -45,8 +45,9 @@ const BAN_MEMBERS = 1 << 9;
 const MANAGE_MESSAGES = 1 << 23;
 
 function pgQuery(sql: string): string {
+  const db = process.env.PULSE_E2E_DB ?? 'dcc_test';
   return execSync(
-    `${CONTAINER_EXEC} exec dcc_night_postgres psql -U dcc -d dcc_test -tAc "${sql}"`,
+    `${CONTAINER_EXEC} exec dcc_night_postgres psql -U dcc -d ${db} -tAc "${sql}"`,
     { encoding: 'utf8' }
   ).trim();
 }
@@ -92,6 +93,17 @@ async function userId(page: Page): Promise<string> {
     const payload = JSON.parse(atob(raw!.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
     return payload.sub as string;
   });
+}
+
+/** Kanal kalt ansteuern: erst /app laden und den Community-Avatar abwarten
+ *  (der Routen-Wächter wirft sonst auf die Freunde-Seite zurück, bevor die
+ *  Guild-Liste geladen hat), dann in den Kanal gehen. */
+async function oeffneKanal(page: Page, gid: string, channelId: string) {
+  await page.goto('/app');
+  await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId(`guild-${gid}`)).toBeVisible({ timeout: 15_000 });
+  await page.goto(`/app/guilds/${gid}/channels/${channelId}`);
+  await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
 }
 
 test.describe.serial('T13 — Moderations-Warteschlange', () => {
@@ -169,13 +181,19 @@ test.describe.serial('T13 — Moderations-Warteschlange', () => {
   });
 
   test('Melder meldet die Nachricht über den Dialog (UI)', async () => {
-    await reporterPage.goto(`/app/guilds/${gid}/channels/${channelId}`);
+    await oeffneKanal(reporterPage, gid, channelId);
     await expect(
       reporterPage.locator('[data-testid="message-content"]', {
         hasText: 'Diese Nachricht hier wird gemeldet.'
       })
     ).toBeVisible({ timeout: 15_000 });
 
+    // Die Aktionsleiste erscheint erst beim Überfahren der Nachrichtenzeile
+    await reporterPage
+      .locator('[data-testid="message-content"]', {
+        hasText: 'Diese Nachricht hier wird gemeldet.'
+      })
+      .hover();
     await reporterPage.getByTestId('message-action-report').click();
     const dialog = reporterPage.getByTestId('report-message-dialog');
     await expect(dialog).toBeVisible();
@@ -187,7 +205,7 @@ test.describe.serial('T13 — Moderations-Warteschlange', () => {
   });
 
   test('Mod sieht die Meldung im Panel — Badge zeigt 1', async () => {
-    await modPage.goto(`/app/guilds/${gid}/channels/${channelId}`);
+    await oeffneKanal(modPage, gid, channelId);
     await modPage.getByTestId(`guild-${gid}`).click({ button: 'right' });
     await modPage.getByTestId('guild-settings').click();
     await expect(modPage.getByTestId('guild-settings-dialog')).toBeVisible();
@@ -214,9 +232,10 @@ test.describe.serial('T13 — Moderations-Warteschlange', () => {
     expect(resolved.body!.status).toBe('resolved');
     expect(resolved.body!.resolution_note).toBe('E2E-Grund: geklärt.');
 
-    // Badge leert sich live (WS), der Offen-Tab wird leer
+    // Badge leert sich live (WS). Die OFFENE Liste selbst lädt erst beim
+    // Tab-Wechsel neu — das leere Bild prüfen wir deshalb nach dem Rutsch
+    // über „Erledigt" und zurück.
     await expect(modPage.getByTestId('modqueue-tab-badge')).toHaveCount(0, { timeout: 10_000 });
-    await expect(modPage.getByText('Keine Reports in dieser Kategorie.')).toBeVisible();
 
     // Erledigt-Tab: Ausgang „Erledigt" + Notiz sichtbar
     await modPage.getByTestId('modqueue-tab-closed').click();
@@ -224,6 +243,12 @@ test.describe.serial('T13 — Moderations-Warteschlange', () => {
     await expect(closed).toHaveCount(1);
     await expect(closed.first().getByTestId('modqueue-outcome')).toHaveText('Erledigt');
     await expect(modPage.getByText('Notiz: E2E-Grund: geklärt.')).toBeVisible();
+
+    // Zurück zu Offen: neu geladen und leer
+    await modPage.getByTestId('modqueue-tab-open').click();
+    await expect(modPage.getByText('Keine Reports in dieser Kategorie.')).toBeVisible({
+      timeout: 10_000
+    });
   });
 
   test('Verwerfen senkt den offenen Zähler ebenfalls', async () => {
@@ -282,7 +307,15 @@ test.describe.serial('T13 — Moderations-Warteschlange', () => {
     expect(r.status).toBe(201);
     await expect(modPage.getByTestId('modqueue-tab-badge')).toHaveText('1', { timeout: 10_000 });
 
-    await modPage.getByTestId('modqueue-tab-open').click();
+    // Frisch ausgehender Dialog-Zustand: Sicherheitshalber schließen und
+    // neu öffnen — der Offen-Tab lädt beim Reiter-Wechsel ohnehin neu.
+    await modPage.keyboard.press('Escape');
+    await modPage.getByTestId(`guild-${gid}`).click({ button: 'right' });
+    await modPage.getByTestId('guild-settings').click();
+    await expect(modPage.getByTestId('guild-settings-dialog')).toBeVisible();
+    await modPage.getByTestId('settings-tab-modqueue').click();
+    await expect(modPage.getByTestId('mod-queue-panel')).toBeVisible();
+
     await modPage.getByTestId('modqueue-ban-btn').first().click();
     const banDialog = modPage.getByTestId('modqueue-ban-dialog');
     await expect(banDialog).toBeVisible();
@@ -324,8 +357,10 @@ test.describe.serial('T13 — Moderations-Warteschlange', () => {
 
   test('Entbannen über „Gesperrt" → Beitritt klappt wieder', async () => {
     await modPage.getByTestId('modqueue-tab-banned').click();
-    const entry = modPage.getByTestId('bans-entry').filter({ hasText: TARGET });
-    await expect(entry).toBeVisible();
+    // Über data-user-id gehen — der Anzeigename kommt asynchron aus dem
+    // Nutzer-Cache und ist beim ersten Rendern noch nicht da.
+    const entry = modPage.locator(`[data-testid="bans-entry"][data-user-id="${targetUserId}"]`);
+    await expect(entry).toBeVisible({ timeout: 15_000 });
     await entry.getByTestId('bans-unban-btn').click();
     await expect(modPage.getByTestId('bans-entry')).toHaveCount(0, { timeout: 10_000 });
 
@@ -342,10 +377,13 @@ test.describe.serial('T13 — Moderations-Warteschlange', () => {
     // 55 Zeilen per psql (Report-Limit 10/Stunde je Melder macht den API-Weg
     // unmöglich). ALLE mit demselben created_at — genau der
     // Gleichzeitigkeits-Fall, für den es den ID-Tiebreak gibt (Runde 23).
+    // BigInt, weil 9e17 jenseits von Number.MAX_SAFE_INTEGER liegt und
+    // `+ i` sonst lautlos dieselbe Zahl liefert → doppelte IDs.
     const inserts: string[] = [];
     for (let i = 0; i < 55; i++) {
+      const id = 900000000000000000n + BigInt(i);
       inserts.push(
-        `INSERT INTO chat.reports (id, reporter_user_id, target_user_id, target_guild_id, reason_code, body, status, created_at) VALUES (${900000000000000000 + i}, ${reporterUserId}, ${targetUserId}, ${gid}, 'spam', 'pagetest ${i}', 'new', now())`
+        `INSERT INTO chat.reports (id, reporter_user_id, target_user_id, target_guild_id, reason_code, body, status, created_at) VALUES (${id}, ${reporterUserId}, ${targetUserId}, ${gid}, 'spam', 'pagetest ${i}', 'new', now())`
       );
     }
     pgQuery(`BEGIN; ${inserts.join('; ')}; COMMIT;`);
@@ -376,16 +414,21 @@ test.describe.serial('T13 — Moderations-Warteschlange', () => {
     expect(ids1.size + ids2.size).toBe(55);
 
     // Aufräumen, damit die offene Bilanz der Community wieder stimmt
-    pgQuery(`DELETE FROM chat.reports WHERE id BETWEEN 900000000000000000 AND 900000000000000054;`);
+    pgQuery(
+      'DELETE FROM chat.reports WHERE id BETWEEN 900000000000000000 AND 900000000000000054;'
+    );
   });
 
-  test('Ohne Mod-Rechte: kein Tab, API → 403', async () => {
-    await reporterPage.goto(`/app/guilds/${gid}/channels/${channelId}`);
-    await reporterPage.getByTestId(`guild-${gid}`).click({ button: 'right' });
-    await reporterPage.getByTestId('guild-settings').click();
-    await expect(reporterPage.getByTestId('guild-settings-dialog')).toBeVisible();
-    await expect(reporterPage.getByTestId('settings-tab-modqueue')).toHaveCount(0);
-    await reporterPage.keyboard.press('Escape');
+  test('Ohne Mod-Rechte: kein Einstiegs-Icon, API → 403', async () => {
+    await oeffneKanal(reporterPage, gid, channelId);
+    // Ein simpler Mitglieder-Account bekommt das Rail-Kontextmenü gar nicht
+    // erst mit dem Einstellungen-Eintrag (nur Rollen/Verwaltung/Mod/Owner
+    // sehen ihn) — asserted wird deshalb das Fehlen des Eintrags.
+    await reporterPage.getByTestId(`guild-${gid}`).click({ button: 'right', force: true });
+    await expect(reporterPage.getByTestId('guild-settings')).toHaveCount(0);
+    if ((await reporterPage.getByTestId('guild-settings').count()) === 0) {
+      await reporterPage.keyboard.press('Escape');
+    }
 
     const denied = await chatApi(reporterPage, 'GET', `/guilds/${gid}/mod-queue?status=new`);
     expect(denied.status).toBe(403);

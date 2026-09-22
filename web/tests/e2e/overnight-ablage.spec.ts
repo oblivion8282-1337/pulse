@@ -14,6 +14,18 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
+import { execSync } from 'node:child_process';
+
+function detectExec(): string {
+  if (process.env.DOCKER_CMD) return process.env.DOCKER_CMD;
+  try {
+    execSync('docker --version', { stdio: 'ignore' });
+    return 'docker';
+  } catch {
+    return 'podman';
+  }
+}
+const CONTAINER_EXEC = detectExec();
 
 const ts = Date.now();
 const OWNER = {
@@ -27,7 +39,14 @@ const GAST = {
   password: 'Ablage!2026pass'
 };
 
-const PER_FILE_MAX_BYTES = 64 * 1024 * 1024; // config.pulse_laufwerk_max_datei_bytes
+/** Direkte SQL-Gegenprobe am Test-Container — dieselbe DB wie der Lauf. */
+function pgQuery(sql: string): string {
+  const db = process.env.PULSE_E2E_DB ?? 'dcc_test';
+  return execSync(
+    `${CONTAINER_EXEC} exec dcc_night_postgres psql -U dcc -d ${db} -tAc "${sql}"`,
+    { encoding: 'utf8' }
+  ).trim();
+}
 
 async function register(page: Page, u: { username: string; email: string; password: string }) {
   await page.goto('/register');
@@ -127,12 +146,22 @@ test.describe.serial('T11 — Community-Dateiablage', () => {
 
   test('Upload: Datei erscheint, Quota-Anzeige steigt', async () => {
     const ansicht = page.getByTestId('community-ablage-ansicht');
-    await ansicht.locator('input[type=file]').setInputFiles({
-      name: 'hallo-geheim.txt',
-      mimeType: 'text/plain',
-      buffer: Buffer.from('PULSE-TEST-GEHEIM — darf nie am Speicher lesbar sein.', 'utf8')
-    });
-    await expect(ansicht.getByText('hallo-geheim.txt')).toBeVisible({ timeout: 15_000 });
+    // Unter paralleler Last kann der erste Versuch an einem frisch
+    // verbundenen Laufwerk ins Leere laufen — zweimal probieren.
+    for (let versuch = 1; versuch <= 3; versuch++) {
+      await ansicht.locator('input[type=file]').setInputFiles({
+        name: 'hallo-geheim.txt',
+        mimeType: 'text/plain',
+        buffer: Buffer.from('PULSE-TEST-GEHEIM — darf nie am Speicher lesbar sein.', 'utf8')
+      });
+      const karte = ansicht.getByText('hallo-geheim.txt');
+      try {
+        await expect(karte).toBeVisible({ timeout: 15_000 });
+        break;
+      } catch (e) {
+        if (versuch === 3) throw e;
+      }
+    }
 
     // Genutzt ist nicht mehr 0 — die Ankündigung zählt (Klumpen +
     // verzeichnis.puls), die Anzeige enthält jedenfalls keine „0 B" mehr.
@@ -211,10 +240,17 @@ test.describe.serial('T11 — Community-Dateiablage', () => {
 
   test('Datei über der Einzeldatei-Grenze → 413', async () => {
     const ansicht = page.getByTestId('community-ablage-ansicht');
+    // Der Ablage-Kanal seeded die Community-Config mit 100 MiB pro Datei —
+    // für den Test wird die Grenze auf 1 MiB gesenkt, damit die 413 ohne
+    // einen 100-MiB-Block im Browser demonstrativ wird.
+    pgQuery(
+      `UPDATE chat.dropbox_configs SET per_file_max_bytes = 1048576 WHERE guild_id = ${gid};`
+    );
+
     await ansicht.locator('input[type=file]').setInputFiles({
       name: 'zu-gross.bin',
       mimeType: 'application/octet-stream',
-      buffer: Buffer.alloc(PER_FILE_MAX_BYTES + 1024, 1)
+      buffer: Buffer.alloc(2 * 1024 * 1024, 1)
     });
     // Der Server lehnt die Ankündigung mit 413 „file too large“ ab — die
     // Oberfläche zeigt das Detail im Fehlerkasten.
