@@ -422,34 +422,6 @@
 
     <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>
 
-    <!-- Werkzeug-Cluster (Wunsch 2026-09-22): der Käfer sitzt ÜBER den
-         Server-Sektionen statt im Footer — im Störfall soll er ohne Scrollen
-         und ohne Menü-Klick erreichbar sein. Der Remote-Rechner-Einstieg
-         (Standplatz, unter Windows die Fernsteuerung) ist aus dem Fuß der
-         Leiste hierher gezogen, damit beide Werkzeuge beieinander bleiben. -->
-    <div class="flex shrink-0 flex-col items-center gap-2">
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <button
-              {...props}
-              type="button"
-              class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md md:size-10"
-              data-testid="rail-bug-button"
-              aria-label={m.diagnose_melden()}
-              onclick={() => (uiOverlays.diagnoseOpen = true)}
-            >
-              <BugIcon class="size-6 md:size-5" />
-            </button>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content side="right">{m.diagnose_melden()}</Tooltip.Content>
-      </Tooltip.Root>
-      <StandplatzRailButton />
-    </div>
-
-    <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>
-
     <!-- Sidebar-Variante B: pro Server eine eigene Sektion. Section-Header =
          Server-Label + Status-Dot. Darunter die Communitys DIESES Servers,
          dann ein "+" zum Anlegen einer neuen Community auf DIESEM Server. Am
@@ -762,20 +734,41 @@
 
     {/each}
 
-  </Tooltip.Provider>
-
-  <!-- Unten in der Rail (mt-auto schiebt den Block ans Ende): der Einstieg in
-       den eigenen Server (nur in der Cloud), das Server-Admin-Symbol (nur für
-       Admins) und – auf Mobil – das eigene Avatar-Symbol (Desktop hat den User
-       im Sidebar-Footer mit Name). Käfer + Standplatz wohnen oben im
-       Werkzeug-Cluster. -->
+  <!-- Unten in der Rail (mt-auto schiebt den Block ans Ende): der Remote-
+       Rechner-Einstieg (Standplatz, unter Windows die Fernsteuerung), der
+       Käfer DIREKT über dem Server-Symbol (Wunsch 2026-09-22 — im Störfall
+       ohne Scrollen und ohne Menü-Klick erreichbar), der Server-Symbol-
+       Einstieg, das Admin-Schild (nur Admins) und – auf Mobil – das eigene
+       Avatar-Symbol (Desktop hat den User im Sidebar-Footer mit Name).
+       Innerhalb des Tooltip.Provider: der Käfer-Tooltip braucht dessen
+       Context — außerhalb crasht der Render (nachgewiesen über den
+       Konsole-Fang: „Context \"Tooltip.Provider\" not found"). -->
   <div class="mt-auto flex shrink-0 flex-col items-center gap-2 pt-1">
+    <StandplatzRailButton />
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <button
+            {...props}
+            type="button"
+            class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md md:size-10"
+            data-testid="rail-bug-button"
+            aria-label={m.diagnose_melden()}
+            onclick={() => (uiOverlays.diagnoseOpen = true)}
+          >
+            <BugIcon class="size-6 md:size-5" />
+          </button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content side="right">{m.diagnose_melden()}</Tooltip.Content>
+    </Tooltip.Root>
     <SelfHostRailButton />
     <ServerAdminButton />
     {#if viewport.isMobile}
       <UserFooter compact />
     {/if}
   </div>
+  </Tooltip.Provider>
 </nav>
 
 <AlertDialog.Root bind:open={removeServerConfirmOpen}>
