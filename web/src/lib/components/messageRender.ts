@@ -33,7 +33,7 @@ const ALLOWED_TAGS = [
   'b', 'i', 'em', 'strong', 'code', 'pre', 'del', 's',
   'a', 'ul', 'ol', 'li', 'br', 'p', 'blockquote', 'span'
 ];
-const ALLOWED_ATTR = ['href', 'title', 'target', 'rel', 'data-mention-type', 'data-mention-id', 'data-self'];
+const ALLOWED_ATTR = ['href', 'title', 'target', 'rel', 'class', 'data-mention-type', 'data-mention-id', 'data-self'];
 
 // One-time hook setup — DOMPurify is a singleton; we use removeAllHooks
 // instead of removeHook(name) so re-imports during HMR don't stack
