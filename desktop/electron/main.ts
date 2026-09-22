@@ -1467,6 +1467,41 @@ function wireInvitePull(): void {
   ipcMain.handle('invite:getPending', () => takePendingInvite());
 }
 
+// ── Permission-Gate (deny-by-default) ───────────────────────────────────────
+// Ohne Handler genehmigt Electron JEDE Permission-Anfrage still (Bughunt
+// 2026-09-23): Kamera/Mikro/Notifications/Fullscreen/PointerLock/Clipboard-
+// Schreiben braucht die App-UI, alles andere (Geolocation, MIDI, …) wird
+// verweigert — auch für den erlaubten Origin. Ein fremder Origin bekommt
+// ohnehin nichts: er kann durch die Navigations-Guards gar nicht erst laden.
+const _ALLOWED_PERMISSIONS = new Set([
+  'media',
+  'notifications',
+  'fullscreen',
+  'pointerLock',
+  'clipboard-sanitized-write',
+]);
+function wirePermissionGate(): void {
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback) => {
+      // Fullscreen ist nutzerinitiiert und unkritisch — Watch-Party-Embeds
+      // (YouTube/Twitch-iframe) brauchen ihn, deren Origin durchfällt sonst.
+      if (permission === 'fullscreen') {
+        callback(true);
+        return;
+      }
+      if (
+        _ALLOWED_PERMISSIONS.has(permission) &&
+        webContents != null &&
+        _isAllowedOrigin(webContents.getURL())
+      ) {
+        callback(true);
+        return;
+      }
+      callback(false);
+    }
+  );
+}
+
 // ── Screen capture (browser screen-share via LiveKit/WebRTC) ────────────────
 // Electron has no built-in screen picker — without a display-media request
 // handler, navigator.mediaDevices.getDisplayMedia() in the renderer throws
@@ -1491,6 +1526,14 @@ function wireInvitePull(): void {
 function wireScreenShare(): void {
   session.defaultSession.setDisplayMediaRequestHandler(
     (_request, callback) => {
+      // Bughunt 2026-09-23: nur der erlaubte Origin (unsere App-UI) darf den
+      // Bildschirm bekommen — ein kompromittierter Renderer-Inhalt bekäme
+      // sonst auf Plattformen ohne System-Picker kommentarlos den
+      // Primärbildschirm gestreamt, ohne jeden Dialog.
+      if (!_isAllowedOrigin(_request.securityOrigin)) {
+        callback({});
+        return;
+      }
       if (process.platform === 'linux') {
         // Synthetic "whole screen" stream id — Chromium maps this to its portal
         // ScreenCast flow on Wayland (the portal picker still lets the user
@@ -1636,6 +1679,7 @@ async function bootClient(): Promise<void> {
   wirePlayer();
   wireNetdiag();
   wireScreenShare();
+  wirePermissionGate();
   wireNotify(() => mainWindow);
   wireSicherungRuecklauf();
   wirePower();

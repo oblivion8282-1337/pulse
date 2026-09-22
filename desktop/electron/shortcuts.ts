@@ -43,7 +43,18 @@ function istGueltigerAccelerator(acc: string): boolean {
   if (teile.length === 0 || teile.length > 4) return false;
   const taste = teile[teile.length - 1];
   if (!TASTE.test(taste)) return false;
-  return teile.slice(0, -1).every((m) => MODIFIERS.has(m));
+  const modifier = teile.slice(0, -1);
+  // Bughunt 2026-09-23: Ohne Modifier-Pflicht registriert `globalShortcut` eine
+  // nackte Einzel-Taste (`A`) SYSTEMWEIT — eine kompromittierte Renderer-Seite
+  // könnte so jede Buchstaben-/Ziffern-Taste global belegen (Keylogging- und
+  // Blockade-Primitive über `shortcuts:trigger`). Der Renderer erzeugt Combos
+  // ohnehin nur mit Modifier (`comboToAccelerator`); F-Tasten/Media bleiben
+  // als natürliche Einzeltasten erlaubt.
+  if (modifier.length === 0 && !/^F(1[0-9]|2[0-4]|[1-9])$/.test(taste)) {
+    return false;
+  }
+  if (!modifier.every((m) => MODIFIERS.has(m))) return false;
+  return true;
 }
 
 function sanitise(list: unknown): Binding[] {
