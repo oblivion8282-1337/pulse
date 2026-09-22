@@ -2032,12 +2032,24 @@ impl VideoDecoder {
         self.wacht.schaden_gemeldet();
     }
 
-    /// Setzt den Decoder nach einem erkannten Einfrieren neu auf.
+    /// Setzt den Decoder nach einem erkannten Einfrieren neu auf — KOMPLETT.
     ///
-    /// Wie der Keyframe-Zweig von [`on_gap`]: leeren und auf den naechsten
-    /// Einstiegspunkt warten. Ohne das Leeren rechnet er auf demselben kaputten
-    /// Zustand weiter, den wir gerade festgestellt haben.
-    pub fn wegen_einfrieren_neu(&mut self) {
+    /// Bis zum 2026-09-22 stand hier `decoder.flush()`: der eben als
+    /// eingefroren erkannte Decoder wurde gebeten, SICH SELBST
+    /// zurueckzusetzen. Genau dieser Aufruf lief an jenem Abend in einen
+    /// SIGSEGV in NVIDIAS libnvcuvid (615.71.09, Dekodier-Faden). Ein
+    /// Decoder, der das Bild einfrieren laesst, ist genau der, dem man nichts
+    /// mehr zutrauen darf — der Vertrag seitdem: dem Verdaechtigen KEINEN
+    /// Anruf mehr, sondern wegwerfen und einen frischen HARDWARE-Decoder
+    /// anlegen. Bewusst ohne Software-Rueckfall (Vorgabe; `auf_software`
+    /// bleibt als eigener Pfad fuer die Stockung unberuehrt).
+    ///
+    /// Die Bremse sind die [`Neuaufbauten`] wie im Fehlerpfad: nach
+    /// [`neuaufbau::MAX_REBUILDS`] Neuaufbauten ohne Bewaehrung endet die
+    /// SITZUNG sauber — die Desktop-App startet den Player neu, der sich an
+    /// jenem Abend zweimal genau so erholt hat. `Err` heisst also
+    /// Sitzungsende, nicht Prozessende.
+    pub fn wegen_einfrieren_neu(&mut self) -> Result<()> {
         // Die Staffel gehoert in die Meldung: sie ist das Einzige, woran im
         // Log zu sehen ist, ob hier ein Decoder gerettet wird oder ob ein
         // Standbild immer wieder dieselbe Diagnose ausloest.
@@ -2045,20 +2057,45 @@ impl VideoDecoder {
         // welche von beiden bindet, haengt an der Ausgaberate, und wer im Log
         // nur „nach 90 Bildern" liest, rechnet bei 144 fps mit 0,6 Sekunden,
         // wo in Wahrheit 2,5 gelten (s. `einfrieren::EINFRIER_DAUER`).
+        let jetzt = std::time::Instant::now();
+        if self.rebuilds.anzahl() >= neuaufbau::MAX_REBUILDS {
+            bail!(
+                "Bild bleibt eingefroren, auch nach {} frischen \
+                 Hardware-Dekodern (Meldung {} ohne zwischenzeitliche \
+                 Bewegung) — Sitzung endet",
+                self.rebuilds.anzahl(),
+                self.wacht.stufe()
+            );
+        }
+        let nummer = self.rebuilds.gezaehlt(jetzt);
         eprintln!(
             "pulse-player: Decoder eingefroren (gleiches Bild trotz Daten) — \
-             leere ihn und fordere ein Vollbild an (Meldung {} ohne \
-             zwischenzeitliche Bewegung, naechste Pruefung nach {} Bildern \
-             UND {} ms)",
+             wegwerfen und frisch anlegen: Hardware-Dekoder {}/{} (Meldung {} \
+             ohne zwischenzeitliche Bewegung, naechste Pruefung nach {} \
+             Bildern UND {} ms)",
+            nummer,
+            neuaufbau::MAX_REBUILDS,
             self.wacht.stufe(),
             self.wacht.schwelle(),
             self.wacht.mindestdauer().as_millis()
         );
-        self.decoder.flush();
-        self.unsauber_bis = None;
-        if !self.awaiting_keyframe {
-            self.awaiting_keyframe = true;
-            self.skipped_before_keyframe = 0;
+        match Self::new(self.codec, Some(true), self.geraet.clone()) {
+            Ok(fresh) if fresh.hardware => {
+                self.decoder_uebernehmen(fresh);
+                self.unsauber_bis = None;
+                Ok(())
+            }
+            // Hier landet man nur, wenn die Kandidatenwahl trotz erzwungenem
+            // Hardware kein hardware-faehiges Ergebnis geliefert hat. Ende
+            // ist die richtige Antwort (kein Software-Rueckfall, kein
+            // Weiterarbeiten mit dem gerade verdaechtigten Dekoder).
+            Ok(_) => bail!(
+                "kein frischer Hardware-Dekoder verfuegbar — Sitzung endet \
+                 (Software-Rueckfall ist auf diesem Pfad gesperrt)"
+            ),
+            Err(e) => bail!(
+                "frischer Hardware-Dekoder nicht anlegbar: {e:#} — Sitzung endet"
+            ),
         }
     }
 
@@ -2763,6 +2800,22 @@ mod tests {
         // lassen: Zaehler auf null. Die Uhr haengt daran.
         d.skipped_before_keyframe = 0;
         assert!(d.decode(&frame).is_ok(), "der neue Anlauf darf nicht sofort abbrechen");
+    }
+
+    /// Der Einfrier-Pfad darf nie endlos neue Dekoder bauen. Ohne Grafik-
+    /// Einheit (CI) scheitert der ERSTE frische Hardware-Anlauf, mit Grafik-
+    /// Einheit greift spaetestens der Deckel aus `MAX_REBUILDS` — beides
+    /// muss in einem Fehler enden. Seit dem 2026-09-22 ist `Err` dort die
+    /// saubere Antwort (Sitzungsende, App startet neu) statt `flush` in den
+    /// gerade verdaechtigten Dekoder.
+    #[test]
+    fn einfrieren_endet_spaetestens_nach_dem_deckel() {
+        let mut d = VideoDecoder::new(Codec::H264, Some(false), None).expect("Software-Decoder");
+        let ende = (0..neuaufbau::MAX_REBUILDS + 1).find_map(|_| d.wegen_einfrieren_neu().err());
+        assert!(
+            ende.is_some(),
+            "wegen_einfrieren_neu muss spaetestens nach dem Deckel fehlschlagen"
+        );
     }
 
     /// Nach einem Neuaufbau fehlt dem neuen Decoder alles — er muss wieder

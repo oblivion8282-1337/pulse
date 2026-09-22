@@ -117,10 +117,24 @@ pub struct Zustand {
     pub sendeart: Mutex<Sendeart>,
 }
 
-/// Griff auf den Faden. Beim Fallenlassen endet er (der Kanal schliesst).
+/// Wie lange [`Faden::beenden_und_warten`] auf das Fadenende wartet.
+///
+/// Der normale Fall sind Millisekunden (Kanal zu, Schleife raus, Decoder
+/// fallen lassen). Die Grenze existiert fuer einen Faden, der an der
+/// Grafikeinheit HAENGT: Das Schliessen der Sitzung darf darauf nicht ewig
+/// warten — in dem Zustand war der Player am 2026-09-22 ohnehin kurz vor
+/// dem Ende, und die Alternative (unbegrenzt warten) waere ein Fenster, das
+/// nie zumacht.
+const ENDE_WARTEN: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Griff auf den Faden. Beim Fallenlassen endet er (der Kanal schliesst) —
+/// aber OHNE zu warten. Wer sicher sein will, dass der Faden (und damit der
+/// Decoder samt seiner Zero-Copy-Bruecke) wirklich weg ist, nimmt
+/// [`Faden::beenden_und_warten`].
 pub struct Faden {
     auftraege: std::sync::mpsc::Sender<Auftrag>,
     zustand: Arc<Zustand>,
+    griff: std::thread::JoinHandle<()>,
 }
 
 impl Faden {
@@ -137,10 +151,44 @@ impl Faden {
         let z = zustand.clone();
         // Benannt, damit er in `top`/`perf` auffindbar ist — bei einem Faden,
         // der im Fehlerfall Sekunden blockiert, ist das der erste Blick.
-        let _ = std::thread::Builder::new()
+        let griff = std::thread::Builder::new()
             .name("pulse-bilddecoder".to_string())
-            .spawn(move || arbeiten(codec, hwdec, geraet, events, eingang, z));
-        Self { auftraege, zustand }
+            .spawn(move || arbeiten(codec, hwdec, geraet, events, eingang, z))
+            .expect("Dekodier-Faden laesst sich nicht starten");
+        Self {
+            auftraege,
+            zustand,
+            griff,
+        }
+    }
+
+    /// Faden beenden und auf sein ENDE warten — begrenzt.
+    ///
+    /// Der Faden besitzt den Decoder samt Zero-Copy-Bruecke (Grafikspeicher-
+    /// Interop). Fiel der Griff bisher einfach nur, raeumte der Faden
+    /// asynchron weiter, waehrend die Sitzung bereits Richtung Fenster- und
+    /// Geraeteabbau ging — genau in diesem Fenster ist am 2026-09-22 der
+    /// Hauptfaden beim Sitzungs-Schliessen in libGLX_nvidia auf einen
+    /// Null-Aufruf gelaufen. Warten schliesst das Fenster; laeuft die Frist
+    /// ab, wird der Faden allein gelassen und laut gemeldet.
+    pub fn beenden_und_warten(self) {
+        let Self {
+            auftraege, griff, ..
+        } = self;
+        drop(auftraege);
+        let frist = std::time::Instant::now() + ENDE_WARTEN;
+        while !griff.is_finished() && std::time::Instant::now() < frist {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        if griff.is_finished() {
+            let _ = griff.join();
+        } else {
+            eprintln!(
+                "pulse-player: Dekodier-Faden endet nicht binnen {:?} — er \
+                 wird allein gelassen (haengt die Grafikeinheit?)",
+                ENDE_WARTEN
+            );
+        }
     }
 
     pub fn zustand(&self) -> &Zustand {
@@ -215,7 +263,13 @@ fn arbeiten(
         // als einzige. Nur beim Ueberschreiten der Schwelle, nicht je Bild.
         dec.erholung_melden();
         if dec.eingefroren() {
-            dec.wegen_einfrieren_neu();
+            // `Err` = Bremse aus `wegen_einfrieren_neu` (kein frischer
+            // Hardware-Dekoder oder Deckel erreicht): der Faden meldet das
+            // Ende, die Sitzungsschleife liest es aus `Zustand::ende` und
+            // schliesst — die App startet den Player neu.
+            if let Err(e) = dec.wegen_einfrieren_neu() {
+                return beenden(&zustand, format!("{e:#}"), true);
+            }
             zustand.vollbild_noetig.store(true, Relaxed);
         }
 
