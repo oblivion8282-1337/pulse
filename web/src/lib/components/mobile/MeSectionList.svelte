@@ -25,6 +25,7 @@
   } from '$lib/components/settings/reiterAuswahl.svelte';
   import StatusPicker from '$lib/components/StatusPicker.svelte';
   import { initialen } from '$lib/utils/initialen';
+  import { safeAvatarUrl } from '$lib/avatar';
   import { m } from '$lib/paraglide/messages.js';
 
   let { aktiv = null }: { aktiv?: string | null } = $props();
@@ -95,7 +96,7 @@
           : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
       >
         {#if auth.user?.avatar_url}
-          <img src={auth.user.avatar_url} alt={anzeigename} class="size-full object-cover" />
+          <img src={safeAvatarUrl(auth.user.avatar_url) ?? undefined} alt={anzeigename} class="size-full object-cover" />
         {:else}
           {initialen(anzeigename)}
         {/if}

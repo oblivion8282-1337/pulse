@@ -17,6 +17,7 @@ import { errText } from '$lib/utils/errText';
   import AdminCommunityDeleteDialog from './AdminCommunityDeleteDialog.svelte';
   import AdminCommunityLimits from './AdminCommunityLimits.svelte';
   import { adminApi, type Community } from '$lib/api/admin';
+  import { safeAvatarUrl } from '$lib/avatar';
   import { userCache } from '$lib/stores/users.svelte';
   import { formatBytes } from '$lib/utils/formatBytes';
   import SearchIcon from '@lucide/svelte/icons/search';
@@ -170,7 +171,7 @@ import { errText } from '$lib/utils/errText';
         <li class="px-4 py-3" data-testid="admin-community-row">
         <div class="flex items-center gap-3">
           {#if c.icon_url}
-            <img src={c.icon_url} alt="" class="size-9 shrink-0 rounded-xl object-cover" />
+            <img src={safeAvatarUrl(c.icon_url) ?? undefined} alt="" class="size-9 shrink-0 rounded-xl object-cover" />
           {:else}
             <div
               class="bg-bg-hover text-text-muted flex size-9 shrink-0 items-center justify-center rounded-xl text-sm font-semibold"
