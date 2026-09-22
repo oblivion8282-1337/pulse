@@ -37,7 +37,42 @@ ver=$("$G" -c "$CF" layout show 2>/dev/null | awk '/Current cluster layout versi
 [ -n "$ver" ] && "$G" -c "$CF" layout apply --version $((ver + 1)) 2>/dev/null
 
 "$G" -c "$CF" bucket create pulse-attachments 2>/dev/null || true
-"$G" -c "$CF" key import --yes "$S3_ACCESS_KEY" "$S3_SECRET_KEY" -n pulse 2>/dev/null || true
+
+# Garage-Key-IDs müssen GK + 24 Hex sein; Installationen aus MinIO-Zeiten
+# haben "pulse-…"-IDs in jwt_keys/minio.user — `key import` lehnt die ab
+# ("Invalid key format", 2026-09-22). Frische Instanzen erzeugen direkt
+# GK-IDs (03-init-secrets.sh); für Bestandsinstanzen erzeugen wir hier
+# einmalig einen Schlüssel, persistieren ihn anstelle des alten in
+# jwt_keys (07-render-env.sh liest genau diese Dateien) und patchen
+# env.sh für den aktuellen Boot — chat-gateway startet wegen seiner
+# s6-Abhängigkeit erst NACH garage-init und liest die gepatchte Datei.
+# PULSE_DATA_PATH/PULSE_ENV_SH sind Überschreib-Haken für die Tests.
+s3_key_sicherstellen() {
+  DATA="${PULSE_DATA_PATH:-/data}"
+  KEYS="${DATA}/jwt_keys"
+  ENV_SH="${PULSE_ENV_SH:-/etc/pulse/env.sh}"
+  case "$S3_ACCESS_KEY" in
+    GK*)
+      "$G" -c "$CF" key import --yes "$S3_ACCESS_KEY" "$S3_SECRET_KEY" -n pulse 2>/dev/null || true
+      ;;
+    *)
+      out=$("$G" -c "$CF" key create pulse 2>/dev/null) || out=""
+      new_id=$(printf '%s\n' "$out" | grep -oE 'GK[0-9a-f]{24}' | head -1)
+      new_sk=$(printf '%s\n' "$out" | sed -n 's/^Secret key:[[:space:]]*//p')
+      if [ -n "$new_id" ] && [ -n "$new_sk" ]; then
+        printf '%s' "$new_id" > "${KEYS}/minio.user"
+        printf '%s' "$new_sk" > "${KEYS}/minio.password"
+        chmod 0600 "${KEYS}/minio.user" "${KEYS}/minio.password"
+        sed -i "s|^export S3_ACCESS_KEY=.*|export S3_ACCESS_KEY='${new_id}'|; s|^export S3_SECRET_KEY=.*|export S3_SECRET_KEY='${new_sk}'|" "$ENV_SH"
+        S3_ACCESS_KEY="$new_id"; S3_SECRET_KEY="$new_sk"
+        echo "[garage-init] Legacy-S3-Key ersetzt durch ${new_id}"
+      else
+        echo "[garage-init] WARNUNG: kein GK-Key erzeugbar — Signaturen werden 403 sein" >&2
+      fi
+      ;;
+  esac
+}
+s3_key_sicherstellen
 "$G" -c "$CF" bucket allow --read --write pulse-attachments --key "$S3_ACCESS_KEY" 2>/dev/null || true
 
 echo "[garage-init] bootstrap fertig (Layout, Bucket pulse-attachments, Key)"

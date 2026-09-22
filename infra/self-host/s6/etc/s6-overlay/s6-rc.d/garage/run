@@ -36,4 +36,7 @@ api_bind_addr = "127.0.0.1:3909"
 TOML
 chown pulse:pulse /etc/pulse/garage.toml 2>/dev/null || true
 
-exec /usr/sbin/gosu pulse /usr/local/bin/garage -c /etc/pulse/garage.toml
+# "server" ist Pflicht — ohne Unterkommando druckt garage nur seine Hilfe
+# und exitet 1 (Restart-Loop, Bughunt Runde 42 hatte denselben Fehlertyp in
+# der Prod-compose; Self-Host-Box 2026-09-22: ganze Instanz 502).
+exec /usr/sbin/gosu pulse /usr/local/bin/garage -c /etc/pulse/garage.toml server
