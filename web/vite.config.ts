@@ -14,6 +14,7 @@ const AUTH_PORT = process.env.PULSE_API_AUTH_PORT || '8001';
 const CHAT_PORT = process.env.PULSE_API_CHAT_PORT || '8002';
 const VOICE_PORT = process.env.PULSE_API_VOICE_PORT || '8003';
 const WEB_PORT = Number(process.env.PULSE_WEB_PORT) || 5173;
+const S3_PORT = process.env.PULSE_S3_PORT || '9000';
 
 // `PULSE_API_ORIGIN=https://howispulse.com` — die Oberfläche dieses Zweigs
 // gegen ein FERTIGES Backend fahren statt gegen lokale Dienste.
@@ -227,7 +228,18 @@ export default defineConfig({
       // Pre-Check) — in Produktion routet nginx/Caddy dies an den chat-gateway
       // (web-nginx.conf / Self-Host-Caddyfile); ohne die Dev-Weiterleitung
       // greift der SPA-Rückfall und die Anzeige bliebe lokal leer.
-      '/.well-known/pulse-server-info': apiProxy(CHAT_PORT)
+      '/.well-known/pulse-server-info': apiProxy(CHAT_PORT),
+      // Objektspeicher wie die Prod-nginx unter der eigenen Origin ausliefern
+      // (Cloud: location /pulse-attachments/ → MinIO; Self-Host: Caddy).
+      // dev-up setzt S3_PUBLIC_ENDPOINT des chat-gateway auf diesen Dev-
+      // Server, Browser-URLs sind damit SAME-ORIGIN — Garages lückenhafte
+      // CORS-Header (auf Fehlerantworten wie dem 404 einer noch nicht
+      // existierenden Dateiliste fehlen sie komplett) können dem Fenster
+      // nichts mehr anhaben. KEIN changeOrigin: SigV4 signiert den Host-Header,
+      // Garage validiert gegen den gesendeten 'localhost:<WEB_PORT>'.
+      '/pulse-attachments': {
+        target: `http://127.0.0.1:${S3_PORT}`
+      }
     }
   }
 });
