@@ -156,3 +156,10 @@ web/.ablage-int/
 # Lokaler Redis-Snapshot des Test-Laefs
 dump.rdb
 .garage-dev-credentials
+
+# ZCode-Sitzungsartefakte (Plandeckel der Agenten-Laeufe)
+.zcode/
+
+# VAPID-Schluessel des Web-Push (pro Maschine generiertes Geheimnis,
+# der chat-gateway erzeugt ihn beim ersten Start selbst)
+web/data/
