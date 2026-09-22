@@ -60,14 +60,14 @@ const ENDPOINT = (() => {
 const MAX_LOG_BYTES = 512 * 1024;
 
 /**
- * Die Felder aus `health.gsr`, die in den Bericht wandern.
+ * Die Felder aus `health.sidecar`, die in den Bericht wandern.
  *
  * Es sind die Fähigkeiten, an denen ein Encoder-Fehler hängt: ob 10 bit und
  * HDR überhaupt zur Verfügung standen, und welche Codecs die Karte anbot. Ohne
  * sie liest sich „AV1 ging nicht" wie ein Fehler, obwohl es womöglich schlicht
  * nicht angeboten war.
  */
-const GSR_FELDER = ['vendor', 'display_server', 'video_codecs', 'ten_bit', 'hdr'];
+const SIDECAR_FELDER = ['vendor', 'display_server', 'video_codecs', 'ten_bit', 'hdr'];
 
 /** Pro Slot: kam seit dem letzten Start ein `error`-Event? → bestimmt `reason`. */
 const sawError = new Set<number>();
@@ -121,7 +121,7 @@ export function diagnoseEingeschaltet(): boolean {
 }
 
 /**
- * Im `gsr:event`-Handler aufrufen. Sammelt `error`-Zustand und triggert beim
+ * Im `sidecar:event`-Handler aufrufen. Sammelt `error`-Zustand und triggert beim
  * `stopped`-Event den Upload — no-op, wenn ausdrücklich abgewählt.
  */
 export function onSidecarEventForUpload(ev: { ev?: string }, slot: number): void {
@@ -169,15 +169,24 @@ async function sidecarAngaben(
   let version: string | null = null;
   const sidecar = getSidecar(slot);
 
+  // Bughunt Runde 7: der Funktionskommentar verspricht, den Sidecar NICHT
+  // neu zu starten — nach `call('stop')`/Crash ist `child` aber null, und
+  // der erste `call` hier spawnte lautlos einen neuen Waisen-Prozess. Ohne
+  // lebenden Sidecar gibt es nichts zu fragen (der Bericht ist trotzdem
+  // wertvoll, s. Kommentar unten).
+  if (!sidecar.istGestartet()) {
+    return { version, gpu };
+  }
+
   try {
     const health = (await sidecar.call('health')) as {
       version?: string;
-      gsr?: Record<string, unknown>;
+      sidecar?: Record<string, unknown>;
     };
     if (typeof health.version === 'string') version = health.version;
-    const faehigkeiten = health.gsr;
+    const faehigkeiten = health.sidecar;
     if (faehigkeiten && typeof faehigkeiten === 'object') {
-      for (const feld of GSR_FELDER) {
+      for (const feld of SIDECAR_FELDER) {
         if (faehigkeiten[feld] !== undefined) gpu[feld] = faehigkeiten[feld];
       }
     }

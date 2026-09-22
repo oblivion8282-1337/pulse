@@ -125,3 +125,52 @@ async def end_active_streams_for_member(
             "stream_evict", user_id=str(user_id), getroffen=getroffen, grund=grund
         )
     return getroffen
+
+
+async def end_active_streams_for_channels(
+    redis: Any, channel_ids: list[int], *, grund: str
+) -> int:
+    """Jede laufende HQ-Übertragung in den gegebenen (z. B. gelöschten)
+    Kanälen beenden — grabstein + active-key weg, egal wem der Slot gehört.
+
+    Bughunt Runde 4: Kanal- und Community-Löschung räumten die Streams
+    nicht — der Poller führte sie als live, WHEP-Lese-Tokens blieben
+    nutzbar, der Streamer pushete ins Leere. Derselbe Mechanismus wie
+    ``end_active_streams_for_member`` ohne Nutzer-Filter."""
+    if redis is None or not channel_ids:
+        return 0
+    getroffen = 0
+    try:
+        for cid in channel_ids:
+            muster = f"stream:active:channel-{cid}-*"
+            aktive_keys: list[bytes | str] = []
+            abgeschnitten = False
+            async for key in redis.scan_iter(match=muster, count=100):
+                aktive_keys.append(key)
+                if len(aktive_keys) >= _MAX_SCHLUESSEL:
+                    abgeschnitten = True
+                    break
+            if abgeschnitten:
+                log.warning(
+                    "stream_evict_limit", channel_id=str(cid),
+                    limit=_MAX_SCHLUESSEL,
+                )
+            if not aktive_keys:
+                continue
+            async with redis.pipeline(transaction=False) as pipe:
+                for aktiv_key in aktive_keys:
+                    pipe.set(
+                        _grabstein_schluessel(aktiv_key), "1", ex=_STOP_SUPPRESSION_S
+                    )
+                pipe.delete(*aktive_keys)
+                await pipe.execute()
+            getroffen += len(aktive_keys)
+    except Exception:  # noqa: BLE001 — eine Löschung darf an Redis nicht scheitern.
+        log.warning("stream_evict_channels_failed", grund=grund, exc_info=True)
+        return getroffen
+    if getroffen:
+        log.info(
+            "streams_ended_for_channels", channels=[str(c) for c in channel_ids],
+            grund=grund, count=getroffen,
+        )
+    return getroffen

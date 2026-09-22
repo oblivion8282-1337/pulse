@@ -97,18 +97,58 @@ async def _load_override(redis: Redis | None, channel_id: str, user_id: str) -> 
         return {}
 
 
-async def _save_override(
-    redis: Redis, channel_id: str, user_id: str, state: dict
-) -> None:
-    await redis.set(
-        _override_key(channel_id, user_id),
-        json.dumps(state),
-        ex=_OVERRIDE_TTL_SECONDS,
-    )
-
-
 async def _clear_override(redis: Redis, channel_id: str, user_id: str) -> None:
     await redis.delete(_override_key(channel_id, user_id))
+
+
+# Entscheidung 2.3 (2026-09-21): Read-Merge-Write war auf drei Redis-Runden
+# verteilt — zwei parallele Admin-Patches auf denselben Nutzer konnten sich
+# gegenseitig überschreiben (last-writer-wins, Feld des ersten weg). Das
+# Lua-Skript liest, merged und schreibt ATOMAR in einem Redis-Lauf und
+# liefert den tatsächlich gespeicherten Stand zurück, damit das Broadcast-
+# Event nie vom gespeicherten Stand abweichen kann.
+_OVERRIDE_PATCH_LUA = """
+local raw = redis.call('GET', KEYS[1])
+local state = {muted = false, deafened = false}
+if raw then
+  local ok, parsed = pcall(cjson.decode, raw)
+  if ok and type(parsed) == 'table' then
+    state.muted = parsed.muted == true
+    state.deafened = parsed.deafened == true
+  end
+end
+if ARGV[1] ~= '' then state.muted = ARGV[1] == '1' end
+if ARGV[2] ~= '' then state.deafened = ARGV[2] == '1' end
+if not state.muted and not state.deafened then
+  redis.call('DEL', KEYS[1])
+else
+  redis.call('SET', KEYS[1], cjson.encode(state), 'EX', tonumber(ARGV[3]))
+end
+return {state.muted and 1 or 0, state.deafened and 1 or 0}
+"""
+
+
+async def _apply_override_patch(
+    redis: Redis,
+    channel_id: str,
+    user_id: str,
+    *,
+    mute: bool | None,
+    deafen: bool | None,
+    ttl_seconds: int,
+) -> dict:
+    """Merged den Patch atomar in den gespeicherten Override und liefert
+    den GESPEICHERTEN Stand (``{"muted": bool, "deafened": bool}``); leere
+    Stände werden gelöscht (kein leeres JSON-Grab)."""
+    ergebnis = await redis.eval(
+        _OVERRIDE_PATCH_LUA,
+        1,
+        _override_key(channel_id, user_id),
+        "" if mute is None else ("1" if mute else "0"),
+        "" if deafen is None else ("1" if deafen else "0"),
+        ttl_seconds,
+    )
+    return {"muted": bool(ergebnis[0]), "deafened": bool(ergebnis[1])}
 
 
 def _apply_override(sources: list[str], can_publish: bool, override: dict) -> tuple[bool, list[str]]:

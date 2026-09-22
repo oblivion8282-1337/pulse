@@ -145,11 +145,57 @@ async function nachfuellenWennNoetig(ident: Identitaet, kennung: string): Promis
   const zuVeroeffentlichen = ident.offeneEinmalschluessel();
   if (zuVeroeffentlichen.length === 0) return;
 
+  // Bughunt Runde 10: der Server lehnt einen Batch ab, der den Cap von 100
+  // sprengt (vorhandene + len > 100 → 400). Offene Schlüssel aus
+  // gescheiterten Läufen schrumpften nie (markiert wird erst nach Erfolg) —
+  // ab ~4 gescheiterten Läufen war 0 + >100 > 100 und JEDE Nachfüllung für
+  // immer tot: Vorrat leer, jeder neue Sitzungsaufbau lief über den nie
+  // rotierten Fallback-Schlüssel.
+  // Fix: auf den freien Platz kappen (Server nimmt max. diesen), NUR den
+  // gekappten Batch hochladen. Das anschließende
+  // `alsVeroeffentlichtMarkieren()` ist All-or-Nothing (vodozemac) und
+  // verwirft die NICHT hochgeladenen Überschuss-Schlüssel — gewollt: sie
+  // waren nie veröffentlicht, also wertlos, und die nächste Nachfüllung
+  // erzeugt bei Bedarf frische.
+  const freierPlatz = Math.max(0, 100 - vorrat);
+  if (freierPlatz === 0) return;
+  const batch = zuVeroeffentlichen.slice(0, freierPlatz);
+
   await keysApi.addOneTimeKeys(
-    { device_pubkey: kennung, schluessel: zuVeroeffentlichen },
+    { device_pubkey: kennung, schluessel: batch },
     cloudRoute()
   );
 
   ident.alsVeroeffentlichtMarkieren();
   await kryptoAccountSichern(ident);
+}
+
+/**
+ * **Bughunt Runde 36**: Nachfüllen im laufenden Betrieb. Bislang lief das
+ * nur beim Start (`runIssueFlow`, „genau einmal pro Seitenleben") und bei
+ * der Kopplung — der Vorrat (Cap 100 je Gerät) wurde aber bei JEDEM Claim
+ * verbraucht, auch von jedem eingehenden Sitzungsaufbau. In einer
+ * langlebigen Registerkarte war er nach ~100 empfangenen Nachrichten
+ * dauerhaft leer, und jeder neue Sitzungsaufbau lief über den nie mehr
+ * rotierten Fallback-Schlüssel — keine Forward Secrecy mehr je Sitzung,
+ * herbeigeführt durch normalste Nutzung.
+ *
+ * Best-effort und stumm: Fehler (offline, nicht angemeldet) werden nur
+ * geloggt — der nächste Postfach-Zyklus versucht es erneut. Ruft NUR
+ * `nachfuellenWennNoetig` (kein `publishBundle`) und erwartet, bereits
+ * unter der Konto-Sperre zu laufen (Aufrufer: `postfachZyklus`).
+ */
+export async function fuelleEinmalschluesselNach(): Promise<void> {
+  let kennung: string;
+  try {
+    kennung = await geraeteKennung();
+  } catch {
+    return; // Nicht angemeldet — s. Modulkopf.
+  }
+  try {
+    const ident = await kryptoAccountLaden();
+    await nachfuellenWennNoetig(ident, kennung);
+  } catch (err) {
+    console.warn('[krypto] Einmalschluessel-Nachfüllen verschoben:', err);
+  }
 }

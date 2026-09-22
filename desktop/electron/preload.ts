@@ -6,7 +6,7 @@
  * Keep the exposed surface minimal but shaped so later stages can extend it
  * cleanly:
  *
- *   E1b: `pulse.gsr.*`        — sidecar bridge (health, gpuInfo,
+ *   E1b: `pulse.sidecar.*`        — sidecar bridge (health, gpuInfo,
  *                               listApplicationAudio, buildArgv, start, stop,
  *                               onEvent) — implemented below
  *   E1c: `pulse.store.*`      — settings/token persistence (`get`/`getAll`/`set`),
@@ -20,9 +20,9 @@
  * `pulse` object is declared in `web/src/lib/platform/pulse.d.ts` — keep the
  * two in sync.
  *
- * GSR bridge wiring: every `gsr.*` method is a thin `ipcRenderer.invoke('gsr:call', op, params)`
+ * Sidecar bridge wiring: every `sidecar.*` method is a thin `ipcRenderer.invoke('sidecar:call', op, params)`
  * (main-side handler in `main.ts`, sidecar logic in `sidecar.ts`). Async events
- * from the sidecar arrive on the `gsr:event` channel — but callbacks can't be
+ * from the sidecar arrive on the `sidecar:event` channel — but callbacks can't be
  * passed through contextBridge, so `onEvent(cb)` registers an `ipcRenderer.on`
  * wrapper and returns an unsubscribe function.
  */
@@ -35,8 +35,8 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 // brandet (sonst sind Client- und Server-App-Login ununterscheidbar).
 declare const __APP_MODE__: 'client' | 'server';
 
-const gsrCall = (op: string, params: unknown = {}, slot = 0): Promise<unknown> =>
-  ipcRenderer.invoke('gsr:call', op, params, slot);
+const sidecarCall = (op: string, params: unknown = {}, slot = 0): Promise<unknown> =>
+  ipcRenderer.invoke('sidecar:call', op, params, slot);
 
 const playerCall = (op: string, params?: unknown): Promise<unknown> =>
   ipcRenderer.invoke('player:call', op, params);
@@ -78,17 +78,17 @@ contextBridge.exposeInMainWorld('pulse', {
     setAll: (values: Record<string, unknown>): Promise<void> => ipcRenderer.invoke('store:setAll', values),
   },
 
-  gsr: {
-    health: () => gsrCall('health'),
-    gpuInfo: () => gsrCall('gpu_info'),
-    listMonitors: () => gsrCall('list_monitors'),
-    listWindows: () => gsrCall('list_windows'),
-    listApplicationAudio: () => gsrCall('list_application_audio'),
-    buildArgv: (args: unknown) => gsrCall('build_argv', args),
+  sidecar: {
+    health: () => sidecarCall('health'),
+    gpuInfo: () => sidecarCall('gpu_info'),
+    listMonitors: () => sidecarCall('list_monitors'),
+    listWindows: () => sidecarCall('list_windows'),
+    listApplicationAudio: () => sidecarCall('list_application_audio'),
+    buildArgv: (args: unknown) => sidecarCall('build_argv', args),
     // start/stop are per-slot — slot 0 is the primary stream, slot 1 a second
     // concurrent one (e.g. a second monitor). The read-only catalog ops above
     // stay on slot 0; they don't depend on which stream is running.
-    start: (args: unknown, slot = 0) => gsrCall('start', args, slot),
+    start: (args: unknown, slot = 0) => sidecarCall('start', args, slot),
     // `grund` ist reine Diagnose und reist im Befehl mit, damit er in DERSELBEN
     // Protokollzeile steht wie der Stopp selbst (`sidecar-log-befehle.ts`). Der
     // Umweg über eine eigene Meldung schiede aus: der Renderer hat keinen Zugang
@@ -96,19 +96,19 @@ contextBridge.exposeInMainWorld('pulse', {
     // Abnehmer — die Begruendung waere genau dort verloren, wo man sie sucht.
     // Kein Sidecar wertet das Feld aus (keiner benutzt `deny_unknown_fields`),
     // es faellt dort still weg.
-    stop: (slot = 0, grund?: string) => gsrCall('stop', grund ? { grund } : {}, slot),
+    stop: (slot = 0, grund?: string) => sidecarCall('stop', grund ? { grund } : {}, slot),
     /** **Direktverbindung (P2P):** Signaling-RPCs an den Sidecar des Platzes —
      *  `direct_offer` (SDP des Player-Offers hinein, Answer zurück) und
      *  `direct_stop` (Verbindung lösen, zurück in den Wartezustand). Kein
      *  zweiter Kanal nötig: die Ops tragen keinen Pfad und keine Zuordnung,
-     *  nur den Platz, den `gsr:call` ohnehin nimmt — der Hauptprozess
+     *  nur den Platz, den `sidecar:call` ohnehin nimmt — der Hauptprozess
      *  entscheidet hier nichts (Allowlist in `main.ts`). */
     directOffer: (slot: number, sdp: string): Promise<unknown> =>
-      gsrCall('direct_offer', { sdp }, slot),
-    directStop: (slot: number): Promise<unknown> => gsrCall('direct_stop', {}, slot),
+      sidecarCall('direct_offer', { sdp }, slot),
+    directStop: (slot: number): Promise<unknown> => sidecarCall('direct_stop', {}, slot),
 
-    /** Welcher Linux-Sidecar läuft (rust/gsr) und warum — für die Anzeige im
-     *  Kompatibilitäts-Tab. Eigener Kanal, kein `gsr:call`: das ist eine
+    /** Welcher Linux-Sidecar läuft (rust) und warum — für die Anzeige im
+     *  Kompatibilitäts-Tab. Eigener Kanal, kein `sidecar:call`: das ist eine
      *  Main-Prozess-Auskunft über die Pfadauflösung, keine Sidecar-Op. */
 
     /**
@@ -117,7 +117,7 @@ contextBridge.exposeInMainWorld('pulse', {
      * App-WebSocket (`remote_input`) und reicht sie hier unveraendert weiter —
      * der Hauptprozess hat keine Verbindung zum Gateway.
      *
-     * Eigene Kanaele statt `gsr:call`: der Hauptprozess fuehrt Buch darueber,
+     * Eigene Kanaele statt `sidecar:call`: der Hauptprozess fuehrt Buch darueber,
      * welche Plaetze eine Eingabe-Sitzung haben (s. `remoteInputHost.ts`).
      */
     remoteInput: (
@@ -126,18 +126,18 @@ contextBridge.exposeInMainWorld('pulse', {
       frames: string[],
       hostAktiv?: boolean,
     ): Promise<unknown> =>
-      ipcRenderer.invoke('gsr:remoteInput', slot, sessionId, frames, hostAktiv === true),
+      ipcRenderer.invoke('sidecar:remoteInput', slot, sessionId, frames, hostAktiv === true),
     /** Sitzungsende — der Sidecar gibt alles Gedrueckte frei (sonst klemmt eine
      *  Taste). Idempotent, und ohne Frames zuvor folgenlos. */
-    remoteInputEnd: (): Promise<unknown> => ipcRenderer.invoke('gsr:remoteInputEnd'),
+    remoteInputEnd: (): Promise<unknown> => ipcRenderer.invoke('sidecar:remoteInputEnd'),
 
     /** Subscribe to sidecar events (`{ev:..,...}`). Returns an unsubscribe fn.
      *  The renderer-supplied `cb` is invoked from inside this bridge function —
      *  contextBridge allows calling a function the renderer passed in. */
     onEvent: (cb: (ev: unknown) => void): (() => void) => {
       const handler = (_e: unknown, ev: unknown): void => cb(ev);
-      ipcRenderer.on('gsr:event', handler);
-      return () => ipcRenderer.removeListener('gsr:event', handler);
+      ipcRenderer.on('sidecar:event', handler);
+      return () => ipcRenderer.removeListener('sidecar:event', handler);
     },
 
     /** Fernsteuerung: ein Wert der geteilten Zwischenablage
@@ -168,7 +168,7 @@ contextBridge.exposeInMainWorld('pulse', {
       session: number,
       data: unknown,
       slot = 0,
-    ): Promise<unknown> => ipcRenderer.invoke('gsr:ablage', rolle, session, data, slot),
+    ): Promise<unknown> => ipcRenderer.invoke('sidecar:ablage', rolle, session, data, slot),
 
     /** Fernsteuerung, Host-Seite: dem Sidecar eines Platzes sagen, dass seine
      *  Ablage-Sitzung vorbei ist (Traegerwechsel,
@@ -182,7 +182,7 @@ contextBridge.exposeInMainWorld('pulse', {
      *  Plattformen: der Windows-Sidecar beendet sich nach `stop`, der
      *  mac-Sidecar bleibt warm und muss sein `ende` bekommen. */
     ablageEnde: (slot: number): Promise<unknown> =>
-      ipcRenderer.invoke('gsr:ablageEnde', slot),
+      ipcRenderer.invoke('sidecar:ablageEnde', slot),
   },
 
   /**
@@ -195,7 +195,6 @@ contextBridge.exposeInMainWorld('pulse', {
    */
   player: {
     available: (): Promise<boolean> => ipcRenderer.invoke('player:available'),
-    health: () => playerCall('health'),
     open: (params: unknown) => playerCall('open', params),
     close: (session: number) => playerCall('close', { session }),
     /** **Direktverbindung (P2P):** die zwei Signaling-RPCs des Players —
@@ -207,8 +206,6 @@ contextBridge.exposeInMainWorld('pulse', {
       playerCall('direct_start', { session }),
     directSignal: (session: number, answer: string): Promise<unknown> =>
       playerCall('direct_signal', { session, answer }),
-    setOption: (session: number, key: string, value: unknown) =>
-      playerCall('set_option', { session, key, value }),
     setOptions: (session: number, options: unknown) =>
       playerCall('set_option', { session, options }),
     stats: (session: number) => playerCall('stats', { session }),
@@ -439,8 +436,6 @@ contextBridge.exposeInMainWorld('pulse', {
     },
     /** Heruntergeladenes Update installieren + sofort neu starten (Banner-Button). */
     restartNow: (): Promise<void> => ipcRenderer.invoke('updates:restart'),
-    /** Manueller Re-Check (optional — der Start-Check läuft automatisch in main). */
-    check: (): Promise<void> => ipcRenderer.invoke('updates:check'),
   },
 
   // OS-global keyboard shortcuts (background toggles). The renderer pushes the
@@ -465,14 +460,10 @@ contextBridge.exposeInMainWorld('pulse', {
     keepAwake: (on: boolean): Promise<boolean> => ipcRenderer.invoke('power:keepAwake', on),
   },
 
-  // Clipboard + dropped-file byte access. The sandboxed remote renderer can't
-  // read the bytes of a pasted/dropped OS file (size 0 → upload 422); these
-  // route through native main-process reads (`clipboard.ts`).
-  clipboard: {
-    /** Current clipboard image as PNG bytes, or null if the clipboard holds
-     *  no image (so the caller can fall through to a normal text paste). */
-    readImage: (): Promise<Uint8Array | null> => ipcRenderer.invoke('clipboard:readImage'),
-  },
+  // Dropped-file byte access. The sandboxed remote renderer can't read the
+  // bytes of a pasted/dropped OS file (size 0 → upload 422); main reads them
+  // natively (`clipboard.ts` — dessen readImage-Brücke ist mit der Entfernung
+  // des Main-Handlers entfallen).
   files: {
     /** Read the bytes of a genuinely dropped File. The OS path is resolved here
      *  from the File via webUtils (a JS-constructed File yields '' → null), then
@@ -483,16 +474,6 @@ contextBridge.exposeInMainWorld('pulse', {
       if (!path) return Promise.resolve(null);
       return ipcRenderer.invoke('file:readPath', path);
     },
-  },
-
-  // macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
-  // Auf anderen Plattformen liefert der Hauptprozess einfach {trusted:true}
-  // zurueck -- dort gibt es keine Huerde. Begruendung, wieso das hierher statt
-  // in den Sidecar gehoert (TCC-Vererbung auf den Elternprozess), und der
-  // vorgeschriebene Hinweistext stehen in `main.ts::wireAccessibility`.
-  accessibility: {
-    isTrusted: (prompt?: boolean): Promise<{ trusted: boolean; hint?: string }> =>
-      ipcRenderer.invoke('accessibility:isTrusted', prompt === true),
   },
 
   // Netzdiagnose eines Self-Host-Servers. Der Renderer bekommt von Chromium

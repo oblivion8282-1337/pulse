@@ -69,6 +69,12 @@ export async function rtExec(
       if (timer) clearTimeout(timer);
       resolve({ code: code ?? -1, stdout, stderr });
     });
+    // Bughunt Runde 44: ohne Listener wirft ein async 'error' auf stdin
+    // (EPIPE — Kind starb vor dem Lesen: DNS-Fail, Registry tot, Timeout-
+    // SIGKILL) eine unbehandelte Exception im MAIN-Prozess. Dasselbe
+    // Muster ist in sidecar.ts/player.ts längst abgefedert, hier war es
+    // vergessen. 'close' resolved das Ergebnis regulär.
+    child.stdin.on('error', () => { /* EPIPE: 'close' liefert das Ergebnis */ });
     if (opts.stdin != null) child.stdin.write(opts.stdin);
     child.stdin.end();
   });
@@ -96,13 +102,30 @@ export async function rtExecToFile(
     const timer = opts.timeoutMs
       ? setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs)
       : null;
-    child.stdout.pipe(out);
+    // Bughunt Runde 44: ein Fehler am ZIEL (Pfad nicht beschreibbar, Datei
+    // gelockt, OneDrive-Placeholder, read-only Share) emittiert async
+    // 'error' auf `out` — ohne Listener crashte das den MAIN-Prozess,
+    // mitten im Export mit bereits gestopptem Container.
+    let erledigt = false;
+    const brichAb = (err: Error): void => {
+      if (erledigt) return;
+      erledigt = true;
+      if (timer) clearTimeout(timer);
+      child.kill('SIGKILL');
+      reject(err);
+    };
+    out.on('error', brichAb);
     child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-    child.on('error', (err) => { if (timer) clearTimeout(timer); out.close(); reject(err); });
+    child.on('error', brichAb);
     child.on('close', (code) => {
+      if (erledigt) return;
       if (timer) clearTimeout(timer);
       // Erst wenn die Datei geschlossen ist, ist der tar-Inhalt geflusht.
-      out.close(() => resolve({ code: code ?? -1, stderr }));
+      out.close(() => {
+        if (erledigt) return;
+        erledigt = true;
+        resolve({ code: code ?? -1, stderr });
+      });
     });
   });
 }

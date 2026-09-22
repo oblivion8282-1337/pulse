@@ -243,7 +243,7 @@ test('dieselbe Sitzung loest keine Freigabe aus', async () => {
 
 test('ein toter Sidecar wird als {ok:false} gemeldet, nicht geworfen', async () => {
   const r = new RemoteEingabe(async () => {
-    throw new Error('gsr sidecar exited (code 1)');
+    throw new Error('sidecar exited (code 1)');
   }, MAX_SLOTS);
   const res = await r.frames(0, 'sit-a', ['x']);
   assert.equal(res.ok, false);

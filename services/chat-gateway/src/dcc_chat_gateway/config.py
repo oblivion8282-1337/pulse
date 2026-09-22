@@ -71,7 +71,11 @@ class Settings(BaseSettings):
     s3_bucket: str = "pulse-attachments"
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
-    s3_presigned_ttl_seconds: int = 600  # 10 min, PUT and GET alike.
+    # Bughunt Runde 36: 10 min reichten bei 25-MB-Uploads auf schwachem
+    # Uplink nicht (PUT läuft ins 403, obwohl die Bytes wohlbehalten
+    # ankämen); 30 min decken auch Geduld-Uploads. Die Klienten
+    # re-signen GETs ohnehin bei Bedarf (AutoRefreshImage).
+    s3_presigned_ttl_seconds: int = 1800  # 30 min, PUT and GET alike.
     # Lowered from 30 min so a leaked PUT URL shrinks the orphan-
     # upload DoS window. The orphan sweep on the trash cadence
     # cleans up after the TTL anyway; clients mint fresh URLs on
@@ -88,20 +92,7 @@ class Settings(BaseSettings):
     # local proxy.
     pulse_oidc_issuer: str = "https://howispulse.com"
 
-    # JWT audience expected in *Cert-JWTs* (credential_validator). Certs
-    # carry the Cloud's JWT_AUDIENCE ("dcc"). ``None`` ⇒ Cloud mode falls
-    # back to the local ``jwt_audience`` (validates its own certs, values
-    # agree by construction); self-host skips the check unless this is set
-    # (its local ``jwt_audience`` is "pulse-self-host", NOT the cert value —
-    # the all-in-one image sets PULSE_JWT_AUDIENCE=dcc explicitly).
-    # Note: the separate ``jwt_audience`` field governs chat-gateway's own
-    # Access-JWT validation.
-    pulse_jwt_audience: str | None = None
 
-    # Moderation tools — core feature, cannot be disabled.  Flag reserved
-    # for future granular mod-tools opt-out (e.g. report-submission only
-    # vs. full mod queue).
-    mod_tools_enabled: bool = True
 
     # Path to the JWKS-pin file (SHA-256 of sorted kid list).  Written on
     # first successful JWKS pull; checked on every subsequent pull.
@@ -246,14 +237,6 @@ class Settings(BaseSettings):
     # Path for the locally-generated Ed25519 session-signing key (DE 9).
     session_signing_key_file: str = "./data/jwt_keys/session_signing.pem"
 
-    # HMAC secret used to sign the short-lived challenge-tokens issued by
-    # ``POST /cert-login/challenge`` (Phase 5.1). The secret is base64url-
-    # encoded; empty means "generate ephemeral secret on first use and
-    # WARN".  Set ``CHAT_GATEWAY_CHALLENGE_SECRET`` in ``.env`` to a stable
-    # value (>=32 raw bytes) to keep tokens valid across restarts; for
-    # single-pod self-host deployments the ephemeral default is fine, but
-    # in-flight challenge-tokens will be invalidated on restart.
-    chat_gateway_challenge_secret: str = ""
 
     # Web-Push VAPID — used to sign the Push API requests we send to a user's
     # browser push service (FCM/Mozilla/etc.). The *private* key is PEM-encoded

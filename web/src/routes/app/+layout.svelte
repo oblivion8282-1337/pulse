@@ -283,9 +283,21 @@
         // befolgen (Defense in depth — ein fremder Frame/Worker soll über
         // diesen Kanal keine Navigation anstoßen können).
         if (ev.origin !== location.origin) return;
-        const data = ev.data as { type?: string; channel_id?: string; guild_id?: string | null };
-        if (data?.type === 'navigateTo' && data.channel_id) {
-          navigateToFromNotification(data.channel_id, data.guild_id ?? null);
+        const data = ev.data as {
+          type?: string;
+          channel_id?: string;
+          guild_id?: string | null;
+          url?: string | null;
+        };
+        // Bughunt 2026-09-20: auch das reine `url`-Ziel durchreichen —
+        // Freund-Events tragen keine channel_id, nur target_url. Vorher
+        // fokussierte der Klick nur den Tab, ohne zu /app/friends zu gehen.
+        if (data?.type === 'navigateTo') {
+          navigateToFromNotification(
+            data.channel_id ?? '',
+            data.guild_id ?? null,
+            data.url ?? null
+          );
         }
       };
       navigator.serviceWorker.addEventListener('message', _swMessageHandler);

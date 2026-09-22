@@ -124,6 +124,11 @@ class Settings(BaseSettings):
     rate_limit_login: str = "20/minute"
     rate_limit_password_forgot: str = "2/minute"
     rate_limit_password_reset: str = "10/minute"
+    # Bughunt Runde 24: die anonymen Token-Consume-Endpoints waren die
+    # einzigen Token-Gates ganz ohne Brake (SHA-256-Lookups + Row-Locks
+    # pro Aufruf). 43-Byte-Token machen Brute-Force aussichtslos — der
+    # Deckel dämpft nur den.blinden Loop.
+    rate_limit_token_confirm: str = "30/minute"
     rate_limit_email_verify_send: str = "2/minute"
     rate_limit_login_totp: str = "20/minute"
     rate_limit_totp_verify_setup: str = "10/minute"
@@ -304,6 +309,7 @@ class Settings(BaseSettings):
         "rate_limit_login",
         "rate_limit_password_forgot",
         "rate_limit_password_reset",
+        "rate_limit_token_confirm",
         "rate_limit_email_verify_send",
         "rate_limit_login_totp",
         "rate_limit_totp_verify_setup",

@@ -18,18 +18,23 @@ auf, und ein Umbenennen träfe genau die Nutzer, deren Berichte wir wollen.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
+from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
+from dcc_auth.models import User
 from dcc_auth.models_experimental import ExperimentalLog
-from dcc_auth.routes import _check_rate
+from dcc_auth.models_instances import UserInstanceMembership
+from dcc_auth.routes import _check_rate, _get_current_user, _require_admin
 from dcc_auth.snowflake import next_id
+from dcc_shared.snowflake import INT64_MAX, INT64_MIN
 
 log = logging.getLogger(__name__)
 
@@ -52,15 +57,36 @@ RETENTION_DAYS = 28
 MAX_ROWS = 5_000
 
 
-# Obergrenze für die Ereignisliste EINES Berichts. Der Client verdichtet und
-# deckelt bereits (`web/src/lib/stream/diagnose-bericht.ts`); diese Zahl ist
-# die zweite Verteidigungslinie, denn der Endpoint ist offen und darf sich
-# nicht darauf verlassen, dass der Absender unser Client ist.
-#
-# Sie liegt bewusst ETWAS über dem Client-Deckel: läge sie gleichauf, würde ein
-# Bericht, der genau am Deckel liegt, an einem Rundungsunterschied scheitern —
-# und ein 422 verwirft den ganzen Bericht, nicht nur das überzählige Ereignis.
+# Obergrenze für die Ereignisliste EINES Berichts. Die Clients verdichten und
+# deckeln bereits — mit ZWEI Deckeln: 200 beim Streaming-Sammler
+# (``web/src/lib/stream/diagnose-bericht.ts``) und 250 beim App-Ringpuffer
+# (``web/src/lib/diagnose/app-diagnose.ts``). Diese Zahl ist die zweite
+# Verteidigungslinie, denn der Endpoint ist offen und darf sich nicht darauf
+# verlassen, dass der Absender unser Client ist. SIE IST KEIN PUFFER MEHR für
+# den App-Pfad (250 == 250) — künftige Server-Verkleinerungen müssen beide
+# Clients im Blick nehmen, ein 422 verwirft den GANZEN Bericht.
 MAX_EVENTS = 250
+
+# Obergrenze für die serialisierten Dict-Felder (system_info, report) am
+# öffentlichen Endpoint. MAX_LOG_CHARS deckt nur log_text; ohne diesen Deckel
+# wäre report.kopf/abschluss/jedes Ereignis.werte unbegrenzt — genau die
+# Umgehung, vor der der Kommentar an MAX_LOG_CHARS warnt.
+MAX_DICT_CHARS = 512 * 1024  # 512 KiB
+
+# Snowflake-IDs sind INT64 — asyncpg kann größere Werte nicht binden und
+# antwortet mit 500 statt 422 (gleiche Fehlerklasse wie routes.py::batch_users);
+# die Grenzen kommen aus dcc_shared, derselben Quelle wie next_id().
+
+
+def _parse_snowflake(wert: str, feld: str) -> int:
+    """Snowflake-String → int mit Int64-Grenze; sonst 422 (statt 500)."""
+    try:
+        zahl = int(wert)
+    except ValueError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{feld} muss eine Zahl sein")
+    if not (INT64_MIN <= zahl <= INT64_MAX):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{feld} außerhalb des gültigen Bereichs")
+    return zahl
 
 
 class Ereignis(BaseModel):
@@ -135,6 +161,20 @@ class ExperimentalLogCreate(BaseModel):
     )
 
 
+def _deckel_pruefen(wert: Any, was: str, limit: int) -> None:
+    """Serialisierbarkeit (NaN/Infinity → Postgres-JSONB kann die nicht) und
+    Größen-Deckel in einem; Verstoß je 422, nicht 500."""
+    try:
+        groesse = len(json.dumps(wert, allow_nan=False))
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{was} enthält nicht-serialisierbare Werte",
+        )
+    if groesse > limit:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{was} zu groß")
+
+
 @router.post("/experimental-logs", status_code=status.HTTP_201_CREATED)
 async def submit_experimental_log(
     payload: ExperimentalLogCreate,
@@ -145,6 +185,17 @@ async def submit_experimental_log(
     Keine Auth nötig — es sendet nur, wer den Schalter nicht abgewählt hat."""
     await _check_rate(request, "experimental_log_submit", "30/hour")
 
+    # `role: "server"` ist der privilegierte Wert — er wird AUSSCHLIESSLICH
+    # von /me/instance-diagnose gesetzt, das die Owner-Membership der Instanz
+    # prüft. Am anonymen Endpoint würde er jedem erlauben, gefälschte
+    # „Server-Pakete" mit fremden instance_ids in die Admin-Ansicht zu
+    # einschleusen und die echten Betreiber-Pakete ununterscheidbar zu machen.
+    if payload.role == "server":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="role 'server' ist dem authentifizierten Endpoint vorbehalten",
+        )
+
     # Ein Aufruf ohne jeden Inhalt kostet eine Zeile und trägt nichts bei. Der
     # Fall entsteht nicht theoretisch: seit `log_text` optional ist, ist
     # `{"reason": "stream_end"}` ein syntaktisch gültiger Aufruf.
@@ -153,6 +204,13 @@ async def submit_experimental_log(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="entweder report oder log_text muss gesetzt sein",
         )
+
+    # Größen-Deckel auch für die DICT-Felder (Bughunt 2026-09-21): MAX_LOG_CHARS
+    # deckt nur log_text — kopf/bilanz/abschluss/werte wären sonst unbegrenzt.
+    # `allow_nan=False` verwandelt NaN/Infinity-Inputs (Postgres-JSONB kann die
+    # nicht speichern) von 500 in 422.
+    report_json = payload.report.model_dump(mode="json") if payload.report else None
+    _deckel_pruefen({"system_info": payload.system_info, "report": report_json}, "Bericht", MAX_DICT_CHARS)
 
     # Security-Audit 2026-09-16: statt des rohen XFF (client-kontrolliert,
     # spoofbare Attribution) dieselbe Trusted-Proxy-Auflösung wie überall.
@@ -171,7 +229,7 @@ async def submit_experimental_log(
         # rohes dict aus Pydantic kann Werte enthalten, die der JSON-Serializer
         # nicht kennt. Hier sind es heute nur Zahlen und Zeichenketten — aber
         # das gilt nur, solange niemand ein Feld ergänzt.
-        report=payload.report.model_dump(mode="json") if payload.report else None,
+        report=report_json,
         log_text=payload.log_text,
         client_ip=client_ip,
     )
@@ -242,3 +300,222 @@ async def _aufraeumen(session: SessionDep) -> None:
             )
     except Exception:
         log.warning("experimental_log_cleanup_failed", exc_info=True)
+
+
+# --- Admin-Lesezugriff (Spec 2026-09-21 §6) ---------------------------------
+#
+# Bis hierher war die Tabelle reine Schreiboberfläche: Berichte landeten, aber
+# NUR per Datenbank-SSH lesbar. Die Admin-Ansicht im Web braucht diese zwei
+# Lesewege + einen Abwurf. Bewusst NICHT auf demselben Router-Prefix wie die
+# anderen Admin-Module (dieser Router ist die öffentliche Schreibfläche) —
+# die Gates hängen deshalb je Route: doppelt (_require_admin UND
+# _require_cloud), Defense-in-depth wie in routes_admin_instances.py.
+
+
+def _require_cloud() -> None:
+    """Diagnose-Berichte sind cloud-only (dieselbe Begründung wie
+    ``routes_admin_instances.py``): auf einem Self-Host-Deploy liegt die
+    Tabelle seines Servers bei IHM — aber die Ansicht, die der Plattform-
+    Admin liest, gehört zu dieser Cloud hier."""
+    if get_settings().pulse_instance_mode != "cloud":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="diagnose reports are cloud-only",
+        )
+
+
+class ExperimentalLogListe(BaseModel):
+    """Zeile der Liste — ohne report/log_text (die sind Detail-Sache)."""
+
+    model_config = {"extra": "ignore"}
+
+    id: str
+    created_at: datetime
+    reason: str | None = None
+    role: str | None = None
+    channel_id: str | None = None
+    sidecar_version: str | None = None
+    client_ip: str | None = None
+    system_info: dict[str, Any] | None = None
+
+
+class ExperimentalLogDetails(ExperimentalLogListe):
+    report: dict[str, Any] | None = None
+    log_text: str | None = None
+
+
+def _liste_zeile(e: ExperimentalLog) -> ExperimentalLogListe:
+    return ExperimentalLogListe(
+        id=str(e.id),
+        created_at=e.created_at,
+        reason=e.reason,
+        role=e.role,
+        channel_id=e.channel_id,
+        sidecar_version=e.sidecar_version,
+        client_ip=e.client_ip,
+        system_info=e.system_info,
+    )
+
+
+@router.get(
+    "/admin/experimental-logs",
+    response_model=list[ExperimentalLogListe],
+    dependencies=[Depends(_require_cloud)],
+)
+async def admin_liste_experimental_logs(
+    _admin: Annotated[User, Depends(_require_admin)],
+    session: SessionDep,
+    role: str | None = None,
+    reason: str | None = None,
+    channel_id: str | None = None,
+    limit: Annotated[int, Field(ge=1, le=200)] = 50,
+    before_id: str | None = None,
+):
+    """Neueste Berichte zuerst; Paginierung per ``before_id`` (Snowflake der
+    letzten gesehenen Zeile). Filter sind AND-verknüpft und optional."""
+    q = select(ExperimentalLog)
+    if role:
+        q = q.where(ExperimentalLog.role == role)
+    if reason:
+        q = q.where(ExperimentalLog.reason == reason)
+    if channel_id:
+        q = q.where(ExperimentalLog.channel_id == channel_id)
+    if before_id:
+        q = q.where(ExperimentalLog.id < _parse_snowflake(before_id, "before_id"))
+    q = q.order_by(ExperimentalLog.id.desc()).limit(limit)
+    zeilen = (await session.execute(q)).scalars().all()
+    return [_liste_zeile(e) for e in zeilen]
+
+
+@router.get(
+    "/admin/experimental-logs/{log_id}",
+    response_model=ExperimentalLogDetails,
+    dependencies=[Depends(_require_cloud)],
+)
+async def admin_experimental_log_details(
+    _admin: Annotated[User, Depends(_require_admin)],
+    log_id: str,
+    session: SessionDep,
+):
+    numerisch = _parse_snowflake(log_id, "id")
+    e = (
+        await session.execute(select(ExperimentalLog).where(ExperimentalLog.id == numerisch))
+    ).scalar_one_or_none()
+    if e is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Bericht nicht gefunden")
+    return ExperimentalLogDetails(
+        **_liste_zeile(e).model_dump(),
+        report=e.report,
+        log_text=e.log_text,
+    )
+
+
+@router.delete(
+    "/admin/experimental-logs/{log_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(_require_cloud)],
+)
+async def admin_experimental_log_loeschen(
+    _admin: Annotated[User, Depends(_require_admin)],
+    log_id: str,
+    session: SessionDep,
+):
+    """Einzellöschung für Spot-Fälle. Der reguläre Abwurf bleibt die
+    Aufbewahrungsfrist (``_aufraeumen``) — ein Bericht trägt keine Nutzer-
+    Kennung, ein „alles von Nutzer X“ gibt es darum nicht und braucht es
+    nicht (Spec §6)."""
+    numerisch = _parse_snowflake(log_id, "id")
+    await session.execute(
+        delete(ExperimentalLog).where(ExperimentalLog.id == numerisch),
+        execution_options={"synchronize_session": False},
+    )
+    await session.commit()
+    return None
+
+
+# --- Server-Paket eines Self-Hosters (Spec 2026-09-21 §7) -------------------
+#
+# Der Betreiber sammelt auf SEINEM Server ein Diagnose-Paket (Route im
+# chat-gateway, ``/admin/self-host/diagnose-paket``) und schickt es mit seinem
+# Cloud-Konto HIERHER — der Browser ist der Kurier, der Server selbst ruft die
+# Cloud nicht an. Attributierung über die Membership: nur der OWNER (oder ein
+# Admin) darf ein Paket für eine Instanz einreichen; sonst könnte jeder
+# angemeldete Account beliebig fremde „Server-Berichte“ in die Ansicht
+# einschleusen. Anders als der öffentliche POST oben ist diese Route
+# authentifiziert — deshalb kein IP-Rate-Limit, aber ein Account-Rate-Limit
+# (unten) und ein harter Paket-Deckel.
+
+MAX_PAKET_CHARS = 400_000  # ≈400 KiB serialisiert; das Paket ist nativ klein
+# (2×16 KiB Log-Schwänze + 50 Setup-Zeilen), der Deckel fängt Gepansche ab.
+
+
+class InstanceDiagnoseCreate(BaseModel):
+    instance_id: Annotated[str, Field(min_length=1, max_length=64)]
+    paket: dict[str, Any]
+
+
+@router.post("/me/instance-diagnose", status_code=status.HTTP_201_CREATED)
+async def submit_instance_diagnose(
+    payload: InstanceDiagnoseCreate,
+    request: Request,
+    session: SessionDep,
+    current: User = Depends(_get_current_user),
+):
+    # Account-Rate-Limit (Bughunt 2026-09-21): ohne es könnte ein Owner mit
+    # 400-KiB-Paketen den globalen MAX_ROWS-Pool in Minuten flushen und alle
+    # FREMDEN Berichte aus dem 28-Tage-Fenster verdrängen. Key je Account,
+    # nicht je IP (die Route ist authentifiziert — IP-Rotation hilft nichts).
+    await _check_rate(
+        request, "instance_diagnose", get_settings().rate_limit_selfhost_diagnose,
+        account=str(current.id),
+    )
+
+    instanz_id = _parse_snowflake(payload.instance_id, "instance_id")
+
+    mitglied = (
+        await session.execute(
+            select(UserInstanceMembership).where(
+                UserInstanceMembership.user_id == current.id,
+                UserInstanceMembership.instance_id == instanz_id,
+                UserInstanceMembership.role == "owner",
+            )
+        )
+    ).scalar_one_or_none()
+    if mitglied is None and not current.is_admin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="nur der Instanz-Betreiber darf ein Server-Paket einreichen",
+        )
+
+    # Deckel + NaN-Abweisung (Postgres-JSONB kennt NaN/Infinity nicht — ohne
+    # allow_nan=False wäre das ein 500 beim Insert, nicht ein 422 hier).
+    _deckel_pruefen(payload.paket, "Paket", MAX_PAKET_CHARS)
+
+    # Security-Audit-Konvention (s. öffentlicher POST oben): Trusted-Proxy-
+    # Auflösung statt rohen XFF, lokal importiert wie dort.
+    from dcc_auth.routes import _client_ip  # noqa: PLC0415
+
+    roh_kopf = payload.paket.get("kopf")
+    kopf = roh_kopf if isinstance(roh_kopf, dict) else {}
+    # Attributions-Vertrag: das Paket zählt ZUR Instanz in channel_id — ein
+    # abweichendes kopf.instance_id (alter Container nach Instanz-Recycling,
+    # oder absichtlich fremd gelabelt) wird hiermit autoritativ überschrieben.
+    kopf["instance_id"] = str(instanz_id)
+    payload.paket["kopf"] = kopf
+    entry = ExperimentalLog(
+        id=next_id(),
+        reason="user_report",
+        role="server",
+        # channel_id ist die indizierte Suchspalte (gleiche Rolle wie bei den
+        # Streaming-Berichten der Kanal) — hier trägt sie die Instanz, damit die
+        # Ansicht Server-Pakete je Instanz filtern kann.
+        channel_id=str(instanz_id),
+        system_info=kopf,
+        report=payload.paket,
+        client_ip=_client_ip(request),
+    )
+    session.add(entry)
+    await session.flush()
+    await _aufraeumen(session)
+    await session.commit()
+    return {"id": str(entry.id), "status": "received"}

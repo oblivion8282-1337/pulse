@@ -15,7 +15,7 @@
  * UND von `label.ts` (dem Namen, den ZUSCHAUER am Stream sehen) — beide sollen
  * dieselbe Anwendung gleich benennen.
  */
-import type { GsrWindow } from './gsr';
+import type { SidecarWindow } from './sidecar';
 
 /** `"SuperMeatBoy.exe"` → `"Super Meat Boy"`. Nur für den Fallback-Pfad. */
 export function prettifyExeName(raw: string): string {
@@ -32,7 +32,7 @@ export function prettifyExeName(raw: string): string {
 }
 
 /** Anzeigename eines Fensters — siehe Modul-Doc für die Quellen-Reihenfolge. */
-export function windowDisplayName(w: Pick<GsrWindow, 'app' | 'title' | 'app_display'>): string {
+export function windowDisplayName(w: Pick<SidecarWindow, 'app' | 'title' | 'app_display'>): string {
   const display = w.app_display?.trim();
   if (display) return display;
   const pretty = prettifyExeName(w.app ?? '');
@@ -49,7 +49,7 @@ export function windowDisplayName(w: Pick<GsrWindow, 'app' | 'title' | 'app_disp
  * die Auflösung nutzlos: dann ist der Titel das einzige Unterscheidungsmerkmal
  * und gewinnt.
  */
-export function windowSubtitle(w: GsrWindow, ambiguous: boolean): string {
+export function windowSubtitle(w: SidecarWindow, ambiguous: boolean): string {
   const title = w.title?.trim();
   if (ambiguous && title) return title;
   if (w.width && w.height) return `${w.width}×${w.height}`;
@@ -57,7 +57,7 @@ export function windowSubtitle(w: GsrWindow, ambiguous: boolean): string {
 }
 
 /** Anzeigenamen, die in der Liste mehrfach vorkommen — Eingabe für `ambiguous`. */
-export function ambiguousNames(windows: GsrWindow[]): Set<string> {
+export function ambiguousNames(windows: SidecarWindow[]): Set<string> {
   const seen = new Set<string>();
   const dupes = new Set<string>();
   for (const w of windows) {

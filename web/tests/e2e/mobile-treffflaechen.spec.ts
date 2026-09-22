@@ -27,7 +27,7 @@ test.describe('Trefferflächen auf dem Handy', () => {
   let page: Page;
 
   test.beforeAll(async ({ browser }) => {
-    page = await browser.newPage({ viewport: HANDY });
+    page = await (await browser.newContext({ viewport: HANDY, locale: 'de-DE', isMobile: true, hasTouch: true })).newPage();
     await page.goto('/register');
     await page.getByTestId('reg-username').fill(`tap_${TAG}`);
     await page.getByTestId('reg-email').fill(`tap_${TAG}@dcc-test.example.com`);

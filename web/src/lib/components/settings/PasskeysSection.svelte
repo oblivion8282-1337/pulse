@@ -7,6 +7,7 @@
    * passwordless "Mit Passkey anmelden" button — see the login page.
    */
   import { onMount } from 'svelte';
+  import { auth } from '$lib/stores/auth.svelte';
   import { toast } from 'svelte-sonner';
   import KeyRoundIcon from '@lucide/svelte/icons/key-round';
   import PlusIcon from '@lucide/svelte/icons/plus';
@@ -78,7 +79,7 @@
     {#if passkeys.length > 0}
       <ul class="flex flex-col gap-2">
         {#each passkeys as pk (pk.id)}
-          <PasskeyRow passkey={pk} {onRenamed} {onRemoved} />
+          <PasskeyRow passkey={pk} totpEnabled={auth.user?.totp_enabled === true} istLetzter={passkeys.length === 1} {onRenamed} {onRemoved} />
         {/each}
       </ul>
     {:else}

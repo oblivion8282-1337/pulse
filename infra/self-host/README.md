@@ -211,8 +211,8 @@ cont-init  (oneshot — runs cont-init-main.sh, blocks until all secrets/configs
   ├── mediamtx-auth-hook  (waits for redis)
   ├── livekit             (waits for voice-signaling)
   ├── mediamtx            (waits for media-svc + mediamtx-auth-hook)
-  ├── minio               (waits for cont-init; embedded S3 store for attachments)
-  ├── minio-init          (oneshot — waits for minio; creates the attachments bucket, best-effort)
+  ├── garage              (waits for cont-init; embedded S3 store, statt MinIO — dl.min.io ist 410)
+  ├── garage-init         (oneshot — waits for garage; Layout, Bucket pulse-attachments, Key-Import)
   ├── coturn              (waits for cont-init; sleeps forever if PULSE_TURN_DISABLED=true)
   └── caddy               (waits for chat-gateway/voice-signaling/media-svc/auth)
 ```
@@ -243,8 +243,8 @@ infra/self-host/
 │       │   ├── mediamtx-auth-hook/
 │       │   ├── livekit/            # go binaries
 │       │   ├── mediamtx/
-│       │   ├── minio/              # embedded S3 object store (message attachments)
-│       │   ├── minio-init/         # oneshot — creates the attachments bucket
+│       │   ├── garage/             # embedded S3 object store (message attachments)
+│       │   ├── garage-init/        # oneshot — Layout, Bucket, Key (statt MinIO)
 │       │   ├── coturn/             # turn server
 │       │   └── caddy/              # reverse proxy (Caddyfile aus etc/caddy/Caddyfile.template)
 │       ├── etc/caddy/
@@ -261,7 +261,7 @@ infra/self-host/
 │           ├── 08-init-mediamtx.sh
 │           ├── 09-init-caddy.sh    # Caddyfile aus Template; auto + provided TLS-Modus
 │           ├── 06-run-migrations.sh # LAST (Postgres muss erst hoch sein)
-│           ├── init-minio-bucket.py # minio-init oneshot: SigV4 PUT /pulse-attachments (botocore+httpx)
+│           ├── init-garage.sh        # garage-init oneshot: Layout, Bucket, Key-Import (garage CLI)
 │           └── restart-gate.sh
 └── usr/local/bin/
     └── pulse-health                # Container HEALTHCHECK (bash /dev/tcp Probes)
@@ -278,7 +278,7 @@ infra/self-host/
 | `/data/caddy/` | TLS certs + ACME state | yes |
 | `/data/livekit/` | LiveKit ephemeral state | no (regeneriert) |
 | `/data/mediamtx/` | MediaMTX state + self-signed RTMPS cert | no (regeneriert beim First-Start) |
-| `/data/minio/` | MinIO object store — message attachments | **YES — verlieren = alle Anhänge weg** |
+| `/data/garage/` | Garage S3 object store — message attachments | **YES — verlieren = alle Anhänge weg** |
 | `/data/uploads/avatars` | user avatars | yes |
 | `/data/uploads/guild-icons` | guild icons | yes |
 | `/data/backups/` | pg_dump snapshots (Phase 6 plan DE 10b) | yes |

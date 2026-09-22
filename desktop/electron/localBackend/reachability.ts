@@ -48,17 +48,22 @@ export async function checkReachability(input: {
     return { port, sock };
   });
   try {
-    try {
-      // bind kann scheitern (z.B. EADDRINUSE, wenn der Medien-Stack die Ports schon
-      // hält) — den Fehler abfangen statt zu hängen → Verdikt 'unknown'.
-      await Promise.all(sockets.map(({ port, sock }) =>
-        new Promise<void>((resolve, reject) => {
-          sock.once('error', reject);
-          sock.bind(port, '0.0.0.0', () => resolve());
-        })));
-    } catch {
-      return { verdict: 'unknown', publicIp, probe: null };
-    }
+    // Bughunt Runde 44: EADDRINUSE heißt hier NICHT „nicht messbar“, sondern
+    // „die Ports hält bereits jemand lokal“ — im App-Hosting-Fall unser
+    // EIGENER Container (`restart unless-stopped` überlebt App-Crashs, der
+    // userland-proxy/rootlessport hält 7882/8189/udp). Vorher endete der
+    // Neustart-Versuch im Dauer-Verdikt 'unknown' → 'something-paused' mit
+    // totem Retry-Loop. Ein belegter Port zählt als lokal versorgt
+    // (received-Set), die übrigen Ports werden normal probebiert.
+    await Promise.all(sockets.map(({ port, sock }) =>
+      new Promise<void>((resolve) => {
+        sock.once('error', () => {
+          received.add(port);
+          try { sock.close(); } catch { /* schon zu */ }
+          resolve();
+        });
+        sock.bind(port, '0.0.0.0', () => resolve());
+      })));
 
     let tcp: Record<number, boolean> = {};
     try {

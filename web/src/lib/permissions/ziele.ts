@@ -13,6 +13,7 @@
  */
 
 import type { Role } from '$lib/api/roles';
+import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
 import type { Member } from '$lib/api/types';
 import { safeAvatarUrl } from '$lib/avatar';
 import { userCache } from '$lib/stores/users.svelte';
@@ -51,7 +52,7 @@ export function baueZiele(
       name: r.name,
       farbe: r.color != null ? '#' + r.color.toString(16).padStart(6, '0') : null,
       avatar: null,
-      initialen: r.name.slice(0, 1).toUpperCase(),
+      initialen: anfangsBuchstabe(r.name),
       istEveryone: r.is_everyone,
       gesetzte: gesetzte(`0:${r.id}`)
     }));
@@ -66,7 +67,7 @@ export function baueZiele(
         name,
         farbe: null,
         avatar: safeAvatarUrl(userCache.get(mem.user_id)?.avatar_url),
-        initialen: name.slice(0, 1).toUpperCase(),
+        initialen: anfangsBuchstabe(name),
         istEveryone: false,
         gesetzte: gesetzte(`1:${mem.user_id}`)
       };

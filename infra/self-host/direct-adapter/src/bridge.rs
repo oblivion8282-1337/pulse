@@ -97,10 +97,23 @@ fn skip_header(name: &str) -> bool {
         name.to_ascii_lowercase().as_str(),
         "host" | "connection" | "content-length" | "transfer-encoding" | "accept-encoding"
             | "keep-alive" | "upgrade" | "te" | "trailer" | "proxy-authorization"
+            // Bughunt Runde 17: Identitäts-Köpfe aus dem Datchannel NIEMALS
+            // durchreichen. Zeigt PULSE_DIRECT_BACKEND direkt auf chat-gateway
+            // (Port 8002 statt des Caddy-Umwegs), wäre der dortige Peer
+            // 127.0.0.1 = trusted proxy — ein manipulierter XFF würde als
+            // echte Klienten-IP in Rate-Limits/Audit landen.
+            | "x-forwarded-for" | "x-forwarded-proto" | "x-forwarded-host"
+            | "x-real-ip" | "forwarded"
     )
 }
 
 async fn dispatch(http: reqwest::Client, dc: Arc<RTCDataChannel>, id: u64, req: PendingReq) {
+    // ponytail: ALLE Klienten eines App-Hosts kommen hier als 127.0.0.1 an —
+    // die echte WebRTC-Gegenstelle wird nicht propagiert (dazu müsste die
+    // ICE-Selected-Pair-Adresse je Kanal durchgereicht werden). Folgen:
+    // gemeinsame IP-Buckets + der 100-Sockets-je-IP-Deckel des chat-gateway
+    // gelten instanzweit. Upgrade-Pfad: XFF aus der ICE-Remote-Adresse
+    // setzen (Caddy überschreibt heute mit {remote_host} = Adapter).
     let url = format!("{}{}", backend_base(), req.path);
     let Ok(method) = req.method.parse::<reqwest::Method>() else {
         send_err(&dc, id, "invalid method").await;

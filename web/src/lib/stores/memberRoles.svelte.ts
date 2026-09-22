@@ -16,6 +16,10 @@ class MemberRolesStore {
   /** (guildId, userId) → role-ids the member holds (excluding @everyone). */
   byMember = $state<Record<string, string[]>>({});
   private _inflight = new Map<string, Promise<string[]>>();
+  // Bughunt Runde 6: eine WS-Invalidierung während des Flugs (und der
+  // Early-Return bei leerem Cache-Slot) ließ sonst den STALE Fetch-Snapshot
+  // dauerhaft als Wahrheit schreiben — kein späteres Event räumt auf.
+  #generationen = new Map<string, number>();
 
   private _key(guildId: string, userId: string): string {
     return `${guildId}:${userId}`;
@@ -29,10 +33,14 @@ class MemberRolesStore {
     if (cached) return cached;
     const inflight = this._inflight.get(key);
     if (inflight) return inflight;
+    const generation = (this.#generationen.get(key) ?? 0) + 1;
+    this.#generationen.set(key, generation);
     const p = rolesApi
       .listMemberRoles(guildId, userId)
       .then((rows) => {
         const ids = rows.filter((r) => !r.is_everyone).map((r) => r.id);
+        // Antwort nur schreiben, wenn keine Invalidierung dazwischenkam.
+        if (this.#generationen.get(key) !== generation) return ids;
         this.byMember = { ...this.byMember, [key]: ids };
         return ids;
       })
@@ -75,6 +83,9 @@ class MemberRolesStore {
    * Called from the WS handler on ``member_roles_updated``. */
   invalidate(guildId: string, userId: string): void {
     const key = this._key(guildId, userId);
+    // Immer die Generation hochzählen — auch bei leerem Cache-Slot ist der
+    // in-flight Fetch sonst schneller und schreibt den alten Stand zurück.
+    this.#generationen.set(key, (this.#generationen.get(key) ?? 0) + 1);
     if (!this.byMember[key]) return;
     const next = { ...this.byMember };
     delete next[key];
@@ -84,6 +95,7 @@ class MemberRolesStore {
   clear(): void {
     this.byMember = {};
     this._inflight.clear();
+    this.#generationen.clear();
   }
 }
 

@@ -18,7 +18,7 @@ The endpoint is intentionally narrow:
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import Integer, and_, cast, select
+from sqlalchemy import Integer, and_, cast, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway import config as chat_config
@@ -77,8 +77,14 @@ async def mention_candidates(
     q_escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     settings = chat_config.get_settings()
 
+    # Bughunt Runde 23: wie überall dort, wo Namen auflösen — Groß-/klein
+    # gemischt vergleichen. Roher LIKE ist auf Postgres case-SENSITIV
+    # (SQLite-Tests merken es nicht): Nutzer "Alice" war bei q="ali"
+    # unsichtbar.
     stmt = select(CachedUserProfile).where(
-        CachedUserProfile.username.like(f"{q_escaped}%", escape="\\")
+        func.lower(CachedUserProfile.username).like(
+            f"{q_escaped.lower()}%", escape="\\"
+        )
     )
     if settings.pulse_instance_mode == "cloud":
         join_cond = and_(

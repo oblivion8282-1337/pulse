@@ -1,0 +1,1 @@
+/bin/sh -c ". /etc/pulse/env.sh && exec /usr/local/bin/garage-init"

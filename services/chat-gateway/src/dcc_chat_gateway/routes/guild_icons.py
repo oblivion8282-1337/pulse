@@ -20,7 +20,7 @@ import dcc_chat_gateway.config as _config
 import structlog
 from fastapi import APIRouter, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 Image.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
 
@@ -104,11 +104,20 @@ async def upload_icon(
             status.HTTP_400_BAD_REQUEST, detail="invalid image file"
         ) from exc
 
+    img = ImageOps.exif_transpose(img)  # Handy-JPEGs: Orientation physisch anwenden
+    if img.mode in ("P", "LA"):
+        img = img.convert("RGBA")  # Paletten-Transparenz geht sonst verloren
     img.thumbnail((_MAX_DIM, _MAX_DIM), Image.LANCZOS)
-    img.save(_icon_path(guild.id), "WEBP", quality=85)
+    # Temp-Datei + Umbenennen nach dem Commit (Bughunt Runde 7, Spiegel zu
+    # routes_avatar): das Icon ist die EINZIGE Kopie — ein Commit-Fehler nach
+    # dem Überschreiben hätte das alte Wappen still zerstört, während die DB
+    # weiter darauf zeigte.
+    icon_tmp = _icon_path(guild.id).with_suffix(".webp.tmp")
+    img.save(icon_tmp, "WEBP", quality=85)
 
     guild.icon_url = f"/api/chat/guild-icons/{guild.id}.webp?v={secrets.token_urlsafe(6)}"
     await session.commit()
+    icon_tmp.replace(_icon_path(guild.id))
     await session.refresh(guild)
 
     await _publish_guild_event(
@@ -132,10 +141,13 @@ async def delete_icon(
     )
 
     path = _icon_path(guild.id)
-    if path.exists():
-        path.unlink()
     guild.icon_url = None
     await session.commit()
+    # Unlink erst NACH dem Commit (Bughunt Runde 37, Spiegel zum Upload-Dort:
+    # Temp+Rename-nach-Commit) — schlug der Commit fehl, zeigte icon_url
+    # weiter auf bereits geloeschte Bytes.
+    if path.exists():
+        path.unlink()
     await _publish_guild_event(
         request, GuildUpdatedEvent(guild=_guild_dict(guild))
     )

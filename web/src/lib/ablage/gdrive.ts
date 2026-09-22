@@ -149,6 +149,10 @@ function neuesteWaehlen(funde: Fund[]): Fund {
 
 export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 	const basisHolen = verbindung.holen ?? fetch;
+	// Bughunt Runde 38: Verbindungsstand nach Auffrischung mitpflegen
+	// (Begruendung im dropboxAdapter) — sonst löste jeder weitere 401 den
+	// alten Nachspiel-Token ein und `kopf` blieb beim abgelaufenen Zugang.
+	const weiterreichen = verbindung.zugangAufgefrischt;
 	const holen =
 		verbindung.nachspieleToken !== undefined && verbindung.kundenId !== undefined
 			? erzeugeAuffrischendesHolen(
@@ -159,10 +163,14 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 							client_id: verbindung.kundenId!,
 							...(verbindung.kundenGeheimnis !== undefined ? { client_secret: verbindung.kundenGeheimnis } : {}),
 						}),
-					verbindung.zugangAufgefrischt,
+					(neu) => {
+						verbindung.zugangsToken = neu.zugangsToken;
+						verbindung.nachspieleToken = neu.nachspieleToken;
+						weiterreichen?.(neu);
+					},
 				)
 			: basisHolen;
-	const kopf = { Authorization: `Bearer ${verbindung.zugangsToken}` };
+	const kopf = () => ({ Authorization: `Bearer ${verbindung.zugangsToken}` });
 	const dateiIdNachName = new Map<string, string>();
 
 	async function abfrage(q: string): Promise<Fund[]> {
@@ -172,7 +180,7 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 		adresse.searchParams.set('pageSize', '200');
 		const funde: Fund[] = [];
 		while (adresse !== null) {
-			const antwort = await holen(adresse.toString(), { headers: kopf });
+			const antwort = await holen(adresse.toString(), { headers: kopf() });
 			if (!antwort.ok) {
 				throw new GdriveFehler(`Suche scheiterte: HTTP ${antwort.status}`);
 			}
@@ -202,7 +210,7 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 			}
 			const angelegt = await holen('https://www.googleapis.com/drive/v3/files', {
 				method: 'POST',
-				headers: { ...kopf, 'Content-Type': 'application/json' },
+				headers: { ...kopf(), 'Content-Type': 'application/json' },
 				body: JSON.stringify({ name: stufe, parents: [elternteil], mimeType: ORDNER_MIME }),
 			});
 			if (!angelegt.ok) {
@@ -246,7 +254,7 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 			`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`,
 			{
 				method: 'PATCH',
-				headers: { ...kopf, 'Content-Type': 'application/octet-stream' },
+				headers: { ...kopf(), 'Content-Type': 'application/octet-stream' },
 				body: inhalt as unknown as BodyInit,
 			},
 		);
@@ -289,7 +297,7 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 				{
 					method: 'POST',
 					headers: {
-						...kopf,
+						...kopf(),
 						'Content-Type': `multipart/related; boundary=${grenze}`,
 					},
 					body: koerper as unknown as BodyInit,
@@ -308,7 +316,7 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 				return null;
 			}
 			const antwort = await holen(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, {
-				headers: kopf,
+				headers: kopf(),
 			});
 			if (antwort.status === 404) {
 				dateiIdNachName.delete(datei);
@@ -363,7 +371,7 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 			for (const fund of funde) {
 				const antwort = await holen(`https://www.googleapis.com/drive/v3/files/${fund.id}`, {
 					method: 'DELETE',
-					headers: kopf,
+					headers: kopf(),
 				});
 				if (antwort.status === 404) {
 					continue;

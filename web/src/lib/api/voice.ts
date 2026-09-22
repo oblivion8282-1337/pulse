@@ -37,7 +37,9 @@ export function setVoiceOverride(
 
 /** Kick the participant out of the voice channel. Requires
  * ``MOVE_MEMBERS``. Best-effort — LiveKit silently no-ops if the user
- * isn't currently connected. The override (if any) is cleared. */
+ * isn't currently connected. Ein Force-Mute/Deafen-Override bleibt
+ * bewusst BESTEHEN (Server-Entscheidung, s. voice_disconnect.py:96) —
+ * wer ihn aufheben will, schickt explizit ein leeres Override. */
 export function disconnectFromVoice(
   channelId: string,
   userId: string,

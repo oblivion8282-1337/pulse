@@ -103,11 +103,6 @@ function lexikografisch(a: string, b: string): number {
  *  selbstkennzeichnend (etwa ein Praefix) statt sie an ihrer Laenge zu
  *  erraten; das beruehrt dann aber bereits abgelegten Verlauf und ist
  *  deshalb bewusst nicht Teil dieser Fehlerbehebung. */
-export function echtZeitMs(id: string): bigint {
-  const ms = zeitOderNull(id);
-  if (ms === null) throw new SyntaxError(`unbekanntes ID-Schema: ${id}`);
-  return ms;
-}
 
 /** Dasselbe, aber ohne zu werfen: `null` heisst „dieses Schema kenne ich
  *  nicht". Der Vergleich unten braucht das, weil er in einem `Array.sort`

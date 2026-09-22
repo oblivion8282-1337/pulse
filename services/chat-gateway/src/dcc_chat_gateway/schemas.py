@@ -1198,6 +1198,14 @@ class OwnerReportedContentOut(BaseModel):
 #: geraten.
 GeraeteKennung = Annotated[str, Field(min_length=16, max_length=128)]
 
+#: Bughunt Runde 35/36: oeffentliche Curve25519-Schluessel sind Base64 auf
+#: 32 Bytes = 44 Zeichen; 128 Zeichen lassen grosszuegig Codec-Varianten zu,
+#: aber keinen 16-MB-Rumpf mehr. Vorher landete ein rumpfgrosser "Schluessel"
+#: als Text-Zeile in der Tabelle UND wurde von ``/keys/claim`` an jeden
+#: zugelassenen Kontakt ausgeliefert (Speicher- und Egress-Verstaerker).
+#: Wie bei ``GeraeteKennung`` bloss eine Laengengrenze, keine Formatpruefung.
+SchluesselMaterial = Annotated[str, Field(max_length=128)]
+
 
 class BundleVeroeffentlichenRequest(BaseModel):
     """Rumpf von ``PUT /keys/bundle``."""
@@ -1206,8 +1214,8 @@ class BundleVeroeffentlichenRequest(BaseModel):
     #: Veroeffentlichen gibt es dazu noch keine Zeile — die Bindung an das
     #: Konto entsteht genau hier, s. ``routes/schluessel.py``.
     device_pubkey: GeraeteKennung
-    curve25519: str
-    rueckfallschluessel: str | None = None
+    curve25519: SchluesselMaterial
+    rueckfallschluessel: SchluesselMaterial | None = None
     #: Selbstauskunft des Geraets — Electron- oder Android-App (Spec §3,
     #: Koexistenz-Regel). Das Geraet kann diese Aussage nur ueber SICH SELBST
     #: treffen (die Zeile gehoert ueber ``pruefe_geraet`` ohnehin schon zum
@@ -1223,7 +1231,9 @@ class EinmalschluesselHinzufuegenRequest(BaseModel):
     """Rumpf von ``POST /keys/onetime``."""
 
     device_pubkey: GeraeteKennung
-    schluessel: list[str] = Field(min_length=1)
+    # Elemente gekappt (Bughunt Runde 35/36, s. SchluesselMaterial) — vorher
+    # war auch jedes EINZELNE Element ein unbegrenzter String.
+    schluessel: list[SchluesselMaterial] = Field(min_length=1, max_length=100)
 
 
 class EinmalschluesselVorratOut(BaseModel):
@@ -1239,9 +1249,11 @@ class SchluesselAbholenRequest(BaseModel):
 class GeraeteSchluesselOut(BaseModel):
     """Ein Buendel in der Antwort von ``POST /keys/claim``.
 
-    Genau EINES der beiden Felder ``einmalschluessel``/``rueckfallschluessel``
-    ist gesetzt — nie beide, nie keines (ein Buendel ohne jeden Schluessel
-    wird gar nicht erst in die Liste aufgenommen).
+    Hoechstens EINES der beiden Felder ``einmalschluessel``/
+    ``rueckfallschluessel`` ist gesetzt — nie beide. Beide ``None`` ist
+    moeglich: leerer Einmalschluessel-Vorrat (oder erschoepftes Claim-Budget)
+    bei einem Geraet ohne veroeffentlichten Rueckfallschluessel — der Klient
+    behandelt das Geraet dann als unerreichbar (``senden.ts``).
     """
 
     device_pubkey: str
@@ -1559,4 +1571,8 @@ class PostfachQuittungRequest(BaseModel):
     """Rumpf von ``POST /postfach/quittung``."""
 
     device_pubkey: GeraeteKennung
-    zustellung_ids: list[SnowflakeId] = Field(min_length=1)
+    # Deckel (Bughunt Runde 35): ohne max_length baute ein rumpfgrosser
+    # Listenwunsch je Anfrage ein riesiges EXPANDING-IN — die Schwesterfelder
+    # sind durchweg gekappt (anhaenge 16, user_ids 64). 500 = die harte
+    # Obergrenze offener Zustellungen je Geraet, mehr kann nie warten.
+    zustellung_ids: list[SnowflakeId] = Field(min_length=1, max_length=500)

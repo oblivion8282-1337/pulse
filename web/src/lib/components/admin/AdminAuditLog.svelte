@@ -112,7 +112,7 @@ import { errText } from '$lib/utils/errText';
                 {/if}
               </div>
               <div class="text-text-muted mt-0.5 text-xs">
-                {formatTimestamp(e.created_at)} · {e.source}-svc
+                {formatTimestamp(e.created_at, 'de-DE')} · {e.source}-svc
               </div>
             </div>
             <ChevronDownIcon

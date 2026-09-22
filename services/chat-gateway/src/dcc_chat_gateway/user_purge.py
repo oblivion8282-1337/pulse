@@ -35,6 +35,7 @@ from dcc_chat_gateway.models import (
     MENTION_TYPE_USER,
     Channel,
     CommunityInvite,
+    CommunityInviteNotification,
     Device,
     DirectMessageChannel,
     FriendRequest,
@@ -54,7 +55,7 @@ from dcc_chat_gateway.models import (
     UserPrivacy,
     WebPushSubscription,
 )
-from dcc_chat_gateway.routes.attachments import hard_delete_attachments
+from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
 from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
 from dcc_chat_gateway.user_purge_ablage import (
     purge_ablage_konto_laufwerk,
@@ -97,6 +98,16 @@ class _PurgeResult:
     #: Community, Kanal, Aussenform) — fuers Register-Vergessen + die
     #: device_changed-Meldung nach dem Commit.
     removed_devices: list[tuple[int, int, int, dict]] = field(default_factory=list)
+    #: Nutzer-IDs (Ex-Freunde + DM-Partner), die NACH dem Commit ein
+    #: friend_removed bekommen — sonst führt ihre Liste das gelöschte Konto
+    #: bis zum nächsten Reconnect als offline-Freund samt DM-Karteileiche
+    #: (Bughunt Runde 4).
+    partner_ids: list[int] = field(default_factory=list)
+    #: MinIO-Storage-Keys der Anhaenge, deren Tombstones erst mit dem Commit
+    #: durable werden — die Objekte duerfen erst DANACH geloescht werden
+    #: (``purge_s3_keys``), sonst ueberlebt ein Rollback Zeilen, deren Bytes
+    #: schon weg sind (s. Docstring von ``hard_delete_attachments``).
+    deferred_s3: list[str] = field(default_factory=list)
 
 
 # permission_overwrites.target_type sentinel for user-scoped rows
@@ -125,7 +136,7 @@ async def _collect_dm_channel_ids(session: AsyncSession, user_id: int) -> list[i
 
 
 async def _hard_delete_guild_with_attachments(
-    session: AsyncSession, guild_id: int
+    session: AsyncSession, guild_id: int, defer_s3: list[str]
 ) -> list[int]:
     """``session.delete(guild)`` cascades channels/messages/members/etc.
     via the FK schema, but MinIO objects need an explicit sweep first
@@ -146,7 +157,9 @@ async def _hard_delete_guild_with_attachments(
         )
         att_ids = list((await session.execute(att_ids_stmt)).scalars())
         if att_ids:
-            await hard_delete_attachments(session, attachment_ids=att_ids)
+            await hard_delete_attachments(
+                session, attachment_ids=att_ids, defer_s3=defer_s3
+            )
     guild = await session.get(Guild, guild_id)
     if guild is not None:
         await session.delete(guild)
@@ -154,7 +167,7 @@ async def _hard_delete_guild_with_attachments(
 
 
 async def _delete_user_authored_messages(
-    session: AsyncSession, user_id: int
+    session: AsyncSession, user_id: int, defer_s3: list[str]
 ) -> None:
     """Hard-delete every message the user wrote (across all channels +
     DMs). FK CASCADE on ``message_id`` clears reactions / mentions /
@@ -166,7 +179,7 @@ async def _delete_user_authored_messages(
     await _close_reports_for_deleted_user(session, user_id, msg_ids)
     if not msg_ids:
         return
-    await hard_delete_attachments(session, message_ids=msg_ids)
+    await hard_delete_attachments(session, message_ids=msg_ids, defer_s3=defer_s3)
     await session.execute(sa_delete(Message).where(Message.id.in_(msg_ids)))
 
 
@@ -199,7 +212,7 @@ async def _close_reports_for_deleted_user(
 
 
 async def _delete_dm_channels(
-    session: AsyncSession, dm_channel_ids: Iterable[int]
+    session: AsyncSession, dm_channel_ids: Iterable[int], defer_s3: list[str]
 ) -> None:
     """Delete every DM channel the user participated in + every message
     posted in them. DM channels are 1:1, so the other side has nobody
@@ -214,7 +227,9 @@ async def _delete_dm_channels(
     )
     att_ids = list((await session.execute(att_ids_stmt)).scalars())
     if att_ids:
-        await hard_delete_attachments(session, attachment_ids=att_ids)
+        await hard_delete_attachments(
+            session, attachment_ids=att_ids, defer_s3=defer_s3
+        )
     await session.execute(sa_delete(Message).where(Message.channel_id.in_(cids)))
     await session.execute(
         sa_delete(DirectMessageChannel).where(DirectMessageChannel.id.in_(cids))
@@ -242,7 +257,9 @@ async def _purge_db(
     # cleanup so the cascade can find this user's GuildMember row too).
     owned_guild_ids = await _collect_owned_guild_ids(session, user_id)
     for gid in owned_guild_ids:
-        voice_channel_ids = await _hard_delete_guild_with_attachments(session, gid)
+        voice_channel_ids = await _hard_delete_guild_with_attachments(
+            session, gid, result.deferred_s3
+        )
         result.owned_voice_channel_ids.extend(voice_channel_ids)
     result.deleted_guild_ids = owned_guild_ids
     owned_set = set(owned_guild_ids)
@@ -298,7 +315,7 @@ async def _purge_db(
     )
 
     # 4. User-authored messages (cascades reactions/mentions/attachments).
-    await _delete_user_authored_messages(session, user_id)
+    await _delete_user_authored_messages(session, user_id, result.deferred_s3)
 
     # 5. User's reactions on other users' messages.
     await session.execute(
@@ -336,7 +353,17 @@ async def _purge_db(
     # 9. DM channels the user was a participant in (1:1 → drop the
     # whole channel + every message in it).
     dm_ids = await _collect_dm_channel_ids(session, user_id)
-    await _delete_dm_channels(session, dm_ids)
+    # DM-Partner JETZT einsammeln (Adversarial-Review Runde 12): nach dem
+    # Delete wäre die Query tot — nur Freundschaftspartner bekamen das
+    # friend_removed, DM-only-Fälle nie.
+    dm_partner_rows = await session.execute(
+        select(DirectMessageChannel.user_a_id, DirectMessageChannel.user_b_id).where(
+            DirectMessageChannel.id.in_(dm_ids)
+        )
+    )
+    for a, b in dm_partner_rows:
+        result.partner_ids.append(a if a != user_id else b)
+    await _delete_dm_channels(session, dm_ids, result.deferred_s3)
 
     # 9b. Private-Gruppen-Mitgliedschaften (Etappe G1) — s. Docstring von
     # ``user_purge_gruppen.purge_private_group_memberships`` fuer die
@@ -352,12 +379,12 @@ async def _purge_db(
 
     # 9c-2. Community-Dateiablage (Etappe E8) — eigene, noch nicht gefestigte
     # Zwischenlager-Uploads. S. Modul-Docstring von ``user_purge_ablage.py``.
-    await purge_ablage_zwischenlager(session, user_id)
+    result.deferred_s3.extend(await purge_ablage_zwischenlager(session, user_id))
     await purge_ablage_konto_laufwerk(session, user_id)
 
     # 9c-3. Pulse-Laufwerk (2026-09-11) — gemietete Chiffrat-Klumpen des
     # Kontos, s. Modul-Docstring von ``user_purge_ablage.py``.
-    await purge_ablage_pulse_objekte(session, user_id)
+    result.deferred_s3.extend(await purge_ablage_pulse_objekte(session, user_id))
 
     # 9d. Geraete-Kopplung + Verlaufsumzug (Etappe F) — Bughunt 2026-08-29
     # (Runde 6, Befund 5): s. Modul-Docstring von ``user_purge_kopplung.py``.
@@ -366,6 +393,22 @@ async def _purge_db(
     # 10. Friendship system (Etappe 1): friendships, pending friend-
     # requests, blocks both directions, privacy row. Same pattern as
     # the DM cleanup — drop every row that mentions the user.
+    # Zuerst die Partner einsammeln (Bughunt Runde 4): sie kriegen nach
+    # dem Commit ein friend_removed, damit ihre Liste den Gelöschten
+    # sofort fallen lässt statt bis zum nächsten Reconnect.
+    partner_rows = await session.execute(
+        select(Friendship.user_a_id, Friendship.user_b_id).where(
+            or_(Friendship.user_a_id == user_id, Friendship.user_b_id == user_id)
+        )
+    )
+    partner_set = set()
+    for a, b in partner_rows:
+        partner_set.add(a if a != user_id else b)
+    # DM-Partner sind schon in Schritt 9 eingesammelt (dort vor dem Delete).
+    partner_set.update(result.partner_ids)
+    partner_set.discard(user_id)
+    result.partner_ids = sorted(partner_set)
+    result.partner_ids = sorted(partner_set)
     await session.execute(
         sa_delete(Friendship).where(
             or_(
@@ -407,6 +450,20 @@ async def _purge_db(
         )
     )
 
+    # 10c. Community-Einladungs-Karten (2026-08-27-Schiene, kein FK auf
+    # User — dasselbe handgestempte Aufräumen wie ``delete_guild`` in
+    # routes/guilds.py): Karten mit dem Geloeschten als Empfaenger sind
+    # tot, als Absender zeigen sie auf "@unknown" und das Annehmen würde
+    # eine Mitgliedschaft anlegen, die niemand mehr autorisieren kann.
+    await session.execute(
+        sa_delete(CommunityInviteNotification).where(
+            or_(
+                CommunityInviteNotification.inviter_user_id == user_id,
+                CommunityInviteNotification.invitee_user_id == user_id,
+            )
+        )
+    )
+
     # 11. User-preferences (Schritt 3b plugin/server-side-sync rows).
     await session.execute(
         sa_delete(UserPreference).where(UserPreference.user_id == user_id)
@@ -435,16 +492,13 @@ async def _cleanup_redis(redis: Any, user_id: int) -> None:
     except Exception:  # noqa: BLE001
         log.warning("purge: voice-room scan failed", exc_info=True)
 
-    # stream:active:channel-<cid>-<uid> — per-user HQ-stream marker.
-    try:
-        pattern = f"stream:active:channel-*-{uid_str}"
-        async for key in redis.scan_iter(match=pattern, count=200):
-            try:
-                await redis.delete(key)
-            except Exception:  # noqa: BLE001
-                log.warning("purge: del failed for %s", key, exc_info=True)
-    except Exception:  # noqa: BLE001
-        log.warning("purge: stream-active scan failed", exc_info=True)
+    # stream:active:channel-<cid>-<uid> wird NICHT hier gelöscht (Bughunt
+    # Runde 20): ein blinder Delete ohne stream:stopping-Grabstein lässt
+    # den Poller den (weiter publishenden) Stream sofort wieder auf "live"
+    # setzen — der alte "poller self-heal"-Kommentar war falsch, der Poller
+    # liest die Präsenz aus MediaMTX, nicht aus stream:active. Die Räumung
+    # läuft je fremder Guild über end_active_streams_for_member (Grabstein
+    # + Delete) und je eigener Guild über end_active_streams_for_channels.
 
 
 async def purge_user(
@@ -489,6 +543,76 @@ async def purge_user(
             await purge_guild_dropbox_objects(gid)
         except Exception:  # noqa: BLE001
             log.warning("purge: dropbox object purge failed for guild %s", gid, exc_info=True)
+    # Attachment bytes last — the tombstones are durable now (same
+    # defer-until-after-commit pattern as ``routes/attachments.py``).
+    await purge_s3_keys(result.deferred_s3)
+    # Ex-Freunde + DM-Partner informieren (Bughunt Runde 4): ohne Event
+    # führt deren Freundesliste das gelöschte Konto als offline-Eintrag
+    # weiter, bis der nächste Reconnect neu seedet. Derselbe Event-Typ wie
+    # beim Entfreunden — der Klient kennt den Räumweg bereits.
+    # Bughunt Runde 9 (hoch): Membership in fremden Communities ist weg,
+    # aber der WS-Plan lernte davon nichts — der Socket des Gelöschten
+    # behielt _ws_guilds/_ws_perms (ALLOW) und bekam weiter private Kanal-
+    # Nachrichten, bis der Socket starb. Dasselbe Event wie bei Kick/Leave:
+    # der Handler räumt _ws_guilds, _ws_perms und die View-Mengen.
+    if manager is not None and result.other_member_guild_ids:
+        from dcc_shared.events import GuildMemberRemovedEvent  # noqa: PLC0415
+
+        for gid in result.other_member_guild_ids:
+            try:
+                await manager.publish_guild_event(
+                    GuildMemberRemovedEvent(
+                        guild_id=str(gid), user_id=str(user_id)
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "purge: guild_member_removed publish failed for guild %s",
+                    gid, exc_info=True,
+                )
+    # Bughunt Runde 20: Streams, Watch-Partys und Zuschauer-Lese-Token des
+    # Gelöschten in FREMDEN Guilds miträumen — der Kick/Ban-Pfad tut das
+    # (guilds.py, "membership_revoked"), der Purge tat es nicht: der
+    # Sidecar lief weiter, der Poller hielt den Kanal auf "live", Lese-
+    # Token blieben bis zu 1 h gültig, Watch-Partys bis zum 6-h-TTL.
+    if result.other_member_guild_ids:
+        from dcc_chat_gateway.stream_evict import end_active_streams_for_member  # noqa: PLC0415
+        from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer  # noqa: PLC0415
+        from dcc_chat_gateway.watch_evict import end_watch_parties_for_member  # noqa: PLC0415
+
+        # Best-effort (Adversarial-Review Runde 22): die DB des Kontos ist
+        # an dieser Stelle schon DURCHGEHEND gelöscht und committet — ein
+        # Redis-Fehler hier darf den Purge nicht zu einem 500 machen, der
+        # auth-svc zum Rollback verleitet (Halbpurge-Vertrag). Watch-Partys
+        # heilen über den 6-h-TTL, Streams über den nächsten Re-Publish-
+        # Verfall; idempotenter Purge-Retry räumt den Rest.
+        for gid in result.other_member_guild_ids:
+            try:
+                await revoke_read_tokens_for_viewer(
+                    redis, session, gid, user_id, grund="konto_purge"
+                )
+                await end_active_streams_for_member(
+                    redis, session, gid, user_id, grund="konto_purge"
+                )
+                await end_watch_parties_for_member(session, redis, manager, gid, user_id)
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "purge: member-guild stream/watch cleanup failed for guild %s",
+                    gid, exc_info=True,
+                )
+    if manager is not None and result.partner_ids:
+        from dcc_shared.events import FriendRemovedEvent  # noqa: PLC0415
+
+        for pid in result.partner_ids:
+            try:
+                await manager.publish_user_event(
+                    pid, FriendRemovedEvent(data={"user_id": str(user_id)})
+                )
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "purge: friend_removed publish failed for %s", pid,
+                    exc_info=True,
+                )
     await evict_voice_sessions(
         session,
         redis,
@@ -496,6 +620,18 @@ async def purge_user(
         owned_voice_channel_ids=result.owned_voice_channel_ids,
         other_member_guild_ids=result.other_member_guild_ids,
     )
+    # Gelöschte eigene Guilds: Watch-Partys + HQ-Streams in deren Kanälen
+    # miträumen (Bughunt Runde 4, Spiegel zu delete_guild/delete_channel) —
+    # sonst heartbeatet der Host im Nichts und der Poller hält den Stream
+    # für live.
+    if result.owned_voice_channel_ids:
+        from dcc_chat_gateway.stream_evict import end_active_streams_for_channels  # noqa: PLC0415
+        from dcc_chat_gateway.watch_evict import end_watch_parties_for_channels  # noqa: PLC0415
+
+        await end_watch_parties_for_channels(redis, manager, result.owned_voice_channel_ids)
+        await end_active_streams_for_channels(
+            redis, result.owned_voice_channel_ids, grund="konto_purge"
+        )
     await forget_devices(manager, result.removed_devices)
     await _cleanup_redis(redis, user_id)
     return {"deleted_guild_ids": [str(g) for g in deleted_guild_ids]}

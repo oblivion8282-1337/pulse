@@ -1,7 +1,7 @@
 /**
  * Reactive view onto the sidecar's stream state.
  *
- * Subscribes once to `gsr://event` (via `gsr.onEvent`) and projects the
+ * Subscribes once to `sidecar:event` (via `sidecar.onEvent`) and projects the
  * stream of events into a Svelte-5-runes `$state` object. UI components can
  * import `stream` and bind directly.
  *
@@ -10,9 +10,10 @@
  */
 
 import { toast } from 'svelte-sonner';
-import { gsr, type GsrEvent } from './gsr';
+import { sidecar, type SidecarEvent } from './sidecar';
 import { gesundheitTor } from './gesundheitTor';
 import { m } from '$lib/paraglide/messages.js';
+import { melde } from '$lib/diagnose/app-diagnose';
 
 const MAX_LOG_LINES = 50;
 
@@ -52,34 +53,34 @@ function freshSession(): StreamSession {
 }
 
 /** The primary stream (slot 0). Also carries the GLOBAL bridge flags
- *  (`available`/`gsrAvailable`) since those describe the sidecar, not a slot —
+ *  (`available`/`sidecarAvailable`) since those describe the sidecar, not a slot —
  *  every existing component binds `stream`, so its shape is unchanged. */
 export const stream = $state({
   /** True iff the desktop sidecar bridge can be reached (i.e. we're inside the
    *  Electron shell AND the sidecar replied to `health`): `isElectron()` plus a
    *  successful health probe. */
   available: false,
-  /** True iff the sidecar's health probe says `gsr.available === true` —
+  /** True iff the sidecar's health probe says `sidecar.available === true` —
    *  i.e. a `gpu-screen-recorder` binary was located. Added in T3c so the
    *  voice-view HQ-Stream button can gate on real availability, not just
    *  "the bridge works". */
-  gsrAvailable: false,
-  /** True iff der Sidecar 10 bit je Farbkanal encodieren kann (`gsr.ten_bit`).
+  sidecarAvailable: false,
+  /** True iff der Sidecar 10 bit je Farbkanal encodieren kann (`sidecar.ten_bit`).
    *  Nur der Linux-Rust-Sidecar meldet das Feld — fehlt es, bleibt es false,
    *  und die 10-bit-Einstellung wird gar nicht angeboten. */
   tenBitAvailable: false,
   /** True iff der Sidecar 10 bit in HEVC (Main 10) encodieren kann
-   *  (`gsr.hevc_ten_bit`) — getrennt von `tenBitAvailable`, weil es
+   *  (`sidecar.hevc_ten_bit`) — getrennt von `tenBitAvailable`, weil es
    *  auseinanderfällt (Main 10 ab ~2015, AV1 erst ab 2022). */
   hevcTenBitAvailable: false,
-  /** True iff der Sidecar Eingaben einspielen kann (`gsr.remote_input`), also
+  /** True iff der Sidecar Eingaben einspielen kann (`sidecar.remote_input`), also
    *  ferngesteuert werden KANN. Windows und **seit 2026-08-23 auch macOS**
    *  melden das; unter Linux gibt es das Modul nicht, und auf Wayland wäre es
    *  auch keine Kleinigkeit (jedes Programm darf dort nur seine eigenen Fenster
    *  bedienen). Der Wert reist mit dem Stream bis zum Zuschauer — dort
    *  entscheidet er, ob „Fernsteuerung anfragen" überhaupt erscheint. */
   fernsteuerbar: false,
-  /** Warum nicht, falls nicht (`gsr.remote_input_grund`). Leer, solange es
+  /** Warum nicht, falls nicht (`sidecar.remote_input_grund`). Leer, solange es
    *  nichts zu erklären gibt.
    *
    *  **Warum das ein eigenes Feld verdient:** auf macOS hängt die Fähigkeit an
@@ -88,7 +89,7 @@ export const stream = $state({
    *  niemand sie erwartet. Ohne den Grund sähe der Nutzer eine tote Funktion
    *  ohne Erklärung. Text dazu in `lib/remote/freigabeText.ts`. */
   fernsteuerbarGrund: '',
-  /** True iff dieser Rechner HDR senden kann (`gsr.hdr`) — also einen Encoder
+  /** True iff dieser Rechner HDR senden kann (`sidecar.hdr`) — also einen Encoder
    *  hat, der PQ/BT.2020 bis in den Strom trägt. **Nicht** die Frage, ob HDR
    *  in Windows gerade eingeschaltet ist: die beantwortet erst der Start, und
    *  zwar mit einer Meldung, die auf den Windows-Schalter zeigt. Wäre schon
@@ -209,7 +210,7 @@ export async function initStream(): Promise<() => void> {
   if (initialised) return () => {};
   initialised = true;
 
-  stream.available = gsr.available();
+  stream.available = sidecar.available();
   if (!stream.available) {
     // Reset the guard so a later call can retry if the bridge appears.
     initialised = false;
@@ -221,28 +222,28 @@ export async function initStream(): Promise<() => void> {
 
   // Pull an initial health probe so the UI can render quickly.
   try {
-    const h = await gsr.health();
+    const h = await sidecar.health();
     // If the sidecar can't be reached the invoke throws (caught below); a
     // successful response just means the binding works. We expose the
-    // `gsr.available` flag through `stream.gsrAvailable` so the voice-view
+    // `sidecar.available` flag through `stream.sidecarAvailable` so the voice-view
     // HQ-Stream button can gate on whether the binary is actually present.
     if (h) {
       if (!h.ok) stream.error = 'sidecar health probe failed';
-      stream.gsrAvailable = !!h.gsr?.available;
-      stream.tenBitAvailable = !!h.gsr?.ten_bit;
-      stream.hevcTenBitAvailable = !!h.gsr?.hevc_ten_bit;
-      stream.fernsteuerbar = !!h.gsr?.remote_input;
+      stream.sidecarAvailable = !!h.sidecar?.available;
+      stream.tenBitAvailable = !!h.sidecar?.ten_bit;
+      stream.hevcTenBitAvailable = !!h.sidecar?.hevc_ten_bit;
+      stream.fernsteuerbar = !!h.sidecar?.remote_input;
       // Der Grund reist mit, damit eine abgeschaltete Fernsteuerung erklaerbar
       // ist statt nur abwesend — s. `lib/remote/freigabeText.ts`.
-      stream.fernsteuerbarGrund = h.gsr?.remote_input_grund ?? '';
-      stream.hdrAvailable = !!h.gsr?.hdr;
+      stream.fernsteuerbarGrund = h.sidecar?.remote_input_grund ?? '';
+      stream.hdrAvailable = !!h.sidecar?.hdr;
     }
     // Ab hier steht `stream.fernsteuerbar` auf einem gemessenen Wert statt auf
     // seiner Vorgabe. Erst jetzt darf die Standplatz-Anmeldung ihn lesen.
     gesundheitTor.oeffnen();
   } catch (e) {
     stream.available = false;
-    stream.gsrAvailable = false;
+    stream.sidecarAvailable = false;
     stream.tenBitAvailable = false;
     stream.hevcTenBitAvailable = false;
     stream.hdrAvailable = false;
@@ -256,7 +257,7 @@ export async function initStream(): Promise<() => void> {
     return () => {};
   }
 
-  unlisten = await gsr.onEvent(applyEvent);
+  unlisten = await sidecar.onEvent(applyEvent);
 
   return () => {
     if (unlisten) {
@@ -283,10 +284,22 @@ export function markStarting(slot: number): void {
 }
 
 /** Project a single sidecar event into the reactive state of its slot. */
-function applyEvent(ev: GsrEvent): void {
+function applyEvent(ev: SidecarEvent): void {
   const slot = ev.slot ?? 0;
   const s = streamForSlot(slot);
   applyEventInner(s, ev);
+  // Sendungs-Meilensteine ins Diagnose-Gedächtnis (Käfer-Knopf): die ZEITACHSE
+  // der Sendungen — live/fehler/stopp je Slot. Der Sidecar-Log geht zwar beim
+  // Stream-Ende automatisch weg (Experimental-Schalter), aber der Käfer-Bericht
+  // sah bis 2026-09-22 weder Beginn noch Ende einer Sendung, geschweige denn
+  // den Fehler dazwischen. Melde() verdichtet selbst (10-s-Fenster).
+  if (ev.ev === 'error') {
+    melde('stream', 'stream_sender_fehler', ev.message, { slot });
+  } else if (ev.ev === 'state' && ev.state === 'live' && !wasRunning[slot]) {
+    melde('stream', 'stream_sender_live', 'Sendung live', { slot });
+  } else if (ev.ev === 'stopped') {
+    melde('stream', 'stream_sender_stopp', 'Sendung gestoppt', { slot });
+  }
   // Arm the startup watchdog while we're still `starting`; clear it on any
   // other state (`live`/`error`/`stopped`/`idle`) so a normal start never trips.
   if (s.state === 'starting') armStartWatchdog(slot);
@@ -360,10 +373,10 @@ function applyEvent(ev: GsrEvent): void {
  * second stop on an already-stopped slot is a harmless no-op).
  */
 export function markStopped(slot: number): void {
-  applyEvent({ ev: 'stopped', slot } as GsrEvent);
+  applyEvent({ ev: 'stopped', slot } as SidecarEvent);
 }
 
-function applyEventInner(s: StreamSession, ev: GsrEvent): void {
+function applyEventInner(s: StreamSession, ev: SidecarEvent): void {
   switch (ev.ev) {
     case 'state':
       s.state = ev.state;

@@ -465,6 +465,13 @@ impl VideoEncoder {
         }
         // Nur angenommene Bilder vermerken: bei EAGAIN oben wird verworfen, ein
         // Eintrag dafuer wuerde die Zuordnung dauerhaft verschieben.
+        // Deckel wie im Windows-Pendant (encode/latency.rs, MAX_PENDING):
+        // kehrt der Encoder fuer eingeschobene Bilder KEINE Pakete mehr
+        // zurueck, wuchs die Schlange sonst einen Eintrag je Bild fuer den
+        // Rest der Sitzung.
+        if self.submitted.len() >= 256 {
+            self.submitted.pop_front();
+        }
         self.submitted.push_back((pts, submitted_at));
         self.drain_video()
     }

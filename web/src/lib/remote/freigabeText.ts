@@ -29,7 +29,7 @@ const BEIDE_FREIGABEN =
   'die Freigabe hängt an der Signatur des Programms.';
 
 /**
- * `grund` ist das Feld `health.gsr.remote_input_grund` des Sidecars.
+ * `grund` ist das Feld `health.sidecar.remote_input_grund` des Sidecars.
  *
  * **Ein unbekannter Grund wird durchgereicht, nicht verschluckt.** Ein
  * „unbekannter Fehler" nähme dem Nutzer die einzige Spur, die er hat, und dem

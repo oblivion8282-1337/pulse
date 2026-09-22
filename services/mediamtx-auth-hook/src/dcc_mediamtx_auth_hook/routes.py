@@ -63,12 +63,38 @@ _READ_ACTIONS = frozenset({"read", "playback"})
 # spiegelbildlich zum relay-frps-plugin (Bughunt Runde 2) drosselt ein
 # In-Prozess-Schiebefenster je Quell-IP die Flut. Per-Prozess genügt: der Hook
 # läuft als einzelner Uvicorn-Worker neben MediaMTX.
+# Bughunt 2026-09-20: „Quell-IP" ist die des Payloads (``AuthRequest.ip``) —
+# MediaMTX ruft den Hook immer von loopback aus, ``request.client.host`` wäre
+# für ALLE Calls gleich, und der Schieber hätte als einziges globales Budget
+# funktioniert: ein einziger Zuschauer mit WHEP-Reconnects hätte allen anderen
+# die Auth-Kapazität weggenommen (429 → MediaMTX wertet nicht-20x als Ablehnung).
+# ``ip`` füllt MediaMTX aus dem Socket und ist von außen nicht wählbar; ohne
+# den Fall-Klumpen dient loopback als Ersatzschlüssel.
 _HOOK_LIMIT = 120       # Requests je Fenster
 _HOOK_FENSTER_S = 60.0
 _hook_zeiten: dict[str, deque[float]] = defaultdict(deque)
 
 
+# Bughunt Runde 5: jede jemals gesehene Zuschauer-IP hinterlässt einen
+# dauerhaften Dict-Eintrag (Key + leerer Deque) — langsames Leck auf
+# öffentlichen Instanzen. Derselbe Deckel wie ``gaeste._fallback_zeiten``:
+# über dem Limit fallen ALTE Keys weg; ein aktiver Zuschauer baut sein
+# Fenster beim nächsten Call sofort wieder auf.
+_HOOK_MAX_QUELLEN = 4096
+
+
 def _rate_ok(ip: str) -> bool:
+    if len(_hook_zeiten) > _HOOK_MAX_QUELLEN:
+        jetzt_kandidat = monotonic()
+        for k in [
+            k
+            for k, d in _hook_zeiten.items()
+            if not d or jetzt_kandidat - d[-1] > _HOOK_FENSTER_S
+        ]:
+            del _hook_zeiten[k]
+        # Immer noch drüber (Flut mit frischen Keys)? Hart abschneiden.
+        while len(_hook_zeiten) > _HOOK_MAX_QUELLEN:
+            _hook_zeiten.pop(next(iter(_hook_zeiten)))
     jetzt = monotonic()
     fenster = _hook_zeiten[ip]
     while fenster and jetzt - fenster[0] > _HOOK_FENSTER_S:
@@ -162,7 +188,7 @@ async def _peek_token(redis: Redis, token: str) -> dict[str, Any] | None:
 # window where Redis could flap between the DEL and the active-write, leaving a
 # consumed token but no active record — the stream would then be invisible to
 # WHEP (404) with no error surfaced. Either both happen or neither does.
-# KEYS[1] = token key, KEYS[2] = active key.
+# KEYS[1] = token key, KEYS[2] = active key, KEYS[3] = stopping tombstone.
 # ARGV[1] = active payload JSON, ARGV[2] = active TTL seconds.
 # Returns 1 if the token was consumed (this request won the single-use race),
 # 0 if it was already gone (concurrent consumer) — in which case the active
@@ -172,6 +198,13 @@ if redis.call('DEL', KEYS[1]) == 0 then
     return 0
 end
 redis.call('SET', KEYS[2], ARGV[1], 'EX', tonumber(ARGV[2]))
+-- Bughunt Runde 20: ein frischer Publish räumt den stream:stopping-
+-- Grabstein weg (Key-Form = aktiver Key mit aktiv→stopping-Präfix-Tausch,
+-- identisch zu stream_evict._grabstein_schluessel). Ohne das DEL bliebe
+-- ein freiwillig gestoppter Stream nach dem Neustart 30 s unsichtbar;
+-- umgekehrt bleibt der Grabstein für einen EVIZTIERTEN Publisher (kein
+-- Re-Auth möglich) solange bestehen, wie sein Push weiterläuft.
+redis.call('DEL', KEYS[3])
 return 1
 """
 
@@ -229,11 +262,17 @@ async def _consume_token_and_mark_active(
     if remote_input:
         active["remote_input"] = True
     payload = json.dumps(active, separators=(",", ":"))
+    aktiv = active_key(channel_id, user_id, int(slot))
+    # Grabstein-Key = aktiver Key mit Präfix-Tausch (Spiegel zu
+    # stream_evict._grabstein_schluessel; Key-Namen sind hier bewusst
+    # dupliziert, s. shared.py).
+    grabstein = aktiv.replace("stream:active:", "stream:stopping:", 1)
     consumed = await redis.eval(  # type: ignore[arg-type]
         _LUA_CONSUME_AND_MARK,
-        2,
+        3,
         TOKEN_KEY.format(token=token),
-        active_key(channel_id, user_id, int(slot)),
+        aktiv,
+        grabstein,
         payload,
         str(settings.publisher_ttl_seconds),
     )
@@ -356,7 +395,7 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
 @router.post("/", status_code=status.HTTP_200_OK)
 @router.post("/auth", status_code=status.HTTP_200_OK)
 async def authenticate(req: AuthRequest, request: Request) -> Response:
-    if not _rate_ok(request.client.host if request.client else "?"):
+    if not _rate_ok(req.ip or (request.client.host if request.client else "?")):
         raise HTTPException(status_code=429, detail="rate limited")
     redis = _get_redis(request)
     await _handle(req, redis)

@@ -227,7 +227,19 @@ export interface AblageEintrag {
 export interface VerzeichnisDaten {
   fassung: number;
   einträge: AblageEintrag[];
+  /**
+   * Bughunt-Entscheidung 2b.3 (2026-09-21): Lösch-Grabsteine. Vorher war
+   * die Festigungs-Idempotenz rein präsenzbasiert („id fehlt = noch nicht
+   * gefestigt") — Quittierungsfehler + Besitzer-Löschen + Retry bedeutete:
+   * die gelöschte Datei kam zurück. Grabsteine überleben das Löschen im
+   * Verzeichnis selbst; die Festigung weicht ihnen aus. Optional + nachrückend
+   * begrenzt, alte Verzeichnisse ohne Feld bleiben lesbar.
+   */
+  grabsteine?: Record<string, string>;
 }
+
+/** Grabsteine je Verzeichnis kappen (id → ISO-Zeit). */
+export const GRABSTEIN_CAP = 200;
 
 export class VerzeichnisFehler extends Error {
   constructor(meldung: string) {

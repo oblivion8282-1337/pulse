@@ -141,6 +141,18 @@ impl HevcAssembler {
         let ende = fu_header & 0x40 != 0;
         let fragment = &payload[3..];
         if start {
+            if self.fu_offen {
+                // Zweiter FU-Start, ohne dass der vorige FU sein E-Bit
+                // gebracht hat (Bughunt 2026-09-20, Runde 2): der offene
+                // NAL ist unvollständig, und der zweite STARTCODE+Kopf
+                // würde MITTEN hinein geklebt — das Bild ginge als
+                // "heile" Einheit an den Hardware-Decoder. Dieselbe
+                // Haltung wie AV1 (poisoned) und H.264 (Err → reset):
+                // die ganze angehäufte Einheit verwerfen und neu beginnen.
+                self.unit.clear();
+                self.dropped = true;
+                self.fu_offen = false;
+            }
             // Rekonstruiertes PayloadHdr: F und LayerId/TID bleiben stehen,
             // der Typ kommt aus dem FU-Header — `(b0 & 0x81) | (typ << 1)`.
             let kopf0 = (payload[0] & 0x81) | ((fu_header & 0x3F) << 1);
@@ -224,6 +236,26 @@ mod tests {
         // Rekonstruierter Kopf: Typ 19 → 0x26, TID 1 → 0x01.
         assert_eq!(&out[..6], &[0, 0, 0, 1, 0x26, 0x01], "{out:02x?}");
         assert_eq!(&out[6..], &[0x11, 0x22, 0x33, 0x44], "{out:02x?}");
+    }
+
+    /// Bughunt 2026-09-20 (Runde 2): ein zweiter FU-Start, ohne dass der
+    /// erste FU sein E-Bit brachte, darf den Kopf NICHT mitten in den
+    /// offenen NAL kleben — die Einheit ist vergiftet und der Marker
+    /// meldet sie als verworfen statt sie als heile auszuliefern.
+    #[test]
+    fn zweiter_fu_start_ohne_e_bit_vergiftet_die_einheit() {
+        let mut a = HevcAssembler::neu();
+        // Erster FU: S=1, ohne Ende.
+        let anfang = Bytes::from(vec![0x62, 0x01, 0x93, 0x11, 0x22]);
+        assert!(a.push(&anfang, false).is_none());
+        // Zweiter FU-Start, immer noch ohne E-Bit des ersten → Poison.
+        let neu = Bytes::from(vec![0x62, 0x01, 0x93, 0x55]);
+        assert!(a.push(&neu, false).is_none());
+        // Marker: nichts Heiles herausgeben; der Verlust wird über
+        // verworfen_abholen gemeldet (nicht mittendrin abholen — der Abruf
+        // konsumiert die Meldung).
+        assert!(a.push(&Bytes::from(vec![0x62, 0x01, 0x40, 0x66]), true).is_none());
+        assert!(a.verworfen_abholen(), "Verlust muss gemeldet werden");
     }
 
     /// Eine grosse NAL in einem AP-Paket: Längenfelder werden geschluckt,

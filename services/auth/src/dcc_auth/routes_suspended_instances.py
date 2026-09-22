@@ -224,24 +224,6 @@ async def suspended_instances(
 # Internal: broadcast-update
 # ---------------------------------------------------------------------------
 
-
-def _require_internal_secret(authorization: str | None = Header(default=None)) -> None:
-    """Dependency: reject requests without a matching INTERNAL_SERVICE_SECRET."""
-    from dcc_auth.config import get_settings
-
-    secret = get_settings().internal_service_secret
-    if not secret:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="INTERNAL_SERVICE_SECRET not configured",
-        )
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
-    token = authorization.split(" ", 1)[1].strip()
-    if not constant_time_eq(token, secret):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret")
-
-
 @router.post("/admin/instances/_broadcast-update")
 async def broadcast_update(
     session: SessionDep,

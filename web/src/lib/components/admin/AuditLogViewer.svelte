@@ -46,8 +46,8 @@ import { errText } from '$lib/utils/errText';
     }
     loadError = null;
     try {
-      const before = reset ? undefined : entries[entries.length - 1]?.created_at;
-      const page = await listAuditLog(guildId, PAGE, before);
+      const letzte = reset ? undefined : entries[entries.length - 1];
+      const page = await listAuditLog(guildId, PAGE, letzte?.created_at, letzte?.id);
       const next = reset ? page : [...entries, ...page];
       entries = next;
       hasMore = page.length === PAGE;
@@ -110,7 +110,7 @@ import { errText } from '$lib/utils/errText';
                 </span>
               {/if}
             </div>
-            <div class="text-text-muted mt-0.5 text-xs">{formatTimestamp(e.created_at)}</div>
+            <div class="text-text-muted mt-0.5 text-xs">{formatTimestamp(e.created_at, 'de-DE')}</div>
           </div>
         </li>
       {/each}

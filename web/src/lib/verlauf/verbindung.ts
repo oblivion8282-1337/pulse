@@ -13,6 +13,7 @@
  * Verbindung.
  */
 import { DB_NAME, DB_VERSION, STORE_NACHRICHTEN, STORE_ANHAENGE, INDEX_KANAL } from './schema';
+import { melde } from '$lib/diagnose/app-diagnose';
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -63,9 +64,55 @@ function _openFresh(): Promise<IDBDatabase> {
   });
 }
 
+/**
+ * Löscht die Verlaufs-Datenbank GANZ — ohne sie öffnen zu müssen (ein Öffnen
+ * mit kleinerer Fassung wäre ja gerade der Fehlschlag). Einziger Aufrufer ist
+ * die Fassungs-Stau-Heilung unten.
+ */
+function _loeschen(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+    req.onblocked = () =>
+      reject(new Error('Löschen blockiert — ein Fenster mit der neueren Fassung läuft noch'));
+  });
+}
+
 function openVerlaufDb(): Promise<IDBDatabase> {
   if (!_dbPromise) {
-    _dbPromise = _openFresh();
+    const versuch = _openFresh().catch((err: unknown) => {
+      // Fassungs-Stau-Heilung (2026-09-22, Michaels Dev-Profil): VersionError
+      // heißt, der gespeicherte Bestand ist HÖHER als DB_VERSION. Möglich ist
+      // das ausschließlich in einem Profil, das einmal einen Experimentier-
+      // Zweig mit jüngerer Fassung geladen hat (Nextcloud-/Mobil-Proben;
+      // ausgelieferte Builds haben die höhere Fassung nie gesehen und laufen
+      // beim echten Fassungs-Wechsel über onupgradeneeded, nicht hierher).
+      // Für genau solche Profile ist der Bestand eine Wegwerf-Kopie von
+      // Testdaten: löschen und frisch anlegen — Stillstand wäre schlimmer
+      // („Lokaler Verlauf ist gerade nicht verfügbar", bei JEDEM DM, für
+      // immer). Ist das experimental fenster noch offen, blockiert das
+      // Löschen und der Fehler fällt normal durch — speicherfehler.ts
+      // benennt die Lage dann ehrlich als `zu_neu`.
+      if (!(err instanceof DOMException && err.name === 'VersionError')) throw err;
+      console.warn('[verlauf] lokale Datenbank in höherer Fassung vorgefunden — lege neu an');
+      melde(
+        'verlauf',
+        'verlauf_fassungs_stau',
+        `Bestand jünger als App (VersionError) — Speicher neu angelegt`,
+        { code_version: DB_VERSION }
+      );
+      return _loeschen().then(() => _openFresh());
+    });
+    // Ein abgelehnter Versuch darf nicht kleben: sonst wehrt ein gespeicherter
+    // Fehler jeden künftigen Aufruf mit demselben Text ab, ohne es je erneut
+    // zu versuchen. `_openFresh()` setzt sich selbst zurück (req.onerror);
+    // dieser Fang sichert die Kette darüber. `.catch` schluckt nichts — die
+    // Ablehnung läuft zum Aufrufer weiter.
+    versuch.catch(() => {
+      if (_dbPromise === versuch) _dbPromise = null;
+    });
+    _dbPromise = versuch;
   }
   return _dbPromise;
 }

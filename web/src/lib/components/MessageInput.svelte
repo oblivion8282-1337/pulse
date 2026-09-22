@@ -17,6 +17,7 @@
   import { isElectron } from '$lib/platform/runtime';
   import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
   import { drafts } from '$lib/stores/drafts.svelte';
+  import { toast } from 'svelte-sonner';
   import { untrack } from 'svelte';
 
   // `channelId` null → watch-party / stream-chat composer: attachments
@@ -25,6 +26,7 @@
     channelId = null,
     placeholder = m.message_input_placeholder(),
     onSend,
+    sendReport = false,
     onTyping,
     replyTo = null,
     onCancelReply,
@@ -37,7 +39,19 @@
   }: {
     channelId?: string | null;
     placeholder?: string;
-    onSend: (text: string, attachmentIds: string[], anhaenge: AnhangAngabe[]) => void;
+    onSend: (
+      text: string,
+      attachmentIds: string[],
+      anhaenge: AnhangAngabe[],
+      melden?: (ok: boolean) => void
+    ) => void;
+    /** Entscheidung 3.4 (2026-09-21): wenn gesetzt, leert sich der Composer
+     *  NICHT mehr optimistisch — der Aufrufer meldet das Ergebnis (true =
+     *  raus, false = fehlgeschlagen) und der Inhalt bleibt bei false stehen
+     *  (Antwort-Kontext inklusive). Nur der verschlüsselte DM-Weg nutzt das;
+     *  Anhänge sind bei einem Fehlversuch trotzdem verbraucht (Schlüssel
+     *  verbraucht) — dafür gibt es den klaren Hinweis. */
+    sendReport?: boolean;
     /** Fired (cheaply, on every keystroke with non-empty content) so the
      *  parent can broadcast a debounced "typing" signal. Optional — the
      *  stream/watch-party chat composer doesn't wire it. */
@@ -142,8 +156,14 @@
   // suppresses role + everyone suggestions.
   const guildId = $derived(channelId ? guilds.guildIdForChannel(channelId) : null);
 
+  // Bughunt Runde 18: Fehlerzeilen blockieren jetzt — vorher ging die
+  // Nachricht ohne den fehlgeschlagenen Anhang raus und die Fehlerkachel
+  // (einzige Retry-Möglichkeit) verschwand still.
   const sendDisabled = $derived(
-    disabled || (text.trim().length === 0 && anhaenge.zeilen.length === 0) || anhaenge.laeuftNoch
+    disabled ||
+      (text.trim().length === 0 && anhaenge.zeilen.length === 0) ||
+      anhaenge.laeuftNoch ||
+      anhaenge.hatFehler
   );
   const effectivePlaceholder = $derived(
     disabled && disabledReason ? disabledReason : placeholder
@@ -192,6 +212,25 @@
     const markupValue = mentionOverlay?.toMarkup(value) ?? value;
     const ids = anhaenge.ids;
     if (!markupValue && ids.length === 0) return;
+    if (sendReport) {
+      // Entscheidung 3.4, fertig verdrahtet (Runde-2-Audit hat den fehlenden
+      // Rest gefunden): Inhalt STEHEN LASSEN, bis das Ergebnis da ist. Der
+      // 4. Parameter wandert durch ChatView/Seite in dmSenden, das
+      // melden(ok) genau einmal ruft.
+      const melden = (ok: boolean): void => {
+        if (ok) {
+          text = '';
+          anhaenge.nachDemSenden();
+          mentionOverlay?.clear();
+        } else {
+          // Anhänge bleiben verbraucht (Dateischlüssel im Umschlag) — aber
+          // der Text + Antwort-Kontext bleiben im Composer sichtbar.
+          toast.info(m.composer_fehlversuch_anhaenge());
+        }
+      };
+      onSend(markupValue, ids, anhaenge.anhaenge, melden);
+      return;
+    }
     onSend(markupValue, ids, anhaenge.anhaenge);
     text = '';
     anhaenge.nachDemSenden();

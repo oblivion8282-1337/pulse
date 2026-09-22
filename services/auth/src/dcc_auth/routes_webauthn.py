@@ -38,7 +38,7 @@ from dcc_auth.recovery import (
     generate_backup_codes,
     hash_token,
 )
-from dcc_auth.routes import _check_rate, _get_current_user, _signer_dep
+from dcc_auth.routes import _check_account_rate, _check_rate, _get_current_user, _signer_dep
 from dcc_auth.schemas import (
     MessageOut,
     WebAuthnCredentialOut,
@@ -264,11 +264,42 @@ async def webauthn_delete_credential(
     """
     settings = get_settings()
     await _check_rate(request, "webauthn_register", settings.rate_limit_webauthn_register)
+    # Bughunt Runde 40: je-Konto-Bremse (Backup-Code-Raten bei
+    # Passkey-only-Konten grinden), s. totp_disable.
+    await _check_account_rate(request, "webauthn_delete", str(current.id))
     if not await asyncio.to_thread(verify_password, payload.password, current.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
     row = await session.get(WebAuthnCredential, credential_id)
     if row is None or row.user_id != current.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="passkey not found")
+
+    # Bughunt Runde 40 (Spiegel zu _consume_second_factor dort): die
+    # Nutzer-Zeile sperren, BEVOR der Rest-Zähler gelesen wird — sonst
+    # sahen zwei gleichzeitige Deletes von genau zwei Passkeys jeweils
+    # remaining_before == 2, keiner verlangte den Backup-Code, beide
+    # committeten, und das Konto war ohne zweiten Faktor.
+    await session.get(User, current.id, with_for_update=True)
+
+    # Bughunt Runde 33/34-Fortsetzung: Löscht der Nutzer den LETZTEN Passkey,
+    # nimmt er dem Konto den zweiten Faktor — und bei Passkey-only-Konten
+    # ist das der EINZIGE Weg, ein fremdes Konto zu entschärfen (spiegelt
+    # delete_me: irreversible Minderung der MFA-Postur verlangt denselben
+    # Beweis). Bei bestehendem TOTP bleibt der Restfaktor — kein Nachweis.
+    remaining_before = await session.scalar(
+        select(func.count())
+        .select_from(WebAuthnCredential)
+        .where(WebAuthnCredential.user_id == current.id)
+    )
+    if remaining_before == 1 and not current.totp_enabled:
+        from dcc_auth.routes_totp import _consume_second_factor  # noqa: PLC0415
+
+        if not await _consume_second_factor(
+            session, current, code=None, backup_code=payload.backup_code
+        ):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, detail="backup code invalid"
+            )
+
     await session.delete(row)
     await session.flush()
 

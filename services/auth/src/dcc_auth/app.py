@@ -120,20 +120,42 @@ async def lifespan(app: FastAPI):
 # Nicht-Mitglieder bekommen die übliche 401/404 und sehen nichts.
 _DIRECT_PATH_RE = re.compile(r"^/me/instances/[^/]+/direct-(?:endpoint|offer)$")
 
+# Käfer-Berichte (Spec 2026-09-21 §5): der ein-Klick-Versand aus einem
+# Self-Host-Fenster geht BEWUSST an die Cloud statt an den eigenen Server
+# („mein Server ist tot"-Berichte dürfen nicht im toten Server landen).
+_EXPERIMENTAL_LOGS_RE = re.compile(r"^/experimental-logs$")
 
-class DirectPathCorsMiddleware:
-    """CORS-Spiegel für genau die zwei Direktpfad-Telefonbuch-Routen.
 
-    Die Heartbeats der Server-Container laufen ausschließlich gegen die Cloud,
-    das Telefonbuch lebt also nur hier — Self-Host-Ursprünge dürfen trotzdem
-    abfragen, sonst bleibt der Direktpfad ausgerechnet auf eigenen Servern
-    dauerhaft tot (der Browser fällt dann still aufs Relay zurück). Die
-    `allow_origins`-Liste kann Self-Host-Domänen nicht abbilden (beliebig
-    viele, nutzergewählt), daher spiegeln wir den Origin für genau diese
-    Routen. Offenbart wird Mitgliedschaft + Onlinestatus einer Instanz —
-    nichts anderes; für die erlaubten Ursprünge (`howispulse.com`, Dev)
-    springt weiter die CORSMiddleware an, die wir hier nicht doppelt
-    beantworten."""
+class OriginMirrorCorsMiddleware:
+    """CORS-Spiegel für genau die Routen, die Self-Host-Ursprünge direkt an
+    der Cloud brauchen — die `allow_origins`-Liste kann Self-Host-Domänen
+    nicht abbilden (beliebig viele, nutzergewählt), also spiegeln wir den
+    Origin für diese Pfade.
+
+    Zwei Routengruppen, ein Unterschied — Credentials:
+
+    * **Direktpfad-Telefonbuch** (`/me/instances/<id>/direct-(endpoint|offer)`):
+      Die Heartbeats der Server-Container laufen ausschließlich gegen die
+      Cloud, das Telefonbuch lebt also nur hier — Self-Host-Ursprünge dürfen
+      trotzdem abfragen, sonst bleibt der Direktpfad ausgerechnet auf eigenen
+      Servern dauerhaft tot (der Browser fällt dann still aufs Relay zurück).
+      Offenbart wird Mitgliedschaft + Onlinestatus einer Instanz — nichts
+      anderes. Diese Aufrufe sind Session-authentifiziert → Spiegel MIT
+      Credentials.
+    * **Käfer-Berichte** (`/experimental-logs`, 2026-09-22): Ohne Spiegelung
+      blockt der Browser den Versand von jedem Self-Host-Ursprung — der
+      Notfallweg (Berichts-Datei) blieb, aber der Gordon-Fall ist genau ein
+      Self-Host-Nutzer, dessen Gerätebeweis ankommen soll, OHNE dass er
+      Dateien exportieren muss. Der Endpunkt ist bewusst öffentlich
+      (30/h/IP-Gedrossel, MAX_ROWS/28-Tage-Räumung) — die Spiegelung OHNE
+      Credentials öffnet serverseitig nichts, was nicht per curl schon offen
+      wäre; neu ist allein, dass der Browser-Ein-Klick funktioniert. Ehrlich
+      gehört dazu: damit kann JEDE Webseite im Besucher-Browser gedrosselt
+      Scheinberichte einwerfen — dieselbe Klasse wie Bot-POSTs, erkennbar
+      an reason/role, einzeln löschbar, von der Zeilengrenze gekappt.
+
+    Für die erlaubten Ursprünge (`howispulse.com`, Dev) springt weiter die
+    CORSMiddleware an, die wir hier nicht doppelt beantworten."""
 
     def __init__(self, app, allowed_origins: frozenset[str]):
         self.app = app
@@ -154,7 +176,11 @@ class DirectPathCorsMiddleware:
         return teile.scheme in ("http", "https") and bool(teile.hostname)
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not _DIRECT_PATH_RE.match(scope.get("path", "")):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        pfad = scope.get("path", "")
+        mit_credentials = bool(_DIRECT_PATH_RE.match(pfad))
+        if not (mit_credentials or _EXPERIMENTAL_LOGS_RE.match(pfad)):
             return await self.app(scope, receive, send)
 
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
@@ -164,9 +190,10 @@ class DirectPathCorsMiddleware:
 
         cors_headers = [
             (b"access-control-allow-origin", origin.encode()),
-            (b"access-control-allow-credentials", b"true"),
             (b"vary", b"Origin"),
         ]
+        if mit_credentials:
+            cors_headers.append((b"access-control-allow-credentials", b"true"))
 
         if scope["method"] == "OPTIONS":
             # Preflight — bewusst hier kurzgeschlossen, auch für erlaubte
@@ -226,7 +253,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(
-        DirectPathCorsMiddleware,
+        OriginMirrorCorsMiddleware,
         allowed_origins=frozenset(settings.cors_origins_list),
     )
     app.include_router(router)

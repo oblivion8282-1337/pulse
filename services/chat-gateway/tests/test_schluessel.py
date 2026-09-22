@@ -18,14 +18,6 @@ import pytest_asyncio
 # eine Bindung nachstellen, die es nicht mehr gibt.
 # ---------------------------------------------------------------------------
 
-_geraete_zaehler = itertools.count()
-
-
-def _make_device() -> str:
-    """Eine frische, eindeutige Geraetekennung (Laenge wie ein Base64url-
-    Ed25519-Pubkey, 43 Zeichen — die Rumpf-Modelle verlangen mindestens 16)."""
-    return f"geraet-{next(_geraete_zaehler):036d}"
-
 
 @pytest_asyncio.fixture(autouse=True)
 async def _enable_sqlite_foreign_keys(engine):
@@ -37,6 +29,15 @@ async def _enable_sqlite_foreign_keys(engine):
     """
     async with engine.begin() as conn:
         await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
+_geraete_zaehler = itertools.count()
+
+
+def _make_device() -> str:
+    """Eine frische, eindeutige Geraetekennung (Laenge wie ein Base64url-
+    Ed25519-Pubkey, 43 Zeichen — die Rumpf-Modelle verlangen mindestens 16)."""
+    return f"geraet-{next(_geraete_zaehler):036d}"
+
+
 
 
 @pytest.mark.asyncio

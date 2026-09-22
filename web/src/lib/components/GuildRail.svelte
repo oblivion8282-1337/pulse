@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -27,8 +28,10 @@
   import LogInIcon from '@lucide/svelte/icons/log-in';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
   import LockIcon from '@lucide/svelte/icons/lock';
+  import BugIcon from '@lucide/svelte/icons/bug';
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
+  import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guildIconSrc } from '$lib/guildIcon';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
@@ -169,7 +172,7 @@
   function initials(name: string): string {
     return name
       .split(/\s+/)
-      .map((w) => w[0]?.toUpperCase() ?? '')
+      .map((w) => anfangsBuchstabe(w))
       .slice(0, 2)
       .join('');
   }
@@ -244,8 +247,6 @@
   onMount(() => serverState.start());
   onDestroy(() => serverState.stop());
 
-  let cloudServer = $derived(serversStore.servers.find((s) => s.isCloud));
-  let selfHostServers = $derived(serversStore.servers.filter((s) => !s.isCloud));
 
   function openServerInfo(server: ServerEntry): void {
     infoServerTarget = server;
@@ -733,20 +734,41 @@
 
     {/each}
 
-  </Tooltip.Provider>
-
-  <!-- Unten in der Rail (mt-auto schiebt den Block ans Ende): der Einstieg in
-       den eigenen Server (nur in der Cloud), das Server-Admin-Symbol (nur für
-       Admins) und – auf Mobil – das eigene Avatar-Symbol (Desktop hat den User
-       im Sidebar-Footer mit Name). -->
+  <!-- Unten in der Rail (mt-auto schiebt den Block ans Ende): der Remote-
+       Rechner-Einstieg (Standplatz, unter Windows die Fernsteuerung), der
+       Käfer DIREKT über dem Server-Symbol (Wunsch 2026-09-22 — im Störfall
+       ohne Scrollen und ohne Menü-Klick erreichbar), der Server-Symbol-
+       Einstieg, das Admin-Schild (nur Admins) und – auf Mobil – das eigene
+       Avatar-Symbol (Desktop hat den User im Sidebar-Footer mit Name).
+       Innerhalb des Tooltip.Provider: der Käfer-Tooltip braucht dessen
+       Context — außerhalb crasht der Render (nachgewiesen über den
+       Konsole-Fang: „Context \"Tooltip.Provider\" not found"). -->
   <div class="mt-auto flex shrink-0 flex-col items-center gap-2 pt-1">
     <StandplatzRailButton />
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <button
+            {...props}
+            type="button"
+            class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md md:size-10"
+            data-testid="rail-bug-button"
+            aria-label={m.diagnose_melden()}
+            onclick={() => (uiOverlays.diagnoseOpen = true)}
+          >
+            <BugIcon class="size-6 md:size-5" />
+          </button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content side="right">{m.diagnose_melden()}</Tooltip.Content>
+    </Tooltip.Root>
     <SelfHostRailButton />
     <ServerAdminButton />
     {#if viewport.isMobile}
       <UserFooter compact />
     {/if}
   </div>
+  </Tooltip.Provider>
 </nav>
 
 <AlertDialog.Root bind:open={removeServerConfirmOpen}>

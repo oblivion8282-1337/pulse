@@ -29,6 +29,7 @@ import { holeTicket, loeseTicketEin, TicketFehler } from './server-ticket';
 import { instancesApi } from './instances';
 import type { ServerEntry } from './servers.svelte';
 import { merkeGrund, vergissGrund } from './anmelde-fehler';
+import { melde } from '$lib/diagnose/app-diagnose';
 
 // Pro App-Session einmal die Cloud-Membership backfillen — deckt Server ab, die
 // schon vor dem Membership-Sync (oder als Nicht-Owner-Invite) lokal hinzugefügt
@@ -191,8 +192,24 @@ export function initSelfHostReauth(): void {
   // den Submit nicht zweimal klicken.
   setClientReauthAsync(reauthOnce);
   // Proaktiver Refresh: an jeden Token-Set/-Clear koppeln.
+  // Diagnose-Gedächtnis: `sitzung_start` NUR für die erste Anmeldung je
+  // Server-Session — der proaktive Refresh re-mintet alle ~4 Min JEDES
+  // verbundene Token (setzt ebenfalls 'set'); ohne Bekannt-Set würde der
+  // 250er-Ring in ~3 h komplett aus Refresh-Einträgen bestehen und die
+  // echten Fehlerereignisse verdrängen. 'clear' wird bewusst NICHT geloggt:
+  // reauth() räumt defensiv, bevor es neu mintet — jedes 'clear' wäre ein
+  // falsches „Sitzungsende" direkt vor jedem Refresh.
+  const bekannteSitzungen = new Set<string>();
   sessionTokens.setChangeListener((serverId, action) => {
-    if (action === 'set') scheduleProactiveRefresh(serverId);
-    else cancelRefresh(serverId);
+    if (action === 'set') {
+      scheduleProactiveRefresh(serverId);
+      if (!bekannteSitzungen.has(serverId)) {
+        bekannteSitzungen.add(serverId);
+        melde('sitzung', 'sitzung_start', 'neue Server-Sitzung', { server_id: serverId });
+      }
+    } else {
+      cancelRefresh(serverId);
+      bekannteSitzungen.delete(serverId);
+    }
   });
 }

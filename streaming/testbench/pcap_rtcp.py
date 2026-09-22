@@ -66,25 +66,3 @@ def pakete(pfad: Path):
         yield src, dst, sport, dport, ip[ihl + 8:]
 
 
-def feedback_zaehlen(pfad: Path) -> dict[tuple[int, int, str], int]:
-    """Zaehlt RTCP-Feedback je (Quellport, Zielport, Art)."""
-    aus: dict[tuple[int, int, str], int] = {}
-    for sport, dport, nutz in _pakete(pfad):
-        i = 0
-        while i + 4 <= len(nutz):
-            kopf = nutz[i]
-            if (kopf >> 6) != 2:            # keine RTCP-Version 2 → abbrechen
-                break
-            pt = nutz[i + 1]
-            if not (RTCP_MIN <= pt <= RTCP_MAX):
-                break                        # RTP oder verschluesselt
-            laenge = (struct.unpack(">H", nutz[i + 2:i + 4])[0] + 1) * 4
-            fmt = kopf & 0x1F
-            name = NAMEN.get((pt, fmt))
-            if name:
-                schluessel = (sport, dport, name)
-                aus[schluessel] = aus.get(schluessel, 0) + 1
-            if laenge <= 0:
-                break
-            i += laenge                      # zusammengesetzte Pakete: weiterlesen
-    return aus

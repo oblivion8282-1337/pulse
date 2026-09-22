@@ -62,6 +62,10 @@ services:
       # TURN/STUN (coturn) — NAT-Traversal für Voice
       - "3478:3478/tcp"
       - "3478:3478/udp"
+      # TURN-Relay-Ports (UDP) — MUSS mit min-port/max-port in
+      # 04-init-coturn.sh übereinstimmen (Bughunt 2026-09-20, Runde 2):
+      # ohne Publish waren Relay-Allokationen von außen tot.
+      - "49160-49200:49160-49200/udp"
       # HQ-Streaming RTMPS-Ingest
       - "1936:1936/tcp"
       # HQ-Stream-Wiedergabe (MediaMTX WebRTC/WHEP-ICE)

@@ -71,7 +71,15 @@
       if (on) await rolesApi.assign(guildId, userId, role.id);
       else await rolesApi.unassign(guildId, userId, role.id);
     } catch (err) {
-      memberRoles.seedAll(guildId, { [userId]: existing }, [userId]);
+      // Rollback NUR die gescheiterte Rolle — aus dem JETZT-Stand, nicht
+      // auf den Schnappschuss vor dem Toggle (derselbe Fix wie in
+      // MemberRoleAssignment/MitgliederRollen): sonst wischt der Fehler
+      // von Toggle A den parallel erfolgreichen Toggle B weg.
+      const jetzt = memberRoles.for(guildId, userId);
+      const rollback = on
+        ? jetzt.filter((id) => id !== role.id)
+        : [...jetzt, role.id];
+      memberRoles.seedAll(guildId, { [userId]: rollback }, [userId]);
       toast.error(m.member_quick_role_menu_toggle_failed(), {
         description: (err as Error).message
       });

@@ -114,9 +114,12 @@ async def test_mitglied_klumpen_weg_von_ankuendigung_bis_lese_url(client, _auth_
     assert r.status_code == 201, r.text
     assert r.json()["upload_url"].startswith("https://mock/")
 
-    # Unbestaetigt: kein Kontingent-Verbrauch, nicht in der Namensliste.
+    # Angekuendigt zaehlt MIT (Bughunt Runde 37, Reservierungsbilanz): der
+    # Presigned-PUT ist groessengeprueft, die Angekündigung belegt also
+    # schon ihr Kontingent — vorher war die Quota in der Reserve-Phase ein
+    # No-Op. In der Namensliste ist er trotzdem erst ab gelungen.
     r = await client.get(f"/guilds/{gid}/ablage/pulse/status", headers=auth(t_owner))
-    assert r.json()["genutzt_bytes"] == 0
+    assert r.json()["genutzt_bytes"] == 1234
     r = await client.get(f"/guilds/{gid}/ablage/pulse/dateien", headers=auth(t_mitglied))
     assert r.json() == []
 
@@ -125,9 +128,13 @@ async def test_mitglied_klumpen_weg_von_ankuendigung_bis_lese_url(client, _auth_
         json={"name": "a-3f2b01.puls"},
         headers=auth(t_owner),  # fremde Bestaetigung aendert nichts
     )
-    assert r.status_code == 204
+    # Bughunt Runde 48: vorher stillschweigendes 204 ohne Wirkung — der
+    # Schreibvorgang sah erfolgreich aus, der Zustand blieb 0, und der
+    # Ankündigungs-Sweep durfte den gueltigen Blob spaeter loeschen. Der
+    # Nicht-Uploader bekommt jetzt 409 (erneut ankündigen).
+    assert r.status_code == 409
     r = await client.get(f"/guilds/{gid}/ablage/pulse/status", headers=auth(t_owner))
-    assert r.json()["genutzt_bytes"] == 0
+    assert r.json()["genutzt_bytes"] == 1234
 
     r = await client.post(
         f"/guilds/{gid}/ablage/pulse/dateien/gelungen",
@@ -188,7 +195,15 @@ async def test_verzeichnis_hat_eigene_kleine_grenze(client, _auth_signer, mock_s
 
 
 @pytest.mark.asyncio
-async def test_gesamtkontingent_zaehlt_nur_gelungene(client, _auth_signer, mock_s3):
+async def test_gesamtkontingent_zaehlt_angekuendigte_mit(client, _auth_signer, mock_s3):
+    """Bughunt Runde 37: die Quota ist Reservierungsbilanz — ANGKUENDIGTE
+    Groesse zaehlt mit.
+
+    Vorher zaehlte ``_genutzte_bytes`` nur ``zustand == 1``: man konnte
+    beliebig viele Ankündigungen mit je fast der Datei-Obergrenze
+    durchschleusen (``belegt`` wuchs nie), die Blobs dann ungebremst PUTen
+    und das Community-Kontingent umgehen. Der Presigned-PUT nagelt die
+    Groesse, also ist die Ankündigung die verlaessliche Reserve."""
     from dcc_chat_gateway import config as chat_config
 
     einstellungen = chat_config.get_settings()
@@ -206,10 +221,19 @@ async def test_gesamtkontingent_zaehlt_nur_gelungene(client, _auth_signer, mock_
             headers=auth(t_mitglied),
         )
         assert r.status_code == 201
-        # Angekuendigt, nie gelungen — verbraucht noch nichts.
+        # 1000 (angekuendigt) + 1000 > 1500 — die zweite Angekündigung
+        # scheitert, OBWOHL nichts "gelungen" ist. Genau die Stelle, an der
+        # der Bypass vorher ansetzte.
         r = await client.post(
             f"/guilds/{gid}/ablage/pulse/dateien",
             json={"name": "a-02.puls", "groesse": 1000},
+            headers=auth(t_mitglied),
+        )
+        assert r.status_code == 413
+
+        r = await client.post(
+            f"/guilds/{gid}/ablage/pulse/dateien",
+            json={"name": "a-02.puls", "groesse": 500},
             headers=auth(t_mitglied),
         )
         assert r.status_code == 201
@@ -219,15 +243,23 @@ async def test_gesamtkontingent_zaehlt_nur_gelungene(client, _auth_signer, mock_
             json={"name": "a-01.puls"},
             headers=auth(t_mitglied),
         )
+        # belegt = 1500 (1000 gelungen + 500 angekuendigt) — exakt voll,
+        # jede weitere Angekündigung kippt.
         r = await client.post(
             f"/guilds/{gid}/ablage/pulse/dateien",
-            json={"name": "a-03.puls", "groesse": 501},
+            json={"name": "a-03.puls", "groesse": 1},
             headers=auth(t_mitglied),
         )
         assert r.status_code == 413
+
+        # Loeschen gibt die Reserve frei: 500 bleiben, 999 fuellen auf 1499.
+        await client.delete(
+            f"/guilds/{gid}/ablage/pulse/dateien?name=a-01.puls",
+            headers=auth(t_mitglied),
+        )
         r = await client.post(
             f"/guilds/{gid}/ablage/pulse/dateien",
-            json={"name": "a-03.puls", "groesse": 500},
+            json={"name": "a-04.puls", "groesse": 999},
             headers=auth(t_mitglied),
         )
         assert r.status_code == 201

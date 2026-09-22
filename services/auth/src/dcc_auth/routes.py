@@ -39,6 +39,7 @@ from dcc_auth.models import (
     RegistrationInvite,
     User,
     UserSession,
+    UsernameReservation,
     WebAuthnCredential,
 )
 from dcc_auth.refresh_kette import (
@@ -299,6 +300,36 @@ async def register(
             status.HTTP_403_FORBIDDEN, detail="invite code required"
         )
 
+    # Username-Vorab-Checks — billig, und zwar VOR dem Argon2-Hash (dieselbe
+    # Logik wie der Mode-Check oben). Groß-/klein gemischt vergleichen: die
+    # Resolver (Nutzername-Einladungen, Mention-Kandidaten, Profilsuche)
+    # matchen alle über lower(username), zwei Konten, die sich nur in der
+    # Schreibweise unterscheiden, würden dort beliebig vermengt. Dasselbe
+    # Gate wie in ``change_username`` (routes_profile.py).
+    # ponytail: kein unique lower()-Index dahinter — zwei parallel
+    # registrierte Schreibvarianten können die Lücke noch reißen; Upgrade-
+    # Pfad wäre eine Migration mit eindeutigem Funktions-Index.
+    lower_name = payload.username.lower()
+    if await session.scalar(
+        select(User.id).where(func.lower(User.username) == lower_name)
+    ) is not None:
+        suggestions = await _suggest_usernames(session, payload.username)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"error": "username_taken", "suggestions": suggestions},
+        )
+    now = datetime.now(UTC)
+    reservation = await session.scalar(
+        select(UsernameReservation).where(
+            func.lower(UsernameReservation.old_username) == lower_name,
+            UsernameReservation.released_at > now,
+        )
+    )
+    if reservation is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail={"error": "username_reserved"}
+        )
+
     # Argon2 is CPU-bound (~50-150ms at t=3/m=64MiB/p=4); run it off the event
     # loop so it doesn't block other requests on this worker.
     password_hash = await asyncio.to_thread(hash_password, payload.password)
@@ -307,7 +338,7 @@ async def register(
         username=payload.username,
         email=payload.email.lower(),
         password_hash=password_hash,
-        display_name=payload.display_name,
+        display_name=(payload.display_name or "").strip() or None,
     )
     session.add(user)
     try:
@@ -321,11 +352,16 @@ async def register(
         conflict_row = (
             await session.execute(
                 select(
-                    (User.username == payload.username).label("u_taken"),
+                    # LOWER-Vergleich: Migration 0053 (uq_users_username_lower)
+                    # erzwingt Fall-Varianten auf DB-Ebene — die Re-Abfrage
+                    # muss denselben Vergleich fahren, sonst lief ein
+                    # Fallkollisions-Race in das generische „conflict“ statt
+                    # in die hilfreiche username_taken-Antwort mit Vorschlägen.
+                    (func.lower(User.username) == payload.username.lower()).label("u_taken"),
                     (User.email == payload.email.lower()).label("e_taken"),
                 ).where(
                     or_(
-                        User.username == payload.username,
+                        func.lower(User.username) == payload.username.lower(),
                         User.email == payload.email.lower(),
                     )
                 )
@@ -423,16 +459,34 @@ async def register(
         response=response,
     )
 
+    await session.commit()
+
     # Auto-fire the verify-email so the new user finds a fresh link in their
     # inbox right after the redirect to /app. Wrapped in try/except: a flaky
     # mail relay must NOT abort registration — the token row is committed
     # alongside the user either way, and the in-app banner has a manual resend.
+    # Bughunt Runde 24: der Versand lief INNERHALB des globalen Advisory-Locks
+    # UND vor dem Commit — ein träges Relay blockierte jede parallele
+    # Registrierung für die volle SMTP-Laufzeit (bis 15 s je Versuch), und
+    # ein Crash vor dem Commit schickte einen toten Link raus. Jetzt: Commit
+    # zuerst (User + Token durable), Versand danach ohne Lock.
     try:
         await issue_verification_email(session, user)
+        # issue_verification_email committet bewusst nicht selbst — nach dem
+        # Umzug hinter den User-Commit braucht der Token-Zweile einen
+        # eigenen Commit, sonst rollt der Request-Teardown ihn zurück.
+        await session.commit()
     except Exception as exc:  # noqa: BLE001
+        # Die DB-Seite (Token-Zeile invalidieren + anlegen) ist vor dem
+        # SMTP-Versand fertig und bleibt gültig — committieren, damit der
+        # User über den Banner neu senden kann (das erwartet
+        # test_register_succeeds_when_verify_mail_fails).
+        try:
+            await session.commit()
+        except Exception:  # noqa: BLE001
+            pass
         log.warning("register_verify_email_failed", user_id=user.id, error=str(exc))
 
-    await session.commit()
     set_session_cookie(response, sid)
     return tokens
 
@@ -466,7 +520,19 @@ async def login(
         )
 
     needle = payload.email_or_username.strip()
-    stmt = select(User).where(or_(User.email == needle.lower(), User.username == needle))
+    # Bughunt-Entscheidung 4.11a (2026-09-21): Username-Fall insensitive —
+    # die Registrierung reserviert case-insensitiv (LOWER-Index, Migration
+    # 0053), der Login war aber exakt: "Michael" konnte sich nicht einloggen,
+    # nachdem er "michael" getippt hatte. Der lower()-Vergleich bedient
+    # sich des eindeutigen lower()-Index (0053) und des text_pattern-Index
+    # (0024); DB-kollidierende Fall-Varianten kann es seit 0053 nicht mehr
+    # geben, scalar_one ist damit sicher.
+    stmt = select(User).where(
+        or_(
+            User.email == needle.lower(),
+            func.lower(User.username) == needle.lower(),
+        )
+    )
     user = (await session.execute(stmt)).scalar_one_or_none()
     # Run argon2 verification off the event loop (same reasoning as register).
     # For a non-existent user, run a dummy verify of equal cost so the response
@@ -574,7 +640,7 @@ async def renew_session(
         user_agent=user_agent,
         ip=_client_ip(request),
     )
-    await relink_to_new_session(
+    moved = await relink_to_new_session(
         session,
         user_id=current.id,
         old_sid=old_sid,
@@ -586,8 +652,16 @@ async def renew_session(
         # gelten zu lassen hiesse nur, eine zweite lebende Sitzung zu führen,
         # die niemand mehr sieht.
         await revoke_sessions(session, [old_sid], user_id=current.id)
-    await session.commit()
-    set_session_cookie(response, sid)
+    # Bughunt Runde 33: Relink-Ergebnis auswerten — aber NUR im Cookie-Pfad
+    # (old_sid gesetzt). Zwei parallele /session/renew-Rufe mit demselben
+    # Cookie (mehrere Tabs beim Start) hingen sonst beide Refresh-Ketten um,
+    # revokten sich gegenseitig, und der Browser behielt das Cookie des
+    # Verlierers — eine lebende, in /sessions unsichtbare Sitzung. Ohne
+    # Cookie (Bearer-Pfad, Desktop) bleibt das alte Verhalten: Cookie wird
+    # gesetzt, Relink-Ausgang egal.
+    if old_sid is None or moved > 0:
+        await session.commit()
+        set_session_cookie(response, sid)
     return None
 
 
@@ -908,6 +982,16 @@ async def me(session: SessionDep, current: User = Depends(_get_current_user)):
     out = UserPublic.model_validate(current)
     # Computed (not a column): drives the frontend's hard verification gate.
     out.email_verification_pending = await _email_gate_blocked(session, current)
+    # Ebenso computed: der Konto-Lösch-Dialog leitet daraus, ob ein zweiter
+    # Faktor fällig ist — bei Passkey-only-Konten ohne TOTP sonst unsichtbar
+    # (Bughunt Runde 4).
+    out.has_passkey = bool(
+        await session.scalar(
+            select(func.count())
+            .select_from(WebAuthnCredential)
+            .where(WebAuthnCredential.user_id == current.id)
+        )
+    )
     return out
 
 

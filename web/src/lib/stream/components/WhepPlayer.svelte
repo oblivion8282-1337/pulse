@@ -1,5 +1,5 @@
 <!--
-  WhepPlayer — plays back a channel's HQ stream (GSR → MediaMTX) over WHEP (T4).
+  WhepPlayer — plays back a channel's HQ stream (Sidecar → MediaMTX) over WHEP (T4).
 
   Props: `{ channelId, userId }` — the component fetches the WHEP URL itself via
   `chatApi.getWhepUrl(channelId)` (membership-gated chat-gateway proxy) and

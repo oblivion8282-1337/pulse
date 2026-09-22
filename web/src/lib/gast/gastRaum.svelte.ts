@@ -155,6 +155,14 @@ class GastRaum {
       try {
         tok = await gastVoiceToken(b.ticket, b.channel_id);
       } catch (e) {
+        // Entscheidung 3.1 (2026-09-21): der Token-Endpunkt antwortet
+        // abgelaufen jetzt mit 403 (wie der WHEP-Pfad) — hier als
+        // eigener Fehler-Schlüssel „Besprechung vorbei" statt des
+        // missverständlichen „entfernt".
+        if ((e as { status?: number }).status === 403) {
+          this.beitritt = null;
+          throw Object.assign(new Error('besprechung_vorbei'), { gastSchluessel: 'besprechung_vorbei' });
+        }
         // Halb-Beitritt: das Ticket existiert serverseitig, aber der Gast
         // kann es nie benutzen (kein Voice-Token). Ohne dieses Aufräumen
         // bliebe es als „Belegung“ bis zum Ablauf liegen und eine Wiederholung

@@ -75,6 +75,12 @@ class UserPublic(BaseModel):
     # "verify your email" banner and the "2FA enabled" badge on /me.
     email_verified_at: datetime | None = None
     totp_enabled: bool = False
+    # Computed server-side in ``me()`` (NOT a column): true iff das Konto
+    # mindestens einen Passkey trägt. Bughunt Runde 4: der Account-Lösch-
+    # Dialog braucht das, um bei Passkey-only-Konten das Backup-Code-Feld
+    # anzuzeigen — der Server verlangt für JEDEN MFA-Faktor einen zweiten
+    # Faktor, vorher lief die UI in eine 401-Schleife ohne Eingabemöglichkeit.
+    has_passkey: bool = False
     created_at: datetime
     # Computed server-side (NOT a column): true iff SMTP is configured AND the
     # account is still unverified — i.e. the hard email-verification gate is
@@ -451,6 +457,11 @@ class WebAuthnDeleteIn(BaseModel):
     """
 
     password: _CurrentPasswordField
+    # Bughunt Runde 33/34-Fortsetzung: Löscht der Nutzer seinen (letzten)
+    # Passkey, verlangt der Server denselben zweiten Faktor wie beim
+    # Konto-Löschen — ein gestohlener Access-Token + gehischtes Passwort
+    # nahm vorher den einzigen Faktor ohne jede zweite Beweislast.
+    backup_code: str | None = None
 
 
 class WebAuthnCredentialOut(BaseModel):
@@ -574,9 +585,23 @@ class RecoveryPackageIn(BaseModel):
     """Undurchsichtiger Block — der Server sieht nur base64-Text, nie den
     Inhalt. ``ciphertext`` heisst so, weil er es sein MUSS: der Client
     verschlüsselt mit einem aus dem Wiederherstellungs-Satz abgeleiteten
-    Schlüssel, bevor er hierher gesendet wird."""
+    Schlüssel, bevor er hierher gesendet wird.
+
+    ``password`` seit Bughunt-Entscheidung 4.2 (2026-09-21): das Päckchen
+    ist die EINZIGE serverseitige Kopie des Archiv-Schlüssel-Bündels — ein
+    Überschreiben ist dauerhafter Datenverlust und verlangt denselben
+    Beweis wie jedes Geschwister-Endpoint, das die Konto-Postur mindert
+    (Passwort-Wechsel, TOTP-Setup, Passkey-Anmeldung)."""
 
     ciphertext: Annotated[str, Field(min_length=1, max_length=RECOVERY_PACKAGE_MAX_B64)]
+    password: _CurrentPasswordField
+
+
+class RecoveryPackageDeleteIn(BaseModel):
+    """Widerruf des Päckchens (DELETE) — vernichtet die einzige serverseitige
+    Kopie, also derselbe Beweis wie beim Überschreiben."""
+
+    password: _CurrentPasswordField
 
 
 class RecoveryPackageOut(BaseModel):

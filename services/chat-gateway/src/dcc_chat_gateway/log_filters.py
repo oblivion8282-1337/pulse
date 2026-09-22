@@ -21,6 +21,13 @@ import re
 _TOKEN_RE = re.compile(r"(?i)(token=)[^&\s\"']+")
 _REDACTED = r"\1<redacted>"
 
+# Bughunt Runde 33: Einladungs-Codes sind Einzel-Capabilities im Pfad
+# (GET /invites/<code>, POST /invites/<code>/accept). uvicorn.access druckt
+# den Pfad wortwoertlich — jeder Log-Ausschnitt, der weitergegeben wird,
+# enthaelt sonst einen lebenden Beitritts-Code.
+_INVITE_RE = re.compile(r"(?i)(/invites/)([A-Za-z0-9_-]{6,64})")
+_INVITE_REDACTED = r"\1<redacted>"
+
 # Loggers uvicorn routes request/websocket lines through. Filters do NOT
 # propagate to child loggers, so each must be patched explicitly; we also
 # attach to their handlers to catch records regardless of attachment point.
@@ -42,12 +49,16 @@ class RedactTokenFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+        if isinstance(record.msg, str) and "/invites/" in record.msg:
+            record.msg = _INVITE_RE.sub(_INVITE_REDACTED, record.msg)
         if isinstance(record.msg, str) and "token=" in record.msg.lower():
             record.msg = _redact(record.msg)
         args = record.args
         if isinstance(args, tuple):
             record.args = tuple(
-                _redact(a) if isinstance(a, str) and "token=" in a.lower() else a
+                _redact(a)
+                if isinstance(a, str) and "token=" in a.lower()
+                else (_INVITE_RE.sub(_INVITE_REDACTED, a) if isinstance(a, str) and "/invites/" in a else a)
                 for a in args
             )
         elif isinstance(args, dict):

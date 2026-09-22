@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
 import { errText } from '$lib/utils/errText';
+import { currentLocale } from '$lib/i18n';
   import { onMount, tick } from 'svelte';
   import { watchChat } from '$lib/stores/watchChat.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -115,7 +116,7 @@ import { errText } from '$lib/utils/errText';
 
   function fmtTime(iso: string): string {
     try {
-      return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      return new Date(iso).toLocaleTimeString(currentLocale(), { hour: '2-digit', minute: '2-digit' });
     } catch {
       return '';
     }

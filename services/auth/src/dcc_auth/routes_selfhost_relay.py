@@ -39,7 +39,7 @@ class RelayAuthOut(BaseModel):
 
 def _check_internal_secret(provided: str | None) -> None:
     """Fail-closed wenn das server-seitige Secret nicht gesetzt ist
-    (Muster: routes_search.py::_check_internal_secret)."""
+    (Muster: routes_gast_ticket.py::_check_internal_secret)."""
     expected = get_settings().internal_service_secret
     if not expected:
         raise HTTPException(

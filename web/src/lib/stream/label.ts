@@ -2,7 +2,7 @@
  * Resolve a raw `capture_source` (stored per slot in settings) into a
  * human-readable `{ label, icon }` — used by the streamer's status bar (local
  * state) and sent to the backend at stream-start so viewers' picker shows the
- * same text without needing the GSR catalogs.
+ * same text without needing the sidecar catalogs.
  *
  * Platform-aware: the `capture_source` token encodes the platform's source model.
  *   - `"portal"` (Linux Wayland) → generic `Stream <N>` fallback. The portal
@@ -16,7 +16,7 @@
  *
  * Pure + side-effect-free so it's cheap to call inside a `$derived`.
  */
-import type { GsrMonitor, GsrWindow } from './gsr';
+import type { SidecarMonitor, SidecarWindow } from './sidecar';
 import { windowDisplayName } from './windowName';
 import { monitorNummer } from './quellenummer';
 import {
@@ -45,8 +45,8 @@ export interface StreamLabel {
 }
 
 export interface StreamCatalogs {
-  monitors: GsrMonitor[];
-  windows: GsrWindow[];
+  monitors: SidecarMonitor[];
+  windows: SidecarWindow[];
 }
 
 /** `slot` is 0-based; the generic fallback uses the 1-based slot number so two

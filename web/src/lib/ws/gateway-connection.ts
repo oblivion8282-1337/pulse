@@ -27,6 +27,7 @@ import {
 } from '$lib/api/constants';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { auth } from '$lib/stores/auth.svelte';
+import { melde } from '$lib/diagnose/app-diagnose';
 import { sounds } from '$lib/sounds/engine';
 import { dispatch } from './handler-registry';
 import { bootstrapHandlersOnce } from './gateway-handlers-bootstrap';
@@ -457,6 +458,18 @@ export class GatewayConnection {
     const token = await this._resolveToken();
     if (!token) {
       this.state = 'closed';
+      // Bughunt Runde 7: eine EINMALIG fehlgeschlagene Token-Erneuerung
+      // (Netz noch nicht wieder da, wenn der Backoff-Timer feuert) darf den
+      // Reconnect nicht für immer begraben — vorher blieb Chat/Presence bis
+      // zum Reload tot, obwohl das Netz längst zurück war. wantConnected
+      // steht noch → Backoff-Retry planen; Sign-Out hat wantConnected
+      // bereits auf false gezogen und landet hier gar nicht erst.
+      if (this.wantConnected) this._scheduleReconnect();
+      return;
+    }
+    // Sign-Out kann während der Token-Auflösung dazwischengekommen sein.
+    if (!this.wantConnected) {
+      this.state = 'idle';
       return;
     }
     let ws: SocketLike;
@@ -470,6 +483,16 @@ export class GatewayConnection {
       if (this.wantConnected) this._scheduleReconnect();
       throw e;
     }
+    if (!this.wantConnected) {
+      // disconnect()/closeAll() liefen während der Socket-Anbahnung (der
+      // Direct-Weg handelt Sekunden lang aus) — this.ws war da noch null,
+      // disconnect() konnte den Socket also nicht schließen. Hier nachziehen,
+      // sonst überlebt ein Zombie-Socket den Sign-Out und sein ready-Frame
+      // füllt die geleerten Stores mit dem alten Konto wieder auf.
+      try { ws.close(); } catch { /* noop */ }
+      this.state = 'idle';
+      return;
+    }
     this.ws = ws;
 
     return new Promise((resolve, reject) => {
@@ -478,9 +501,15 @@ export class GatewayConnection {
       ws.addEventListener('open', () => {
         opened = true;
         this.state = 'open';
-        this.attempt = 0;
         this._readyDone = false;
         this._preReadyBuffer = [];
+        // Bughunt Runde 13: Instanz-Capabilities nach JEDEM Dial auffrischen —
+        // der ready-Rahmen trägt sie nicht, und ein Operator, der offline die
+        // Limits änderte (HQ-Caps sind klientenseitig erzwungen), wurde sonst
+        // bis zum Server-Wechsel/Reload ignoriert.
+        void import('$lib/stores/capabilities.svelte').then(({ capabilities }) => {
+          void capabilities.hydrate().catch(() => undefined);
+        });
         for (const cid of this.subs) {
           this._sendRaw({ op: 'subscribe', channel_id: cid });
         }
@@ -565,6 +594,15 @@ export class GatewayConnection {
               try { ws.close(WS_CLOSE.SERVER_TOO_OLD, 'server too old'); } catch { /* noop */ }
               return;
             }
+            // Backoff erst hier auf 0 — NACH bestätigtem hello (Bughunt
+            // Runde 43). Im `open`-Handler stand der Reset zu früh: der
+            // Server accept()t die Verbindung und schliesst sie erst dann
+            // mit 4044/4045/4070 (zu alt/Update/gesperrt) — der Browser
+            // feuert also open (Reset auf 0) und DANACH close, und der
+            // Reconnect lief dauerhaft mit BACKOFF[0] = 1 s gegen einen
+            // Server, der uns explizit abweist, statt wie dokumentiert bis
+            // 300 s auseinanderzugehen.
+            this.attempt = 0;
             // Erst hier bekannt, ob der Server den Token-Austausch kennt —
             // deshalb wird die Erneuerung im hello geplant und nicht im
             // `open`-Zweig (der läuft, bevor das erste Frame da ist).
@@ -600,6 +638,14 @@ export class GatewayConnection {
         this.ws = null;
         this._stopHeartbeat();
         this._stopTokenErneuerung();
+        // Bughunt Runde 43: auch den Gapfill-Fallback-Timer killen — er war
+        // der eine Lifecycle-Timer, der weder im close noch in disconnect()
+        // aufgeräumt wurde und nach einem open-ohne-hello gegen die
+        // bekannte-tote Verbindung einen REST-Burst losschickte.
+        if (this._gapfillTimer) {
+          clearTimeout(this._gapfillTimer);
+          this._gapfillTimer = null;
+        }
         // Vor jeder Zustands-Abbildung und vor dem Reconnect: die Hörer sollen
         // den Abriss erfahren, egal ob danach neu gewählt wird oder nicht.
         // Kopie, weil ein Hörer sich im Ruf abmelden darf.
@@ -622,6 +668,12 @@ export class GatewayConnection {
   }
 
   private _mapCloseCode(code: number): void {
+    // Diagnose-Gedächtnis: NUR unbeabsichtigte Closes laufen hier herein
+    // (wantConnected-Weiche in onclose) — ein bewusstes disconnect() erzeugt
+    // kein Ereignis. Der Code wird zur Kategorie, der Server in den Kontext.
+    melde('verbindung', `ws_closed_${code}`, `WebSocket geschlossen (${code})`, {
+      server_id: this.serverId
+    });
     switch (code) {
       case WS_CLOSE.TOKEN_EXPIRED: this.forceRefreshNext = true; this.state = 'closed'; return;
       case WS_CLOSE.SERVER_TOO_OLD: this.state = 'incompatible'; return;
@@ -908,6 +960,10 @@ export class GatewayConnection {
     this.wantConnected = false;
     this._stopHeartbeat();
     this._stopTokenErneuerung();
+    if (this._gapfillTimer) {
+      clearTimeout(this._gapfillTimer);
+      this._gapfillTimer = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

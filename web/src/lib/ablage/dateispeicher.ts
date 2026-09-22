@@ -29,6 +29,7 @@ import {
 	type VerzeichnisDaten,
 } from './dateiablage.ts';
 import type { AblageAdapter } from './adapter.ts';
+import { GRABSTEIN_CAP } from './dateiablage.ts';
 import { zufallsHex } from './hex.ts';
 
 export const VERZEICHNIS_DATEI = 'verzeichnis.puls';
@@ -258,6 +259,23 @@ export class DateiSpeicher {
 			this.verzeichnis!.einträge = this.verzeichnis!.einträge.filter(
 				(e) => !weg.some((w) => w.id === e.id),
 			);
+			// Entscheidung 2b.3: gelöschte ids als Grabstein merken — sonst
+			// belebte ein späterer Festigungs-Retry (Quittierungsfehler war
+			// irgendwann passiert) die gelöschte Datei wieder.
+			const grabsteine = (this.verzeichnis!.grabsteine ??= {});
+			for (const w of weg) grabsteine[w.id] = new Date().toISOString();
+			// Cap: die ältesten fallen raus — der Schutz muss nur halten, bis
+			// der letzte Retry des Eintrags vorbei ist (Stunden, nicht Jahre).
+			const ids = Object.keys(grabsteine);
+			if (ids.length > GRABSTEIN_CAP) {
+				// Nach ISO-Zeit sortiert: die ÄLTESTEN fallen raus (lexikalischer
+				// id-Vergleich wäre bei Snowflakes unzuverlässig).
+				for (const alt of ids
+					.sort((a, b) => grabsteine[a].localeCompare(grabsteine[b]))
+					.slice(0, ids.length - GRABSTEIN_CAP)) {
+					delete grabsteine[alt];
+				}
+			}
 			await this._speichereVerzeichnis();
 		});
 	}
@@ -279,6 +297,10 @@ export class DateiSpeicher {
 		container: Uint8Array,
 		kopf: { name: string; mime: string; groesse: number; hochgeladenAm: string; hochgeladenVon: string },
 	): Promise<void> {
+		await this._ladenWennNoetig();
+		// Entscheidung 2b.3: eine gelöschte Datei kommt durch einen späten
+		// Festigungs-Lauf NICHT wieder — Grabstein schlägt Verzeichnis-Präsenz.
+		if (this.verzeichnis!.grabsteine?.[id]) return;
 		const dateiName = `a-${id}.puls`;
 		await this.adapter.schreibe(dateiName, container);
 		const eintrag: AblageEintrag = { id, datei: dateiName, ...kopf };

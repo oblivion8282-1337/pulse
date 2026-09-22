@@ -20,7 +20,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import { stream } from '$lib/stream/state.svelte';
-  import { gsr } from '$lib/stream/gsr';
+  import { sidecar } from '$lib/stream/sidecar';
   import { isElectron, isLinux, isWindows, isMac } from '$lib/platform/runtime';
   import ShortcutCheatsheet from './ShortcutCheatsheet.svelte';
   import QuickSwitcher from './QuickSwitcher.svelte';
@@ -105,12 +105,12 @@
         void voice.disconnect({ reason: 'user' });
       }),
       register('stream.toggleHq', () => {
-        if (!isElectron() || !(isLinux() || isWindows() || isMac()) || !stream.gsrAvailable) {
+        if (!isElectron() || !(isLinux() || isWindows() || isMac()) || !stream.sidecarAvailable) {
           toast.info(m.shortcut_host_hq_stream_desktop_only());
           return;
         }
         if (stream.running) {
-          void gsr.stop();
+          void sidecar.stop();
           return;
         }
         if (!voice.channelId) {

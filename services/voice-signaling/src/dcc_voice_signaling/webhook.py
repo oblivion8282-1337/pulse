@@ -99,6 +99,15 @@ def _as_str(m: bytes | str) -> str:
     return m.decode() if isinstance(m, bytes) else m
 
 
+def _sorted_members(raw: list[bytes | str], present: set[str]) -> list[str]:
+    """Set members as sorted strs, filtered to those in ``present``.
+
+    Snapshot hygiene (Bughunt Runde 46): the presence read above runs in
+    separate pipeline commands, so a concurrent leave/stop can leave an
+    entry that no longer has presence — such orphans must not render."""
+    return sorted(_as_str(m) for m in raw if _as_str(m) in present)
+
+
 def _is_camera(track) -> bool:  # noqa: ANN001
     """Return True if this TrackInfo represents a webcam (CAMERA source).
 
@@ -269,8 +278,11 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
     pipe.smembers(gast_stumm_key(room_name))
     members_raw, streamers_raw, camera_raw, gast_stumm_raw = await pipe.execute()
     user_ids = sorted(_as_str(m) for m in members_raw)
-    streaming_user_ids = sorted(_as_str(m) for m in streamers_raw)
-    camera_user_ids = sorted(_as_str(m) for m in camera_raw)
+    user_set = set(user_ids)
+    # Bughunt Runde 46: Presence-Hygiene gegen Pipeline-Race-Lücken — s.
+    # _sorted_members.
+    streaming_user_ids = _sorted_members(streamers_raw, user_set)
+    camera_user_ids = _sorted_members(camera_raw, user_set)
     # Gastnamen mitschicken — für eine Gast-Kennung gibt es beim Empfänger
     # keine zweite Quelle (s. ``VoiceStateSnapshot.gast_namen``).
     gast_namen: dict[str, str] = {}
@@ -288,9 +300,7 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
         gast_namen=gast_namen,
         # Nur Gäste, die auch wirklich im Raum sind — ein verwaister Eintrag
         # (participants_left ging verloren) würde sonst mitreisen.
-        gast_stumm=sorted(
-            _as_str(m) for m in gast_stumm_raw if _as_str(m) in set(user_ids)
-        ),
+        gast_stumm=_sorted_members(gast_stumm_raw, user_set),
     )
     await redis.publish(
         VOICE_EVENTS_CHANNEL,
@@ -493,6 +503,22 @@ async def livekit_webhook(request: Request) -> None:
             return
         user_id = user_id_from_identity(event.participant.identity)
         if user_id is None:
+            return
+        # Dasselbe Gate wie bei ``participant_joined``: ein gesperrter Gast mit
+        # noch gültigem LiveKit-JWT (oder jemand, dessen Join-Webhook in der
+        # Restart-Lücke verloren ging) soll keinen Streaming-/Kamera-Eintrag
+        # bekommen — sonst taucht er in ``streaming_user_ids``/``camera_user_ids``
+        # auf, ohne in ``user_ids`` zu stehen, und Clients rendern eine Kachel
+        # für jemanden, der laut Präsenz gar nicht im Raum ist. Das Stop-
+        # Ereignis läuft ungehindert weiter: aus einem Set entfernen, in dem
+        # man nicht steht, ist harmlos und räumt Altlasten weg.
+        if (
+            kind == "track_published"
+            and _gaeste.ist_gast(user_id)
+            and await _gaeste.ist_gesperrt(redis, user_id)
+        ):
+            log.info("gast_gesperrt_publish_ignoriert", user_id=user_id, room=room_name)
+            await _publish_state(redis, room_name, channel_id)
             return
         # Screen-share check runs first (it owns the UNKNOWN-source video
         # fallback); camera is only the explicit CAMERA source.

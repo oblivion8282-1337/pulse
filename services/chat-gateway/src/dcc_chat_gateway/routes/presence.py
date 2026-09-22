@@ -47,8 +47,10 @@ async def set_my_presence_status(
     redis = request.app.state.redis
     manager = request.app.state.connection_manager
 
-    await set_presence_status(redis, current.id, body.status)
-    # Mirror the explicit choice durably so it outlives the 24 h Redis TTL
-    # and is restored on the next login (see ws_ready's own-status fallback).
+    # Bughunt Runde 20: der DAUERHAFTE Spiegel zuerst — sonst war bei einem
+    # DB-Fehler der Redis-Stand schon neu (24 h TTL) und der durable alte,
+    # und der Client bekam den 500 für einen Status, den alle Peers längst
+    # sahen, der nach TTL-Ablauf still zurückfiel.
     await persist_durable_status(session, current.id, body.status)
+    await set_presence_status(redis, current.id, body.status)
     await broadcast_presence_status_changed(manager, redis, current.id, body.status)

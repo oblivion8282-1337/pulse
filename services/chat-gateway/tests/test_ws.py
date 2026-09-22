@@ -46,9 +46,11 @@ def _bootstrap_sync(tc: TestClient, signer) -> tuple[str, str, int, str, str]:
 async def test_ws_unauthorized_token_closes(ws_app, _auth_signer):
     def _run():
         with TestClient(ws_app) as tc:
-            with pytest.raises(Exception):
+            with pytest.raises(WebSocketDisconnect) as exc:
                 with tc.websocket_connect("/ws?token=garbage") as ws:
                     ws.receive_text()
+            # Bughunt Runde 11: Code prüfen, nicht nur „irgendein Ende".
+            assert exc.value.code == 4001
 
     await asyncio.to_thread(_run)
 
@@ -367,14 +369,17 @@ async def test_ws_close_4046_when_jwks_not_ready(ws_app, _auth_signer):
             # Simulate cold-start: flip the flag after lifespan started.
             ws_app.state.jwks_ready = False
             try:
-                with pytest.raises(Exception):
+                # Bughunt Runde 11: der Close-Code SELBST muss geprüft
+                # werden — jede andere Schließursache ließ den Test grün
+                # (2026-08-17: falsch/belegt vergebene Codes kamen einmal
+                # unentdeckt durch, der Klient leitet die Diagnose daraus ab).
+                with pytest.raises(WebSocketDisconnect) as exc:
                     with tc.websocket_connect(f"/ws?token={token}") as ws:
                         ws.receive_text()
+                assert exc.value.code == 4046
             finally:
                 # Restore so subsequent tests in this run are unaffected.
                 ws_app.state.jwks_ready = True
-
-    await asyncio.to_thread(_run)
 
     await asyncio.to_thread(_run)
 

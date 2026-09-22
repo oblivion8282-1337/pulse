@@ -90,7 +90,9 @@
   }
 
   function initials(name: string): string {
-    return (name || '?').slice(0, 2).toUpperCase();
+    // Code-Punkte statt UTF-16-Einheiten (Mechanik wie utils/anfangsBuchstabe),
+    // der Zweizeichen-Stil der Adminfläche bleibt.
+    return Array.from(name || '?').slice(0, 2).join('').toUpperCase();
   }
 </script>
 

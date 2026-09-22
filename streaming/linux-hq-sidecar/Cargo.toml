@@ -76,7 +76,6 @@ ashpd = { version = "0.10", default-features = false, features = ["tokio"] }
 # v0_3_33: PropertyFlags::DONT_FIXATE für die DMABUF-Modifier-Verhandlung
 # (System-PipeWire ist 1.6.7, weit drüber).
 pipewire = { version = "0.10", features = ["v0_3_33"] }
-libspa = { version = "0.10", features = ["v0_3_33"] }
 drm-fourcc = "2.2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 

@@ -22,11 +22,11 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten
 from dcc_chat_gateway.friend_helpers import (
     block_exists_either_way,
     friendship_exists,
 )
-from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten
 from dcc_chat_gateway.models import DirectMessageChannel, Friendship, Message, UserBlock
 from dcc_chat_gateway.routes._deps import CloudOnly, dm_member_check
 from dcc_chat_gateway.schemas import DMChannelCreateIn, DMChannelOut, DMMessageSearchHit
@@ -224,6 +224,12 @@ async def list_dm_channels(
             DirectMessageChannel.last_message_id.desc().nullslast(),
             DirectMessageChannel.id.desc(),
         )
+        # Bughunt-Entscheidung 4.11b: defensiver Deckel — die Liste war die
+        # einzige ungebundene .all() unter den Listenrouten. 500 Gespräch ist
+        # jenseits jedes realen Kontexts (Freund-Gate begrenzt das Wachstum
+        # ohnehin); der wichtigste Teil der Ordnung (neueste aktiv) bleibt
+        # vollständig erhalten.
+        .limit(500)
     )
     rows = (await session.execute(stmt)).scalars().all()
     others = {

@@ -7,6 +7,7 @@ voice-channel type discriminator are pinned here. Drift is caught by
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import httpx
@@ -195,21 +196,27 @@ async def _require_target_in_guild(channel_id: str, user_id: str, bearer: str) -
                 status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
             )
         guild_id = channel_resp.json().get("guild_id")
-        if guild_id:
-            # Verify the target user is a member of this guild.
-            member_resp = await voice_routes._chat_gateway_request(
-                "GET", f"/guilds/{guild_id}/members/{user_id}", bearer=bearer
+        if not guild_id:
+            # Fail closed auch bei Schema-Drift: channels.guild_id ist NOT NULL,
+            # ein 200-Body ohne guild_id ist also ein unverstandenes Antwort-
+            # format — die Ziel-Prüfung stumm überspringen wäre fail-open.
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
             )
-            if member_resp.status_code == 404:
-                raise HTTPException(
-                    status.HTTP_404_NOT_FOUND,
-                    detail="user is not a member of this guild",
-                )
-            if member_resp.status_code >= 400:
-                raise HTTPException(
-                    status.HTTP_502_BAD_GATEWAY,
-                    detail="membership check unavailable",
-                )
+        # Verify the target user is a member of this guild.
+        member_resp = await voice_routes._chat_gateway_request(
+            "GET", f"/guilds/{guild_id}/members/{user_id}", bearer=bearer
+        )
+        if member_resp.status_code == 404:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                detail="user is not a member of this guild",
+            )
+        if member_resp.status_code >= 400:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                detail="membership check unavailable",
+            )
     except HTTPException:
         raise
     except Exception as exc:
@@ -246,6 +253,9 @@ def _publish_sources_for(perms: int) -> tuple[bool, list[str]]:
 # chat-gateway to revoke the temporary grant on leave". Synchron halten
 # mit chat-gateway voice_pull_cleanup._MARKER_KEY.
 _VOICE_PULL_MARKER = "voice_pull:channel-{channel_id}:user-{user_id}"
+# Gnadenfenster zwischen participant_left und dem Revoke (Reconnect-Flap,
+# Bughunt Runde 4/12). Modulkonstante, damit Tests sie auf 0 druecken.
+_VOICE_PULL_GNADEN_S = 5
 
 
 async def _maybe_revoke_voice_pull(redis, channel_id: str, user_id: str) -> None:
@@ -255,7 +265,8 @@ async def _maybe_revoke_voice_pull(redis, channel_id: str, user_id: str) -> None
     Cheap marker-EXISTS first so a normal (no-pull) leave costs one Redis
     round-trip and no HTTP. Fire-and-forget — a lost/failed call is caught
     by chat-gateway's voice-pull reaper backstop, so the webhook itself
-    never fails on this."""
+    never fails on this. Gibt den verzögerten Revoken-Task zurück (Tests
+    warten ihn ab); None, wenn nichts zu tun war."""
     global _http_client
     settings = voice_routes.get_settings()
     if not settings.chat_gateway_url or not settings.internal_service_secret:
@@ -265,21 +276,43 @@ async def _maybe_revoke_voice_pull(redis, channel_id: str, user_id: str) -> None
             return
     except Exception:  # noqa: BLE001 — Redis best-effort; reaper is the backstop
         return
-    if _http_client is None:
-        return
-    url = settings.chat_gateway_url.rstrip("/") + "/internal/voice-pull-revoke"
-    try:
-        resp = await _http_client.post(
-            url,
-            json={"channel_id": int(channel_id), "user_id": int(user_id)},
-            headers={"X-Pulse-Internal-Secret": settings.internal_service_secret},
-        )
-        if resp.status_code >= 400:
-            log.warning(
-                "voice-pull revoke returned %s (cid=%s uid=%s)",
-                resp.status_code,
-                channel_id,
-                user_id,
+    # Bughunt Runde 4: Gnadenfenster mit Presence-Nachfrage, derselbe Schutz
+    # wie im Reaper („never yanks a grant from a user who is still in the
+    # call“). LiveKit feuert bei einem vollen Reconnect participant_left und
+    # participant_joined im Sekundenabstand — vorher riss der Flap den Pull-
+    # Grant (Zeile + VIEW/CONNECT-Bits) weg, obwohl der Nutzer nie bewusst
+    # verlassen hat. Ponytail: die Restlücke (Rejoin NACH der Nachfrage)
+    # bleibt; der Reaper heilt sie beim nächsten Lauf nicht, aber ein Mod
+    # kann erneut ziehen.
+    async def _verzoegert_revoken() -> None:
+        await asyncio.sleep(_VOICE_PULL_GNADEN_S)
+        try:
+            if await redis.sismember(f"voice:room:channel-{channel_id}", user_id):
+                return
+        except Exception:  # noqa: BLE001 — Redis best-effort; reaper is the backstop
+            return
+        if _http_client is None:
+            return
+        url = settings.chat_gateway_url.rstrip("/") + "/internal/voice-pull-revoke"
+        try:
+            resp = await _http_client.post(
+                url,
+                json={"channel_id": int(channel_id), "user_id": int(user_id)},
+                headers={"X-Pulse-Internal-Secret": settings.internal_service_secret},
             )
-    except httpx.HTTPError as exc:
-        log.warning("voice-pull revoke call failed (cid=%s uid=%s): %s", channel_id, user_id, exc)
+            if resp.status_code >= 400:
+                log.warning(
+                    "voice-pull revoke returned %s (cid=%s uid=%s)",
+                    resp.status_code,
+                    channel_id,
+                    user_id,
+                )
+        except httpx.HTTPError as exc:
+            log.warning("voice-pull revoke call failed (cid=%s uid=%s): %s", channel_id, user_id, exc)
+
+    # Bughunt Runde 12 (Selbst-Review): die 5-s-Gnade NICHT inline awaiten —
+    # der Webhook-Handler haengt sonst >= 5 s pro Left-Event (LiveKit-Delivery
+    # kann timeouten und mit Retries gegenhuebern). Task abspalten; der
+    # Reaper bleibt der Backstop, falls der Task stirbt. Der Task wird
+    # zurueckgegeben, damit Tests ihn abwarten koennen.
+    return asyncio.get_running_loop().create_task(_verzoegert_revoken())

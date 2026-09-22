@@ -103,7 +103,6 @@
     };
   });
 
-
   // Umschalten zwischen Gespraechen (Laden, Abonnieren, Nachhol-Bestellungen)
   // ausgelagert — s. `chat/dmKanalWechsel.svelte.ts`.
   const kanalWechsel = erstelleDmKanalWechsel(cloudRoute);
@@ -175,7 +174,8 @@
     text: string,
     replyToId: string | null,
     attachmentIds: string[],
-    anhaenge: AnhangAngabe[] = []
+    anhaenge: AnhangAngabe[] = [],
+    melden?: (ok: boolean) => void
   ) {
     sendeDmNachricht({
       userId: auth.user?.id ?? null,
@@ -188,7 +188,8 @@
       anhaenge,
       e2eDmsEnabled: E2E_DMS_ENABLED,
       cloudRoute,
-      pendingOptimisticTimeouts
+      pendingOptimisticTimeouts,
+      melden
     });
   }
 
@@ -268,6 +269,7 @@
          daneben haette Anhaenge, Antworten, Reaktionen und das Aktionsblatt
          still verloren. -->
     <ChatView
+      sendReport
       channel={synthChannel}
       messages={visibleMessages}
       onSend={sendMessage}
@@ -287,6 +289,7 @@
         channel={synthChannel}
         messages={visibleMessages}
         onSend={sendMessage}
+        sendReport
         headerKind="dm"
         dmPartnerId={activeDM.other_user_id}
         onBack={() => goto('/app/@me')}

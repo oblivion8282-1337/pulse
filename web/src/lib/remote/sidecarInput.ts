@@ -15,8 +15,8 @@
  */
 
 /** Die Bruecke, oder `undefined` im Browser / in einer Shell ohne sie. */
-function gsr() {
-  return typeof window !== 'undefined' ? window.pulse?.gsr : undefined;
+function sidecar() {
+  return typeof window !== 'undefined' ? window.pulse?.sidecar : undefined;
 }
 
 /**
@@ -30,7 +30,7 @@ function gsr() {
  * hier — sie ist an beiden Stellen dieselbe.
  */
 export function aufSidecarEreignisse(cb: (ev: unknown) => void): (() => void) | null {
-  const bruecke = gsr();
+  const bruecke = sidecar();
   if (typeof bruecke?.onEvent !== 'function') return null;
   return bruecke.onEvent(cb);
 }
@@ -39,7 +39,7 @@ export function aufSidecarEreignisse(cb: (ev: unknown) => void): (() => void) | 
  *  Bruecke — ob ein Stream laeuft und der Sidecar den Platz kennt, entscheidet
  *  der Sidecar zur Injektionszeit. */
 export function eingabeMoeglich(): boolean {
-  return typeof gsr()?.remoteInput === 'function';
+  return typeof sidecar()?.remoteInput === 'function';
 }
 
 /**
@@ -65,7 +65,7 @@ export async function eingabeEinspielen(
   frames: string[],
   hostAktiv = false,
 ): Promise<boolean> {
-  const bruecke = gsr();
+  const bruecke = sidecar();
   if (typeof bruecke?.remoteInput !== 'function') return false;
   try {
     const res = (await bruecke.remoteInput(slot, sessionId, frames, hostAktiv)) as
@@ -91,7 +91,7 @@ export async function eingabeEinspielen(
  * vorherige Frames folgenlos — man darf ihn lieber einmal zu oft rufen.
  */
 export async function eingabeFreigeben(): Promise<void> {
-  const bruecke = gsr();
+  const bruecke = sidecar();
   if (typeof bruecke?.remoteInputEnd !== 'function') return;
   try {
     await bruecke.remoteInputEnd();

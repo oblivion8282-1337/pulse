@@ -125,6 +125,12 @@ async def _channel_zugriff_pruefen(
         if not channel.ablage:
             raise HTTPException(status_code=403, detail="channel_not_accessible")
         # Regel 2: VIEW_CHANNEL ueber den vorhandenen Resolver —
+        # BEKANNTE, BEWUSSTE Regel (Entscheidung 4.11, bestätigt 2026-09-21):
+        # Ablage-Kanäle gate'n die Einlieferung nur auf VIEW_CHANNEL, NICHT
+        # auf SEND_MESSAGES — ein SEND-entzogenes Mitglied kann dort Umschläge
+        # zustellen. Fuer verschlüsselte Ablage-Umschläge gilt das als
+        # akzeptiert (der Server sieht den Inhalt nie; der Empfangs-Weg
+        # filtert denselben Lesekreis).
         # ``members_who_can_view`` liefert genau die Konten, die diesen
         # Kanal (mit seinen Overwrites) sehen duerfen, und ist zugleich die
         # Teilnehmermenge fuer die Zustellung (dieselbe Funktion, die der

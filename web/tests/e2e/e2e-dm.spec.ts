@@ -458,9 +458,14 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
    * waeren hier beide Knoepfe vorhanden (Element existiert unabhaengig vom
    * Hover-CSS, s. `MessageActions.svelte`).
    */
-  test('Bearbeiten/Loeschen werden fuer eigene verschluesselte Nachrichten NICHT angeboten (Befund 1)', async () => {
+  test('Bearbeiten bleibt fuer eigene verschluesselte Nachrichten aus, Loeschen ist der E2E-Loesch-Frame (Befund 1, aktualisiert)', async () => {
+    // Ursprung (Befund 1): BEIDE Aktionen waren verboten. Mittlerweile ist
+    // das LOESCHEN fuer eigene verschluesselte Nachrichten implementiert
+    // (`MessageList.svelte::canDeleteMessage` — E2E-Loesch-Frame, nur der
+    // Autor) — Bearbeiten bleibt ausgeschlossen. Beide Nachrichten hier
+    // stammen von Alice, also genau ein Loesch-Knopf je Zeile.
     await expect(alicePage.getByTestId('message-action-edit')).toHaveCount(0);
-    await expect(alicePage.getByTestId('message-action-delete')).toHaveCount(0);
+    await expect(alicePage.getByTestId('message-action-delete')).toHaveCount(2);
   });
 
   /**

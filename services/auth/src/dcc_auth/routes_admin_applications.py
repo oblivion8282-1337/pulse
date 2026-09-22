@@ -312,6 +312,18 @@ async def _approve_vps(
         app_row.reviewed_at = datetime.now(UTC)
         app_row.approved_instance_id = instance_id
 
+        # Bughunt Runde 21: die VPS-Genehmigung ist die consequentialste
+        # Zuweisung der Cloud (Instanz + Owner-Membership + Einmal-Secret)
+        # und war die einzige ohne Audit-Zeile — Spiegel zum
+        # app_host-Zweig oben.
+        _audit(
+            session,
+            actor_id=actor.id,
+            action="instance_application.approve",
+            target_id=app_applicant_user_id,
+            payload={"application_id": app_row.id, "instance_id": instance_id},
+        )
+
         try:
             await session.commit()
         except IntegrityError:

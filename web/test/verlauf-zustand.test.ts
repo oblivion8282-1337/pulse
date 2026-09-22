@@ -33,6 +33,18 @@ test('ein voller Speicher wird als solcher benannt', () => {
   assert.equal(gedeutet.art, 'voll');
 });
 
+test('VersionError heißt: Bestand ist jünger als die App (Fassungs-Stau)', () => {
+  // Der Fall von 2026-09-22: ein Experimentier-Zweig (Nextcloud/Mobil) hatte
+  // die Verlaufs-DB in einer höheren Fassung angelegt — jedes Öffnen mit der
+  // ausgelieferten Fassung schlug daraufhin auf Dauer fehl.
+  const gedeutet = deuteSpeicherfehler(
+    Object.assign(new Error('The requested version (2) is less than the existing version (3).'), {
+      name: 'VersionError'
+    })
+  );
+  assert.equal(gedeutet.art, 'zu_neu');
+});
+
 test('alles Unbekannte gilt als echter Fehler', () => {
   // fail-loud: was wir nicht einordnen koennen, wird nicht beschoenigt.
   assert.equal(deuteSpeicherfehler(new Error('irgendwas')).art, 'fehler');
@@ -77,4 +89,19 @@ test('erfolgreiche Zugriffe heben einen gemeldeten Fehler wieder auf', () => {
     'utf8'
   );
   assert.match(quelle, /verlaufZustand\.erholt\(\)/);
+});
+
+// ── Fassungs-Stau-Selbstheilung (2026-09-22) ────────────────────────────────
+// Der Heilungspfad läuft im Browser (IndexedDB), im Node-Läufer unerreichbar —
+// deshalb Quelltext-Gegenproben auf die zwei versprochenen Eigenschaften:
+// erkennen UND neu anlegen (Löschen reicht nicht, sonst bleibt es beim Fehler).
+
+test('Fassungs-Stau heilt sich selbst: löschen UND neu anlegen', () => {
+  const quelle = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '../src/lib/verlauf/verbindung.ts'),
+    'utf8'
+  );
+  assert.match(quelle, /VersionError/);
+  assert.match(quelle, /deleteDatabase/);
+  assert.match(quelle, /_loeschen\(\)\.then\(\(\) => _openFresh\(\)\)/);
 });

@@ -13,6 +13,7 @@ from dcc_chat_gateway.routes import (
     ablage_zwischenlager,
     admin,
     admin_backups,
+    admin_diagnose_paket,
     admin_members,
     admin_plugins,
     attachments,
@@ -184,6 +185,7 @@ router.include_router(mod_queue.router)
 router.include_router(admin.router)
 router.include_router(owner.router)
 router.include_router(admin_backups.router)
+router.include_router(admin_diagnose_paket.router)
 router.include_router(admin_members.router)
 router.include_router(admin_plugins.router)
 router.include_router(guild_plugins.router)

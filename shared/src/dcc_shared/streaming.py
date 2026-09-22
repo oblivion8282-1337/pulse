@@ -107,6 +107,12 @@ READ_CACHE_KEY = "stream:read-cache:{viewer_id}:{channel_id}:{user_id}:{slot}"
 # reicht diese Form in ``streamkeys.py`` nur noch durch; der mediamtx-auth-hook
 # behaelt seine eigene Kopie (keine ``dcc-shared``-Abhaengigkeit, siehe dort).
 TOKEN_KEY = "stream:token:{token}"
+#: Wer streamt gerade in welchem Kanal (media-svc schreibt, chat-gateway
+#: liest für `stream_chat`). Kopien in den Diensten waren die Ursache für
+#: eine stumme Abweichungsklasse — Bughunt-Ponytail-Audit 2026-09-21.
+ACTIVE_KEY = "stream:active:channel-{channel_id}-{user_id}"
+#: Kanal-Stream-Status (media-svc schreibt, chat-gateway Pubsub-Filter liest).
+CHANNEL_STATE_KEY = "stream:channel:{channel_id}"
 
 
 def token_key(token: str) -> str:

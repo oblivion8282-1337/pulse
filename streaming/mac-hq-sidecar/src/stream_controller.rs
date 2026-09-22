@@ -6,7 +6,7 @@
 //! afterwards — no self-exit, unlike Windows). `state` returns a snapshot.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Sender, channel, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -449,7 +449,10 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
     // 4K-Puffer aufstauen — Begruendung in `capture::postfach`.
     let bildpost = Arc::new(Postfach::neu());
     let (audio_tx, audio_rx) = if params.enable_audio {
-        let (t, r) = channel::<AudioFrame>();
+        // Bughunt Runde 5: gebunden (64 Pakete ≈ 1,3 s), Spiegel zum
+        // linux-Pfad — der ungebundene Kanal staute bei hängendem
+        // Verbraucher (RTMPS-Stall, Muxer blockiert) hunderte MB auf.
+        let (t, r) = sync_channel::<AudioFrame>(64);
         (Some(t), Some(r))
     } else {
         (None, None)

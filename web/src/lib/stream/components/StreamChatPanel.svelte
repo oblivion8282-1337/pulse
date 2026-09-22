@@ -20,6 +20,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { meldeSendeFehler } from '../sendeFehler';
   import { uhrzeitHHMM } from '$lib/utils/uhrzeit';
+  import { currentLocale } from '$lib/i18n';
 
   let {
     channelId,
@@ -148,7 +149,7 @@
             <span class="font-semibold text-primary">
               {userCache.displayName(msg.author_id)}
             </span>
-            <span class="text-text-muted ml-1 text-2xs">{uhrzeitHHMM(msg.created_at)}</span>
+            <span class="text-text-muted ml-1 text-2xs">{uhrzeitHHMM(msg.created_at, currentLocale())}</span>
             <p class="text-text-bright break-words">{msg.content}</p>
           </li>
         {/each}

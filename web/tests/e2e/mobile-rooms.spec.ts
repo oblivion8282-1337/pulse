@@ -22,7 +22,7 @@ test.describe('Räume-Bereich auf dem Handy', () => {
   let kanalId: string;
 
   test.beforeAll(async ({ browser }) => {
-    page = await browser.newPage({ viewport: HANDY });
+    page = await (await browser.newContext({ viewport: HANDY, locale: 'de-DE', isMobile: true, hasTouch: true })).newPage();
     await page.goto('/register');
     await page.getByTestId('reg-username').fill(`rooms_${TAG}`);
     await page.getByTestId('reg-email').fill(`rooms_${TAG}@dcc-test.example.com`);
@@ -66,7 +66,9 @@ test.describe('Räume-Bereich auf dem Handy', () => {
 
   test('der Räume-Bereich zeigt die Community als Kachel', async () => {
     await page.goto('/app/rooms');
-    await expect(page.getByTestId(`room-tile-${guildId}`)).toBeVisible();
+    // Frischer Erstbesuch: Kanäle werden je Guild nachgeladen, die Kachel
+    // kann ein paar Sekunden brauchen.
+    await expect(page.getByTestId(`room-tile-${guildId}`)).toBeVisible({ timeout: 15_000 });
   });
 
   test('Kachel führt auf die Kanäle, mit Zurück-Pfeil', async () => {
@@ -108,13 +110,21 @@ test.describe('Räume-Bereich auf dem Handy', () => {
     await expect(blatt).toBeHidden();
   });
 
-  test('der Wechsler ist am Rechner nicht der Weg — dort steht die Liste', async () => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`/app/guilds/${guildId}/channels/${kanalId}`);
-    await expect(page.getByTestId('channel-list')).toBeVisible();
-    await expect(page.getByTestId('channel-switcher-open')).toBeHidden();
-    await expect(page.getByTestId('chat-back')).toBeHidden();
-    await page.setViewportSize(HANDY);
+  test('der Wechsler ist am Rechner nicht der Weg — dort steht die Liste', async ({ browser }) => {
+    // Gleicher Nutzer, echte Desktop-Klasse: die Geraeteklasse haengt am
+    // Zeiger, ein Resize waere kein Klassenwechsel mehr (2026-09-04).
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'de-DE' });
+    const rechner = await ctx.newPage();
+    await rechner.goto('/login');
+    await rechner.getByTestId('login-identifier').fill(`rooms_${TAG}`);
+    await rechner.getByTestId('login-password').fill(PW);
+    await rechner.getByTestId('login-submit').click();
+    await rechner.waitForURL(/\/app/);
+    await rechner.goto(`/app/guilds/${guildId}/channels/${kanalId}`);
+    await expect(rechner.getByTestId('channel-list')).toBeVisible();
+    await expect(rechner.getByTestId('channel-switcher-open')).toBeHidden();
+    await expect(rechner.getByTestId('chat-back')).toBeHidden();
+    await ctx.close();
   });
 
   // Die GuildRail (mit dem "+"-Menue, das den Beitritts-Dialog oeffnet) ist
@@ -124,8 +134,17 @@ test.describe('Räume-Bereich auf dem Handy', () => {
   // ab und verweist auf "den Dialog", den es am Telefon nicht gab).
   test('das Raeume-Menue bietet "Beitreten" und oeffnet den Dialog', async () => {
     await page.goto('/app/rooms');
-    await page.getByTestId('rooms-menu').click();
-    await page.getByTestId('rooms-menu-join').click();
+    // Das Menü kann beim Öffnen von einer Präsenz-Aktualisierung überholt
+    // werden — notfalls neu öffnen (Muster wie `abmelden`).
+    for (let versuch = 0; versuch < 3; versuch++) {
+      await page.getByTestId('rooms-menu').click();
+      try {
+        await page.getByTestId('rooms-menu-join').click({ timeout: 2_500 });
+        break;
+      } catch {
+        // Menü wieder zu — neu öffnen.
+      }
+    }
     await page.waitForURL(/\/app\?add=join/);
     await expect(page.getByTestId('join-guild-input')).toBeVisible();
   });
@@ -139,9 +158,10 @@ test.describe('Räume-Bereich auf dem Handy', () => {
  */
 test.describe('Profil als Blatt von unten', () => {
   let seite: Page;
+  let zielUrl: string;
 
   test.beforeAll(async ({ browser }) => {
-    seite = await browser.newPage({ viewport: HANDY });
+    seite = await (await browser.newContext({ viewport: HANDY, locale: 'de-DE', isMobile: true, hasTouch: true })).newPage();
     await seite.goto('/register');
     await seite.getByTestId('reg-username').fill(`prof_${TAG}`);
     await seite.getByTestId('reg-email').fill(`prof_${TAG}@dcc-test.example.com`);
@@ -183,6 +203,7 @@ test.describe('Profil als Blatt von unten', () => {
       });
       return `/app/guilds/${g.id}/channels/${k.id}`;
     });
+    zielUrl = ziel;
     await seite.goto(ziel);
     await expect(seite.getByTestId('message-author').first()).toBeVisible();
     // Ein NORMALER Tipp — kein Rechtsklick, kein Langdruck. Das ist der Kern
@@ -195,12 +216,18 @@ test.describe('Profil als Blatt von unten', () => {
     expect(kasten!.y + kasten!.height).toBeGreaterThan(hoehe - 5);
   });
 
-  test('am Rechner bleibt es das Kontextmenue', async () => {
-    await seite.setViewportSize({ width: 1440, height: 900 });
-    await seite.reload();
-    await expect(seite.getByTestId('message-author').first()).toBeVisible();
-    await seite.getByTestId('message-author').first().click();
-    await expect(seite.getByTestId('user-profile-sheet')).toBeHidden();
-    await seite.setViewportSize(HANDY);
+  test('am Rechner bleibt es das Kontextmenue', async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'de-DE' });
+    const rechner = await ctx.newPage();
+    await rechner.goto('/login');
+    await rechner.getByTestId('login-identifier').fill(`prof_${TAG}`);
+    await rechner.getByTestId('login-password').fill(PW);
+    await rechner.getByTestId('login-submit').click();
+    await rechner.waitForURL(/\/app/);
+    await rechner.goto(zielUrl!);
+    await expect(rechner.getByTestId('message-author').first()).toBeVisible();
+    await rechner.getByTestId('message-author').first().click();
+    await expect(rechner.getByTestId('user-profile-sheet')).toBeHidden();
+    await ctx.close();
   });
 });

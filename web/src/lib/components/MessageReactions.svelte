@@ -21,6 +21,7 @@
 <script lang="ts">
 import { errText } from '$lib/utils/errText';
   import { Popover as PopoverPrimitive } from 'bits-ui';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
@@ -125,7 +126,7 @@ import { errText } from '$lib/utils/errText';
   function initialFor(userId: string): string {
     const u = userCache.get(userId);
     const name = u?.display_name ?? u?.username;
-    return (name?.[0] ?? '?').toUpperCase();
+    return anfangsBuchstabe(name ?? '') || '?';
   }
 
   function displayNameFor(userId: string): string {

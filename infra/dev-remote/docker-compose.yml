@@ -84,52 +84,34 @@ services:
       timeout: 3s
       retries: 20
 
-  # MinIO fehlte im bisherigen Test-Stack, während `.env` und die
-  # nginx-Location `/pulse-attachments/` (`set $u minio;`) längst darauf
-  # zeigten — Anhänge und Ablage waren hier deshalb tot, ohne dass es eine
-  # Fehlermeldung gegeben hätte. Die Zugangsdaten sind bewusst dieselben wie
-  # in `S3_ACCESS_KEY`/`S3_SECRET_KEY`, damit es nur EINEN Satz gibt.
+  # Garage (S3-kompatibler Objektspeicher) — ersetzt das MinIO-Image
+  # (Bughunt-Entscheidung 4.1; das Hub-Image minio/minio ist gelöscht,
+  # frische Hosts kamen an den Tag nicht mehr ran). **Service- und
+  # Container-Name bleiben `minio`**: die .env (S3_INTERNAL_ENDPOINT=
+  # http://minio:9000) UND die nginx-Location auf dem Server (set $u minio;)
+  # adressieren diesen DNS-Namen — Garage hört genauso auf :9000, es ändert
+  # sich nur die Engine. Bucket + Key werden VOM HOST aus gebootstrappt
+  # (das dxflrs-Image hat keine Shell → kein Init-Container):
+  #   GARAGE_S3_KEY=$S3_ACCESS_KEY GARAGE_S3_SECRET=$S3_SECRET_KEY \
+  #     sh scripts/dev-garage-init.sh
+  # (einmalig nach dem ersten `up`, idempotent — s. README §1). Der alte
+  # `miniodata`-Bestand wird nicht migriert; Test-Daten.
   minio:
     <<: *base
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: dxflrs/garage:v1.1.0
     container_name: pulsetest_minio
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
-      # Presign-Host. MinIO lässt Pfad-Präfixe hier fallen (in Prod
-      # nachgemessen), deshalb ist der Bucket-Name das URL-Präfix und nginx
-      # reicht `/pulse-attachments/*` unverändert durch. Muss auf die
-      # öffentliche Adresse zeigen, sonst passt die Signatur nicht zu dem,
-      # was der Browser aufruft.
-      MINIO_SERVER_URL: https://pulse.unicutmedia.com
-      MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:9001
+    # Runde-42-Nachzieher: das Image hat keinen Entrypoint — ["-c", …]
+    # exec'd "-c" als Programm (Crash-Loop). Fix wie Prod/Root-Compose.
+    command: ["/garage", "-c", "/etc/garage.toml", "server"]
     volumes:
-      - miniodata:/data
+      - ../garage/garage.toml:/etc/garage.toml:ro
+      - garagedata:/var/lib/garage
     healthcheck:
-      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      # Das Image hat weder Shell noch mc — der Healthcheck fragt die
+      # Garage-eigene CLI (liest /etc/garage.toml und befragt den Knoten).
+      test: ["CMD", "/garage", "status"]
       <<: *health
-      start_period: 15s
-    ports:
-      # Konsole nur auf die Loopback — per SSH-Tunnel erreichbar, nichts öffentlich.
-      - "127.0.0.1:9101:9001"
-
-  minio-init:
-    <<: *base
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
-    container_name: pulsetest_minio_init
-    depends_on:
-      minio: { condition: service_healthy }
-    entrypoint: ["sh", "-c"]
-    command:
-      - |
-        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
-        mc mb --ignore-existing local/pulse-attachments &&
-        echo "bucket pulse-attachments ready"
-    environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
-    restart: "no"
+    restart: unless-stopped
 
   # ── Migrationen ────────────────────────────────────────────────────────────
   # Laufen gegen den EINGEHÄNGTEN alembic-Ordner, nicht gegen den im Image.
@@ -347,7 +329,9 @@ services:
 
 volumes:
   pgdata:
-  miniodata:
+  # miniodata bleibt als verwaistes Volume auf dem Host (Test-Daten) —
+  # Garage nutzt garagedata.
+  garagedata:
 
 networks:
   pulse-selfhost-net:

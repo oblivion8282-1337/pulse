@@ -385,8 +385,6 @@ async def test_triage_requires_mod_perm(client, _auth_signer, session_factory):
 # Enforcement — resolving with an action_type actually executes the action
 # ---------------------------------------------------------------------------
 
-_BAN_MEMBERS = 1 << 2
-_KICK_MEMBERS = 1 << 1
 
 
 async def _report_status(session_factory, rid: int) -> str:

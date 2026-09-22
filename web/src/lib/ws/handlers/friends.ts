@@ -16,6 +16,8 @@ import { userCache } from '$lib/stores/users.svelte';
 import { fireInPageNotification } from '$lib/notifications/inPage';
 import { m } from '$lib/paraglide/messages.js';
 import { registerWsHandler } from '../handler-registry';
+import { verlaufKanalVergessen } from '$lib/verlauf';
+import { aktuellesKonto } from '$lib/verlauf/konto';
 
 export function register(): void {
   registerWsHandler('friend_request_received', (evt) => {
@@ -102,6 +104,19 @@ export function register(): void {
   });
 
   registerWsHandler('friend_removed', (evt) => {
+    // Bughunt Runde 5: den lokalen Gesprächsverlauf (Klartext + Anhang-
+    // Blobs) des entfernten Freundes mitverwerfen — vorher blieb er für
+    // die Geräte-Lebensdauer in der IndexedDB und lieferte weiter
+    // Suchtreffer. Kanal-ID VOR dem Listen-Räumungszugriff bestimmen.
+    const dmKanal = Object.values(directMessages.byId).find(
+      (d) => d.other_user_id === evt.data.user_id
+    );
+    if (dmKanal) {
+      const kontoId = aktuellesKonto();
+      if (kontoId !== null) {
+        void verlaufKanalVergessen(dmKanal.id, kontoId).catch(() => undefined);
+      }
+    }
     friends.remove(evt.data.user_id);
     void directMessages.hydrate().catch(() => undefined);
   });

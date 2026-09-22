@@ -31,6 +31,8 @@
   import AvatarUploadDialog from '$lib/components/AvatarUploadDialog.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
+  import { formatLangDatum } from '$lib/utils/formatLangDatum';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
 
   const DEFAULT_COLOR = '#9ca3af';
   const DEFAULT_SECONDARY = '#22d3ee';
@@ -47,6 +49,7 @@
     avatarRemoving = true;
     try {
       await deleteAvatar();
+      void forceProfileRefresh();
       if (auth.user) {
         auth.setUser({ ...auth.user, avatar_url: null });
         userCache.seed([
@@ -66,7 +69,7 @@
     }
   }
   const avatarInitial = $derived(
-    (auth.user?.display_name || auth.user?.username || '?').charAt(0).toUpperCase()
+    anfangsBuchstabe(auth.user?.display_name || auth.user?.username || '?')
   );
 
   const initial = $derived({
@@ -342,7 +345,7 @@
 
     {#if lastReservation}
       <p class="text-text-muted text-xs" data-testid="profile-username-reservation">
-        {m.settings_profile_username_reservation({ date: new Intl.DateTimeFormat('de-DE', { dateStyle: 'long' }).format(new Date(lastReservation.reserved_until)) })}
+        {m.settings_profile_username_reservation({ date: formatLangDatum(lastReservation.reserved_until) })}
       </p>
     {/if}
 

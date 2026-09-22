@@ -191,9 +191,7 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
       ? 'playing'
       : session?.phase === 'failed'
         ? 'error'
-        : session?.phase === 'stalled'
-          ? 'retrying'
-          : 'connecting'
+        : 'connecting'
   );
   const detail = $derived(session?.error ?? '');
 

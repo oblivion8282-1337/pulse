@@ -27,8 +27,11 @@ Channels nach und aktualisiert den ``app.state.plugin_allowlist``-
 Snapshot unter Lock. DELETE entfernt den Plugin-Namen aus dem Snapshot
 (WS-Op-Gate rejected ab dann sofort) und putzt den Per-Guild-Toggle-
 Cache. Die im Loader-Lauf registrierten Op-/Channel-Handler bleiben
-inert im Dispatch-Dict — siehe ``plugins/loader.deactivate_plugin`` für
-die Trade-off-Begründung.
+inert im Dispatch-Dict — bewusst kein ``mgr.deactivate()``: es gäbe ein
+Race zwischen "alte Handler weg, neue kommen" und in der Lücke ankommenden
+WS-Frames, und der Plugin-Modulcode leakt in ``sys.modules`` (ein zweiter
+Aktivierungspfad bekäme keinen frischen Import; ``register_ws_op`` ist
+last-writer-wins, Re-Add ist also idempotent).
 
 Multi-Pod-Setup bekommt zusätzlich einen Redis-Pub/Sub-Notify
 ``plugin:allowlist:changed`` mit ``{op, name, actor_id}``-Payload
@@ -49,11 +52,6 @@ from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import GuildPlugin, GuildPluginState
-from dcc_chat_gateway.routes.admin_plugins_publish import (
-    ALLOWLIST_CHANGED_CHANNEL,
-    publish_allowlist_changed,
-    publish_guild_plugins_disabled,
-)
 
 # Plugin-Module werden **innerhalb** der Route-Funktionen importiert,
 # weil ``dcc_chat_gateway.plugins.registry`` während des App-Bootstraps
@@ -65,6 +63,11 @@ from dcc_chat_gateway.routes.admin_plugins_publish import (
 # Constant darf vor dem App-Boot importierbar sein — ist eine Pure-
 # String-Konstante ohne Side-Effects.
 from dcc_chat_gateway.plugins.allowlist import HELLO_PLUGIN_NAME
+from dcc_chat_gateway.routes.admin_plugins_publish import (
+    ALLOWLIST_CHANGED_CHANNEL,
+    publish_allowlist_changed,
+    publish_guild_plugins_disabled,
+)
 from dcc_chat_gateway.security import AdminUser
 
 log = logging.getLogger(__name__)
@@ -101,6 +104,12 @@ class PluginAllowlistPutOut(BaseModel):
     plugin_name: str
     in_allowlist: bool = True
     requires_restart: bool = False
+    # Bughunt 2026-09-20 (Runde 2): ``False`` = der Eintrag steht in der
+    # Allowlist, aber die Aktivierung ist GESCHEITERT (Importfehler,
+    # Strict-Gate). Der Gate-Snapshot wurde in dem Fall bewusst NICHT
+    # geöffnet — die Ops des Plugins laufen weiter auf 4040, bis der
+    # Fehler behoben und neu aktiviert ist.
+    activated: bool = True
 
 
 def _validate_plugin_name(name: str) -> str:
@@ -179,7 +188,6 @@ async def add_plugin_to_allowlist(
         activate_plugin,
         discover_manifests,
     )
-
     from dcc_chat_gateway.plugins.registry import get_manager
 
     _validate_plugin_name(name)
@@ -203,14 +211,20 @@ async def add_plugin_to_allowlist(
     if manifest is None:
         # Double-Check: Discovery hatte ihn oben gefunden, aber der
         # Loader-Aktivierungspfad nicht. Sehr selten (z.B. Plugin-Datei
-        # wurde zwischen den beiden Calls gelöscht). DB-Insert
-        # rückgängig zu machen wäre Overkill — der Admin kann den
-        # Eintrag per DELETE wieder rausnehmen.
+        # wurde zwischen den beiden Calls gelöscht) — oder die Aktivierung
+        # ist regulär gescheitert (Importfehler, Strict-Gate).
+        # DB-Insert rückgängig zu machen wäre Overkill — der Admin kann
+        # den Eintrag per DELETE wieder rausnehmen. ABER: den Gate-Snapshot
+        # öffnen wir nicht (Bughunt 2026-09-20, Runde 2) — sonst passieren
+        # die Ops des halb-aktivierten Plugins die Allowlist und sterben
+        # erst am fehlenden Handler (4007), während die UI "live" meldet.
         log.warning(
-            "admin PUT /admin/plugins/%s: activation returned None "
-            "(plugin file race?); allowlist row persisted",
+            "admin PUT /admin/plugins/%s: activation failed; allowlist row "
+            "persisted, gate snapshot NOT opened",
             name,
         )
+        await publish_allowlist_changed(request, op="add", name=name, actor_id=actor.id)
+        return PluginAllowlistPutOut(plugin_name=name, activated=False)
     await update_plugin_allowlist_snapshot(request.app, add=name)
 
     # Plugin-Channel-Subscribe nachreichen, damit publish→fan-out direkt

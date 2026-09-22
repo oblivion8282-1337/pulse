@@ -17,7 +17,7 @@
 
 import { isMac, isWindows } from '$lib/platform/runtime';
 import { quelleFuerStart, vorgabeFuerPlatz, wahlBleibt } from './monitorZuordnung';
-import { gsr } from './gsr';
+import { sidecar } from './sidecar';
 import { streamSettings } from './settingsState.svelte';
 import { runningStreamSlots, streamForSlot } from './state.svelte';
 import {
@@ -228,7 +228,7 @@ export function verfalleneWahlenErsetzen(): void {
  *  monitor pick is kept even while its monitor is briefly gone. */
 export async function refreshMonitors(): Promise<void> {
   try {
-    const r = await gsr.listMonitors();
+    const r = await sidecar.listMonitors();
     if (r?.ok) {
       streamSettings.available_monitors = r.monitors ?? [];
       verfalleneWahlenErsetzen();
@@ -264,7 +264,7 @@ export async function monitoreSicherstellen(): Promise<void> {
  *  linger as the selection. */
 export async function refreshWindows(): Promise<void> {
   try {
-    const r = await gsr.listWindows();
+    const r = await sidecar.listWindows();
     if (r?.ok) {
       streamSettings.available_windows = r.windows ?? [];
       verfalleneWahlenErsetzen();

@@ -15,6 +15,12 @@
  * Quelle, die `HandlerContext.subs` speist (`gateway-handlers-
  * bootstrap.ts`). Diese Gegenprobe schlaegt auf dem Stand VOR dem Fix fehl:
  * dort stand dort `postfachAbholenUndAnzeigen(() => false)`.
+ *
+ * Bughunt Runde 5 (2026-09-20): „abonniert" heißt für private Gruppen nicht
+ * mehr „gerade offen" — JEDE Gruppe wird dauerhaft abonniert (Etappe G2),
+ * jede Gruppennachricht lief dadurch in den gelesen-Zweig: kein Unread,
+ * kein Ton, kein Toast. Die Prüfung muss deshalb für Gruppen den
+ * Route-Vergleich (page.params.dmChannelId) nachschalten.
  */
 
 import assert from 'node:assert/strict';
@@ -38,11 +44,12 @@ describe('ready.ts reicht den echten Abo-Stand an den Postfach-Nachholvorgang du
     assert.doesNotMatch(readyQuelle, /postfachAbholenUndAnzeigen\(\s*\(\)\s*=>\s*false\s*\)/);
   });
 
-  it('ruft sie stattdessen ueber ctx.getSubs() auf', () => {
-    assert.match(
-      readyQuelle,
-      /postfachAbholenUndAnzeigen\(\s*\(\w+\)\s*=>\s*ctx\.getSubs\(\)\.has\(\w+\)\s*\)/
-    );
+  it('ruft sie ueber ctx.getSubs() auf und weicht fuer Gruppen auf die offene Route aus', () => {
+    // Der Abo-Blick bleibt die erste Tür; für dauerhaft abonnierte private
+    // Gruppen entscheidet erst der Route-Vergleich (page.params.dmChannelId).
+    assert.match(readyQuelle, /ctx\.getSubs\(\)\.has\(kanalId\)/);
+    assert.match(readyQuelle, /privateGruppen\.istGruppe\(kanalId\)/);
+    assert.match(readyQuelle, /page\.params\.dmChannelId === kanalId/);
   });
 
   it('ReadyContext deklariert getSubs', () => {

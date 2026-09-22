@@ -16,7 +16,13 @@
 import { postfachApi, type PostfachNutzlast } from '../../api/postfach';
 import { serversStore } from '../../api/servers.svelte';
 import { kryptoAccountLaden } from '../account.svelte';
-import { sitzungLaden, sitzungSichern, mitSitzungssperre } from '../sitzungen';
+import {
+  sitzungLaden,
+  sitzungSichern,
+  mitSitzungssperre,
+  partnerSchluesselLesen,
+  partnerSchluesselMerken
+} from '../sitzungen';
 import { baueVerteilNutzlast, type AblageVerteilzugabe } from './gruppenNutzlast';
 import type { Gruppenzielgeraet } from './gruppengeraete';
 
@@ -47,12 +53,28 @@ export async function verteilUmschlaege(
   for (const { geraet } of ziel) {
     const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
       let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
+      if (sitzung) {
+        // Bughunt Runde 10: derselbe Partner-Schluessel-Vergleich wie im
+        // DM-Weg (senden.ts, Fix 2026-09-03) — trägt das Bundle einen
+        // ANDEREN Identitätsschlüssel als den, für den die Sitzung gebaut
+        // wurde (Frischstart desselben Geräts), war sie dort weg. Ohne den
+        // Vergleich ging der Verteilschlüssel in eine tote Sitzung und
+        // wurde als „beliefert" gebucht: nie wieder nachgeliefert.
+        const gemerkt = await partnerSchluesselLesen(kanalId, geraet.device_pubkey);
+        if (gemerkt !== geraet.curve25519) {
+          console.warn('[gruppe] Gegenseite hat neuen Schlüsselbund — Sitzung wird neu aufgebaut');
+          sitzung = null;
+        }
+      }
       if (!sitzung) {
         const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
         if (!einmal) return null;
         sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
       }
       const gebaut = sitzung.verschluesseln(klartext);
+      // Sichern VOR dem Einliefern — s. `../sitzungen.ts`-Modulkopf. Der
+      // gemerkte Partner-Schlüssel wandert mit (Spiegel zum DM-Weg).
+      await partnerSchluesselMerken(kanalId, geraet.device_pubkey, geraet.curve25519);
       // Sichern VOR dem Einliefern — s. `../sitzungen.ts`-Modulkopf.
       await sitzungSichern(kanalId, geraet.device_pubkey, sitzung);
       return gebaut;

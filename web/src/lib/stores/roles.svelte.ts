@@ -76,6 +76,12 @@ class RoleStore {
     this.byGuild = nextRoles;
     this.myRoleIds = nextMy;
     this.myGuildPerms = nextPerms;
+    // Bughunt Runde 49: die Snapshot-Caches der berührten Guilds verwerfen
+    // — seedFromReady lief sonst an `_snapshotsCache` vorbei, und nach
+    // einem Reconnect arbeiteten Voice/Stream/Remote-Buttons weiter mit
+    // den PRÄ-DISCONNECT-Rollen-Snapshots (Knopf sichtbar, Server 403 —
+    // oder umgekehrt), obwohl `myGuildPerms` frisch war.
+    for (const e of entries) this._snapshotsCache.delete(e.id);
   }
 
   upsertRole(role: Role): void {
@@ -112,11 +118,22 @@ class RoleStore {
    * `member_roles_updated` events that target the current user.
    * Backend pushes only "something changed for this (guild, user)" — we
    * re-fetch to learn what specifically. */
+  /** Lauf-Zähler je Guild (Bughunt Runde 6): zwei schnelle Rollen-
+   * Änderungen feuerten zwei ungeschützte Fetches — resolved der
+   * ZWISCHENstand nach dem Endstand, blieben die Rechte dauerhaft falsch
+   * (inkl. Mod-Badge bis zum nächsten Event). Jedes Event holt neu, aber
+   * nur der NEUESTE Fetch schreibt. */
+  #meinRollenLauf = new Map<string, number>();
+
   async refreshMyRoles(guildId: string): Promise<void> {
     const me = currentServerUserId();
     if (!me) return;
+    const lauf = (this.#meinRollenLauf.get(guildId) ?? 0) + 1;
+    this.#meinRollenLauf.set(guildId, lauf);
     try {
       const rows = await rolesApi.listMemberRoles(guildId, me);
+      // Antwort nur schreiben, wenn kein neueres Event nachgeschoben hat.
+      if (this.#meinRollenLauf.get(guildId) !== lauf) return;
       this.myRoleIds = {
         ...this.myRoleIds,
         [guildId]: rows.map((r) => r.id)
@@ -242,6 +259,20 @@ class RoleStore {
       }
     }
     return best;
+  }
+
+  /** Bughunt Runde 49: Guild-Teardown (Kick/Guild-Delete) — vorher
+   *  behielt der Store Rollen, myRoleIds, Permissions und Snapshot-Cache
+   *  der toten Guild; hasGuildPermission(toteGuildId, X) blieb true bis
+   *  zum Reload. */
+  removeGuild(guildId: string): void {
+    const roleIds = (this.byGuild[guildId] ?? []).map((r) => r.id);
+    for (const id of roleIds) this.roleIdMap.delete(id);
+    delete this.byGuild[guildId];
+    delete this.myRoleIds[guildId];
+    delete this.myGuildPerms[guildId];
+    this._permBigInt.delete(guildId);
+    this._snapshotsCache.delete(guildId);
   }
 
   clear(): void {

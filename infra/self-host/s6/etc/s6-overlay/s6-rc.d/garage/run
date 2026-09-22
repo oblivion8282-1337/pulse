@@ -1,0 +1,39 @@
+#!/bin/sh
+# Garage — embedded S3-compatible object store for message attachments
+# (ersetzt MinIO: dl.min.io liefert die Community-Edition nicht mehr und
+# das Hub-Image war vom Hub gelöscht; Bughunt-Serie Teil 3, Runde 32 /
+# Entscheidung 1.1). Loopback-only bind (127.0.0.1:9000); der Browser
+# erreicht Storage via Caddy (/pulse-attachments/* → :9000). Config,
+# RPC-Secret und Daten liegen auf dem persistenten /data-Volume
+# (/data/garage) und überleben Neustarts.
+exec 2>&1
+. /etc/pulse/env.sh
+
+mkdir -p /data/garage/meta /data/garage/data
+RPC_SECRET_FILE=/data/garage/rpc_secret
+if [ ! -s "$RPC_SECRET_FILE" ]; then
+  head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$RPC_SECRET_FILE"
+  chmod 0600 "$RPC_SECRET_FILE"
+fi
+RPC_SECRET=$(cat "$RPC_SECRET_FILE")
+REGION="${S3_REGION:-us-east-1}"
+
+cat > /etc/pulse/garage.toml <<TOML
+metadata_dir = "/data/garage/meta"
+data_dir = "/data/garage/data"
+db_engine = "lmdb"
+replication_factor = 1
+
+rpc_bind_addr = "127.0.0.1:3901"
+rpc_secret = "$RPC_SECRET"
+
+[s3_api]
+s3_region = "$REGION"
+api_bind_addr = "127.0.0.1:9000"
+
+[admin]
+api_bind_addr = "127.0.0.1:3909"
+TOML
+chown pulse:pulse /etc/pulse/garage.toml 2>/dev/null || true
+
+exec /usr/sbin/gosu pulse /usr/local/bin/garage -c /etc/pulse/garage.toml

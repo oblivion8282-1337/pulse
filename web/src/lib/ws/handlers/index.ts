@@ -31,7 +31,7 @@ export function registerAllHandlers(
   ctx: HandlerContext,
   readyCtx: ready.ReadyContext
 ): void {
-  ready.register(readyCtx);
+  ready.register(readyCtx, ctx);
   chat.register(ctx);
   channels.register(ctx);
   guild.register(ctx);

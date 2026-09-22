@@ -15,6 +15,7 @@ import { streamPresence } from '$lib/stores/streamPresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
 import { clockSync } from '$lib/watch/clockSync';
 import { presence } from '$lib/stores/presence.svelte';
+import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { friends } from '$lib/stores/friends.svelte';
 import { friendRequests } from '$lib/stores/friendRequests.svelte';
 import { communityInvites } from '$lib/stores/communityInvites.svelte';
@@ -37,6 +38,10 @@ import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
 import { gesundheitTor } from '$lib/stream/gesundheitTor';
 import { standplatz } from '$lib/remote/standplatz.svelte';
 import { postfachAbholenUndAnzeigen } from './chat';
+import { teardownGuildLocally } from './guildTeardown';
+import type { HandlerContext } from './context';
+import { page } from '$app/state';
+import { kanalSitzungenVerwerfen } from '$lib/krypto/gruppe/kanalSitzungStore';
 import { gruppenApi } from '$lib/api/gruppen';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 
@@ -55,8 +60,19 @@ export type ReadyContext = {
   getSubs: () => Set<string>;
 };
 
-export function register(ctx: ReadyContext): void {
+export function register(
+  ctx: ReadyContext,
+  // Bughunt Runde 43: der Minimal-Schnitt der Guild-Teardown-Helfer —
+  // der Stale-Sweep unten raeumt jetzt VOLL ab (Subscriptions, Messages,
+  // ReadState, Overwrites, Hooks), nicht nur den Guild-Store.
+  hctx?: Pick<HandlerContext, 'subs' | 'unsubscribe' | 'fireGuildDeleted'>
+): void {
   registerWsHandler('ready', (evt) => {
+    // Bughunt Runde 10: der Ablage-Kanal-Sitzungsstore speist sich nur aus
+    // LIVE-WS-Ereignissen — verpasste (WS-Lücke) holt kein Replay nach.
+    // Bei jedem Ready verwerfen, die nächste Sendung liest die
+    // Mitgliederliste frisch (kanalSitzungswahl).
+    kanalSitzungenVerwerfen();
     // Global-Friends Stufe 1 — der ready-Frame ist gesplittet:
     //  - SERVER-Teil (guilds/roles/sounds/voice/stream/watch/guild-presence/
     //    clock) gilt nur, wenn DIESE Connection die **aktive** ist.
@@ -94,7 +110,16 @@ export function register(ctx: ReadyContext): void {
         } as Guild;
       }
       for (const gid of Object.keys(guilds.byId)) {
-        if (!seen.has(gid)) guilds.remove(gid);
+        if (!seen.has(gid)) {
+          // Bughunt Runde 43: guilds.remove allein liess die WS-Subscriptions
+          // der Guild-Kanäle in `subs` stehen — jeder Reconnect schickte
+          // sie erneut (Server antwortet 403/404, error-Handler schluckt),
+          // gapFillAll feuerte je totem Kanal einen REST-Abruf, und der
+          // Nutzer sass in einer Geister-Ansicht ohne fireGuildDeleted.
+          // Derselbe Teardown wie beim LIVE-Ereignis guild_deleted.
+          if (hctx) teardownGuildLocally(gid, hctx);
+          else guilds.remove(gid);
+        }
       }
       guilds.loaded = true;
       // The role payload is part of the ready envelope, not REST, so it's
@@ -117,6 +142,19 @@ export function register(ctx: ReadyContext): void {
       void modQueueCounts.hydrate(modGuildIds);
       if (evt.voice_states) voicePresence.seed(evt.voice_states);
       voicePresence.seedOverrides(evt.voice_overrides ?? []);
+      // Bughunt Runde 25: Overrides gegen den lokalen Mikrofonzustand
+      // abgleichen — ein in der WS-Lücke erteiltes Force-Mute wirkte sonst
+      // nie auf den laufenden Track (Buttons disabled, Mikrofon sendet).
+      const meineId = currentServerUserId();
+      if (meineId) {
+        void import('$lib/voice/livekit.svelte').then(({ voice }) => {
+          if (!voice.channelId) return;
+          voice.applyOverrideReconciliation(
+            voicePresence.isForceMuted(voice.channelId, meineId),
+            voicePresence.isForceDeafened(voice.channelId, meineId)
+          );
+        });
+      }
       streamPresence.seed(evt.stream_states ?? []);
       watchPartyPresence.seed(evt.watch_states ?? []);
       // Calibrate the watch-party clock offset on connect so position
@@ -186,7 +224,18 @@ export function register(ctx: ReadyContext): void {
       // Bei ausgeschaltetem Schalter geht kein Aufruf hinaus
       // (`api/gruppen.ts`), die Antwort ist dann eine leere Liste.
       const abholen = () =>
-        postfachAbholenUndAnzeigen((kanalId) => ctx.getSubs().has(kanalId));
+        postfachAbholenUndAnzeigen((kanalId) => {
+          if (!ctx.getSubs().has(kanalId)) return false;
+          // Bughunt Runde 5: Gruppen sind DAUERHAFT abonniert (s. unten) —
+          // „abonniert" heißt für sie nicht „gerade offen". Vorher lief
+          // jede Gruppennachricht in den gelesen-Zweig: kein Unread-Pill,
+          // kein Ton, kein Toast, beim Öffnen war sie schon als gelesen
+          // markiert. Offen = die @me-Route zeigt genau diesen Kanal.
+          if (privateGruppen.istGruppe(kanalId)) {
+            return page.params.dmChannelId === kanalId;
+          }
+          return true;
+        });
       void gruppenApi
         .auflisten()
         .then(async (gruppen) => {
@@ -263,7 +312,7 @@ export function register(ctx: ReadyContext): void {
     // liest `stream.fernsteuerbar`, und das steht nach dem Start eine Weile auf
     // seiner Vorgabe `false` — nicht weil der Rechner nichts kann, sondern weil
     // noch niemand gefragt hat. Die erste Abfrage muss dafür den Sidecar
-    // starten (lazy beim ersten `gsr:call`), die WebSocket-Verbindung braucht
+    // starten (lazy beim ersten `sidecar:call`), die WebSocket-Verbindung braucht
     // keinen Prozessstart und ist deshalb regelmässig früher da. Hier stand die
     // Prüfung bis zum 2026-08-26 unmittelbar, gewann das Rennen fast immer —
     // und da es kein Nachmelden gibt, blieb das Gerät die ganze Sitzung lang

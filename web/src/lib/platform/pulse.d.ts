@@ -2,24 +2,25 @@
  * Shape of `window.pulse` — the API the Electron preload script
  * (`desktop/electron/preload.ts`) exposes via contextBridge (E1a + E1b).
  *
- * Keep this in sync with `desktop/electron/preload.ts`. The GSR method
- * signatures intentionally mirror `gsr.ts`'s `GsrStartArgs` / `Gsr*` response
+ * Keep this in sync with `desktop/electron/preload.ts`. The sidecar bridge method
+ * signatures intentionally mirror `sidecar.ts`'s `SidecarStartArgs` / `Sidecar*` response
  * types — but we keep the bridge surface loosely typed (responses as
  * `Promise<unknown>`, args as `unknown`) so the sidecar protocol can evolve
- * without touching the preload; `gsr.ts` does the precise casting on its side.
+ * without touching the preload; `sidecar.ts` does the precise casting on its side.
  *
  * `window.pulse` is `undefined` in a plain browser — always optional-chain it.
  *
- * **Der Name `gsr` ist ein Relikt.** Er stammt von einem Python-Aufsatz um
- * `gpu-screen-recorder`, der unter Linux bis 2026-08-27 der ältere
- * Aufnahmeweg war. Die Bezeichnung bedient heute alle drei Rust-Sidecars
- * (Linux, Windows, macOS); umbenennen hiesse Renderer, Vorlader, drei Sidecars
- * und Tests anzufassen, ohne dass sich etwas ändert.
+ * **Der Name `sidecar` trug bis zum 2026-09-20 noch `gsr`** — ein Relikt von
+ * einem Python-Aufsatz um `gpu-screen-recorder`, der unter Linux bis zum
+ * 2026-08-27 der ältere Aufnahmeweg war. An dem Tag, an dem alle drei
+ * Rust-Sidecars (Linux, Windows, macOS) die Brücke bedienen, ist das
+ * Relikt in Renderer, Vorlader und Tests umbenannt worden — der
+ * Wire-Vertrag blieb dabei inhaltlich gleich.
  */
 
 /** Async sidecar event payload (`{ev:..,...}`). The narrow union lives in
- *  `$lib/stream/gsr.ts` (`GsrEvent`); here it's just "some object". */
-export type PulseGsrEvent = Record<string, unknown>;
+ *  `$lib/stream/sidecar.ts` (`SidecarEvent`); here it's just "some object". */
+export type PulseSidecarEvent = Record<string, unknown>;
 
 /** Persistent key-value store (E1c) — backed by `<userData>/pulse-stream.json`
  *  in the Electron main process (`desktop/electron/store.ts`). Used by
@@ -37,7 +38,7 @@ export interface PulseStoreApi {
   setAll(values: Record<string, unknown>): Promise<void>;
 }
 
-export interface PulseGsrApi {
+export interface PulseSidecarApi {
   health(): Promise<unknown>;
   gpuInfo(): Promise<unknown>;
   /** Enumerate display monitors (Windows + macOS — Linux uses the portal picker). */
@@ -81,7 +82,7 @@ export interface PulseGsrApi {
   /** Subscribe to sidecar events. Each event carries a `slot` field tagged by
    *  the main process so the renderer can route it to the right stream. Returns
    *  an unsubscribe function. */
-  onEvent(cb: (ev: PulseGsrEvent) => void): () => void;
+  onEvent(cb: (ev: PulseSidecarEvent) => void): () => void;
   /** Fernsteuerung: ein Wert der geteilten Zwischenablage
    *  (`$lib/remote/ablage.ts`). Ungedeutet durchgereicht — das Format lebt in
    *  `streaming/pulse-ablage`. Beim Steuernden landet er im Player-Fenster,
@@ -163,7 +164,7 @@ export interface PulseNotifyClickPayload {
 
 export interface PulseNotifyApi {
   /** Show a system notification. Returns an internal id (mostly for pattern
-   *  consistency with the GSR bridge — the renderer doesn't need it today). */
+   *  consistency with the sidecar bridge — the renderer doesn't need it today). */
   show(payload: PulseNotifyShowPayload): Promise<string>;
   /** Subscribe to notification clicks. Returns an unsubscribe function. */
   onClick(cb: (data: PulseNotifyClickPayload) => void): () => void;
@@ -202,8 +203,6 @@ export interface PulseUpdatesApi {
   onReady(cb: (data: { version: string; autoRestart: boolean }) => void): () => void;
   /** Install the downloaded update and restart now (banner button). */
   restartNow(): Promise<void>;
-  /** Manually re-trigger an update check (the start-up check runs automatically). */
-  check(): Promise<void>;
 }
 
 /** Display-sleep inhibitor bridge. The renderer (`$lib/platform/wakeLock`)
@@ -219,7 +218,6 @@ export interface PulsePowerApi {
  *  clipboard image as PNG bytes via the main process. Null when the clipboard
  *  holds no image. Optional — only present under a current Electron shell. */
 export interface PulseClipboardApi {
-  readImage(): Promise<Uint8Array | null>;
 }
 
 /** Native dropped-file byte access (drag & drop). Resolves a genuinely dropped
@@ -262,42 +260,6 @@ export interface PulseNetdiagApi {
   check(hostname: string): Promise<PulseNetdiagSchritt[] | null>;
 }
 
-/** Antwort von `pulse.accessibility.isTrusted()`. */
-export interface PulseAccessibilityResult {
-  /** Ist DIESER Prozess (also der vom Hauptprozess gestartete Sidecar,
-   *  s. `main.ts::wireAccessibility`) aktuell fuer Eingabe-Injektion vertraut?
-   *  Ausserhalb von macOS immer `true` — dort gibt es keine Huerde. */
-  trusted: boolean;
-  /** Nur gesetzt, wenn `trusted === false`. Der vorgeschriebene Hinweistext
-   *  (main-seitig gebaut, damit er nie neu erfunden und dabei verkuerzt wird):
-   *  die Freigabe haengt an der Code-Signatur, das mac-DMG ist nur ad-hoc
-   *  signiert, und nach jedem Update bleibt der Haken in den
-   *  Systemeinstellungen SICHTBAR STEHEN, obwohl er nicht mehr gilt. Eine
-   *  Anzeige, die nur "Freigabe fehlt" sagt, fuehrt dazu, dass jemand den
-   *  bestehenden (wirkungslosen) Haken anklickt und sich wundert. */
-  hint?: string;
-}
-
-/**
- * macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
- *
- * Sitzt im Electron-Hauptprozess statt im Sidecar, weil TCC die Freigabe dem
- * VERANTWORTLICHEN Prozess zuordnet: ein vom Hauptprozess gestarteter
- * Sidecar erbt Pulses Freigabe, der Systemdialog nennt also "Pulse" statt
- * eines Sidecar-Binaernamens (gemessen,
- * `docs/plans/2026-08-23-macos-eingabe-messungen.md`, Messung 1). Der
- * Sidecar selbst prueft nur noch einmal live nach, ob die geerbte Freigabe
- * fuer IHN gilt (`mac-hq-sidecar/src/berechtigung.rs`), fragt aber nie nach.
- */
-export interface PulseAccessibilityApi {
-  /**
-   * `prompt=true` wirft bei fehlender Freigabe EINMALIG den macOS-Systemdialog
-   * auf (pro Prozess-Lebensdauer merkt sich macOS, dass schon gefragt wurde)
-   * — deshalb nur auf eine Nutzerhandlung hin rufen, nie automatisch beim
-   * Gesundheitscheck. `prompt=false`/weggelassen fragt nur den Ist-Zustand ab.
-   */
-  isTrusted(prompt?: boolean): Promise<PulseAccessibilityResult>;
-}
 
 // ── Host-Lifecycle types (③a) ────────────────────────────────────────────────
 
@@ -433,18 +395,6 @@ export interface PulseHostApi {
   setupWindows(): Promise<{ ok: boolean }>;
 }
 
-/** OS-global keyboard shortcuts (background toggles). The renderer hands main
- *  the background-capable bindings (voice/stream toggles), already converted to
- *  Electron accelerators, and dispatches `onTrigger` ids through its own handler
- *  registry — so they fire while Pulse is unfocused. Main-side in `shortcuts.ts`.
- *  Optional — only present under a current Electron shell. */
-export interface PulseShortcutsApi {
-  /** Replace the registered global accelerators. Push on boot + on every rebind. */
-  setGlobal(list: Array<{ id: string; accelerator: string }>): Promise<void>;
-  /** Fires with the action id when a registered global shortcut is pressed.
-   *  Returns an unsubscribe function. */
-  onTrigger(cb: (id: string) => void): () => void;
-}
 
 export interface PulseApi {
   platform: 'electron';
@@ -463,7 +413,7 @@ export interface PulseApi {
    *  Optional: ältere Shells liefern ihn nicht → Fallback aufs OS. */
   deviceName?: string;
   store: PulseStoreApi;
-  gsr: PulseGsrApi;
+  sidecar: PulseSidecarApi;
   /** Nativer HQ-Player (streaming/pulse-player). Nur unter Electron, und
    *  auch dort nur, wenn das Binary vorhanden ist — vorher `available()`
    *  fragen und sonst auf den `<video>`-Weg zurueckfallen. */
@@ -484,10 +434,6 @@ export interface PulseApi {
   shortcuts?: PulseShortcutsApi;
   clipboard?: PulseClipboardApi;
   files?: PulseFilesApi;
-  /** macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
-   *  Nur unter Electron vorhanden; ausserhalb von macOS liefert sie stets
-   *  `{trusted:true}` zurueck. */
-  accessibility?: PulseAccessibilityApi;
   /** Netzdiagnose eines Self-Host-Servers (nur Electron). */
   netdiag?: PulseNetdiagApi;
   /** Host-Lifecycle-Bridge (③a). Nur unter Electron vorhanden. */
@@ -553,7 +499,6 @@ export interface PulsePlayerOptions {
 export interface PulsePlayerApi {
   /** false, wenn das Binary fehlt — dann NICHT umschalten. */
   available(): Promise<boolean>;
-  health(): Promise<PulsePlayerResult>;
   open(params: {
     url: string;
     title?: string;
@@ -607,7 +552,6 @@ export interface PulsePlayerApi {
   /** Darf dieser Zuschauer eine Fernsteuerung anfragen? Zeigt den Knopf in der
    *  Bedienleiste des Fensters; der Klick kommt als `player:remoteRequest`. */
   anfragbar?(session: number, anfragbar: boolean): Promise<PulsePlayerResult>;
-  setOption(session: number, key: string, value: unknown): Promise<PulsePlayerResult>;
   setOptions(session: number, options: PulsePlayerOptions): Promise<PulsePlayerResult>;
   /** Zaehler plus `decoder`, `hardware_decode`, `surface_format` — damit ist
    *  von aussen belegbar, welcher Decoder und welche Bittiefe anliegen. */

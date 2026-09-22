@@ -148,9 +148,24 @@ test.describe.serial('Plugin-Admin-Aktivierung E2E', () => {
     const row = admin.getByTestId('admin-plugin-row-tamagotchi');
     await expect(row).toBeVisible();
     const toggle = admin.getByTestId('admin-plugin-toggle-tamagotchi');
+    // Andere Specs in demselben Lauf (overnight-admin, overnight-discovery)
+    // schalten tamagotchi instanzglobal gern an — erst neutralisieren.
+    if ((await toggle.getAttribute('aria-checked')) === 'true') {
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-checked', 'false', { timeout: 5_000 });
+    }
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 5_000 });
+    // Ein Klick kann verpuffen, wenn der PATCH der Normalisierung noch
+    // unterwegs ist — bis zu dreimal klicken, bis das Switch-Attribut folgt.
+    for (let versuch = 0; versuch < 3; versuch++) {
+      await toggle.click();
+      try {
+        await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 5_000 });
+        break;
+      } catch {
+        if (versuch === 2) throw new Error('tamagotchi allowlist toggle blieb OFF');
+      }
+    }
     // Reload bestätigt Server-Persistenz. Nach dem Reload landet die
     // Admin-Seite auf dem Übersicht-Tab → zurück zu Einstellungen.
     await admin.reload();

@@ -2,7 +2,7 @@
 #
 # Local dev stack — one-shot up.
 #
-# Brings up containers (Postgres / Redis / LiveKit / MediaMTX), runs Alembic
+# Brings up containers (Postgres / Redis / Garage / LiveKit), runs Alembic
 # upgrades, starts the 5 uvicorn services with `--reload`, the Vite dev server,
 # and Electron pointed at localhost:5173. Idempotent — safe to re-run.
 #
@@ -80,8 +80,26 @@ end
 
 # --- Container --------------------------------------------------------------
 
-_info "Container starten (Postgres + Redis + MinIO + LiveKit)"
+_info "Container starten (Postgres + Redis + Garage + LiveKit)"
 docker compose --profile voice up -d >/dev/null 2>&1; or _die "docker compose root failed"
+
+# Garage-Bootstrap (Bucket + Key, idempotent) — das dxflrs-Image hat keine
+# Shell, darum host-seitig per exec (Bughunt-Entscheidung 4.1). Fehler sind
+# kein _die: der Stack ist auch ohne Bucket startbar, der naechste Lauf
+# wiederholt den Bootstrap.
+if not sh scripts/dev-garage-init.sh >/dev/null 2>&1
+    _warn "Garage-Bootstrap scheiterte — Anhaenge sind erst nach erneutem dev-up nutzbar"
+end
+
+# Garage-S3-Credentials (GK…-Key, von dev-garage-init.sh erzeugt) an die
+# uvicorn-Services durchreichen — die config.py-Defaults (minioadmin) sind
+# unter Garage ungueltig (Bughunt-Entscheidung 4.1).
+if test -f .garage-dev-credentials
+    set -l gk (grep -m1 "^GARAGE_S3_KEY=" .garage-dev-credentials | string replace -r "^GARAGE_S3_KEY=" "")
+    set -l gs (grep -m1 "^GARAGE_S3_SECRET=" .garage-dev-credentials | string replace -r "^GARAGE_S3_SECRET=" "")
+    set -gx S3_ACCESS_KEY $gk
+    set -gx S3_SECRET_KEY $gs
+end
 
 # PULSE_DEV_SKIP_MEDIAMTX=1 laesst MediaMTX weg — fuer Arbeiten an Chat, Voice
 # oder UI, die den Streaming-Pfad gar nicht anfassen. Grund fuer den Schalter:
@@ -168,6 +186,15 @@ set -l common_env "REDIS_URL=redis://localhost:6380/0 AUTH_JWKS_URL=http://127.0
 # auf an und ruft `GET /gruppen` bei jedem Start — ohne den Server-Schalter
 # antwortet der chat-gateway 403, bei jedem Verbindungsaufbau (2026-09-02).
 set -l upload_env "CLOUD_DM_ATTACHMENTS_ENABLED=true CLOUD_DROPBOX_ENABLED=true CLOUD_ATTACHMENT_MIME_PREFIXES= PRIVATE_GROUPS_ENABLED=true"
+# S3_PUBLIC_ENDPOINT auf den Vite-Dev-Server: Presigned-URLs für den Browser
+# laufen damit SAME-ORIGIN über dessen /pulse-attachments-Proxy (vite.config.ts)
+# — exakt die Prod-Topologie (nginx/Caddy vor dem Speicher). Grund: Garage
+# schickt auf FEHLERantworten (404 einer noch nicht existierenden Dateiliste)
+# keine CORS-Header, der Browser macht daraus "blocked by CORS policy" statt
+# "nicht gefunden", und Ablage/Laufwerk sterben schon beim ersten Listen-
+# Abruf. SigV4 signiert den Host localhost:5173; der Proxy reicht ihn unver-
+#ändert durch (kein changeOrigin), Garage validiert genau den.
+set -l upload_env "$upload_env S3_PUBLIC_ENDPOINT=http://localhost:5173"
 set -l pg_env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD POSTGRES_HOST=localhost POSTGRES_PORT=5434"
 set -l jwt_env "JWT_PRIVATE_KEY_FILE=$repo_root/secrets/jwt_private.pem JWT_PUBLIC_KEY_FILE=$repo_root/secrets/jwt_public.pem"
 set -l lk_env "LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret LIVEKIT_URL=ws://localhost:7880"

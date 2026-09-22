@@ -7,6 +7,7 @@
    * Chat offen ist, steht in der Liste dahinter.
    */
   import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { goto } from '$app/navigation';
   import { friends } from '$lib/stores/friends.svelte';
@@ -51,10 +52,6 @@
       });
     }
   }
-
-  function initialen(name: string): string {
-    return name.slice(0, 1).toUpperCase();
-  }
 </script>
 
 <Dialog.Root bind:open>
@@ -85,7 +82,7 @@
               <span
                 class="flex size-full items-center justify-center rounded-full text-sm font-bold text-white"
                 style="background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));"
-                >{initialen(name)}</span
+                >{anfangsBuchstabe(name)}</span
               >
             {/if}
             <StatusDot

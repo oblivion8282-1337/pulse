@@ -15,6 +15,7 @@ import { lookup } from 'node:dns/promises';
 import { connect as tcpConnect } from 'node:net';
 import { connect as tlsConnect } from 'node:tls';
 import { request as httpsRequest } from 'node:https';
+import { request as httpRequest } from 'node:http';
 import { deuteZertifikat, zertifikatsNamen, type Zertifikatsbefund } from './netbefund.ts';
 
 /** Der DNS-Schritt einzeln benannt: nur er trägt die Adressen, und die Kette
@@ -144,16 +145,21 @@ function pruefeTls(name: string, adresse: string, port: number): Promise<DiagSch
 
 /** Vollständig geprüfter HTTPS-Abruf — das ist der Schritt, dessen Ergebnis
  * zählt. Verbunden wird auf die geprüfte Adresse (Rebinding-Fenster zu, s.
- * `pruefeTls`); SNI, Validierung und Host-Header bleiben beim Namen. */
+ * `pruefeTls`); SNI, Validierung und Host-Header bleiben beim Namen.
+ * Entscheidung 6.6: http://-Ziele laufen über PLAIN HTTP — vorher wurde
+ * immer TLS gesprochen und ein http-Server landete garantiert auf
+ * „tls: unbekannter-fehler". */
 function pruefeHttp(url: URL, adresse: string, port: number): Promise<DiagSchritt> {
+  const istHttps = url.protocol === 'https:';
+  const anfrage = istHttps ? httpsRequest : httpRequest;
   return new Promise((resolve) => {
-    const req = httpsRequest(
+    const req = anfrage(
       {
         method: 'GET',
         timeout: FRIST_MS,
         hostname: adresse,
         port,
-        servername: url.hostname,
+        servername: istHttps ? url.hostname : undefined,
         path: '/health',
         headers: { host: url.host },
       },
@@ -219,11 +225,15 @@ export async function diagnostiziere(hostname: string): Promise<DiagSchritt[]> {
   schritte.push(tcp);
   if (!tcp.ok) return schritte;
 
-  schritte.push(
-    (await mitFrist(pruefeTls(host, adresse, port), FRIST_MS)) ?? {
-      schritt: 'tls' as const, ok: false, befund: 'unbekannter-fehler', namen: [],
-    },
-  );
+  // Entscheidung 6.6: TLS-Schritt nur bei https — für http:// war er
+  // garantiert "unbekannter-fehler" und verfälschte das Gesamtbild.
+  if (url.protocol === 'https:') {
+    schritte.push(
+      (await mitFrist(pruefeTls(host, adresse, port), FRIST_MS)) ?? {
+        schritt: 'tls' as const, ok: false, befund: 'unbekannter-fehler', namen: [],
+      },
+    );
+  }
   schritte.push(
     (await mitFrist(pruefeHttp(url, adresse, port), FRIST_MS)) ?? {
       schritt: 'http' as const, ok: false, fehler: 'ETIMEDOUT',

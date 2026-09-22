@@ -1216,10 +1216,6 @@ pub struct VideoDecoder {
     /// Name des tatsaechlich gewaehlten Decoders (fuer Diagnose und Statistik).
     pub name: String,
     pub hardware: bool,
-    /// Der hwaccel, mit dem dieser Decoder geoeffnet wurde (`None` =
-    /// Software). Trifft zusammen mit [`Self::hardware`] die Luecken-
-    /// Entscheidung — s. [`Self::flush_bei_luecke`].
-    hw: Option<Hwaccel>,
     /// Fuer den Neuaufbau: welcher Codec urspruenglich verlangt war.
     codec: Codec,
     /// Abgelehnte Einheiten in Folge; jede angenommene setzt zurueck.
@@ -1339,7 +1335,6 @@ impl VideoDecoder {
                         decoder,
                         name: kandidat.name.to_string(),
                         hardware,
-                        hw: kandidat.hw,
                         codec,
                         consecutive_errors: 0,
                         rebuilds: Neuaufbauten::default(),

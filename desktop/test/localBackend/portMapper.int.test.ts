@@ -40,9 +40,13 @@ function fakePcpServer(): Promise<{ port: number; close: () => void }> {
         const intern = msg.readUInt16BE(40);     // PCP internal port
         const r = Buffer.alloc(60);
         r.writeUInt8(2, 0); r.writeUInt8(0x81, 1); r.writeUInt8(0, 3); r.writeUInt32BE(3600, 4);
-        r.writeUInt16BE(intern, 28); r.writeUInt16BE(intern, 30); // assigned external port
-        r.writeUInt16BE(0xffff, 32 + 10);
-        r.writeUInt8(203, 44); r.writeUInt8(0, 45); r.writeUInt8(113, 46); r.writeUInt8(7, 47);
+        // RFC 6887: Nonce 24..35 (echo), protocol 36, internal 40..41,
+        // assigned external 42..43, external IP 44..47. (Vorher stand der
+        // externe Port im Nonce-Bereich — derselbe Bug wie im Parser.)
+        msg.copy(r, 24, 24, 36);
+        r.writeUInt16BE(intern, 42);
+        r.writeUInt16BE(0xffff, 54);
+        r.writeUInt8(203, 56); r.writeUInt8(0, 57); r.writeUInt8(113, 58); r.writeUInt8(7, 59);
         s.send(r, rinfo.port, rinfo.address);
       }
     });

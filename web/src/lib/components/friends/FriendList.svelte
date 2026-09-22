@@ -11,6 +11,7 @@
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { Button } from '$lib/components/ui/button/index.js';
   import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
   import UserMinusIcon from '@lucide/svelte/icons/user-minus';
@@ -229,7 +230,7 @@
                   <Avatar.Image src={avatar} alt="" />
                 {/if}
                 <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-                  {(u?.display_name ?? u?.username ?? '?').slice(0, 1).toUpperCase()}
+                  {anfangsBuchstabe(u?.display_name ?? u?.username ?? '?')}
                 </Avatar.Fallback>
               </Avatar.Root>
               <StatusDot {status} class="ring-bg-base absolute -right-0.5 -bottom-0.5 size-3 ring-2" />

@@ -24,7 +24,7 @@ export async function gruppeSendenMitAnzeige(
   kanalId: string,
   text: string,
   replyToId: string | null
-): Promise<void> {
+): Promise<boolean> {
   let ergebnis;
   try {
     const { sendeInGruppe } = await import('./senden');
@@ -33,11 +33,11 @@ export async function gruppeSendenMitAnzeige(
     toast.error(m.gruppe_senden_fehlgeschlagen(), {
       description: (err as Error).message
     });
-    return;
+    return false;
   }
   if (ergebnis.art === 'gesendet') {
     messages.upsert(ergebnis.nachricht);
-    return;
+    return true;
   }
   // Die beiden uebrigen Ausgaenge werden getrennt benannt, weil der Nutzer
   // Verschiedenes tun muss: „nicht moeglich" heisst, es wurde NICHTS
@@ -49,4 +49,5 @@ export async function gruppeSendenMitAnzeige(
       ? m.gruppe_senden_niemand_erreichbar()
       : m.gruppe_senden_nicht_moeglich()
   );
+  return false;
 }

@@ -243,6 +243,31 @@ async def test_stale_cleanup_spares_fresh_publish_active_key(redis, pubsub):
 
 
 @pytest.mark.asyncio
+async def test_stale_cleanup_spares_handshake_gap_record(redis, pubsub):
+    """Bughunt Runde 4: ein Datensatz, der WÄHREND der Handshake-Lücke
+    geschrieben wurde (started_at kurz VOR pass_start, also vor dem
+    MediaMTX-Abruf dieses Durchlaufs), muss die Gnadenfrist überleben —
+    vorher löschte der Sweep ihn unwiederbringlich und der WHEP-Lookup
+    lief dauerhaft 404, bis der Streamer neu startete."""
+    cid = _unique_cid()
+    await redis.set(CHANNEL_STATE_KEY.format(channel_id=cid), json.dumps({"user_ids": ["7"], "since": "x"}))
+    gap_key = f"stream:active:channel-{cid}-7"
+    # 5 s vor dem Lauf gestartet: jünger als die 15-s-Gnade, aber ALT
+    # gegenüber pass_start — exakt die Republish-Lücke.
+    in_luecke = (datetime.now(UTC) - timedelta(seconds=5)).isoformat()
+    alt_key = f"stream:active:channel-{cid}-9"
+    await _seed_active(redis, gap_key, "7", in_luecke)
+    await _seed_active(redis, alt_key, "9", _PAST)
+    gone = _FakeMediaMtxClient(_paths(("all_others", False)))
+    try:
+        await reconcile_once(redis, gone)
+        assert await redis.exists(gap_key) == 1, "Handshake-Lücken-Datensatz muss überleben"
+        assert await redis.exists(alt_key) == 0
+    finally:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid), gap_key, alt_key)
+
+
+@pytest.mark.asyncio
 async def test_partial_departure_spares_fresh_publish_active_key(redis, pubsub):
     """Same TOCTOU guard as the stale-cleanup above, but on the partial-departure
     path: uid 55 keeps the channel alive, so the departed pairs 7 and 9 are

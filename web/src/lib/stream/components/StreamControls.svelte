@@ -4,11 +4,11 @@
   Liest `stream` aus `state.svelte.ts` (running, state, fps, uptimeS, error).
   Beim Start (immer Channel-Modus — Pulse streamt in den aktuellen Voice-Channel):
   erst `chatApi.getStreamToken(channelId)` (chat-gateway → media-svc proxy),
-  dann `gsr.start(buildStartArgs({channelId, token, pushUrl}))`. Fehler
+  dann `sidecar.start(buildStartArgs({channelId, token, pushUrl}))`. Fehler
   (403 nicht-Member, 400 kein Voice-Channel, 502 media-svc down …) → `toast.error`.
   Der Stream-Indikator (auch beim Streamer selbst) kommt danach über den
   WS-`stream_state`-Broadcast — media-svc's Poller erkennt den Publisher;
-  wir müssen chat-gateway nichts melden. Stop: `gsr.stop()`. Disable wenn
+  wir müssen chat-gateway nichts melden. Stop: `sidecar.stop()`. Disable wenn
   Bridge nicht verfügbar.
 
   Uptime-Anzeige: Wir rechnen `mm:ss` selbst aus `stream.uptimeS`. Der
@@ -25,7 +25,7 @@ import { errText } from '$lib/utils/errText';
   import AlertCircleIcon from '@lucide/svelte/icons/circle-alert';
   import { toast } from 'svelte-sonner';
   import { ApiError } from '$lib/api/client';
-  import { gsr } from '../gsr';
+  import { sidecar } from '../sidecar';
   import { stream, streamForSlot, markStopped } from '../state.svelte';
   import { stopSlot } from '../slotControl.svelte';
   import {
@@ -51,7 +51,7 @@ import { errText } from '$lib/utils/errText';
   let busy = $state(false);
   let localError = $state<string | null>(null);
 
-  let bridgeReady = $derived(gsr.available() && stream.available);
+  let bridgeReady = $derived(sidecar.available() && stream.available);
   // "Bestimmte App" without an app picked yet → can't start (GSR `-a "app:"` fails).
   let appAudioReady = $derived(
     !isAppAudioMode(streamSettings.audio_mode) || !!appFromAudioMode(streamSettings.audio_mode),
@@ -155,7 +155,7 @@ import { errText } from '$lib/utils/errText';
     // emits its `stopped` event (see stream/state.svelte.ts) — that covers
     // every stop path (this dialog button, the rocket toggle, the hotkey,
     // a voice-channel switch), so there's nothing to notify here. `stopSlot`
-    // macht gsr.stop + lokales Reconcile und schluckt den Fehler selbst —
+    // macht sidecar.stop + lokales Reconcile und schluckt den Fehler selbst —
     // das `false` bleibt für die lokale Fehlerzeile.
     const ok = await stopSlot(slot);
     if (!ok) localError = m.stream_controls_error_stop_failed();

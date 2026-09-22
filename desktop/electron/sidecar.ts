@@ -12,11 +12,12 @@
  * `streaming/linux-hq-sidecar/`, Windows `streaming/win-hq-sidecar/`, macOS
  * `streaming/mac-hq-sidecar/`.
  *
- * **Der IPC-Name heisst weiter `gsr:*`** (`gsr:call`, `gsr:event`,
- * `window.pulse.gsr.*`). Das ist ein Namensrelikt aus der Zeit, als Linux über
- * einen Python-Aufsatz um `gpu-screen-recorder` lief; die Bezeichnung bedient
- * heute alle drei Rust-Sidecars. Umbenennen wäre eine Änderung an Renderer,
- * Vorlader, drei Sidecars und den Tests — ohne Gegenwert.
+ * **Der IPC-Name heisst `sidecar:*` (`sidecar:call`, `sidecar:event`,
+ * `window.pulse.sidecar.*`). Bis zum 2026-09-20 hiess er `gsr:*` — ein
+ * Namensrelikt aus der Zeit, als Linux über einen Python-Aufsatz um
+ * `gpu-screen-recorder` lief; an dem Tag, an dem alle drei Rust-Sidecars die
+ * Brücke bedienten, ist das Relikt in Renderer, Vorlader, Sidecars und Tests
+ * umbenannt worden.
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -65,10 +66,10 @@ const SHUTDOWN_SIGTERM_GRACE_MS = 2_000;
 //              `docs/plans/2026-06-15-macos-client.md`).
 //
 // On macOS the binary may not be built/bundled yet — `resolveMacBinaryPath()`
-// then throws "could not locate", the `health` op fails, `stream.gsrAvailable`
+// then throws "could not locate", the `health` op fails, `stream.sidecarAvailable`
 // stays false and the renderer keeps the streaming UI hidden. So enabling the
 // macOS UI gate is safe even before the sidecar ships: the button only appears
-// once a real binary answers `health` with `gsr.available = true`.
+// once a real binary answers `health` with `sidecar.available = true`.
 
 interface SpawnTarget {
   /** Executable to spawn (absolute path or PATH-resolvable name). */
@@ -76,7 +77,6 @@ interface SpawnTarget {
   /** Argv tail (script path on Linux, empty on Windows). */
   args: string[];
 }
-
 
 /** Cached result of the first successful `resolveSidecarSpawn()` call.
  *  The resolved path never changes during a session; memoising it avoids
@@ -112,7 +112,7 @@ function resolveSidecarSpawn(): SpawnTarget {
  *      Flatpak-Cargo-Modul installiert das Binary dorthin).
  *
  * Wirft, wenn nichts gefunden wird, und der Wurf ist die Absicht: er führt zu
- * `gsrAvailable = false`, die Oberfläche blendet den Übertragen-Knopf aus.
+ * `sidecarAvailable = false`, die Oberfläche blendet den Übertragen-Knopf aus.
  *
  * **Bis 2026-08-16 fiel Pulse hier auf einen Python-Aufsatz um
  * `gpu-screen-recorder` zurück, seit dem 2026-08-27 gibt es den nicht mehr im
@@ -337,6 +337,14 @@ class SidecarManager {
     return this.child !== null && this._shuttingDown === null;
   }
 
+  /** Läuft gerade ein Kindprozess? (Bughunt Runde 7: der Diagnose-Upload
+   *  will NUR bei einem lebenden Sidecar fragen — sonst spawnt der erste
+   *  `call` lautlos einen neuen Waisen-Prozess, dessen stdin niemand
+   *  schließt.) */
+  istGestartet(): boolean {
+    return this.child !== null && !this.child.killed;
+  }
+
   /** Send `{op, id, ...params}` to the sidecar and resolve with the full response
    *  JSON. Spawns the sidecar on first use. Rejects on timeout, on a non-object
    *  response, on `ok === false`, or if the sidecar dies before replying.
@@ -358,7 +366,7 @@ class SidecarManager {
     // `_shuttingDown` is cleared and the next `call()` respawns cleanly — so the
     // normal stop→respawn path is unaffected.
     if (this._shuttingDown) {
-      throw new Error('gsr sidecar is shutting down');
+      throw new Error('sidecar is shutting down');
     }
     const child = this.ensureSpawned();
     const id = this.nextId++;
@@ -367,7 +375,7 @@ class SidecarManager {
     // keys winning, so this prevents a renderer-supplied `params.op`/`params.id`
     // from overwriting the op the main-process already validated against the
     // allowlist (or hijacking response routing). Without this ordering,
-    // `gsr:call('health', { op: 'state' })` would pass the 'health' allowlist
+    // `sidecar:call('health', { op: 'state' })` would pass the 'health' allowlist
     // check yet make the sidecar execute the un-allowlisted 'state' op.
     const req: Record<string, unknown> = {
       ...(params && typeof params === 'object' ? (params as Record<string, unknown>) : {}),
@@ -381,13 +389,13 @@ class SidecarManager {
       return await new Promise<SidecarMessage>((resolve, reject) => {
         const timer = setTimeout(() => {
           this.pending.delete(id);
-          reject(new Error(`gsr sidecar: '${op}' timed out after ${timeoutMs}ms`));
+          reject(new Error(`sidecar: '${op}' timed out after ${timeoutMs}ms`));
         }, timeoutMs);
 
         this.pending.set(id, {
           resolve: (msg) => {
             if (msg.ok === false) {
-              reject(new Error(`gsr sidecar: '${op}' failed: ${String(msg.error ?? 'ok=false')}`));
+              reject(new Error(`sidecar: '${op}' failed: ${String(msg.error ?? 'ok=false')}`));
               return;
             }
             resolve(msg);
@@ -448,11 +456,20 @@ class SidecarManager {
     return this._shuttingDown;
   }
 
+  /** Bughunt Runde 44: SIGKILL ohne Leiter — für den Quit-Backstop in
+   *  main.ts, der kürzer ist als die normale Shutdown-Leiter. Kein
+   *  Aufräumen, kein Warten: der Prozess soll weg, bevor die App endet. */
+  killHard(): void {
+    const child = this.child;
+    if (!child) return;
+    try { child.kill('SIGKILL'); } catch { /* schon tot */ }
+  }
+
   private async _doShutdown(child: ChildProcessWithoutNullStreams): Promise<void> {
     // Reject anything still in flight so callers don't hang.
     for (const [id, p] of this.pending) {
       clearTimeout(p.timer);
-      p.reject(new Error('gsr sidecar shutting down'));
+      p.reject(new Error('sidecar shutting down'));
       this.pending.delete(id);
     }
 
@@ -557,7 +574,7 @@ class SidecarManager {
       if (this.child !== child) return;
       logSidecar('lifecycle', `spawn error: ${err.message}`);
       console.error('[sidecar] spawn error:', err);
-      this.failAllPending(new Error(`gsr sidecar process error: ${err.message}`));
+      this.failAllPending(new Error(`sidecar process error: ${err.message}`));
       this.cleanupChild();
     });
 
@@ -582,7 +599,7 @@ class SidecarManager {
           console.error('[sidecar] synth-stopped callback threw:', err);
         }
       }
-      this.failAllPending(new Error(`gsr sidecar exited (${reason})`));
+      this.failAllPending(new Error(`sidecar exited (${reason})`));
       this.cleanupChild();
     });
 

@@ -11,6 +11,48 @@
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 
+/**
+ * Leere Rolle über das Neu-Menü anlegen (Rangleiter-Umbau: das Menü kennt
+ * „leere Rolle" + Vorlagen) und über den id-bezogenen Namens-Input umbenennen.
+ * Liefert die Rollen-Id — die Server-Antwort wird mitgeprüft, damit ein
+ * verpasster Klick laut abstürzt statt still ins Leere zu laufen.
+ */
+async function rolleAnlegen(page: Page, name: string): Promise<string> {
+  await page.getByTestId('role-create').click();
+  await expect(page.getByTestId('role-create-menu')).toBeVisible();
+  const createResponse = page.waitForResponse(
+    (r) => r.url().endsWith('/roles') && r.request().method() === 'POST',
+    { timeout: 10_000 }
+  );
+  // force: der Klick-Fänger (fixed inset-0) unter dem Menü kann den Treffer
+  // beim Aufklappen sonst an sich reißen.
+  await page.getByTestId('role-create-empty').click({ force: true });
+  const resp = await createResponse;
+  if (resp.status() >= 300) throw new Error(`role create failed: ${resp.status()}`);
+  const created = (await resp.json()) as { id: string };
+  const input = page.getByTestId(`role-name-input-${created.id}`);
+  await expect(input).toHaveValue('Neue Rolle');
+  await input.fill(name);
+  await page.getByTestId('role-save').click();
+  return created.id;
+}
+
+/** Community-Einstellungen per Rechtsklick oeffnen. Das Kontextmenue kann
+ *  beim Aufklappen von einer Praesenz-Aktualisierung ueholt werden —
+ *  notfalls neu oeffnen (Muster wie `abmelden`). */
+async function einstellungenOeffnen(page: Page, gildeId: string): Promise<void> {
+  for (let versuch = 0; versuch < 4; versuch++) {
+    await page.getByTestId(`guild-${gildeId}`).click({ button: 'right' });
+    try {
+      await page.getByTestId('guild-settings').click({ timeout: 2_500 });
+      break;
+    } catch {
+      // Menue wurde abgebaut — neu oeffnen.
+    }
+  }
+  await expect(page.getByTestId('guild-settings-dialog')).toBeVisible();
+}
+
 const ts = Date.now();
 const ALICE = {
   username: `role_alice_${ts}`,
@@ -107,9 +149,7 @@ test.describe.serial('Roles + Permissions E2E', () => {
     // Right-click the guild avatar in the rail; the context menu pops the
     // settings item (visible because alice is owner → has MANAGE_ROLES via
     // the resolver's GRANT_ALL_SAFE short-circuit).
-    await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
-    await alice.getByTestId('guild-settings').click();
-    await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
+    await einstellungenOeffnen(alice, guildId);
     await expect(alice.getByTestId('settings-tab-roles')).toBeVisible();
   });
 
@@ -117,13 +157,7 @@ test.describe.serial('Roles + Permissions E2E', () => {
     // The Rollen tab is selected by default for users with MANAGE_ROLES.
     // "Neu" klappt seit dem Rangleiter-Umbau ein Menü auf (leere Rolle /
     // drei Vorlagen / "<Rolle> duplizieren") — der Test nimmt die leere.
-    await alice.getByTestId('role-create').click();
-    await alice.getByTestId('role-create-empty').click();
-
-    // Rename it; the dialog seeds "Neue Rolle".
-    const nameInput = alice.getByTestId('role-name-input');
-    await expect(nameInput).toHaveValue('Neue Rolle');
-    await nameInput.fill('Mod');
+    modRoleId = await rolleAnlegen(alice, 'Mod');
 
     // Farbe und "hervorheben" leben jetzt im Reiter "Darstellung"; der
     // Name steht weiterhin über den Reitern und ist immer erreichbar.
@@ -140,14 +174,13 @@ test.describe.serial('Roles + Permissions E2E', () => {
 
     await alice.getByTestId('role-save').click();
 
-    // Pull the role-id from the row data-testid (role-row-<id>).
-    const row = alice.locator('[data-testid^="role-row-"]').filter({ hasText: 'Mod' }).first();
-    const rowAttr = await row.getAttribute('data-testid');
-    modRoleId = rowAttr!.replace('role-row-', '');
     expect(modRoleId).toMatch(/^\d+$/);
   });
 
   test('alice assigns the Mod role to bob via the Mitglieder tab', async () => {
+    // Mitglieder & Rollen ist EINE Flaeche mit zwei Teil-Reitern; der
+    // Rollen-Teil startet selektiert — erst auf „Mitglieder" wechseln.
+    await alice.getByTestId('mitglieder-rollen-tab-mitglieder').click();
     // listMembers is async — wait for at least one row to appear before
     // counting. Two members expected (alice owner + bob via invite).
     const memberRows = alice.locator('[data-testid^="member-row-"]');
@@ -179,28 +212,14 @@ test.describe.serial('Roles + Permissions E2E', () => {
     // events and the drop targets only listen for drag*. The visible
     // chevron buttons hit the same setPositions endpoint, so we drive
     // through those instead.
-    await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
-    await alice.getByTestId('guild-settings').click();
-    await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
-    await alice.getByTestId('role-create').click();
-    await alice.getByTestId('role-create-empty').click();
-    const nameInput = alice.getByTestId('role-name-input');
-    // Wait until the buffer has been re-seeded for the freshly-created
-    // role. Without this, fill('Helper') can land on the still-visible
-    // old selection (e.g. Mod from the previous test) and then get
-    // wiped when the create-response arrives and loadIntoBuffer runs
-    // for the new role — leaving dirty=false and the Save button
-    // disabled.
-    await expect(nameInput).toHaveValue('Neue Rolle');
-    await nameInput.fill('Helper');
-    await alice.getByTestId('role-save').click();
-    // Grab the helper's row-id from its row testid.
-    const helperRow = alice
-      .locator('[data-testid^="role-row-"]')
-      .filter({ hasText: 'Helper' })
-      .first();
-    const helperAttr = await helperRow.getAttribute('data-testid');
-    const helperId = helperAttr!.replace('role-row-', '');
+    await einstellungenOeffnen(alice, guildId);
+    // Helper (inkl. Wartezeit auf die frische Auswahl — der Helper prueft
+    // die Create-Antwort, damit fill nicht auf die alte Auswahl landet).
+    // rolleAnlegen speichert bereits; ein weiterer Save-Klick haengte an
+    // dem dann deaktivierten Button (dirty=false). Die Id liefert der
+    // Helper — die Zeile selbst traegt den Namen als Input-Wert, ein
+    // hasText-Filter ueber die Zeile findet sie daher nicht.
+    const helperId = await rolleAnlegen(alice, 'Helper');
     expect(helperId).toMatch(/^\d+$/);
 
     // Helper was created after Mod → has the higher position → sits
@@ -237,54 +256,58 @@ test.describe.serial('Roles + Permissions E2E', () => {
   });
 
   test('alice picks a colour and the role row shows it', async () => {
-    await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
-    await alice.getByTestId('guild-settings').click();
-    await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
-    // The Mod row is what we'll edit. Click it to select. Getroffen wird
-    // der Name, nicht die ganze Zeile: die Zeile traegt seit dem
-    // Rangleiter-Umbau links einen Ziehgriff und rechts die Pfeile, und
-    // die tun etwas anderes als „auswaehlen".
-    await alice.getByTestId(`role-name-${modRoleId}`).click();
+    await einstellungenOeffnen(alice, guildId);
+    // The Mod row is what we'll edit. Click it to select — sofern sie das
+    // nicht schon IST: die selektierte Zeile zeigt den Namen als Input
+    // (`role-name-input-`), das Span (`role-name-`) existiert dann gar
+    // nicht erst, und ein Klick wuerde bis zum Timeout warten.
+    const modZeile = alice.getByTestId(`role-name-${modRoleId}`);
+    if ((await modZeile.count()) > 0) {
+      await modZeile.click();
+    }
     await alice.getByTestId('role-tab-darstellung').click();
     // Enable colour if it isn't already.
     const colourEnabled = alice.getByTestId('role-color-enabled');
     if (!(await colourEnabled.isChecked())) {
       await colourEnabled.check();
     }
-    // <input type=color> only accepts "#rrggbb"; fill() works because
-    // Svelte's bind:value writes back through the value property.
+    // <input type=color> only accepts "#rrggbb"; fill() dispatcht die
+    // echten Input-Events, ueber die Svelte's bind:value den Buffer und
+    // damit den Save speist (ein roher value+dispatchEvent-Write umgeht
+    // den Buffer — der Server behielt dann die Zufalls-Anfangsfarbe).
     const colourInput = alice.getByTestId('role-color-input');
-    await colourInput.evaluate((el: HTMLInputElement) => {
-      el.value = '#ff8800';
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await colourInput.fill('#ff8800');
+    // Save an der Server-Antwort festmachen — ein disabled/gefressener
+    // Klick wuerde sonst stillschweigend nichts persistent machen.
+    const saveResponse = alice.waitForResponse(
+      (r) => r.url().includes('/roles') && r.request().method() !== 'GET',
+      { timeout: 10_000 }
+    );
     await alice.getByTestId('role-save').click();
+    const resp = await saveResponse;
+    expect(resp.status()).toBeLessThan(300);
 
-    // After save, the row's name span should have an inline color
-    // style. Die Zeile trägt seit dem Rangleiter-Umbau links einen
-    // Farbpunkt, ist also nicht mehr das erste <span> — deshalb hat der
-    // Name jetzt eine eigene Kennung, statt sich auf die Reihenfolge im
-    // Baum zu verlassen.
-    const nameSpan = alice.getByTestId(`role-name-${modRoleId}`);
-    await expect
-      .poll(
-        async () =>
-          await nameSpan.evaluate((el: HTMLElement) => el.style.color),
-        { timeout: 10_000 }
-      )
-      // Some browsers normalize the inline ``color:`` to ``rgb(...)``
-      // when read back via ``style.color``; both forms are valid.
-      .toMatch(/(?:#ff8800|rgb\(\s*255,\s*136,\s*0\s*\))/i);
+    // Save-Echo: das Farb-Input der Rolle traegt den neuen Wert …
+    await expect(alice.getByTestId('role-color-input')).toHaveValue('#ff8800', { timeout: 10_000 });
+    // … und der Server hat ihn uebernommen (color wird als int gespeichert,
+    // 0xff8800 = 16749568). Das ist die Server-Wahrheit unabhaengig davon,
+    // welche Zeilendarstellung (Punkt/Name/Input) gerade selektiert ist.
+    const rollen = await alice.evaluate(async (gilde) => {
+      const token = localStorage.getItem('dcc.tokens.access');
+      const r = await fetch(`/api/chat/guilds/${gilde}/roles`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return (await r.json()) as { id: string; color: number | null }[];
+    }, guildId);
+    const mod = rollen.find((r) => r.id === modRoleId);
+    expect(mod?.color).toBe(0xff8800);
 
     await alice.keyboard.press('Escape');
     await expect(alice.getByTestId('guild-settings-dialog')).toBeHidden();
   });
 
   test('alice transfers ownership to bob', async () => {
-    await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
-    await alice.getByTestId('guild-settings').click();
-    await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
+    await einstellungenOeffnen(alice, guildId);
     await alice.getByTestId('settings-tab-ownership').click();
     await expect(alice.getByTestId('ownership-transfer')).toBeVisible();
     // Pick bob (the only other member; the list drops the owner row).
@@ -323,8 +346,7 @@ test.describe.serial('Roles + Permissions E2E', () => {
     // grant via the @everyone or assigned roles; if MANAGE_ROLES isn't
     // there, the Rollen-tab is hidden — in that case we skip rather
     // than fail. (We don't predicate this test on ownership state.)
-    await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
-    await alice.getByTestId('guild-settings').click();
+    await einstellungenOeffnen(alice, guildId);
     const dialog = alice.getByTestId('guild-settings-dialog');
     await expect(dialog).toBeVisible();
     const rolesTab = alice.getByTestId('settings-tab-roles');
@@ -334,8 +356,13 @@ test.describe.serial('Roles + Permissions E2E', () => {
     }
     await rolesTab.click();
     // Make sure the Mod row is selected, then edit its name without saving.
-    await alice.getByTestId(`role-name-${modRoleId}`).click();
-    const nameInput = alice.getByTestId('role-name-input');
+    // Bereits selektiert? Dann traegt die Zeile den Namen schon als Input
+    // und das Span zum Draufklicken existiert nicht.
+    const modZeile = alice.getByTestId(`role-name-${modRoleId}`);
+    if ((await modZeile.count()) > 0) {
+      await modZeile.click();
+    }
+    const nameInput = alice.getByTestId(`role-name-input-${modRoleId}`);
     await nameInput.fill('ModDirty');
     // Press Escape — the dialog should NOT close because of the dirty
     // buffer; the close-confirm AlertDialog should pop instead.

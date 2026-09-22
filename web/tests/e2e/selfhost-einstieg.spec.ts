@@ -75,7 +75,15 @@ test.describe('Eigener Server: Einstieg und Route', () => {
 
   test('auf Tablet und Handy steht er am Fuss der Raeume-Liste', async ({ browser }) => {
     for (const [name, groesse] of [['Tablet', TABLET], ['Handy', HANDY]] as const) {
-      const page = await browser.newPage({ viewport: groesse });
+      // Geraeteklasse haengt am ZEIGER (geraetKlasse.ts): ohne
+      // Finger-Emulation ist jede Breite nur ein schmales Desktop-Fenster.
+      const ctx = await browser.newContext({
+        viewport: groesse,
+        locale: 'de-DE',
+        isMobile: true,
+        hasTouch: true
+      });
+      const page = await ctx.newPage();
       await anmelden(page, `sh_${name.toLowerCase()}_${TAG}`);
 
       await page.goto('/app/rooms');

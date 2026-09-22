@@ -39,6 +39,7 @@ from dcc_chat_gateway.message_helpers import (
     reactions_for as _reactions_for,
     serialize_message,
 )
+from dcc_chat_gateway.mentions import serialize_mentions
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
     LEGACY_READONLY_DETAIL,
@@ -85,8 +86,8 @@ async def list_messages(
     channel_id: int,
     session: SessionDep,
     current: CurrentUser,
-    before: Annotated[int | None, Query(ge=0)] = None,
-    after: Annotated[int | None, Query(ge=0)] = None,
+    before: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
+    after: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ):
     # Resolve the channel as guild-or-DM and enforce access in one go.
@@ -216,6 +217,44 @@ async def post_message(
                 detail=f"too many attachments ({len(payload.attachment_ids)} > {max_count})",
             )
 
+    # Bughunt Runde 26: Nonce-Dedup auf dem REST-Weg (Spiegel zum WS-Op).
+    # Der Direct-Transport replayt denselben POST, wenn die Verbindung nach
+    # der Zustellung vor der Antwort stirbt — ohne Dedup landete die
+    # Nachricht doppelt. Nur Senden mit Nonce ist dedupliziert; Kollision
+    # je (Kanal, Autor, Nonce).
+    if payload.nonce:
+        dup = await session.scalar(
+            select(Message.id).where(
+                Message.channel_id == channel_id,
+                Message.author_id == current.id,
+                Message.nonce == payload.nonce,
+            )
+        )
+        if dup is not None:
+            existing = await session.get(Message, dup)
+            if existing is not None and existing.deleted_at is None:
+                # Idempotente Wiederholung: die bereits zugestellte
+                # Nachricht nochmals als 200-Antwort ausliefern statt
+                # eine Dublette anzulegen. Relationen wie im Normalpfad
+                # nachladen (response_model braucht sie).
+                att_rows = (
+                    await session.execute(
+                        select(MessageAttachment).where(
+                            MessageAttachment.message_id == dup,
+                            MessageAttachment.deleted_at.is_(None),
+                        )
+                    )
+                ).scalars().all()
+                mention_rows = (
+                    await session.execute(
+                        select(MessageMention).where(MessageMention.message_id == dup)
+                    )
+                ).scalars().all()
+                existing.reactions = []  # type: ignore[attr-defined]
+                existing.attachments = att_rows  # type: ignore[attr-defined]
+                existing.mentions = serialize_mentions(mention_rows)  # type: ignore[attr-defined]
+                return existing
+
     msg = Message(
         id=next_id(),
         channel_id=channel_id,
@@ -258,8 +297,11 @@ async def post_message(
 
     if kind == "dm":
         # Bump last_message_id so the DM list can sort by recency.
-        ch.last_message_id = msg.id
-        session.add(ch)
+        # Nur VORWÄRTS (Bughunt Runde 6): ein paralleler Send-Commit konnte
+        # die Spalte sonst auf die ältere Snowflake zurückschreiben.
+        if ch.last_message_id is None or ch.last_message_id < msg.id:
+            ch.last_message_id = msg.id
+            session.add(ch)
     await session.commit()
     await session.refresh(msg)
 
@@ -293,7 +335,11 @@ async def post_message(
     # sync pywebpush calls to threads and batches its DB writes, so it does not
     # block the event loop meaningfully. An unreferenced asyncio.create_task can
     # be GC'd before it runs and makes dead-subscription cleanup non-deterministic.
-    if notified:
+    # Bughunt Runde 19: in DMs deckt fan_out_dm_push (unten) den Empfänger
+    # bereits ab — der zusätzliche Mention-Push lieferte dieselbe Nachricht
+    # zweimal (renotify=true → doppelter Ton/Vibration; im Electron-Weg
+    # zwei OS-Toasts). Mention-Push nur für Guild-Kanäle.
+    if notified and kind == "guild":
         await fan_out_mention_push(
             user_ids=notified,
             author_name=current.username,
@@ -387,6 +433,18 @@ async def edit_message(
     # only; DMs bypass.
     perms = 0  # DM-path default — see notes in post_message.
     if kind == "guild":
+        # Bughunt Runde 4: derselbe Frost wie post_message — eingefrorene
+        # Alt-Kanäle bleiben lesbar, aber nicht BESCHREIBBAR, und Bearbeiten
+        # ist Schreiben (vorher ließ sich eingefrorener Verlauf via PATCH
+        # umschreiben, während Posten korrekt 403 gab). Ablage-Kanäle nehmen
+        # ohnehin keinen Klartext an (Mischzustand-Regel, Konzept §2a).
+        if getattr(ch, "legacy_readonly", False):
+            raise HTTPException(403, detail=LEGACY_READONLY_DETAIL)
+        if getattr(ch, "ablage", False):
+            raise HTTPException(
+                403,
+                detail="ablage channel: content is end-to-end encrypted, not accepted here",
+            )
         perms = await resolve_permissions(
             session, current, ch.guild_id, channel_id=msg.channel_id
         )
@@ -576,6 +634,17 @@ async def delete_message(
             session, current, ch.guild_id, channel_id=ch.id
         )
         if not has_permission(perms, Permissions.MANAGE_MESSAGES):
+            raise HTTPException(403, detail="not allowed to delete this message")
+    elif kind != "dm":
+        # Bughunt Runde 49: Membership allein reicht nicht — ein per
+        # Channel-Overwrite ausgeschlossenes Mitglied (deny VIEW_CHANNEL)
+        # konnte sonst seine ALTEN Nachrichten hier hart löschen und dabei
+        # die Anhänge-Bytes mitwerfen (Beweis-/Datenvernichtung in einem
+        # Kanal, den es nicht einmal betreten darf).
+        perms = await resolve_permissions(
+            session, current, ch.guild_id, channel_id=ch.id
+        )
+        if not has_permission(perms, Permissions.VIEW_CHANNEL):
             raise HTTPException(403, detail="not allowed to delete this message")
 
     msg.deleted_at = datetime.now(UTC)

@@ -103,6 +103,12 @@ export function register(ctx: HandlerContext): void {
   // serverseitig schon auf Mod-Sockets gefiltert — wir dürfen dem Event also
   // vertrauen: Badge hochzählen + Toast zeigen. Kein Nachladen der Liste hier;
   // ModQueue.svelte reagiert selbst auf den Zählerstand.
+  // Entscheidung 2d: das Gegenstück zu report_new — resolve/dismiss
+  // senkt das Badge live in ALLEN Mod-Tabs, nicht erst beim Reconnect.
+  registerWsHandler('report_closed', (evt) => {
+    modQueueCounts.decrement(evt.guild_id);
+  });
+
   registerWsHandler('report_new', (evt) => {
     modQueueCounts.increment(evt.guild_id);
     toast.info(m.mod_report_new_toast_title(), {

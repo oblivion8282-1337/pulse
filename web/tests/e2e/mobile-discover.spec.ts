@@ -20,7 +20,9 @@ test.describe('Entdecken', () => {
   let page: Page;
 
   test.beforeAll(async ({ browser }) => {
-    page = await browser.newPage({ viewport: HANDY });
+    // Geraeteklasse haengt am ZEIGER (geraetKlasse.ts) — ohne
+    // Finger-Emulation bleibt HANDY ein schmales Desktop-Fenster.
+    page = await (await browser.newContext({ viewport: HANDY, locale: 'de-DE', isMobile: true, hasTouch: true })).newPage();
     await page.goto('/register');
     await page.getByTestId('reg-username').fill(`disc_${TAG}`);
     await page.getByTestId('reg-email').fill(`disc_${TAG}@dcc-test.example.com`);
@@ -98,11 +100,23 @@ test.describe('Entdecken', () => {
   });
 
   test('der Raeume-Bereich fuehrt hierher', async () => {
+    // Diese Route kann als erste /app/rooms kompilieren (Vite on demand) —
+    // der Standard-Topf ist dafuer zu knapp.
+    test.setTimeout(60_000);
     // Entdecken sitzt seit dem Menue-Umbau im Drei-Punkte-Menue der Kopfzeile,
     // nicht mehr als eigener Knopf (`rooms-discover-link` gibt es nicht mehr).
     await page.goto('/app/rooms');
-    await page.getByTestId('rooms-menu').click();
-    await page.getByTestId('rooms-menu-discover').click();
+    // Menue kann beim Oeffnen von einer Praesenz-Aktualisierung ueholt
+    // werden — notfalls neu oeffnen (Muster wie `abmelden`).
+    for (let versuch = 0; versuch < 3; versuch++) {
+      await page.getByTestId('rooms-menu').click();
+      try {
+        await page.getByTestId('rooms-menu-discover').click({ timeout: 2_500 });
+        break;
+      } catch {
+        // Menue wieder zu — neu oeffnen.
+      }
+    }
     await page.waitForURL(/\/app\/discover$/);
     await expect(page.getByTestId('discover-page')).toBeVisible();
   });

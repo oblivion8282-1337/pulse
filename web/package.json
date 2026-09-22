@@ -33,7 +33,6 @@
   "devDependencies": {
     "@fontsource-variable/inter": "^5.2.8",
     "@inlang/paraglide-js": "^2.18.1",
-    "@internationalized/date": "^3.12.1",
     "@lucide/svelte": "^1.14.0",
     "@playwright/test": "^1.59.1",
     "@sveltejs/adapter-static": "^3.0.10",

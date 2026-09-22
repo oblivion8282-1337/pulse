@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
 import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { userCache } from '$lib/stores/users.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -110,7 +111,7 @@ import { Button } from '$lib/components/ui/button';
 {#each mitglieder as uid (uid)}
   {@const user = userCache.get(uid)}
   {@const name = user?.display_name ?? user?.username ?? '…'}
-  {@const initial = (name.trim()[0] ?? '?').toUpperCase()}
+  {@const initial = anfangsBuchstabe(name) || '?'}
   {@const isSelf = uid === selfId}
   {@const isSpeaking = speakingSet.has(uid)}
   {@const volumePct = Math.round(settings.getUserVolume(uid) * 100)}

@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { speicherAdapter, type AblageAdapter } from '../src/lib/ablage/adapter.ts';
 import {
 	direktMitRueckfallAdapter,
-	istAufPulseFestgelegt,
 	type RueckfallZiel
 } from '../src/lib/ablage/direktMitRueckfall.ts';
 
@@ -72,7 +71,6 @@ test('ein erfolgreicher direkter Weg benutzt den Umweg über Pulse gar nicht', a
 
 	assert.equal(txt(ergebnis), 'inhalt');
 	assert.equal(pulseAufrufe, 0);
-	assert.equal(istAufPulseFestgelegt('kanal:erfolg'), false);
 });
 
 test('ein Netz-/CORS-Abprall landet über den Umweg', async () => {
@@ -90,7 +88,6 @@ test('ein Netz-/CORS-Abprall landet über den Umweg', async () => {
 
 	assert.equal(txt(ergebnis), 'pulse:datei.puls');
 	assert.equal(pulseAufrufe, 1);
-	assert.equal(istAufPulseFestgelegt('kanal:abprall'), true);
 });
 
 test('eine 404 (null) ist eine echte Antwort — kein Rückfall', async () => {
@@ -107,7 +104,6 @@ test('eine 404 (null) ist eine echte Antwort — kein Rückfall', async () => {
 
 	assert.equal(ergebnis, null);
 	assert.equal(pulseAufrufe, 0);
-	assert.equal(istAufPulseFestgelegt('kanal:404'), false);
 });
 
 test('eine echte Fehlantwort (kein TypeError) wird weitergeworfen, kein Rückfall', async () => {
@@ -123,7 +119,6 @@ test('eine echte Fehlantwort (kein TypeError) wird weitergeworfen, kein Rückfal
 
 	await assert.rejects(() => adapter.lese('datei.puls'), EchteAntwortFehler);
 	assert.equal(pulseAufrufe, 0);
-	assert.equal(istAufPulseFestgelegt('kanal:fehler'), false);
 });
 
 test('nach einem Abprall wird der direkte Weg für dasselbe Ziel nicht erneut versucht', async () => {
@@ -162,8 +157,6 @@ test('zwei Ziele mit verschiedenem Schlüssel beeinflussen sich nicht gegenseiti
 	await adapterA.lese('x.puls');
 	const ergebnisB = await adapterB.lese('x.puls');
 
-	assert.equal(istAufPulseFestgelegt('kanal:a'), true);
-	assert.equal(istAufPulseFestgelegt('kanal:b'), false);
 	assert.equal(txt(ergebnisB), 'b-inhalt');
 	assert.equal(direktB.leseAufrufe.length, 1);
 });

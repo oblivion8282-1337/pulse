@@ -112,7 +112,7 @@ class GeraeteAnmeldung {
         index: mon.index,
         name: mon.name,
         primary: mon.primary,
-        // Lage/Grösse reisen mit, wenn der Sidecar sie kennt — `GsrMonitor.x`/
+        // Lage/Grösse reisen mit, wenn der Sidecar sie kennt — `SidecarMonitor.x`/
         // `.y` sind optional (Linux/ältere Sidecars melden sie nicht), und ein
         // `undefined`-Feld verschwindet beim Senden einfach aus dem JSON,
         // statt eine geratene Zahl zu tragen.

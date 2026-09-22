@@ -8,7 +8,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_auth.config import get_settings
@@ -27,10 +27,26 @@ router = APIRouter()
 
 _STATEMENT_CACHE: dict[int, tuple[float, str]] = {}
 _STATEMENT_TTL_SECS = 86_400
+#: Bughunt-Entscheidung 4.8 (2026-09-21): das Statement liegt in REDIS
+#  (``auth:profile_statement:{user_id}``) und damit arbeiterübergreifend —
+#  vorher prozess-lokal, und nach einer Umbenennung liefen andere Worker bis
+#  zu 24 h mit dem alten signierten Statement weiter. Redis weg (Dev ohne
+#  Daemon, Tests) → nahtloser Fallback auf den alten In-Prozess-Cache.
+_STATEMENT_REDIS_PREFIX = "auth:profile_statement:"
 
 
-def _invalidate_statement_cache(user_id: int) -> None:
+def _statement_redis(request: Request):
+    return getattr(request.app.state, "redis", None)
+
+
+async def _invalidate_statement_cache(request: Request, user_id: int) -> None:
     _STATEMENT_CACHE.pop(user_id, None)
+    redis = _statement_redis(request)
+    if redis is not None:
+        try:
+            await redis.delete(f"{_STATEMENT_REDIS_PREFIX}{user_id}")
+        except Exception:  # noqa: BLE001 — Cache ist best-effort
+            pass
 
 
 def _issue_statement(user: User, signer: JwtSigner) -> str:
@@ -70,22 +86,42 @@ def _issue_statement(user: User, signer: JwtSigner) -> str:
 
 @router.get("/credentials/profile-statement")
 async def get_profile_statement(
+    request: Request,
     session: SessionDep,
     current: User = Depends(_get_current_user),
     signer: JwtSigner = Depends(_signer_dep),
 ) -> dict:
     now_f = time.time()
+    redis = _statement_redis(request)
+    if redis is not None:
+        try:
+            shared = await redis.get(f"{_STATEMENT_REDIS_PREFIX}{current.id}")
+        except Exception:  # noqa: BLE001
+            shared = None
+        if shared:
+            return {"token": shared}
     cached = _STATEMENT_CACHE.get(current.id)
     if cached is not None:
         issued_at, token = cached
         age = now_f - issued_at
         if age < _STATEMENT_TTL_SECS - 60:
             return {"token": token}
-    return {"token": _issue_statement(current, signer)}
+    token = _issue_statement(current, signer)
+    if redis is not None:
+        try:
+            await redis.set(
+                f"{_STATEMENT_REDIS_PREFIX}{current.id}",
+                token,
+                ex=_STATEMENT_TTL_SECS - 60,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    return {"token": token}
 
 
 @router.post("/me/profile", status_code=status.HTTP_200_OK)
 async def update_profile(
+    request: Request,
     payload: ProfileUpdateRequest,
     session: SessionDep,
     current: User = Depends(_get_current_user),
@@ -93,7 +129,10 @@ async def update_profile(
     updated: list[str] = []
     sent = payload.model_fields_set
     if "display_name" in sent:
-        current.display_name = payload.display_name
+        # Bughunt Runde 14: whitespace-only fiel durch die truthiness-
+        # Fallback (`display_name or username`) — der Name war blank in
+        # jeder Liste. Streifen; leer → None (Fallback greift).
+        current.display_name = (payload.display_name or "").strip() or None
         updated.append("display_name")
     if "profile_color" in sent:
         current.profile_color = payload.profile_color
@@ -108,7 +147,7 @@ async def update_profile(
         session.add(current)
         await session.commit()
         await session.refresh(current)
-        _invalidate_statement_cache(current.id)
+        await _invalidate_statement_cache(request, current.id)
     return {
         "updated": updated,
         "display_name": current.display_name,
@@ -137,7 +176,15 @@ async def change_username(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="new username is the same as current username",
         )
-    existing_user = await session.scalar(select(User).where(User.username == new_name))
+    # Groß-/klein gemischt vergleichen (Resolver matchen über lower(username))
+    # — aber den eigenen Zeile aussparen, damit ein reiner Schreibweisewechsel
+    # ("alice" → "Alice") weiter möglich bleibt.
+    existing_user = await session.scalar(
+        select(User).where(
+            func.lower(User.username) == new_name.lower(),
+            User.id != current.id,
+        )
+    )
     if existing_user is not None:
         suggestions = await _suggest_usernames(session, new_name)
         raise HTTPException(
@@ -146,7 +193,7 @@ async def change_username(
     now = datetime.now(tz=UTC)
     reservation = await session.scalar(
         select(UsernameReservation).where(
-            UsernameReservation.old_username == new_name,
+            func.lower(UsernameReservation.old_username) == new_name.lower(),
             UsernameReservation.released_at > now,
         )
     )
@@ -173,5 +220,5 @@ async def change_username(
     except IntegrityError as exc:
         await session.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "username_taken"}) from exc
-    _invalidate_statement_cache(current.id)
+    await _invalidate_statement_cache(request, current.id)
     return UsernameChangeResponse(success=True, reserved_until=released_at)

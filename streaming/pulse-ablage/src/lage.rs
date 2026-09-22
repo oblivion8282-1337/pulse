@@ -356,7 +356,7 @@ pub enum Entscheidung {
 /// * `{"rahmen":{…}}` — von der Gegenseite, Nutzlast unveraendert.
 ///
 /// **Warum die Huelle und nicht bloss eine Reihenfolge:** beide Wege gehen
-/// durch dieselbe Tuer (`gsr:ablage`), und der Leitungsweg reicht die rohe
+/// durch dieselbe Tuer (`sidecar:ablage`), und der Leitungsweg reicht die rohe
 /// `data` der Gegenstelle durch. Standen die Anstoesse in derselben Form wie
 /// ein Rahmen (frueher `{"t":"ende"}`), genuegte ein einziges fremdes
 /// `remote_signal`, um `wach` abzuschalten — die Zwischenablage waere fuer den

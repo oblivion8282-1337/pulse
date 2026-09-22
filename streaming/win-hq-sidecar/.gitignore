@@ -21,10 +21,9 @@ capture_smoke_*.png
 audio_smoke_*.wav
 encode_smoke*.mp4
 encode_smoke*.flv
-# FFmpeg-LGPL-Distribution: per `scripts/fetch-ffmpeg.ps1` heruntergeladen (Pin
-# = URL + SHA256 im Script) oder per `scripts/build-ffmpeg-patched.ps1` selbst
-# gebaut. Enthält dann auch dessen Quellbaum unter `_build/` (mehrere GB) —
-# `build-ffmpeg-patched.ps1 -Clean` räumt ihn weg.
+# FFmpeg-LGPL-Distribution: per `scripts/fetch-ffmpeg.ps1` heruntergeladen
+# (Pin = URL + SHA256 im Script). Das frühere `build-ffmpeg-patched.ps1`
+# (selbst bauen, Intra-Refresh-Patch) wurde 2026-08-21 entfernt.
 /ffmpeg-dist/
 # MediaMTX-Standalone-Binary für lokale Test-Driver-Runs (`scripts/fetch-mediamtx.ps1`).
 /mediamtx-dist/

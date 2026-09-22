@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from dcc_shared.events import (
     GuildDeletedEvent,
     GuildMemberAddedEvent,
@@ -18,13 +20,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import ratelimit
-from dcc_chat_gateway.community_categories import is_valid_category
 from dcc_chat_gateway.audit_log import write_audit_log
+from dcc_chat_gateway.community_categories import is_valid_category
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.routes._deps import guild_or_404
-from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limits
 from dcc_chat_gateway.guild_caps import enforce_member_cap
+from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limits
 from dcc_chat_gateway.models import (
+    AblagePulseObjekt,
     AblageZwischenlagerDatei,
     Channel,
     CommunityInviteNotification,
@@ -32,6 +34,7 @@ from dcc_chat_gateway.models import (
     Guild,
     GuildMember,
     GuildSoundOverride,
+    MemberRole,
     Message,
     MessageAttachment,
     PermissionOverwrite,
@@ -44,11 +47,9 @@ from dcc_chat_gateway.remote_guard import (
     forget_devices_after_cascade,
     remove_devices_for_member,
 )
-from dcc_chat_gateway.stream_evict import end_active_streams_for_member
-from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
-from dcc_chat_gateway.watch_evict import end_watch_parties_for_member
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import guild_or_404, require_member
+from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
 from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
 from dcc_chat_gateway.routes.guest_links import entwerte_link
@@ -64,10 +65,19 @@ from dcc_chat_gateway.schemas import (
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_chat_gateway.stream_evict import (
+    end_active_streams_for_channels,
+    end_active_streams_for_member,
+)
+from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
 from dcc_chat_gateway.voice_evict import (
     evict_all_from_voice_channels,
     evict_user_from_guild_voice,
     voice_channels_for_guild,
+)
+from dcc_chat_gateway.watch_evict import (
+    end_watch_parties_for_channels,
+    end_watch_parties_for_member,
 )
 
 router = APIRouter()
@@ -122,9 +132,16 @@ async def create_guild(payload: GuildIn, session: SessionDep, current: CurrentUs
                 status.HTTP_403_FORBIDDEN,
                 detail="server creation is disabled by the admin",
             )
+    # Display-string sink (Bughunt Runde 14): Guild-Namen erscheinen in
+    # öffentlichem Verzeichnis, Gast-Seite und Einladungskarten — dieselbe
+    # Härtung (Zero-Width/Bidi/NFKC-Länge) wie Kanäle.
+    try:
+        clean_guild_name = validate_name(payload.name, max_len=64)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
     guild = Guild(
         id=next_id(),
-        name=payload.name,
+        name=clean_guild_name,
         icon_url=payload.icon_url,
         owner_id=current.id,
     )
@@ -227,7 +244,21 @@ async def patch_guild(
     # durchgehend "keine Aenderung", nie "loeschen" (loeschen geht ueber
     # die eigenen Endpunkte, z. B. Icon via handle-Reset). Null-Filter,
     # weil ``exclude_unset`` ein explizit gesendetes null durchlaesst.
+    # Name vor dem Loop härtung (Bughunt Runde 14) — der ValueError wird
+    # hier zu 422, nicht erst mitten im Attribut-Schreiben zu 500.
+    # Adversarial-Review Runde 22: der GEFALTETE Wert muss gespeichert
+    # werden (validate_name gibt die kanonische Form zurück) — vorher
+    # blieben beim Rename Zero-Width/Bidi/NFKC-Reste in der DB, die die
+    # Prüfung unsichtbar weggefoldet hatte.
+    gefalteter_name: str | None = None
+    if payload.name is not None:
+        try:
+            gefalteter_name = validate_name(payload.name, max_len=64)
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
     for feld, wert in payload.model_dump(exclude_unset=True).items():
+        if feld == "name" and gefalteter_name is not None:
+            wert = gefalteter_name
         if wert is not None:
             setattr(guild, feld, wert)
     # Diese zwei Felder sind Werte der Community, keine Obergrenzen — ohne das
@@ -312,8 +343,30 @@ async def delete_guild(
     navigate away and prune their local stores.
     """
     guild = await guild_or_404(session, guild_id)
+    admin_bypass = guild.owner_id != current.id and current.is_admin
     if guild.owner_id != current.id and not current.is_admin:
         raise HTTPException(403, detail="only the owner can delete the guild")
+    # Zeile bis zum Commit sperren (Bughunt Runde 6): sonst konnte ein
+    # parallel committender Owner-Transfer den Besitzer ändern und der
+    # Lösch-Commit zerstörte die Community unter dem NEUEN Owner. Postgres
+    # hält das Row-Lock bis zum Commit; SQLite-Tests ignorieren FOR UPDATE
+    # (dort serialisiert der Testläufer ohnehin).
+    await session.execute(
+        select(Guild).where(Guild.id == guild_id).with_for_update()
+    )
+    if admin_bypass:
+        # Bughunt Runde 21: der Plattform-Admin kann JEDE Community löschen
+        # — die irreversible Aktion hinterließ als einzige auf dem Objekt
+        # keine Protokoll-Zeile (suspend/limits/kick alles auditiert).
+        await write_audit_log(
+            session,
+            guild_id=guild_id,
+            actor_user_id=current.id,
+            action_type="admin_guild_delete",
+            target_kind="guild",
+            target_id=guild_id,
+            payload={"op": "admin_delete", "owner_id": guild.owner_id},
+        )
     mgr = getattr(request.app.state, "connection_manager", None)
     # Hard-delete MinIO attachments for all channels before the DB cascade
     # removes the rows — the cascade can't clean up object-store objects.
@@ -357,6 +410,15 @@ async def delete_guild(
         AblageZwischenlagerDatei.guild_id == guild_id
     )
     s3_keys_to_purge.extend((await session.execute(zwischenlager_keys_stmt)).scalars())
+    # Pulse-Laufwerk (Etappe P1): dieselbe Luecke wie bei Sounds und
+    # Zwischenlager — Migration 0090 raeumt die Zeilen per ON DELETE
+    # CASCADE, die Chiffrat-Blobs unter ``pulse-laufwerk/guild-{id}/``
+    # blieben sonst fuer immer im Objektspeicher (Bughunt Runde 48: kein
+    # zweiter Sweep deckt dieses Prefix ab).
+    pulse_keys_stmt = select(AblagePulseObjekt.storage_key).where(
+        AblagePulseObjekt.guild_id == guild_id
+    )
+    s3_keys_to_purge.extend((await session.execute(pulse_keys_stmt)).scalars())
     # Offene Einladungen in diese Community von Hand raeumen. Bis Migration
     # 0063 erledigte das ein ON DELETE CASCADE; der Fremdschluessel musste
     # weichen, weil ``guild_id`` seither auch auf eine Community auf einem
@@ -407,7 +469,12 @@ async def delete_guild(
     # Anwesende aus allen (jetzt gelöschten) Voice-Channels werfen — sonst
     # hängen sie in Ghost-Sessions. Best-effort, nach dem Commit.
     if voice_channel_ids:
-        await evict_all_from_voice_channels(getattr(mgr, "_redis", None), voice_channel_ids)
+        redis = getattr(mgr, "_redis", None)
+        # Watch-Partys + HQ-Streams derselben Kanäle miträumen (Bughunt
+        # Runde 4, Spiegel zu delete_channel).
+        await end_watch_parties_for_channels(redis, mgr, voice_channel_ids)
+        await end_active_streams_for_channels(redis, voice_channel_ids, grund="community_geloescht")
+        await evict_all_from_voice_channels(redis, voice_channel_ids)
     # Und das Geräte-Register vergisst, was die Kaskade gerade geräumt hat.
     await forget_devices_after_cascade(mgr, guild_id, devices_removed)
 
@@ -436,6 +503,12 @@ async def transfer_ownership(
         raise HTTPException(
             403, detail="only the owner can transfer ownership"
         )
+    # Zeile sperren (Bughunt Runde 6, Spiegel zu delete_guild): zwei
+    # konkurrierende Transfers oder Transfer gegen Löschung serialisieren
+    # sich sonst nach dem Check.
+    await session.execute(
+        select(Guild).where(Guild.id == guild_id).with_for_update()
+    )
     if payload.confirm_name != guild.name:
         raise HTTPException(
             400, detail="confirm_name does not match the guild name"
@@ -683,6 +756,17 @@ async def _remove_guild_member(
             )
         )
     await session.delete(member)
+    # Bughunt Runde 22: member_roles AUSDRÜCKLICH löschen — der Composite-
+    # FK (Modell + Migration 0009) kaskadiert auf Postgres, aber SQLite
+    # erzwingt Fremdschlüssel nur mit PRAGMA foreign_keys=ON, das weder
+    # der Testaufbau noch create_all-Setups setzen. Ohne dieses Delete
+    # überlebten die Rollen-Zuweisungen den Kick auf SQLite/Dev-DBs und
+    # belebten sich beim Wiedereintritt (Adversarial-Review Runde 22).
+    await session.execute(
+        sa_delete(MemberRole).where(
+            MemberRole.guild_id == guild_id, MemberRole.user_id == user_id
+        )
+    )
     await session.commit()
     await _after_member_removed(session, request, guild_id, user_id)
 
@@ -890,7 +974,7 @@ async def list_members(
     session: SessionDep,
     current: CurrentUser,
     limit: int = Query(100, ge=1, le=500),
-    after_user_id: int | None = Query(None),
+    after_user_id: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
 ):
     await require_member(session, guild_id, current.id)
     stmt = (

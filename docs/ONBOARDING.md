@@ -13,7 +13,7 @@ Was im Git liegt und was nicht — Kurzfassung:
 | Sämtlicher Code | `.env` (Postgres-Passwort, Redis-URL etc.) |
 | Migrations, Docs, Infra, Plugins | `secrets/jwt_*.pem` (RS256-Schlüsselpaar) |
 | Test-Suites + CDP-Toolkit | Postgres-Daten (Test-Accounts, Gilden) |
-| `CLAUDE.md` + `STATUS_NACHT_*.md` | Browser-Profile, Logs, alles unter `/tmp/` |
+| `CLAUDE.md` + Nachtlauf-Status-Markdown | Browser-Profile, Logs, alles unter `/tmp/` |
 
 ## Der schnellste Weg: die Maschine sich selbst prüfen lassen
 
@@ -112,9 +112,11 @@ System.
 
 Was passiert:
 
-- Postgres (5434), Redis (6380), LiveKit (7880, 7882-7892/udp),
-  MediaMTX (1935-1936, 8888, 8889, 8189, 9997) — alles als Docker-
-  Container, Volumes bleiben auf deiner Maschine.
+- Postgres (5434), Redis (6380), Garage (S3, :9000), LiveKit (7880,
+  7882-7892/udp), MediaMTX (RTMPS 1936, 8889, 8189, 9997 — RTMP läuft nur
+  als RTMPS, HLS ist deaktiviert) — alles als Docker-Container, Volumes
+  bleiben auf deiner Maschine. Der Bucket wird von `dev-garage-init.sh`
+  angelegt (läuft automatisch in `dev-up.fish`).
 - Alembic-Migrations für `auth` und `chat-gateway` werden ausgeführt.
 - Die 5 uvicorn-Services starten mit `--reload`: auth (8001),
   chat-gateway (8002), voice-signaling (8003), media-svc (8004),
@@ -267,7 +269,7 @@ docker inspect --format '{{.State.Health.Status}}' pulse-smoke
 docker exec pulse-smoke /usr/local/bin/pulse-health
 ```
 
-Alle 11 Services sollten hochkommen. Wenn nicht: `docker logs pulse-smoke`
+Alle 15 Services sollten hochkommen. Wenn nicht: `docker logs pulse-smoke`
 zeigt die `cont-init`-Schritte und welcher fehlgeschlagen ist.
 
 ## Wo finde ich was
@@ -293,7 +295,7 @@ um. Auf einer neuen Maschine kennt Claude:
 
 - ✓ `CLAUDE.md` (gepflegtes Tech-Stack-Inventar + Konventionen)
 - ✓ Git-Log inkl. ausführliche Commit-Bodies
-- ✓ `STATUS_NACHT_*.md` (historische Snapshots im Repo)
+- ✓ Nachtlauf-Status-Markdown (der Lauf schreibt sie nach `/tmp/`)
 - ✗ Memory-Files mit "wo wir gerade arbeiten"-Detail
 
 Wenn du mit einer langen Session aufhörst und morgen woanders weitermachst,

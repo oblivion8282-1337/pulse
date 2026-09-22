@@ -1,5 +1,6 @@
 """Die eigene Geraeteliste und der Widerruf (Spec §3b, Punkt 4).
 
+
 Jede Pruefung hier ist gegen den Zustand VOR dieser Aenderung rot: bis zum
 2026-08-30 gab es weder ``GET /keys/geraete`` (404) noch ``DELETE
 /keys/geraete`` (405), und es existierte ueberhaupt kein Weg, ein einzelnes
@@ -17,6 +18,16 @@ import pytest
 import pytest_asyncio
 
 pytestmark = pytest.mark.usefixtures("cloud_mode")
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _enable_sqlite_foreign_keys(engine):
+    """SQLite ignoriert ``ON DELETE CASCADE`` ohne ``PRAGMA foreign_keys=ON``
+    je Verbindung — derselbe Weg wie in ``test_schluessel.py``. Die
+    Test-Engine nutzt ``StaticPool`` (eine geteilte In-Memory-Verbindung),
+    deshalb genuegt ein einmaliges PRAGMA auf dieser einen Verbindung."""
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 
 _geraete_zaehler = itertools.count()
 
@@ -36,12 +47,6 @@ def _register(_auth_signer) -> tuple[str, int]:
     return _auth_signer.issue_access(uid, f"u{uid}"), uid
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def _enable_sqlite_foreign_keys(engine):
-    """Wie in ``test_schluessel.py``: SQLite ignoriert ``ON DELETE CASCADE``
-    ohne dieses PRAGMA je Verbindung."""
-    async with engine.begin() as conn:
-        await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 
 
 async def _buendel_seeden(

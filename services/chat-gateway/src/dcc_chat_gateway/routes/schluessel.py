@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DeviceKeyBundle, DeviceOneTimeKey
@@ -142,7 +143,17 @@ async def bundle_veroeffentlichen(
                 gekoppelt_am=gekoppelt_am,
             )
         )
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Bughunt Runde 42 (Entscheidung 4.6): die DB-Zährdung für den
+        # Fremdkonto-409 — der Check oben war check-then-act, zwei
+        # gleichzeitige ERSTVERÖFFENTLICHUNGEN desselben Pubkeys durch
+        # verschiedene Konten gewannen beide die Prüfung. Der partielle
+        # Unique-Index (models/geraete_schluessel.py) entscheidet jetzt;
+        # der Verlierer bekommt dieselbe 409 wie beim synchrogenen Fall.
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="geraet_gehoert_anderem_konto")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -172,6 +183,13 @@ async def einmalschluessel_hinzufuegen(
             status_code=404, detail="Kein Buendel fuer dieses Geraet veroeffentlicht"
         )
 
+    # Bughunt Runde 42 (Entscheidung 4.6): die Bundle-Zeile SPERREN, bevor
+    # der Vorrat gezaehlt wird — count-then-insert war check-then-act, zwei
+    # gleichzeitige Batches gewannen beide die Pruefung und ueberschritten
+    # den Cap. Mit der Zeilensperre serialisieren sich alle
+    # Vorrats-Schreiber je Geraet (SQLite ignoriert FOR UPDATE — die Tests
+    # serialisieren ohnehin; in Postgres greift das Schloss).
+    await session.get(DeviceKeyBundle, bundle.id, with_for_update=True)
     vorhandene = (
         await session.execute(
             select(func.count())

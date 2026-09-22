@@ -509,6 +509,14 @@ async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> Non
     if not statement_jwt or not isinstance(statement_jwt, str):
         return  # no-op — client sent frame without JWT
 
+    # Bughunt Runde 34: per-Socket-Bremse — der legitime Takt ist ~1 je
+    # Verbindung (+ Retry je Key-Rotation). Ohne Bremse kostet jeder Frame
+    # Redis-GET, Pool-Checkout und RSA-Verify; ein Frame-Strom würde den
+    # Gateway-Worker verdrängen.
+    now_mono = time.monotonic()
+    if now_mono - ctx.last_profile_statement < 2.0:
+        return
+    ctx.last_profile_statement = now_mono
     # Fetch the Cloud JWKS from Redis (fail-open when cache is cold). The
     # statement is Cloud-signed, so on a Self-Host we must verify against the
     # CLOUD JWKS (``auth:cloud_jwks:cached``, warmed by jwks_poller) — NOT the

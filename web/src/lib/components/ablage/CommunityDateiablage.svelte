@@ -44,6 +44,7 @@
   import { sichererBlobTyp } from '$lib/krypto/sichererBlobTyp.ts';
   import { formatBytes } from '$lib/utils/formatBytes';
   import { m } from '$lib/paraglide/messages.js';
+  import { currentLocale } from '$lib/i18n';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import DropboxQuotaGauge from '../dropbox/DropboxQuotaGauge.svelte';
@@ -219,13 +220,17 @@
   async function loeschen(zeile: DateiInfo): Promise<void> {
     const speicher = await speicherFuerVerbindung();
     if (!speicher) return;
-    if (zeile.istOrdner) {
-      const ok = await confirmDialog({
-        description: m.ablage_pulse_ordner_loeschen_frage({ name: zeile.name }),
-        destructive: true
-      });
-      if (!ok) return;
-    }
+    // Bughunt 2026-09-20 (Runde 2): der Confirm galt nur für Ordner — eine
+    // EINZELNE Datei flog nach einem Klick auf den kleinen Mülleimer endgültig
+    // weg (verschlüsseltes Objekt inklusive), für die ganze Community. Auch
+    // Dateien fragen jetzt nach (s. Engine-Kommentar in dateispeicher.ts).
+    const ok = await confirmDialog({
+      description: zeile.istOrdner
+        ? m.ablage_pulse_ordner_loeschen_frage({ name: zeile.name })
+        : m.ablage_pulse_datei_loeschen_frage({ name: zeile.name }),
+      destructive: true
+    });
+    if (!ok) return;
     try {
       await speicher.löschen(zeile.id);
       await ladeListe();
@@ -443,7 +448,7 @@
                   {:else}
                     {formatBytes(zeile.groesse)}
                     {#if zeile.hochgeladenAm}
-                      · {new Date(zeile.hochgeladenAm).toLocaleDateString()}
+                      · {new Date(zeile.hochgeladenAm).toLocaleDateString(currentLocale())}
                     {/if}
                   {/if}
                 </div>

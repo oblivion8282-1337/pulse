@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import { presence } from '$lib/stores/presence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -42,6 +43,7 @@
     channel,
     messages,
     onSend,
+    sendReport,
     /** Optionaler Inhalt fuer den Leerraum bei messages.length === 0 —
      *  wird unverändert an MessageList durchgereicht. */
     leerHinweis = undefined as Snippet | undefined,
@@ -70,8 +72,10 @@
       text: string,
       replyToId: string | null,
       attachmentIds: string[],
-      anhaenge: AnhangAngabe[]
+      anhaenge: AnhangAngabe[],
+      melden?: (ok: boolean) => void
     ) => void;
+    sendReport?: boolean;
     isOwner?: boolean;
     leerHinweis?: Snippet;
     /** 'dm' swaps the # for an @-style icon and prefixes names with @.
@@ -292,9 +296,19 @@
       : null
   );
 
-  function handleSend(text: string, attachmentIds: string[], anhaenge: AnhangAngabe[]) {
+  function handleSend(
+    text: string,
+    attachmentIds: string[],
+    anhaenge: AnhangAngabe[],
+    melden?: (ok: boolean) => void
+  ) {
     const target = replyTarget;
-    onSend(text, target?.id ?? null, attachmentIds, anhaenge);
+    onSend(text, target?.id ?? null, attachmentIds, anhaenge, melden);
+    if (melden) {
+      // Restorable Weg (Entscheidung 3.4): der Composer leert selbst erst
+      // nach melden(true) — der Antwort-Banner darf deshalb noch stehen.
+      return;
+    }
     replyTarget = null;
   }
 
@@ -365,7 +379,7 @@
           {:else}
             <span
               class="accent-gradient flex size-full items-center justify-center rounded-full text-xs font-bold text-white"
-              >{userCache.displayName(dmPartnerId).slice(0, 1).toUpperCase()}</span
+              >{anfangsBuchstabe(userCache.displayName(dmPartnerId))}</span
             >
           {/if}
           <StatusDot
@@ -533,6 +547,7 @@
         ? `${namePrefix}${channel.name}`
         : pm.chat_view_message_placeholder({ preposition: headerKind === 'dm' ? pm.chat_view_placeholder_to() : pm.chat_view_placeholder_in(), prefix: namePrefix, name: channel.name })}
       onSend={handleSend}
+      sendReport={sendReport}
       replyTo={replyBanner}
       onCancelReply={() => (replyTarget = null)}
       disabled={composerDisabled}

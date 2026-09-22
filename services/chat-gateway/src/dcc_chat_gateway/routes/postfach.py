@@ -42,10 +42,11 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from dcc_shared.events import PostfachNeuEvent
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import exists, func, select
 
 import dcc_chat_gateway.config as chat_config
+from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
 from dcc_chat_gateway.postfach_anhaenge import bezuege_anlegen, binde_anhaenge
@@ -88,6 +89,13 @@ async def postfach_einliefern(
     # in conftest.py) nicht.
     settings = chat_config.get_settings()
     cid_int = int(body.channel_id)
+
+    # Bughunt Runde 35: die Route hatte keine Bremse — ein Skript konnte die
+    # Empfaenger-Schleife (je Nutzlast bis 64 Pubkeys) dauerhaft am Laufen
+    # halten. 60/Minute je Konto: der Klient liefert in Batches ein, die
+    # batching-Freundliche Grenze bleibt weit unter jedem echten Bedarf.
+    if not ratelimit.check("postfach", user.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded")
 
     # 1. Obergrenzen ZUERST (Bughunt 2026-08-28 (Missbrauch), FIX 4) —
     # reiner Strukturcheck auf dem Rumpf, keine DB. Vorher liefen
@@ -179,6 +187,16 @@ async def postfach_einliefern(
     # ``set`` nur, damit die Reihenfolge fuer die Antwort stabil bleibt.
     uebersprungene_empfaenger: dict[str, None] = {}
 
+    # Bughunt Runde 35: In-Request-Caches wie ``offene_je_geraet`` — eine
+    # Anfrage mit vielen Nutzlasten an dieselben Empfaenger (Megolm: 64
+    # Geraete je Umschlag, bis 100 Umschlaege) lief sonst je PAAR ein
+    # Bundle-SELECT plus, bei fremden Pubkeys, einen EXISTS-Lauf: bis
+    # 12.800 DB-Rundreisen fuer eine Anfrage ohne eine einzige neue Zeile.
+    # Innerhalb EINER Anfrage aendert sich kein Bundle (eine Transaktion,
+    # kein Commit der Schleife), der Cache ist also exakt.
+    bundle_je_pubkey: dict[str, DeviceKeyBundle | None] = {}
+    fremd_vorhanden_je_pubkey: dict[str, bool] = {}
+
     for eintrag, groesse in zip(body.nutzlasten, groessen, strict=True):
         empfaenger_zeilen: list[tuple[str, int]] = []
         for pubkey in dict.fromkeys(eintrag.empfaenger):  # Duplikate raus.
@@ -197,7 +215,10 @@ async def postfach_einliefern(
             # Umschlaege in das Postfach JEDES Geraets JEDES Nutzers legen,
             # auch von Leuten, die ihn geblockt haben, und dabei deren
             # Kontingent vollschreiben.
-            bundle = await _bundle_laden(session, pubkey, teilnehmer)
+            bundle = bundle_je_pubkey.get(pubkey)
+            if pubkey not in bundle_je_pubkey:
+                bundle = await _bundle_laden(session, pubkey, teilnehmer)
+                bundle_je_pubkey[pubkey] = bundle
             if bundle is None:
                 # Kein Buendel innerhalb DIESES Gespraechs. Ein Pubkey, der
                 # NIRGENDS existiert, ist immer Alltag (Geraet zwischen
@@ -226,11 +247,13 @@ async def postfach_einliefern(
                 # ``_bundle_laden``-Aufrufs, weil er selbst bei einer
                 # Pubkey-Kollision unter mehreren fremden Konten nie mehr als
                 # einen booleschen Wert liefert.
-                fremdes_geraet_vorhanden = (
-                    await session.execute(
-                        select(exists().where(DeviceKeyBundle.device_pubkey == pubkey))
-                    )
-                ).scalar_one()
+                if pubkey not in fremd_vorhanden_je_pubkey:
+                    fremd_vorhanden_je_pubkey[pubkey] = (
+                        await session.execute(
+                            select(exists().where(DeviceKeyBundle.device_pubkey == pubkey))
+                        )
+                    ).scalar_one()
+                fremdes_geraet_vorhanden = fremd_vorhanden_je_pubkey[pubkey]
                 if fremdes_geraet_vorhanden and zugriff.ist_dm:
                     raise HTTPException(status_code=403, detail="empfaenger_nicht_im_kanal")
                 uebersprungene_empfaenger[pubkey] = None

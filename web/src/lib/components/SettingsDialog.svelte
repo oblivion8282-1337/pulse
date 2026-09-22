@@ -82,7 +82,7 @@
   });
 
   // Für die Teile INNERHALB des Tabs, die es wirklich nur unter Linux gibt
-  // (die Notbremse zurück auf den GSR-Sidecar).
+  // (die Notbremse zurück auf den Sidecar).
   const isLinuxDesktop =
     isElectron() && typeof window !== 'undefined' && window.pulse?.os === 'linux';
 

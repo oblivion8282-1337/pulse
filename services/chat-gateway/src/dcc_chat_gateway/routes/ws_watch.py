@@ -135,10 +135,6 @@ async def handle_start(
     if redis is None:
         await _err(websocket, 4017, "watch service unavailable")
         return
-    # Per-channel cap: several parties may coexist, but not unboundedly.
-    if await watchkeys.count_parties(redis, cid) >= watchkeys.MAX_PARTIES_PER_CHANNEL:
-        await _err(websocket, 4014, "too many watch parties in this channel")
-        return
     pid = str(next_id())
     ts = watchkeys.now_ms()
     state = {
@@ -154,7 +150,14 @@ async def handle_start(
         # ones that belong to a since-replaced clip.
         "source_epoch": 0,
     }
-    await watchkeys.write_party(redis, cid, state)
+    # Per-channel cap ATOMAR (Bughunt Runde 42, Entscheidung 4.7): vorher las
+    # handle_start den HLEN-Stand und schrieb danach — zwei gleichzeitige
+    # starts an einem vollen Kanal rissen beide die Prüfung und legten beide
+    # an. ``write_party_gedeckelt`` prüft und schreibt in einem Lua-Lauf;
+    # ``False`` heißt: voll, nichts angelegt.
+    if not await watchkeys.write_party_gedeckelt(redis, cid, state):
+        await _err(websocket, 4014, "too many watch parties in this channel")
+        return
     hosted_parties.add((cid, pid))
     # Ack the freshly-minted party id back to the host so its client can open
     # the tile (the broadcast that write_party fires doesn't say "this one is
@@ -182,6 +185,11 @@ async def handle_join(
     pid = _party_id(msg.get("party_id"))
     if cid_int is None or pid is None:
         await _err(websocket, 4012, "channel_id and party_id required")
+        return
+    # Bughunt Runde 34: bereits beobachtende Paare kurzschließen (Spiegel
+    # zum Leave-Seite-Fix) — sonst kostet jeder watch_join-Frame DB-Gate +
+    # broadcast_watchers-Fan-out erneut, bei idempotentem set.add.
+    if (cid_int, pid) in watched_parties:
         return
     async with session_factory() as session:
         channel = await channel_membership(session, cid_int, user.id)
@@ -258,16 +266,14 @@ async def handle_stop(
     redis = _redis(websocket)
     if redis is None:
         return
-    state = await watchkeys.read_party(redis, cid, pid)
-    if state is None:
-        # Idempotent stop.
-        hosted_parties.discard((cid, pid))
-        watched_parties.discard((cid, pid))
-        return
-    if str(state.get("host_user_id")) != str(user.id):
+    # Atomar prüfen + löschen (Bughunt Runde 6): ein Handoff vom zweiten
+    # Tab des Hosts konnte zwischen Lesen und Löschen landen — die Löschung
+    # beendete die soeben übergebene Party für alle. delete_party_if_host
+    # prüft den Host im WATCH; False deckt „weg" und „nicht mehr Host" ab.
+    gestoppt = await watchkeys.delete_party_if_host(redis, cid, pid, str(user.id))
+    if not gestoppt and (await watchkeys.read_party(redis, cid, pid)) is not None:
         await _err(websocket, 4015, "only the host can stop")
         return
-    await watchkeys.delete_party(redis, cid, pid)
     hosted_parties.discard((cid, pid))
     watched_parties.discard((cid, pid))
     mgr = _manager(websocket)

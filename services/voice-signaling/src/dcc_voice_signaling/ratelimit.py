@@ -22,10 +22,16 @@ _RULES: dict[str, tuple[int, float]] = {
     # ein 429 — der Gezogene strandet dann ohne Voice („User verschwunden").
     # 20/min ist weiter strikt gegen Token-Minting-Missbrauch.
     "token": (20, 60.0),
+    # Interne Geheimnis-Routen (Bughunt Runde 46): Brakes VOR dem
+    # compare_digest, wie in chat-gateway und auth-svc (Audit 2026-09) —
+    # sonst war evict-from-voice der einzige Plattform-Endpoint, an dem
+    # sich das Service-Geheimnis ungedrosselt raten liess. Key ist die
+    # Client-IP (der Aufrufer ist ein anderer Dienst, Loopback-Gate davor).
+    "internal_secret": (120, 60.0),
 }
 
 
-def check(action: str, user_id: int) -> bool:
+def check(action: str, user_id: int | str) -> bool:
     """Return True if the call is allowed, False if the user is over budget.
 
     A side effect of every call is an opportunistic sweep of expired buckets

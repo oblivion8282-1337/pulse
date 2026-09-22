@@ -55,9 +55,20 @@ async def ablage_abruf_antwort(basis: str, pfad: str) -> Response:
         raise HTTPException(
             STATUS_JE_CODE.get(exc.code, status.HTTP_502_BAD_GATEWAY), detail=exc.code
         ) from exc
+    # Bughunt Runde 16: Content-Type und Inhalt kommen BOTH vom externen
+    # Laufwerk, dessen Adresse der Kanal-Ersteller/Guild-Owner frei wählt.
+    # Vorher reichte die Route den Upstream-Content-Type unverändert durch —
+    # `text/html` hätte als Dokument auf der Pulse-Origin gerendert
+    # (Same-Origin-XSS; dieselbe Klasse, die normalize_content_type beim
+    # alten Dropbox-Weg abwehrt). Ablage-Inhalte sind opake Chiffrate, der
+    # Klient entschlüsselt selbst — es gibt keinen legitimen Inline-Typ.
     return Response(
         content=ergebnis.inhalt,
-        media_type=ergebnis.content_type or "application/octet-stream",
+        media_type="application/octet-stream",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": "attachment",
+        },
     )
 
 

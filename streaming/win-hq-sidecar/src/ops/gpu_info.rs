@@ -56,7 +56,7 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         ),
     );
     // Windows-spezifisches Extra — die Linux-Variante hat das nicht, der Renderer
-    // toleriert unbekannte Felder (alle gsr.ts-Types haben optionale Felder).
+    // toleriert unbekannte Felder (alle sidecar.ts-Types haben optionale Felder).
     out.insert("adapters".to_string(), Value::Array(adapter_list));
     Ok(out)
 }

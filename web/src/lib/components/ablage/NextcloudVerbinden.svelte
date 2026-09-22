@@ -16,6 +16,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import { m } from '$lib/paraglide/messages.js';
   import { ausFreigabeLink, FreigabeLinkFehler } from '$lib/ablage/freigabeLink';
   import { pruefeAblageZiel } from '$lib/api/ablagePruefen';
   import { SCHRITT_TEXT } from '$lib/ablage/probeSchrittText';
@@ -49,8 +50,11 @@
       if (!ergebnis.gut) {
         fehler =
           ergebnis.schritt === 'schreiben'
-            ? `Der Link durfte nicht schreiben (${ergebnis.grund}). Prüfe in Nextcloud, ob die Freigabe „Bearbeiten erlauben" gesetzt hat.`
-            : `Fehlgeschlagen beim Schritt „${SCHRITT_TEXT[ergebnis.schritt]}": ${ergebnis.grund}`;
+            ? m.nextcloud_fehler_schreiben({ grund: ergebnis.grund })
+            : m.nextcloud_fehler_schritt({
+                schritt: SCHRITT_TEXT[ergebnis.schritt],
+                grund: ergebnis.grund
+              });
         return;
       }
 
@@ -76,7 +80,7 @@
       fehler =
         e instanceof FreigabeLinkFehler
           ? e.message
-          : `Die Verbindung kam nicht zustande: ${e instanceof Error ? e.message : String(e)}`;
+          : m.nextcloud_fehler_allgemein({ grund: e instanceof Error ? e.message : String(e) });
     } finally {
       laeuft = false;
     }
@@ -85,12 +89,11 @@
 
 <div class="space-y-3">
   <p class="text-sm text-muted-foreground">
-    Lege in Nextcloud eine Freigabe auf einen Ordner an, setze
-    <strong>„Bearbeiten erlauben"</strong>, und füge den Link hier ein.
+    {m.nextcloud_hinweis_vor_bold()}<strong>{m.nextcloud_hinweis_bold()}</strong>{m.nextcloud_hinweis_nach_bold()}
   </p>
 
   <div class="space-y-1.5">
-    <Label for="nextcloud-link">Freigabe-Link</Label>
+    <Label for="nextcloud-link">{m.nextcloud_link_label()}</Label>
     <Input
       id="nextcloud-link"
       bind:value={link}
@@ -102,12 +105,11 @@
   </div>
 
   <p class="text-xs text-muted-foreground">
-    Der Link ist ein Schlüssel: wer ihn hat, darf in diesen Ordner schreiben.
-    In Nextcloud kannst du ihn jederzeit mit einem Klick zurückziehen.
+    {m.nextcloud_link_hinweis()}
   </p>
 
   <Button onclick={verbinde} disabled={laeuft || link.trim() === ''} data-testid="nextcloud-verbinden">
-    {laeuft ? 'Wird geprüft …' : 'Verbinden'}
+    {laeuft ? m.nextcloud_prueft() : m.nextcloud_knopf()}
   </Button>
 
   {#if fehler}

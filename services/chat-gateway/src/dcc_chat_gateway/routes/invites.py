@@ -21,7 +21,7 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
-from dcc_chat_gateway.routes._deps import publish_guild_event
+from dcc_chat_gateway.routes._deps import is_guild_suspended, publish_guild_event
 from dcc_chat_gateway.schemas import (
     CreateInviteIn,
     InviteAcceptOut,
@@ -152,6 +152,13 @@ async def _join_guild(
     # or learn anything about the guild they're banned from.
     if await is_user_banned(session, guild_id, user_id):
         raise HTTPException(403, detail="you are banned from this server")
+    # Bughunt Runde 49: eingefrorene Community — vorher landeten neue
+    # Mitglieder in der suspendierten Community (Member-Cap verbrannt,
+    # Sidebar-Geist), wo jeder Folgeaufruf 403 geht. Join parallel zum
+    # Ban-Check abgewiesen; der Operator behält sich Global-Admin-
+    # Wege vor (dieselben laufen nicht durch _join_guild).
+    if await is_guild_suspended(session, guild_id):
+        raise HTTPException(403, detail="community is suspended")
     if pre is not None:
         await pre()
 
@@ -229,6 +236,14 @@ async def create_invite(
         channel = await session.get(Channel, payload.channel_id)
         if channel is None or channel.guild_id != guild_id:
             raise HTTPException(400, detail="channel does not belong to this guild")
+        # Bughunt Runde 49: CREATE_INVITES kanalskopiert — der Client
+        # behandelt das Bit als Kanal-Recht (kanalrechte.ts), der Resolver
+        # löst kanalskopiert auf, nur der Mint las es weg. Ein kanalweiser
+        # User-Deny auf dem Zielkanal ist sonst dekorativ.
+        await check_permission(
+            session, current, guild_id, Permissions.CREATE_INVITES,
+            channel_id=payload.channel_id,
+        )
         channel_id = channel.id
 
     expires_at: datetime | None = None

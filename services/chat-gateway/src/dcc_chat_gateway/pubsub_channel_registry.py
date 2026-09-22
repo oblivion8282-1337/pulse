@@ -90,12 +90,20 @@ def get_channel_handler(channel: str) -> ChannelHandler | None:
     return None
 
 
-def unregister_channel_handler(channel: str) -> bool:
-    """Drop the registration for ``channel``. Returns ``True`` if a handler
-    was removed, ``False`` otherwise. Used by the Schritt-4 plugin loader to
-    roll back a plugin's pub/sub channel handlers on deactivate.
-    """
-    return _handlers.pop(channel, None) is not None
+def snapshot_channel_handlers() -> dict[str, ChannelHandler]:
+    """Snapshot der Handler-Tabelle — Handler-Identität statt nur Namen,
+    damit die Plugin-Registry einen Override als Differenz erkennt
+    (Spiegel von ``ws_ops_registry.snapshot_ws_handlers``)."""
+    return dict(_handlers)
+
+
+def restore_channel_handler(channel: str, handler: ChannelHandler | None) -> None:
+    """Stellt den Vorgänger-Handler wieder her; ``None`` = vorher unbekannt,
+    dann wegnehmen (Spiegel von ``ws_ops_registry.restore_ws_op``)."""
+    if handler is None:
+        _handlers.pop(channel, None)
+    else:
+        _handlers[channel] = handler
 
 
 def registered_channels() -> list[str]:

@@ -116,9 +116,3 @@ export function stopProfileRefresh(): void {
   }
 }
 
-/**
- * Gibt true zurück wenn der Timer läuft.
- */
-export function isProfileRefreshRunning(): boolean {
-  return _running;
-}

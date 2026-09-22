@@ -40,6 +40,7 @@ from dcc_auth.routes import (
     _issue_tokens,
     _signer_dep,
 )
+from dcc_auth.email import resolve_smtp_config
 from dcc_auth.schemas import (
     EmailChangeConfirmIn,
     EmailChangeRequestIn,
@@ -147,6 +148,17 @@ async def request_email_change(
     settings = get_settings()
     await _check_rate(request, "email_change", settings.rate_limit_email_verify_send)
 
+    # Bughunt Runde 24: ohne SMTP-Konfiguration würde der Endpoint 204
+    # liefern, der Klient "Erfolgs"-Toasten — aber es geht nie eine Mail
+    # raus und der Wechsel ist nie abschließbar (Token verfällt still).
+    # Fail-loud wie der Verify-Flow (dort regelt _email_gate_blocked).
+    _smtp = await resolve_smtp_config(session)
+    if _smtp is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="email not configured — ask the operator to set up SMTP",
+        )
+
     if not await asyncio.to_thread(
         verify_password, payload.current_password, current.password_hash
     ):
@@ -201,6 +213,7 @@ async def request_email_change(
 @router.post("/me/email/change/confirm", response_model=MessageOut)
 async def confirm_email_change(
     payload: EmailChangeConfirmIn,
+    request: Request,
     session: SessionDep,
 ) -> MessageOut:
     """Anonymous — the token in the link IS the auth (the recipient owns the
@@ -208,10 +221,19 @@ async def confirm_email_change(
     new address verified). 401 for any bad/expired/used token; 409 if the
     address was taken by someone else between request and confirm.
     """
+    settings = get_settings()
+    await _check_rate(request, "token_confirm", settings.rate_limit_token_confirm)
     digest = hash_token(payload.token)
+    # Row-Lock (Bughunt Runde 24, Spiegel zu _consume_reset_token /
+    # email_verification_confirm): doppelklick-/replay-feuernde Klienten
+    # lasen sonst zweimal used_at IS NULL. Hier harmlos (dieselbe Adresse
+    # würde zweimal geschrieben), aber die Single-Use-Zusage wird
+    # konsistent atomar durchgesetzt.
     row = (
         await session.execute(
-            select(EmailChangeToken).where(EmailChangeToken.token_hash == digest)
+            select(EmailChangeToken)
+            .where(EmailChangeToken.token_hash == digest)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     now = datetime.now(UTC)

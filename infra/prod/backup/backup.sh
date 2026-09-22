@@ -111,14 +111,32 @@ run_maintenance() {
     restic check
 }
 
-# Health marker — read by the compose healthcheck (file age < 36h ⇒ healthy).
-# Lives at /repo/.pulse/last-backup-ok inside the pulse_backups volume so it
-# survives container restarts. restic ignores files outside its managed
-# subdirs (data/index/keys/locks/snapshots/config), so this is safe to keep
+# Health markers — read by the compose healthcheck (per tag-group age < 36h
+# ⇒ healthy). Bughunt 2026-09-20 (Runde 2): vorher gab es EINEN Marker, den
+# JEDER erfolgreiche Job erneuerte — ein täglich sterbender pg-Dump blieb
+# unter frischen Nachbar-Jobs (avatars/icons/config/minio) dauerhaft "frisch",
+# und nach einer Woche forget --prune war der letzte wiederherstellbare
+# Postgres-Snapshot weg, ohne eine einzige Warnung. Jetzt schreibt jeder Job
+# seinen eigenen Marker (/repo/.pulse/last-ok-<tag>), die Healthcheck-Schleife
+# verlangt ALLE frisch, und der globale Marker (den das Auth-Admin-Panel als
+# einzelne Datei liest) wird nur noch erneuert, wenn keine Gruppe veraltet ist.
+# Lives at /repo/.pulse inside the pulse_backups volume so markers survive
+# container restarts. restic ignores files outside its managed subdirs
+# (data/index/keys/locks/snapshots/config), so this is safe to keep
 # co-located with the repo.
 mark_ok() {
+    local tag="$1"
     mkdir -p /repo/.pulse
-    date -u +%FT%TZ > /repo/.pulse/last-backup-ok
+    date -u +%FT%TZ > "/repo/.pulse/last-ok-$tag"
+    local t alt jetzt alle=1
+    jetzt=$(date +%s)
+    for t in pg minio avatars icons config; do
+        alt=$(stat -c %Y "/repo/.pulse/last-ok-$t" 2>/dev/null || echo 0)
+        [ $((jetzt - alt)) -lt 129600 ] || { alle=0; break; }
+    done
+    if [ "$alle" = 1 ]; then
+        date -u +%FT%TZ > /repo/.pulse/last-backup-ok
+    fi
 }
 
 ensure_repo
@@ -134,5 +152,5 @@ case "${1:-}" in
     *)           echo "unknown subcommand: $1" >&2; exit 64 ;;
 esac
 
-mark_ok
+mark_ok "$1"
 log "$1 done"

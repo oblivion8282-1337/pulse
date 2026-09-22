@@ -110,7 +110,13 @@ export function erstelleKanalWechsel() {
         if (isStale()) return;
         gateway.subscribe(target);
         // Backfill anything that landed while the subscription was dropped.
-        if (alreadyLoaded) void gateway.gapFill(target);
+        // Bughunt Runde 5: nicht nur beim Wieder-Öffnen — auf dem Frisch-Pfad
+        // friert der REST-Snapshot zum Anfragezeitpunkt ein, eine Nachricht
+        // zwischen Snapshot und serverseitiger Abo-Registrierung erzeugt nur
+        // einen channel_bump. gapFillChannel liest lastPersistedId (der
+        // frische Snapshot-Stand) und holt genau dieses Fenster nach; ein
+        // WS-Push, der mit dem REST rennt, dedupet über mergeGap.
+        void gateway.gapFill(target);
         // Acknowledge unread state: the user is now looking at this channel.
         // markRead uses latestByChannel — which also reflects ids learned via
         // channel_bump while we weren't subscribed. loaded[…].id alone would

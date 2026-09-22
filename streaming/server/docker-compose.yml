@@ -1,5 +1,5 @@
 # MediaMTX als Streaming-Server (Dev: lokal; Prod: VPS — T5c)
-# Version gepinnt damit Watchtower nichts kaputt-updatet
+# Version gepinnt — Updates laufen bewusst manuell
 #
 # Ports:
 #   1935 (TCP) - RTMP-Ingest  (Auth: authHTTP → Pulse mediamtx-auth-hook, Token als ?pass=…)
@@ -98,7 +98,7 @@ services:
     # auth-hook auf dem Host (localhost:8005) für MediaMTX direkt erreichbar.
     labels:
       # Watchtower-Hinweis: dieses Image NICHT auto-updaten
-      - "com.centurylinklabs.watchtower.enable=false"
+      - ""
 
   # Static-File-Server für player.html (Stats-Browser-Player)
   # Eigener Port 8000, kein Konflikt mit existierendem Caddy auf 80/443
@@ -111,4 +111,4 @@ services:
     volumes:
       - ./player.html:/usr/share/nginx/html/index.html:ro
     labels:
-      - "com.centurylinklabs.watchtower.enable=false"
+      - ""

@@ -61,12 +61,9 @@ ARG LIVEKIT_VERSION=1.13.3
 # Hand baut, braucht ein `docker login ghcr.io` — beim frueheren
 # `curl`-Download war das nicht noetig.
 ARG PULSE_MEDIAMTX_TAG=1.19.1-pulse7
-# MinIO — S3-compatible object store for message attachments. Pinned to the
-# SAME release the prod stack runs (infra/prod/docker-compose.yml) for parity.
-# Format is the upstream RELEASE.<timestamp> tag, used verbatim in the URL.
-# Source: the frozen GitHub release archive (dl.min.io is 410 since MinIO
-# went source-only for the community edition, s. the download stage below).
-ARG MINIO_VERSION=RELEASE.2025-09-07T16-13-09Z
+# (Garage ersetzt MinIO, Bughunt Runde 32/Entscheidung 1.1 — das
+#  dl.min.io-Archiv ist 410 und das Hub-Image gelöscht. Garage kommt aus
+#  dem dxflrs-Image, siehe garage-upstream-Stage unten.)
 # frp-Client für den Steuerungs-Relay-Tunnel (App-Hosting). Version passend
 # zum frps auf dem Cloud-Server (infra/prod: snowdreamtech/frps:0.69.1).
 ARG FRP_VERSION=0.69.1
@@ -83,8 +80,6 @@ ARG TARGETARCH=amd64
 #   - LiveKit: official checksums.txt in the GitHub release.
 #   - Caddy + MediaMTX: re-hashed from the upstream release tarballs (Caddy
 #     publishes SHA-512 only; MediaMTX publishes no checksums file at all).
-#   - MinIO: official .sha256sum sidecar next to each release binary in the
-#     frozen GitHub release archive.
 ARG SHA256_S6_NOARCH=6dbcde158a3e78b9bb141d7bcb5ccb421e563523babbe2c64470e76f4fd02dae
 ARG SHA256_S6_X86_64=59289456ab1761e277bd456a95e737c06b03ede99158beb24f12b165a904f478
 ARG SHA256_S6_AARCH64=8b22a2eaca4bf0b27a43d36e65c89d2701738f628d1abd0cea5569619f66f785
@@ -92,8 +87,6 @@ ARG SHA256_CADDY_AMD64=a7e8306c54138cf88e371c5ec0caf7baf142ecc1d60a30897dfb67d65
 ARG SHA256_CADDY_ARM64=93a3eb31883d678c6590c6d823eb6bb9f7a3af66dcd9d53df3eb2c7528b2af05
 ARG SHA256_LIVEKIT_AMD64=7ac9372a229b3d31a716d63b5a9915ad2ffb7d28a8bacc5ba5fc33a2a475d8a3
 ARG SHA256_LIVEKIT_ARM64=b76fa445c625827999ab6a8cd2d30a64547cb3c9e7189b64ab1dd7444bc17159
-ARG SHA256_MINIO_AMD64=7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
-ARG SHA256_MINIO_ARM64=5c83cd2cf151717ba0243f73e1c7802ff36e272b67144bdd7f1f7d684fd6f03d
 # frp: upstream publiziert keine Checksums-Datei — re-hashed vom offiziellen Tarball.
 ARG SHA256_FRP_AMD64=7be257b72dbbc60bcb3e0e25a5afd1dfac7b63f897084864d3c956dd3d5674e1
 ARG SHA256_FRP_ARM64=bbc0c75e896af3f292fb46ba09c844a04fa9b5ea3530c039c7af20637f836355
@@ -229,9 +222,6 @@ ARG SHA256_CADDY_AMD64
 ARG SHA256_CADDY_ARM64
 ARG SHA256_LIVEKIT_AMD64
 ARG SHA256_LIVEKIT_ARM64
-ARG MINIO_VERSION
-ARG SHA256_MINIO_AMD64
-ARG SHA256_MINIO_ARM64
 ARG SHA256_FRP_AMD64
 ARG SHA256_FRP_ARM64
 ENV DEBIAN_FRONTEND=noninteractive
@@ -314,26 +304,11 @@ RUN set -eux; \
     mkdir -p /opt/frp; \
     tar -C /opt/frp --strip-components=1 -xzf frp.tar.gz "frp_${FRP_VERSION}_${FRP_ARCH}/frpc"
 
-# MinIO — single static binary (not a tarball). Upstream ships a .sha256sum
-# sidecar per release; we pin the hash via the top-level ARGs. Source is the
-# FROZEN GitHub release archive: dl.min.io serves 410 since MinIO stopped
-# distributing community binaries/images (source-only since early 2026), and
-# the minio/minio Docker Hub image is gone too. Same-version bumps stay
-# possible from the archive; anything newer needs a product decision
-# (fork/alternative/source build) — and infra/prod/docker-compose.yml still
-# references the Hub tag, which only survives on hosts that already pulled it.
-RUN set -eux; \
-    case "${TARGETARCH}" in \
-        amd64) MINIO_ARCH=amd64; SHA256_MINIO="${SHA256_MINIO_AMD64}" ;; \
-        arm64) MINIO_ARCH=arm64; SHA256_MINIO="${SHA256_MINIO_ARM64}" ;; \
-        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL -o minio \
-        "https://github.com/minio/minio/releases/download/${MINIO_VERSION}/minio.linux-${MINIO_ARCH}.${MINIO_VERSION}"; \
-    echo "${SHA256_MINIO}  minio" | sha256sum -c -; \
-    mkdir -p /opt/minio; \
-    mv minio /opt/minio/minio; \
-    chmod +x /opt/minio/minio
+# Garage — S3-compatible object store (ersetzt MinIO, Bughunt-Runde-32-
+# Entscheidung 1.1/Option 3: dl.min.io hat die Community-Archive gestrichen
+# und das Hub-Image ist gelöscht; Garage ist ein statisches Rust-Binary in
+# einem eigenen minimalen Image, das wir hier nur als Binary-Quelle nutzen).
+FROM dxflrs/garage:v1.1.0 AS garage-upstream
 
 # ── Stage 4 — runtime ─────────────────────────────────────────────────────
 # Debian Bookworm (NOT Alpine — coturn + Postgres + Python+uv expect glibc;
@@ -345,7 +320,7 @@ ARG PYTHON_VERSION
 
 LABEL org.opencontainers.image.source="https://github.com/oblivion8282-1337/pulse" \
       org.opencontainers.image.title="Pulse Self-Host All-in-One" \
-      org.opencontainers.image.description="Single-container Pulse Self-Host (all services + Postgres + Redis + LiveKit + MediaMTX + MinIO + coturn + Caddy)" \
+      org.opencontainers.image.description="Single-container Pulse Self-Host (all services + Postgres + Redis + LiveKit + MediaMTX + Garage + coturn + Caddy)" \
       org.opencontainers.image.version="${PULSE_VERSION}"
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -395,10 +370,11 @@ COPY --from=binaries /opt/s6/      /
 COPY --from=binaries /opt/caddy/caddy            /usr/local/bin/caddy
 COPY --from=binaries /opt/livekit/livekit-server /usr/local/bin/livekit-server
 COPY --from=binaries /opt/mediamtx/mediamtx      /usr/local/bin/mediamtx
-COPY --from=binaries /opt/minio/minio            /usr/local/bin/minio
+COPY --from=garage-upstream /garage              /usr/local/bin/garage
+COPY infra/self-host/garage-init.sh /usr/local/bin/garage-init
 COPY --from=binaries /opt/frp/frpc               /usr/local/bin/frpc
 COPY --from=rust-build /opt/pulse-direct-adapter /usr/local/bin/pulse-direct-adapter
-RUN chmod +x /usr/local/bin/caddy /usr/local/bin/livekit-server /usr/local/bin/mediamtx /usr/local/bin/minio /usr/local/bin/frpc /usr/local/bin/pulse-direct-adapter
+RUN chmod +x /usr/local/bin/caddy /usr/local/bin/livekit-server /usr/local/bin/mediamtx /usr/local/bin/garage /usr/local/bin/frpc /usr/local/bin/pulse-direct-adapter
 
 # Python venv + service source from stage 1 — already at /opt/pulse, no path
 # rewrite needed (UV_PROJECT_ENVIRONMENT made the venv live at /opt/pulse/venv
@@ -447,7 +423,7 @@ RUN groupadd -g 10001 pulse \
 #   8002–8005 (python services), 8889 (mediamtx whep, proxied via Caddy),
 #   8888 (mediamtx hls — listening, but NO Caddy route and not published:
 #         unreachable from outside; see the note in 08-init-mediamtx.sh),
-#   9000 (minio S3 API, proxied via Caddy /pulse-attachments/*), 9997 (mediamtx api).
+#   9000 (garage S3 API, proxied via Caddy /pulse-attachments/*), 9997 (mediamtx api).
 EXPOSE 80 443 8080 1936 3478 3478/udp 7882-7892/udp 8189/udp
 
 VOLUME ["/data"]

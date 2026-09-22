@@ -12,6 +12,7 @@
    * schon darauf vorbereitet: sobald ein Adapter `freieBytes` liefert,
    * erscheint die Zahl hier ohne weitere Änderung an dieser Datei.
    */
+  import { currentLocale } from '$lib/i18n';
   import CheckCircleIcon from '@lucide/svelte/icons/check-circle';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
   import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
@@ -46,7 +47,7 @@
   const Icon = $derived(ANBIETER_IKONE[verbindung.anbieter] ?? HardDriveIcon);
 
   function datum(iso: string): string {
-    return new Date(iso).toLocaleDateString('de-DE', {
+    return new Date(iso).toLocaleDateString(currentLocale(), {
       day: 'numeric',
       month: 'long',
       year: 'numeric',

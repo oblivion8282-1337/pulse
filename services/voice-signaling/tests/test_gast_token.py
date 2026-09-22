@@ -234,14 +234,14 @@ async def test_lese_token_eines_anderen_bleiben_unberuehrt(app):
 async def test_gast_token_in_letzter_minute_wird_abgewiesen(client, auth_signer):
     """Der alte max(60, …)-Floor verlängerte den LiveKit-Grant bis zu 59 s
     ÜBER das Ticket hinaus. Jetzt gibt es in den letzten 60 s gar kein
-    Token mehr — für den Gast dasselbe wie abgelaufen (404)."""
+    Token mehr — für den Gast dasselbe wie abgelaufen (403, Entscheidung 3.1)."""
     ticket = _ticket(auth_signer, channel_id="555", ttl_s=30)
     r = await client.post(
         "/gast/token",
         json={"channel_id": "555"},
         headers=auth(ticket),
     )
-    assert r.status_code == 404
+    assert r.status_code == 403
 
 
 def test_livekit_identitaet_eines_gastes_traegt_kein_user_praefix():
@@ -257,3 +257,94 @@ def test_livekit_identitaet_eines_gastes_traegt_kein_user_praefix():
 
     assert _lk_identity("gast-42") == "gast-42"
     assert _lk_identity("1234567890") == "user-1234567890"
+
+
+@pytest.mark.asyncio
+async def test_gast_token_in_vollen_kanal_abgewiesen(client, auth_signer, app, monkeypatch):
+    """Bughunt 2026-09-20 (Runde 2): der Limit-Check aus dem Ticket-Mint
+    (bis zu 4 h alt) reicht nicht — ein Gast mit Vor-Füllung-Ticket bekommt
+    jetzt an der Token-Route 409, wenn der Kanal inzwischen voll ist, wie
+    das Mitglied an derselben Tür."""
+    import os
+
+    from redis.asyncio import Redis
+
+    import dcc_voice_signaling.routes.token_gast as token_gast
+
+    async def _voll(channel_id: str) -> int:
+        return 2
+
+    monkeypatch.setattr(token_gast, "_voice_limit", _voll)
+
+    redis = Redis.from_url(
+        os.environ.get("REDIS_URL", "redis://localhost:6380/0").replace(
+            "localhost", "127.0.0.1"
+        )
+    )
+    app.state.redis = redis
+    try:
+        await redis.sadd("voice:room:channel-555", "user-1", "user-2")
+        r = await client.post(
+            "/gast/token",
+            json={"channel_id": "555"},
+            headers=auth(_ticket(auth_signer)),
+        )
+        assert r.status_code == 409
+
+        # Reconnect-Schonung: der Gast selbst sitzt schon im Set → zählt
+        # nicht neu → Token kommt.
+        await redis.sadd("voice:room:channel-555", "gast-77")
+        r2 = await client.post(
+            "/gast/token",
+            json={"channel_id": "555"},
+            headers=auth(_ticket(auth_signer)),
+        )
+        assert r2.status_code == 200, r2.text
+    finally:
+        await redis.delete("voice:room:channel-555")
+        await redis.aclose()
+        app.state.redis = None
+
+
+@pytest.mark.asyncio
+async def test_voice_limit_crasht_den_token_mint_nicht(client, auth_signer, monkeypatch):
+    """Bughunt Runde 46: ``_voice_limit`` las ``voice_routes._http_client`` —
+    das Package re-exportiert nur die FUNKTIONEN, nie das mutierte Global,
+    der Zugriff war also ein garantiertes AttributeError AUSSERHALB des
+    Fail-open-try: 500 statt Token für JEDEN Gast, sobald
+    INTERNAL_SERVICE_SECRET + CHAT_GATEWAY_URL gesetzt sind (die
+    Normal-Konfiguration). Der Test fährt genau diese Konfiguration mit
+    gelogenem httpx-Client und verlangt 200 plus berücksichtigtes Limit.
+    """
+    import dcc_voice_signaling.routes as voice_routes
+    from dcc_voice_signaling.routes import chat_gateway as cg
+
+    einstellungen = voice_routes.get_settings().model_copy(
+        update={
+            "internal_service_secret": "test-secret",
+            "chat_gateway_url": "http://127.0.0.1:8002",
+        }
+    )
+    monkeypatch.setattr(voice_routes, "get_settings", lambda: einstellungen)
+
+    gesehene_header: list[dict[str, str]] = []
+
+    class _Resp:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {"user_limit": 5}
+
+    class _Client:
+        async def request(self, methode, url, headers=None):
+            gesehene_header.append(headers or {})
+            assert "/internal/channels/555/voice-limit" in url
+            return _Resp()
+
+    monkeypatch.setattr(cg, "_http_client", _Client())
+
+    r = await client.post(
+        "/gast/token", json={"channel_id": "555"}, headers=auth(_ticket(auth_signer))
+    )
+    assert r.status_code == 200, r.text
+    assert gesehene_header and gesehene_header[0].get("X-Pulse-Internal-Secret") == "test-secret"

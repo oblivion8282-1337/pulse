@@ -87,6 +87,20 @@ _RULES: dict[str, tuple[int, float]] = {
     # Online-Raten auf INTERNAL_SERVICE_SECRET (Audit 2026-09); die
     # nginx-/Caddy-deny-Bloecke sind die erste Schicht davor.
     "internal_secret": (120, 60.0),
+    # Audio-Diagnose (Bughunt Runde 28): die Route bremst je Nutzer, aber
+    # die Regel fehlte in dieser Tabelle — JEDER Aufruf warf KeyError → 500,
+    # der Anti-Flooding-Bremser des Audits lief nie. 6/Minute: der Client
+    # feuert je Voice-Join mit Bluetooth-Gerät einmal.
+    "audio_diagnostic": (6, 60.0),
+    # Postfach-Einliefern (Bughunt Runde 35): die Route lief bislang ohne
+    # Bremse; je Anfrage laufen bis 100 Umschlaege mit je bis 64 Empfaenger-
+    # Lookups. 60/Minute je Konto deckelt den Amplifikator weit ueber dem
+    # echten Batch-Bedarf des Klienten.
+    "postfach": (60, 60.0),
+    # Web-Push-Abo-Pflege (Bughunt Runde 47): je Aufruf Delete+Select+
+    # Upsert+Commit — ohne Bremse fuellte ein Skript die DB mit Churn.
+    # 10/Minute: ein Mensch koppelt Geraete, kein Maschinenwerk.
+    "push_abo": (10, 60.0),
 }
 
 

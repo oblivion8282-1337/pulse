@@ -1,5 +1,4 @@
 <script lang="ts">
-import { errText } from '$lib/utils/errText';
   /**
    * Entdecken — das Verzeichnis öffentlicher Communities.
    *
@@ -15,6 +14,7 @@ import { errText } from '$lib/utils/errText';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
+  import { errText } from '$lib/utils/errText';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import SearchIcon from '@lucide/svelte/icons/search';
   import UsersIcon from '@lucide/svelte/icons/users';

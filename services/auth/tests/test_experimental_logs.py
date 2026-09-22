@@ -60,6 +60,57 @@ async def test_leerer_text_wird_abgelehnt(client):
     assert r.status_code == 422
 
 
+# — CORS-Spiegel für Self-Host-Ursprünge (OriginMirrorCorsMiddleware) ——————
+# Der Käfer-Ein-Klick-Versand aus einem Self-Host-Fenster zielt bewusst auf
+# die Cloud; ohne Spiegelung blockt der Browser genau diesen Weg (2026-09-22).
+
+_SELF_HOST_ORIGIN = "https://pulse.beispiel-hoster.de"
+
+
+@pytest.mark.asyncio
+async def test_preflight_von_self_host_origin_wird_gespiegelt(client):
+    r = await client.options(
+        "/experimental-logs",
+        headers={
+            "Origin": _SELF_HOST_ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert r.status_code == 204
+    assert r.headers["access-control-allow-origin"] == _SELF_HOST_ORIGIN
+    assert "POST" in r.headers["access-control-allow-methods"]
+    # Der Käfer-Versand trägt KEINE Credentials — der Kopf darf nicht
+    # versprochen werden (der Endpunkt liest Cookies ohnehin nicht).
+    assert "access-control-allow-credentials" not in r.headers
+
+
+@pytest.mark.asyncio
+async def test_upload_von_self_host_origin_traegt_spiegelkopf(client):
+    """Der eigentliche Versand antwortet mit gespiegeltem Origin — sonst
+    dürfte der Browser die 201-Antwort nicht lesen und der Käfer-Dialog
+    fiele trotz ankommendem Bericht auf den Datei-Notfallweg zurück."""
+    r = await client.post(
+        "/experimental-logs",
+        json={"reason": "user_report", "log_text": "Self-Host-Test"},
+        headers={"Origin": _SELF_HOST_ORIGIN},
+    )
+    assert r.status_code == 201
+    assert r.headers["access-control-allow-origin"] == _SELF_HOST_ORIGIN
+    assert "access-control-allow-credentials" not in r.headers
+
+
+@pytest.mark.asyncio
+async def test_origin_null_wird_nicht_gespiegelt(client):
+    """Sandbox-Ursprünge (Origin: null) spiegeln wir nie — Muster aus dem
+    Direktpfad (Audit 2026-09-16)."""
+    r = await client.options(
+        "/experimental-logs",
+        headers={"Origin": "null", "Access-Control-Request-Method": "POST"},
+    )
+    assert "access-control-allow-origin" not in r.headers
+
+
 @pytest.mark.asyncio
 async def test_aufruf_ganz_ohne_inhalt_wird_abgelehnt(client):
     """Seit `log_text` optional ist, ist `{"reason": ...}` allein syntaktisch

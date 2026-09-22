@@ -47,6 +47,10 @@
 
   const username = $derived(auth.user?.username ?? '');
   const totpEnabled = $derived(auth.user?.totp_enabled === true);
+  // Bughunt Runde 4: auch ein Passkey-only-Konto (ohne TOTP) braucht auf dem
+  // Server einen zweiten Faktor (Backup-Code) — vorher renderte der Dialog
+  // dann GAR kein Feld und der Löschversuch endete in einer 401-Schleife.
+  const mfaRequired = $derived(totpEnabled || auth.user?.has_passkey === true);
   const usernameMatches = $derived(confirmUsername.trim() === username && username !== '');
 
   $effect(() => {
@@ -90,21 +94,29 @@
       code?: string;
       backup_code?: string;
     } = { password, confirm_username: username };
-    if (totpEnabled) {
-      if (useBackup) {
+    if (mfaRequired) {
+      if (totpEnabled && useBackup) {
         const normalized = normalizeBackupCode(backupCode);
         if (!normalized) {
           error = m.delete_account_dialog_error_backup_code_empty();
           return;
         }
         input.backup_code = normalized;
-      } else {
+      } else if (totpEnabled) {
         const digits = stripTotpFormatting(code);
         if (digits.length !== 6) {
           error = m.delete_account_dialog_error_totp_six_digits();
           return;
         }
         input.code = digits;
+      } else {
+        // Passkey-only: kein TOTP-Feld, nur der Backup-Code.
+        const normalized = normalizeBackupCode(backupCode);
+        if (!normalized) {
+          error = m.delete_account_dialog_error_backup_code_empty();
+          return;
+        }
+        input.backup_code = normalized;
       }
     }
     error = null;
@@ -215,6 +227,7 @@
       <DeleteAccountCredentialsStep
         {username}
         {totpEnabled}
+        {mfaRequired}
         {busy}
         {error}
         bind:password

@@ -130,7 +130,12 @@
     if (APP_HOSTING_ENABLED) pendingAppHostApplications.start();
     void refreshBadges();
     return () => {
-      if (!ready) pendingAppHostApplications.stop();
+      // Bedingungslos stoppen — der Cleanup läuft nur, wenn der Body oben
+      // durchlief (ready war also true, und bleibt es). Die alte
+      // `if (!ready)`-Bedingung war unerreichbar, der 60-s-Poller lief
+      // nach dem Verlassen der Seite für die ganze Sitzung weiter
+      // (Bughunt 2026-09-20, Runde 2).
+      pendingAppHostApplications.stop();
     };
   });
 </script>

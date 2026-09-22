@@ -1,5 +1,6 @@
 <script lang="ts">
   import { voice } from '$lib/voice/livekit.svelte';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { userCache } from '$lib/stores/users.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -92,7 +93,7 @@
             <img src={avatar} alt="" class="size-full object-cover" draggable="false" />
           {:else}
             <span class="bg-bg-hover text-text-bright flex size-full items-center justify-center text-sm font-medium">
-              {(name.trim()[0] ?? '?').toUpperCase()}
+              {anfangsBuchstabe(name) || '?'}
             </span>
           {/if}
         </span>

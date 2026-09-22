@@ -233,3 +233,30 @@ async def revoke_gast_link_internal(
         return
     await entwerte_link(session, request, link)
     await session.commit()  # entwerte_link committet bewusst nicht selbst
+
+
+@router.get("/internal/channels/{channel_id}/voice-limit")
+async def channel_voice_limit_internal(
+    channel_id: int,
+    request: Request,
+    session: SessionDep,
+    x_pulse_internal_secret: Annotated[str | None, Header()] = None,
+) -> dict[str, int]:
+    """Das ``user_limit`` eines Sprachkanals — für voice-signaling's
+    Gast-Token-Route (Bughunt 2026-09-20, Runde 2).
+
+    Der Gast-Limit-Check lief bisher NUR beim Ticket-Mint (bis zu 4 h vor
+    dem Token-Beitritt): jeder Inhaber eines Vor-Füllung-Tickets konnte
+    danach beliebig oft über einen inzwischen vollen Kanal reconnecten.
+    Das Limit selbst liegt in DIESER Datenbank, und der Gast-Weg hat keinen
+    Bearer, mit dem voice-signaling sonst fragen könnte — deshalb diese
+    Nachfrage-Route. Die Belegung zählt voice-signaling selbst aus dem
+    SELBEN Redis-Schlüssel (``voice:room:channel-<id>``); hier steht nur
+    die Grenze, keine zweite Wahrheit für die Belegung."""
+    from dcc_chat_gateway.models import Channel  # noqa: PLC0415
+
+    _check_internal_secret(request, x_pulse_internal_secret)
+    channel = await session.get(Channel, channel_id)
+    if channel is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="channel not found")
+    return {"user_limit": int(getattr(channel, "user_limit", 0) or 0)}

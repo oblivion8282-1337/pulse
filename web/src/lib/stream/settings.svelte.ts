@@ -4,7 +4,7 @@ import { errText } from '$lib/utils/errText';
  *
  * Was der Nutzer eingestellt hat, und was daraus für den Sidecar folgt — im
  * Unterschied zu `state.svelte.ts`, das den LAUFENDEN Sidecar spiegelt
- * (running/fps/uptime/log über `gsr://event`).
+ * (running/fps/uptime/log über `sidecar:event`).
  *
  * - GPU-Erkennung: sobald die `gpu_info`-Antwort da ist, wird der Codec aus der
  *   Karte vorbelegt (AV1, wenn sie es kann, sonst H.264) — aber nur, wo noch
@@ -15,8 +15,8 @@ import { errText } from '$lib/utils/errText';
  * current voice channel (per-(channel,user) MediaMTX path, token + push URL
  * from chat-gateway/media-svc), capturing via the Wayland portal.
  *
- * Field shapes mirror what the sidecar's `gsr_start` body expects (see
- * `gsr.ts::GsrStartArgs` and `streaming/gsr-sidecar/control.py::op_start`).
+ * Field shapes mirror what the sidecar's `start` body expects (see
+ * `sidecar.ts::SidecarStartArgs` and `streaming/gsr-sidecar/control.py::op_start`).
  *
  * **Diese Datei ist zugleich die Sammelstelle.** Der Werte-Katalog, der
  * `$state`-Kern samt Persistenz und die Quellenwahl je Slot stehen in eigenen
@@ -25,7 +25,7 @@ import { errText } from '$lib/utils/errText';
  * `stream/settings.svelte` weiter stimmt.
  */
 
-import { gsr, type GsrStartArgs } from './gsr';
+import { sidecar, type SidecarStartArgs } from './sidecar';
 import { stream } from './state.svelte';
 import { isWindows, isMac } from '$lib/platform/runtime';
 import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -55,7 +55,7 @@ export * from './captureSource';
  * Erfüllbarkeit?
  *
  * Drei Bedingungen, alle nötig: der Nutzer hat es eingeschaltet, die Karte kann
- * es (`health.gsr.ten_bit` — der Linux- und seit 2026-08-04 der
+ * es (`health.sidecar.ten_bit` — der Linux- und seit 2026-08-04 der
  * Windows-Sidecar melden das; macOS nicht, dort bleibt es `undefined`), und der
  * Codec ist AV1. Letzteres ist keine Bequemlichkeit: 10-bit-H.264 wäre
  * `High 10`, und das dekodiert kein Browser — Zuschauer ohne den nativen Player
@@ -156,13 +156,13 @@ export async function loadCatalogs(): Promise<void> {
     // sidecars keep a single baseline (h264/opus/flv, 4000 kbps, 60 fps) that
     // unset override fields fall back to.
     const [audioApps, gpuInfo, monitors, windows] = await Promise.all([
-      gsr.listApplicationAudio(),
-      gsr.gpuInfo(),
-      isWindows() || isMac() ? gsr.listMonitors() : Promise.resolve(null),
+      sidecar.listApplicationAudio(),
+      sidecar.gpuInfo(),
+      isWindows() || isMac() ? sidecar.listMonitors() : Promise.resolve(null),
       // Window picking on Windows (WGC) + macOS (SCK): both enumerate windows so
       // the user can stream a single app instead of the whole monitor. Linux
       // delegates that choice to the Wayland portal dialog at stream start.
-      isWindows() || isMac() ? gsr.listWindows() : Promise.resolve(null),
+      isWindows() || isMac() ? sidecar.listWindows() : Promise.resolve(null),
     ]);
 
     if (audioApps?.ok) {
@@ -253,7 +253,7 @@ export async function loadCatalogs(): Promise<void> {
 /** Refresh just the audio-app list (cheap, called from the audio picker). */
 export async function refreshAudioApps(): Promise<void> {
   try {
-    const r = await gsr.listApplicationAudio();
+    const r = await sidecar.listApplicationAudio();
     if (r?.ok) streamSettings.available_audio_apps = r.applications ?? [];
   } catch {
     // tolerate — keep the previous list
@@ -351,7 +351,7 @@ export function pushProtokoll(_uebersteuerung?: OverrideSet): 'rtmp' | 'whip' {
 
 /**
  * Translate the in-memory `streamSettings` into the body shape that
- * `gsr.start()` / `gsr.buildArgv()` expect. Overrides are only included when
+ * `sidecar.start()` / `sidecar.buildArgv()` expect. Overrides are only included when
  * `use_overrides` is set (or the user picked the synthetic "Custom" profile) —
  * which, in channel mode, is always.
  *
@@ -365,13 +365,13 @@ export function buildStartArgs(
   slot = 0,
   standplatz?: { quelle: string; uebersteuerung: OverrideSet; ton: AudioMode },
   p2p = false,
-): GsrStartArgs {
+): SidecarStartArgs {
   // Ein geweckter Standplatz-Rechner übersteuert IMMER — das Profil ist ja
   // gerade dafür da, dass nicht gilt, was zuletzt von Hand eingestellt war
   // (`$lib/devices/profil.svelte.ts`).
   const apply = !!standplatz || streamSettings.use_overrides || streamSettings.profile_name === 'Custom';
 
-  const args: GsrStartArgs = {
+  const args: SidecarStartArgs = {
     profile: streamSettings.profile_name,
     // **P2P: kein Kanal-Block.** Ohne Token und Push-URL hat der Sidecar
     // keinen Serverkontakt — er startet im Wartezustand und verhandelt die
@@ -413,7 +413,7 @@ export function buildStartArgs(
     // before the sidecar call. Effective = this community's per-guild override
     // (Boost) ?? the admin-set instance default. Best-effort (the server never
     // sees these params) but covers every normal user. Only explicit values
-    // are clamped; a blank field falls through to the GSR profile default.
+    // are clamped; a blank field falls through to the sidecar profile default.
     const hq = effectiveHqLimits(channelArg.channelId);
     if (o.codec) cleaned.codec = o.codec;
     if (typeof o.bitrate_kbps === 'number' && o.bitrate_kbps > 0)

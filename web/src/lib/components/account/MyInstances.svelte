@@ -17,6 +17,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
+  import { currentLocale } from '$lib/i18n';
   import { instancesApi, type Instance } from '$lib/api/instances';
   import { serversStore } from '$lib/api/servers.svelte';
   import { removeServerLocally } from '$lib/api/server-removal';
@@ -133,7 +134,7 @@
                   {m.my_instances_apphost_label()} ·
                 {/if}
                 {m.my_instances_approved_on({
-                  date: new Date(inst.registered_at).toLocaleDateString('de-DE')
+                  date: new Date(inst.registered_at).toLocaleDateString(currentLocale())
                 })}
               </p>
             </div>

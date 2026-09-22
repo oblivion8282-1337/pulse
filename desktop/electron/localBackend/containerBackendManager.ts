@@ -16,11 +16,16 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { app } from 'electron';
+// `node --test` (Unit-Gate) zieht 'electron' als CJS-String-Export (Pfad zum
+// Binary) — ein BENANNTER `app`-Import bricht dort schon das Modul-Laden und
+// reißt die reinen Funktions-Tests mit ab. Der Default-Import liefert unter
+// Electron das echte API-Objekt (.app vorhanden) und unter bare Node einen
+// String (.app fehlt → wie „packaged nicht prüfbar").
+import electron from 'electron';
 
 import type { BootstrapCreds } from './pairing.ts';
 import { detectRuntime, ensureMachine, rtExec, type ContainerRuntime } from './containerRuntime.ts';
-import { waitFor, httpHealth } from './health.ts';
+import { httpHealth } from './health.ts';
 
 export const CONTAINER_NAME = 'pulse-host';
 export const DATA_VOLUME = 'pulse-host-data';
@@ -40,7 +45,8 @@ export function resolveImage(env: Record<string, string | undefined> = process.e
   local: boolean;
 } {
   const override = env.PULSE_HOST_IMAGE;
-  if (override && !app.isPackaged) return { image: override, local: true };
+  const isPackaged = (electron as { app?: { isPackaged?: boolean } }).app?.isPackaged ?? false;
+  if (override && !isPackaged) return { image: override, local: true };
   if (override) {
     console.warn('[host] PULSE_HOST_IMAGE ignored in packaged build (developer-only override).');
   }

@@ -34,12 +34,22 @@
   let backupCodes = $state<string[]>([]);
   let saved = $state(false);
 
+  // Bughunt Runde 18: Lauf-Zähler gegen späte Antworten (Spiegel zum
+  // TOTP-Dialog) — sonst schrieb eine nach dem Escape eintreffende
+  // registerPasskey-Antwort den Codes-Step in den GESCHLOSSENEN Dialog,
+  // und das nächste Öffnen startete mitten in der alten Zeremonie.
+  let erstellenLauf = 0;
+
   $effect(() => {
     if (!open) {
+      erstellenLauf++;
       step = 'name';
       busy = false;
       error = null;
       name = '';
+      // Das Passwort wird im Dialog nie geleert (steht im Reset-Effekt
+      // nicht drin) — nach dem Schließen gehört es nicht mehr ins Feld.
+      password = '';
       backupCodes = [];
       saved = false;
     }
@@ -61,10 +71,12 @@
       error = m.passkey_add_dialog_password_required();
       return;
     }
+    const lauf = ++erstellenLauf;
     busy = true;
     error = null;
     try {
       const res = await registerPasskey(trimmed, password);
+      if (lauf !== erstellenLauf) return;
       onAdded(res.credential);
       toast.success(m.passkey_add_dialog_added());
       if (res.backup_codes && res.backup_codes.length > 0) {
@@ -74,9 +86,10 @@
         open = false;
       }
     } catch (err) {
+      if (lauf !== erstellenLauf) return;
       error = (err as Error).message;
     } finally {
-      busy = false;
+      if (lauf === erstellenLauf) busy = false;
     }
   }
 </script>

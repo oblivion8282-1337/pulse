@@ -26,14 +26,6 @@ from sqlalchemy import inspect as sa_inspect, text
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _column_names(inspector, table: str) -> set[str]:
-    return {col["name"] for col in inspector.get_columns(table)}
-
-
-def _index_names(inspector, table: str) -> set[str]:
-    return {idx["name"] for idx in inspector.get_indexes(table)}
-
-
 # ---------------------------------------------------------------------------
 # 0012 — pairwise_salt / revoke_until / is_suspended on auth.users
 # ---------------------------------------------------------------------------
