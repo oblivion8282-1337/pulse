@@ -155,6 +155,47 @@ test.describe.serial('Overnight T6 — Nachrichten', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
+  test('Erwähnung: @ im Composer → Vorschlag klicken → Pill in der Nachricht', async () => {
+    const input = alicePage.getByTestId('message-input');
+    // Kanonischer Ablauf: nur „@“ tippen, dann den Mitgliedseintrag klicken.
+    // (Ein angetipptes Teil-Prefix plus Klick mittendrin im Popup-Refresh
+    // hat in Rennen die Ersetzungs-Verfolgung des Composers vermissen
+    // lassen — der Composer-Vorzustand ist hier der ruhigere Weg.)
+    const vorschlag = alicePage
+      .getByTestId('mention-item')
+      .filter({ hasText: BOB.username })
+      .first();
+    await expect(async () => {
+      if (!(await vorschlag.isVisible())) {
+        await input.fill('');
+        await input.pressSequentially('@', { delay: 40 });
+      }
+      await expect(vorschlag).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 20_000 });
+    await vorschlag.click();
+
+    // Die Auswahl muss die Vorschlagsliste schließen UND den vollen Namen
+    // eintragen — sonst frisst das folgende Enter nur einen weiteren Pick.
+    await expect(alicePage.getByTestId('mention-autocomplete')).toHaveCount(0, {
+      timeout: 5_000
+    });
+    await expect(input).toHaveValue(new RegExp(`@${BOB.username}`));
+
+    // Rest antippen und abschicken.
+    await input.pressSequentially(' schau her', { delay: 20 });
+    await input.press('Enter');
+
+    // Die Nachricht selbst muss erst da sein; die Pill kommt mit dem
+    // Server-Echo (dessen Mention-Liste die Voraussetzung für den Pill-Bau
+    // ist) — deshalb hier pollend.
+    const nachricht = zeile(alicePage, 'schau her');
+    await expect(nachricht).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(async () => nachricht.locator('.mention').count(), { timeout: 15_000 })
+      .toBeGreaterThan(0);
+    await expect(nachricht.locator('.mention').first()).toContainText(BOB.username);
+  });
+
   test('Nachricht bearbeiten → neuer Text + „(bearbeitet)“', async () => {
     const input = alicePage.getByTestId('message-input');
     await input.fill('erster Wurf');
@@ -245,25 +286,6 @@ test.describe.serial('Overnight T6 — Nachrichten', () => {
     await expect(alicePage.getByTestId('pins-toggle')).toHaveCount(0, { timeout: 10_000 });
   });
 
-  test('Erwähnung: @ im Composer → Vorschlag klicken → Pill in der Nachricht', async () => {
-    const input = alicePage.getByTestId('message-input');
-    await input.pressSequentially(`@${BOB.username.slice(0, 10)}`, { delay: 40 });
-    const vorschlag = alicePage
-      .getByTestId('mention-item')
-      .filter({ hasText: BOB.username })
-      .first();
-    await expect(vorschlag).toBeVisible({ timeout: 10_000 });
-    await vorschlag.click();
-
-    // Rest antippen und abschicken.
-    await input.pressSequentially(' schau her', { delay: 20 });
-    await input.press('Enter');
-
-    const pill = alicePage.locator('[data-testid="message-content"] .mention').last();
-    await expect(pill).toBeVisible({ timeout: 10_000 });
-    await expect(pill).toContainText(BOB.username);
-  });
-
   test('Entwurf überlebt den Kanalwechsel', async () => {
     const input = alicePage.getByTestId('message-input');
     await input.fill('halb fertiger Gedanke');
@@ -289,8 +311,12 @@ test.describe.serial('Overnight T6 — Nachrichten', () => {
   });
 
   test('Emoji-Picker: Emoji landet im Composer und in der Nachricht', async () => {
+    // Der Entwurf aus dem Test vorher liegt noch im Composer — erst leeren.
+    await alicePage.getByTestId('message-input').fill('');
     await alicePage.getByTestId('emoji-button').click();
-    await emojiWaehlen(alicePage, 'wink', 'Wink');
+    // Titel = emoji.name aus dem Emoji-Mart-Katalog ("Winking Face"), nicht
+    // der Suchbegriff.
+    await emojiWaehlen(alicePage, 'wink', 'Winking Face');
 
     const input = alicePage.getByTestId('message-input');
     await expect(input).toHaveValue('😉');

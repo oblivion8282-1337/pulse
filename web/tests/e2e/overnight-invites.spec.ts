@@ -65,17 +65,26 @@ async function beitreten(page: Page, codeOderLink: string): Promise<boolean> {
     await page.waitForURL(/\/app\/guilds\/(\d+)\/channels\/(\d+)/, { timeout: 10_000 });
     return true;
   } catch {
+    // Grund mitliefern — 429/abgelaufen/ergibt nichts sind unterschiedliche
+    // Baustellen, und der Behälter steht sonst nur in der Navigationsleiste.
+    const fehler = await page
+      .getByTestId('join-guild-error')
+      .textContent()
+      .catch(() => null);
+    console.log(`[beitreten] scheiterte für "${codeOderLink}": ${fehler?.trim() ?? 'kein Fehlertext'}`);
     return false;
   }
 }
 
 /** Community-Einstellungen öffnen und auf den Einladungen-Tab, frisch vom
- *  Server geladen (die Liste lebt nur im Dialog-Zustand). */
+ *  Server geladen (die Liste lebt nur im Dialog-Zustand). Ein offen
+ *  gebliebener Dialog wird zuerst geschlossen — der press auf einen
+ *  nicht existierenden Dialog würde sonst die halbe Testzeit verbraten. */
 async function invitesTabOeffnen(page: Page, gid: string) {
-  await page.getByTestId('guild-settings-dialog')
-    .press('Escape')
-    .catch(() => undefined);
-  await expect(page.getByTestId('guild-settings-dialog')).toBeHidden({ timeout: 5_000 });
+  if (await page.getByTestId('guild-settings-dialog').count()) {
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('guild-settings-dialog')).toBeHidden({ timeout: 5_000 });
+  }
   await page.getByTestId(`guild-${gid}`).click({ button: 'right' });
   await page.getByTestId('guild-settings').click();
   await expect(page.getByTestId('guild-settings-dialog')).toBeVisible({ timeout: 10_000 });
@@ -169,12 +178,17 @@ test.describe.serial('Overnight T9 — Einladungen', () => {
     einladung = (await zeile.locator('code').textContent())!.trim();
   });
 
-  test('Cara löst die Einzel-Einladung ein — Zähler steht auf 1/1', async () => {
+  test('Cara löst die Einzel-Einladung ein — sie verschwindet aus der Liste', async () => {
     expect(await beitreten(caraPage, einladung)).toBe(true);
-    // Der Zähler lebt im Dialog-Zustand — Tab neu öffnen lädt vom Server.
-    await invitesTabOeffnen(alicePage, guildId);
-    const zeile = alicePage.getByTestId('invite-row').filter({ hasText: einladung }).first();
-    await expect(zeile).toContainText('1 / 1', { timeout: 10_000 });
+    // Der Bestand lebt im Dialog-Zustand — Tab neu öffnen lädt vom Server.
+    // Die Liste filtert ERSCHÖPFTTE Einladungen serverseitig raus
+    // (uses < max_uses) — die Zeile muss also ganz verschwinden.
+    await expect(async () => {
+      await invitesTabOeffnen(alicePage, guildId);
+      await expect(
+        alicePage.getByTestId('invite-row').filter({ hasText: einladung })
+      ).toHaveCount(0, { timeout: 5_000 });
+    }).toPass({ timeout: 25_000 });
   });
 
   test('erschöpfte Einladung: zweiter Beitritt schlägt fehl', async () => {
@@ -188,15 +202,19 @@ test.describe.serial('Overnight T9 — Einladungen', () => {
     const zeile = alicePage.getByTestId('invite-row').first();
     await expect(zeile).toContainText('0 / ∞', { timeout: 10_000 });
     const code = (await zeile.locator('code').textContent())!.trim();
+    // Auf die CODE-spezifische Zeile zeigen — .first() würde nach dem
+    // Entfernen stillschweigend auf die nächste Zeile neu auflösen.
+    const codeZeile = alicePage.getByTestId('invite-row').filter({ hasText: code });
 
-    await zeile.getByTestId('invite-revoke').click();
-    await expect(zeile).toHaveCount(0, { timeout: 10_000 });
+    await codeZeile.getByTestId('invite-revoke').click();
+    await expect(codeZeile).toHaveCount(0, { timeout: 10_000 });
 
     expect(await beitreten(danPage, code)).toBe(false);
     await expect(danPage.getByTestId('join-guild-error')).toBeVisible({ timeout: 10_000 });
   });
 
   test('Ablauf: erledigte Einladung wird abgewiesen', async () => {
+    test.setTimeout(120_000); // 61 s Ablaufwartezeit brauchen ihren Raum.
     // Über die UI: 30-Minuten-Ablauf wählen, anlegen, Ablaufdatum erscheint
     // (create() stellt die neue Zeile vorn).
     await alicePage.getByTestId('invite-expiry').click();
@@ -206,18 +224,21 @@ test.describe.serial('Overnight T9 — Einladungen', () => {
     await expect(zeile).toContainText('0 / ∞', { timeout: 10_000 });
     await expect(zeile).not.toContainText('Nie');
 
-    // Für den echten Ablaufzeitpunkt: 1 Sekunde via API (ohne 30 Minuten zu
-    // warten), dann schlägt Dans Beitritt fehl.
+    // Für den echten Ablaufzeitpunkt: 60 Sekunden via API (das Schema
+    // nimmt nichts Kürzeres, und 30 Minuten warten wir nicht), dann
+    // schlägt Dans Beitritt nach Ablauf fehl.
     const kurzerCode = await alicePage.evaluate(async (gid) => {
       const token = localStorage.getItem('dcc.tokens.access');
       const r = await fetch(`/api/chat/guilds/${gid}/invites`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ expires_in_seconds: 1 })
+        body: JSON.stringify({ expires_in_seconds: 60 })
       });
+      if (!r.ok) throw new Error(`invite-create fehlgeschlagen: ${r.status}`);
       return (await r.json()).code as string;
     }, guildId);
-    await alicePage.waitForTimeout(2000);
+    expect(kurzerCode).toMatch(/^[A-Za-z0-9]+$/);
+    await alicePage.waitForTimeout(61_000);
 
     expect(await beitreten(danPage, kurzerCode)).toBe(false);
     await expect(danPage.getByTestId('join-guild-error')).toBeVisible({ timeout: 10_000 });
@@ -225,8 +246,12 @@ test.describe.serial('Overnight T9 — Einladungen', () => {
 
   test('Gast-Link erzeugen — URL erscheint', async () => {
     // Gast-Link gilt pro Sprachkanal — erst einen anlegen (Muster aus
-    // gast-link.spec.ts).
-    await alicePage.getByTestId('guild-settings-dialog').press('Escape');
+    // gast-link.spec.ts). Der Einstellungen-Dialog aus dem Test vorher
+    // muss weg, sonst schluckt sein Overlay die nächsten Klicks.
+    if (await alicePage.getByTestId('guild-settings-dialog').count()) {
+      await alicePage.keyboard.press('Escape');
+      await expect(alicePage.getByTestId('guild-settings-dialog')).toBeHidden({ timeout: 5_000 });
+    }
     await alicePage.getByTestId('channel-create').click();
     await alicePage.getByTestId('create-channel-type-voice').click();
     await alicePage.getByTestId('create-channel-name').fill('gast-lounge');

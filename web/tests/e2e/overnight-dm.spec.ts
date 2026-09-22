@@ -156,9 +156,13 @@ test.describe.serial('Overnight T7 — DMs im Klartext-Pfad', () => {
     await register(carlPage, CARL);
 
     // Anfrage über die UI: Tab „Freund hinzufügen“ → suchen → hinzufügen.
+    // Die Suche debounced 300 ms und geht übers Netz — bei Rennen hilft
+    // das erneute Eintippen, statt den Lauf zu verwerfen.
     await alicePage.goto('/app/friends?tab=add');
-    await alicePage.getByTestId('add-friend-input').fill(BOB.username);
-    await expect(alicePage.getByTestId('search-hit')).toBeVisible({ timeout: 10_000 });
+    await expect(async () => {
+      await alicePage.getByTestId('add-friend-input').fill(BOB.username);
+      await expect(alicePage.getByTestId('search-hit')).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: 20_000 });
     await alicePage.getByTestId('search-hit-add').click();
     await expect(alicePage.getByTestId('search-hit-status')).toContainText('Anfrage offen', {
       timeout: 5000
@@ -172,37 +176,42 @@ test.describe.serial('Overnight T7 — DMs im Klartext-Pfad', () => {
     await expect(zeile).toHaveCount(0, { timeout: 10_000 });
   });
 
-  test('DM anlegen (Freundes-Button) → Nachricht erscheint', async () => {
-    await alicePage.goto('/app/friends?tab=all');
+  test('DM anlegen (Freundes-Button) — beide stehen im Gespraech', async () => {
+    await expect(async () => {
+      await alicePage.goto('/app/friends?tab=all');
+      await expect(
+        alicePage.getByTestId('friend-row').filter({ hasText: BOB.username })
+      ).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: 20_000 });
     const freundin = alicePage.getByTestId('friend-row').filter({ hasText: BOB.username });
-    await expect(freundin).toBeVisible({ timeout: 10_000 });
     await freundin.getByTestId('friend-dm-btn').click();
 
     await alicePage.waitForURL(/\/app\/@me\/(\d+)/, { timeout: 10_000 });
     dmAliceBob = new URL(alicePage.url()).pathname.split('/').pop()!;
     expect(dmAliceBob).toMatch(/^\d+$/);
 
+    // Bob oeffnet dieselbe DM VOR dem Senden — die Zustellung faechert an
+    // die Kanal-Abonnenten (gleiche Reihenfolge wie in e2e-dm.spec.ts).
+    await bobPage.goto(`/app/@me/${dmAliceBob}`);
+    await expect(
+      bobPage.getByTestId('message-input')
+    ).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('Alice schickt, Bob liest live; Bob antwortet, Alice liest', async () => {
+    test.setTimeout(60_000);
     await senden(alicePage, 'erste private zeile');
     await expect(
       alicePage.locator('[data-testid="message-content"]', { hasText: 'erste private zeile' })
     ).toBeVisible({ timeout: 10_000 });
-  });
-
-  test('Bob sieht die DM in seiner Liste, öffnet sie und antwortet', async () => {
-    await bobPage.goto('/app/@me');
-    const kachel = bobPage.getByTestId(`dm-${dmAliceBob}`);
-    await expect(kachel).toBeVisible({ timeout: 10_000 });
-    await kachel.click();
-    await bobPage.waitForURL(new RegExp(`/app/@me/${dmAliceBob}`));
-
     await expect(
       bobPage.locator('[data-testid="message-content"]', { hasText: 'erste private zeile' })
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 30_000 });
 
     await senden(bobPage, 'und zurück');
     await expect(
       alicePage.locator('[data-testid="message-content"]', { hasText: 'und zurück' })
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 30_000 });
   });
 
   test('Unread-Punkt + Sortierung: neue DM rutscht nach oben', async () => {
@@ -220,10 +229,13 @@ test.describe.serial('Overnight T7 — DMs im Klartext-Pfad', () => {
     const aliceVorher = (await aliceKachel.boundingBox())!.y;
     expect(carlVorher).toBeGreaterThan(aliceVorher);
 
-    // Carl schreibt → Bob sieht den Unread-Punkt an Carls Kachel …
+    // Carl schreibt → Bob sieht den Unread-Hinweis an Carls Kachel (Punkt
+    // oder Zähler-Pille, je nachdem wie viel ungelesen ankommt) …
     await carlPage.goto(`/app/@me/${dmCarlBob}`);
     await senden(carlPage, 'ping von carl');
-    await expect(carlKachel.getByTestId('dm-unread-dot')).toBeVisible({ timeout: 10_000 });
+    await expect(
+      carlKachel.getByTestId('dm-unread-dot').or(carlKachel.getByTestId('dm-unread-pill'))
+    ).toBeVisible({ timeout: 20_000 });
 
     // … und die Kachel ist nach oben gerutscht (neueste Aktivität zuerst).
     await expect

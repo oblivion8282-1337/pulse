@@ -155,7 +155,9 @@ test.describe.serial('Overnight T8 — Freunde', () => {
   test('Profil-Popover → DM-Button führt in den DM-Kanal', async () => {
     await alicePage.goto('/app/friends?tab=all');
     const bobZeile = alicePage.getByTestId('friend-row').filter({ hasText: BOB.username });
-    await bobZeile.getByTestId('friend-profile-trigger').click();
+    // Das Profil-Menü öffnet ausschließlich per Rechtsklick (Linksklick
+    // springt bei Voice-Aktivität in die Community — steht so am Button).
+    await bobZeile.getByTestId('friend-profile-trigger').click({ button: 'right' });
 
     const popover = alicePage.getByTestId('user-profile-popover');
     await expect(popover).toBeVisible({ timeout: 10_000 });
@@ -170,10 +172,13 @@ test.describe.serial('Overnight T8 — Freunde', () => {
   test('Blockieren: Carl landet auf der Blockierliste, Entblockieren räumt ab', async () => {
     await alicePage.goto('/app/friends?tab=all');
     const carlZeile = alicePage.getByTestId('friend-row').filter({ hasText: CARL.username });
-    await carlZeile.getByTestId('friend-profile-trigger').click();
+    // Rechtsklick — siehe DM-Test oben.
+    await carlZeile.getByTestId('friend-profile-trigger').click({ button: 'right' });
     const popover = alicePage.getByTestId('user-profile-popover');
     await expect(popover).toBeVisible({ timeout: 10_000 });
     await popover.getByTestId('popover-block-btn').click();
+    // Blockieren fragt erst per Bestätigungsdialog nach.
+    await alicePage.getByTestId('confirm-dialog-confirm').click();
 
     await alicePage.goto('/app/friends?tab=blocked');
     const blockZeile = alicePage.getByTestId('blocked-row').filter({ hasText: CARL.username });
