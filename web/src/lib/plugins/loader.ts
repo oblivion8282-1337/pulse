@@ -31,7 +31,7 @@
  * registriert, damit `listPlugins()` sie für eventuelle UI-Inspektion
  * (z.B. Admin-Panel) listen kann.
  */
-import { activatePlugin, addPlugin } from './registry';
+import { activatePlugin, addPlugin, getPlugin } from './registry';
 import type { PluginEntryModule, PluginManifest } from './manifest-types';
 
 // Vite glob — eager so the manifests are part of the initial bundle. Each
@@ -102,6 +102,14 @@ export async function loadAll(): Promise<string[]> {
   const discovered = discoverPlugins();
   const activated: string[] = [];
   for (const [name, info] of discovered) {
+    // Idempotent: das Root-Layout ruft loadAll() bei jedem Mount — im Dev
+    // remountet Vite-HMR die Layout-Komponente, während die Registry (Modul-
+    // Zustand) überlebt. Ohne diesen Sprung warf addPlugin „already added"
+    // und flutete mit jedem Hot-Reload die Konsole — und seit dem Konsole-
+    // Fang auch jeden Diagnose-Bericht (nachgewiesen im Käfer-Export
+    // 2026-09-22: 18× „add failed" in einer Sitzung). Bereits registrierte
+    // Plugins sind auch schon aktiviert; ein Re-Aktivieren wäre doppelt.
+    if (getPlugin(name)) continue;
     if (!info.entryPath) {
       // Backend-only — manifest tracked, no frontend register-call.
       try {
