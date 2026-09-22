@@ -24,22 +24,43 @@ router = APIRouter()
 
 # Security-Audit 2026-09-16: /handler authentifiziert den Aufrufer nicht
 # (Loopback ist Konvention, siehe README) und jeder Request loest einen
-# auth-svc-Call aus. Ein Rate-Limit je Quell-IP deckelt die Amplification,
-# bis frps↔Plugin ein echtes Auth-Glied bekommt. Per-Prozess genuegt: frps
-# laeuft als einzelner Prozess neben dem Plugin.
-_HANDLER_LIMIT = 120       # Requests je Fenster
+# auth-svc-Call aus. Per-Prozess genuegt: frps laeuft als einzelner Prozess
+# neben dem Plugin.
+# Bughunt 2026-09-23: je QUELL-IP keyen killt das ganze Relay — frps ist in
+# Prod der EINZIGE Caller, alle Tenant-Calls teilen sich einen Bucket, und ein
+# unauthentifizierter Flood auf frps:7000 (hat kein auth.token) kippt den
+# Shared-Bucket; 429 ist fail-closed und weist dann ALLE Logins ab. Deshalb
+# je (IP, frps-User) keyen: Gueltiger Verkehr haelt seinen eigenen Bucket,
+# Garbage rotiert durch Wegwerf-Buckets. Der Deckel auf die Bucket-Anzahl
+# haelt das dict unter rotierenden Gueltigkeiten begrenzt.
+_HANDLER_LIMIT = 240       # Requests je (IP, User) und Fenster
 _HANDLER_FENSTER_S = 60.0
+_MAX_BUCKETS = 4096
 _handler_zeiten: dict[str, deque[float]] = defaultdict(deque)
 
 
-def _rate_ok(ip: str) -> bool:
+def _rate_ok(ip: str, user: str) -> bool:
     jetzt = time.monotonic()
-    fenster = _handler_zeiten[ip]
-    while fenster and jetzt - fenster[0] > _HANDLER_FENSTER_S:
-        fenster.popleft()
-    if len(fenster) >= _HANDLER_LIMIT:
+    if len(_handler_zeiten) > _MAX_BUCKETS:
+        # Erst tote Buckets (kein Eintrag mehr im Fenster) wegwerfen ...
+        tot = [
+            k
+            for k, d in _handler_zeiten.items()
+            if not d or jetzt - d[-1] > _HANDLER_FENSTER_S
+        ]
+        for k in tot:
+            del _handler_zeiten[k]
+        # ... und FALLS ein rotierender Flood den Rest aufblaeht: die
+        # aeltesten Buckets hart fallenlassen (Insertion-Order). Betroffen
+        # sind max. limitierte Gueltigkeiten, kein legitimer Verkehr.
+        while len(_handler_zeiten) > _MAX_BUCKETS:
+            _handler_zeiten.pop(next(iter(_handler_zeiten)))
+    bucket = _handler_zeiten[f"{ip}|{user}"]
+    while bucket and jetzt - bucket[0] > _HANDLER_FENSTER_S:
+        bucket.popleft()
+    if len(bucket) >= _HANDLER_LIMIT:
         return False
-    fenster.append(jetzt)
+    bucket.append(jetzt)
     return True
 
 
@@ -69,10 +90,18 @@ async def _validate(http: httpx.AsyncClient, subdomain: str, token: str) -> bool
 
 @router.post("/handler")
 async def handler(body: dict[str, Any], request: Request) -> dict[str, Any]:
-    if not _rate_ok(request.client.host if request.client else "?"):
-        raise HTTPException(status_code=429, detail="rate limited")
     op = body.get("op", "")
     content = body.get("content") or {}
+    ip = request.client.host if request.client else "?"
+    # Rate-Key enthält den frps-User, damit ein Flood nicht den Shared-Bucket
+    # der legitimen Tenants kippt (s. Kommentar am Limit oben). Login sendet
+    # den User als String, NewProxy als Objekt mit "user"-Feld.
+    user_raw = content.get("user")
+    user_hint = str(
+        user_raw.get("user") if isinstance(user_raw, dict) else user_raw or ""
+    )
+    if not _rate_ok(ip, user_hint):
+        raise HTTPException(status_code=429, detail="rate limited")
     http: httpx.AsyncClient = request.app.state.http
 
     if op == "Login":
