@@ -26,6 +26,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initLocale } from '$lib/i18n';
+  import { starteKonsolenFang } from '$lib/diagnose/konsole';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
   import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
@@ -34,6 +35,12 @@
   // damit alle Texte direkt in der richtigen Sprache erscheinen — „de sonst en"
   // nach Systemsprache, manuelle Wahl (localStorage) hat Vorrang.
   initLocale();
+
+  // Konsole-Fang vor der ersten App-Logik: alles, was sonst nur in den
+  // DevTools steht (console.error, Fenster-Fehler, unbehandelte Promise-
+  // Ablehnungen), landet im Diagnose-Ring — der Käfer-Knopf verschickt es
+  // dann auf Klick, statt dass der Nutzer Konsole kopieren muss.
+  starteKonsolenFang();
 
   // Phase 4.1: Multi-Server-Store + Active-Server synchron vor allem anderen
   // initialisieren, damit Consumers immer einen fertigen State vorfinden.

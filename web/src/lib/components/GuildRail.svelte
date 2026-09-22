@@ -28,8 +28,10 @@
   import LogInIcon from '@lucide/svelte/icons/log-in';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
   import LockIcon from '@lucide/svelte/icons/lock';
+  import BugIcon from '@lucide/svelte/icons/bug';
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
+  import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guildIconSrc } from '$lib/guildIcon';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
@@ -420,6 +422,34 @@
 
     <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>
 
+    <!-- Werkzeug-Cluster (Wunsch 2026-09-22): der Käfer sitzt ÜBER den
+         Server-Sektionen statt im Footer — im Störfall soll er ohne Scrollen
+         und ohne Menü-Klick erreichbar sein. Der Remote-Rechner-Einstieg
+         (Standplatz, unter Windows die Fernsteuerung) ist aus dem Fuß der
+         Leiste hierher gezogen, damit beide Werkzeuge beieinander bleiben. -->
+    <div class="flex shrink-0 flex-col items-center gap-2">
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          {#snippet child({ props })}
+            <button
+              {...props}
+              type="button"
+              class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md md:size-10"
+              data-testid="rail-bug-button"
+              aria-label={m.diagnose_melden()}
+              onclick={() => (uiOverlays.diagnoseOpen = true)}
+            >
+              <BugIcon class="size-6 md:size-5" />
+            </button>
+          {/snippet}
+        </Tooltip.Trigger>
+        <Tooltip.Content side="right">{m.diagnose_melden()}</Tooltip.Content>
+      </Tooltip.Root>
+      <StandplatzRailButton />
+    </div>
+
+    <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>
+
     <!-- Sidebar-Variante B: pro Server eine eigene Sektion. Section-Header =
          Server-Label + Status-Dot. Darunter die Communitys DIESES Servers,
          dann ein "+" zum Anlegen einer neuen Community auf DIESEM Server. Am
@@ -737,9 +767,9 @@
   <!-- Unten in der Rail (mt-auto schiebt den Block ans Ende): der Einstieg in
        den eigenen Server (nur in der Cloud), das Server-Admin-Symbol (nur für
        Admins) und – auf Mobil – das eigene Avatar-Symbol (Desktop hat den User
-       im Sidebar-Footer mit Name). -->
+       im Sidebar-Footer mit Name). Käfer + Standplatz wohnen oben im
+       Werkzeug-Cluster. -->
   <div class="mt-auto flex shrink-0 flex-col items-center gap-2 pt-1">
-    <StandplatzRailButton />
     <SelfHostRailButton />
     <ServerAdminButton />
     {#if viewport.isMobile}
