@@ -1,9 +1,12 @@
 # Der Direktweg fragt die falsche Liste — Befund und die drei Wege
 
-Gefunden am 2026-09-07 in einem Bughunt, gegengeprüft am Code. **Nicht behoben**
-— behoben ist nur die Bremse (s. unten „Was schon drin ist"). Wer das angeht,
-liest zuerst diesen Abschnitt zu Ende: die Wahl zwischen den drei Wegen ist
-keine technische, sondern eine über die Reichweite des Hostings.
+Gefunden am 2026-09-07 in einem Bughunt, gegengeprüft am Code. **Behoben am
+2026-09-23 mit Weg 1** (die Direktrouten fragen `role == "owner"`, zusätzlich
+`status == "active"`; der Admin-Suspend löscht den Telefonbuch-Eintrag mit) —
+Nicht-Owner laufen wie beschrieben über den Relay-Rückfall. Die Abwägung unten
+bleibt relevant, falls der Direktpfad wieder für Mitglieder geöffnet werden
+soll: die Wahl zwischen den drei Wegen ist keine technische, sondern eine über
+die Reichweite des Hostings.
 
 ## Der Befund
 
