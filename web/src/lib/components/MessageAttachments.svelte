@@ -169,6 +169,14 @@
     }
   }
   let wischX: number | null = null;
+  /** Übergangs-Animation beim Blättern: das alte Video bleibt als
+   *  abgedunkeltes Standbild stehen, das neue schiebt sich aus der
+   *  Wischrichtung darüber (250 ms). Ende durch animationend, mit
+   *  500-ms-Fallback, falls das Ereignis verpasst wird. */
+  let alteUrl = $state<string | null>(null);
+  let slideRichtung = $state<1 | -1>(1);
+  let slideLaeuft = $state(false);
+  let slideWache: ReturnType<typeof setTimeout> | undefined;
 
   function oeffneVollbild(url: string): void {
     const nacktesVideo = url.split('#')[0];
@@ -182,18 +190,29 @@
     galerieIndex = Math.max(0, galerie.indexOf(nacktesVideo));
     frameBereit = false;
     vollbildUrl = nacktesVideo;
+    alteUrl = null;
+    slideLaeuft = false;
+    clearTimeout(slideWache);
     steuerungZeigen();
   }
 
   function galerieWechsel(richtung: number): void {
     const ziel = galerieIndex + richtung;
     if (ziel < 0 || ziel >= galerie.length) return;
+    alteUrl = vollbildUrl; // Standbild des bisherigen Videos liegt unter der Animation
+    slideRichtung = richtung >= 0 ? 1 : -1;
+    slideLaeuft = true;
     galerieIndex = ziel;
     spielerPosition = 0;
     spielerDauer = 0;
     spielerLaeuft = false;
     frameBereit = false;
     vollbildUrl = galerie[ziel];
+    clearTimeout(slideWache);
+    slideWache = setTimeout(() => {
+      slideLaeuft = false;
+      alteUrl = null;
+    }, 500);
     steuerungZeigen();
   }
 
@@ -423,15 +442,34 @@
 
     <!-- Video mittig. Bewusst KEIN Tap-Toggle auf der Fläche — Start/Pause
          läuft ausschließlich über den Knopf in der Mitte. Unsichtbar, bis
-         der erste Frame dekodiert ist — sonst graues Kästchen. -->
-    <div class="relative flex flex-1 items-center justify-center">
+         der erste Frame dekodiert ist — sonst graues Kästchen. Beim
+         Blättern schiebt sich das neue Video aus der Wischrichtung über
+         das abgedunkelte Standbild des bisherigen. -->
+    <div class="relative flex flex-1 items-center justify-center overflow-hidden">
+      {#if slideLaeuft && alteUrl}
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          src={alteUrl}
+          muted
+          aria-hidden="true"
+          class="pointer-events-none absolute max-h-full max-w-full object-contain opacity-60 brightness-75"
+        ></video>
+      {/if}
       <!-- svelte-ignore a11y_media_has_caption, a11y_no_noninteractive_element_interactions -->
       <video
         bind:this={spieler}
         src={vollbildUrl}
         autoplay
         playsinline
-        class="max-h-full max-w-full object-contain {frameBereit ? 'opacity-100' : 'opacity-0'}"
+        class="relative max-h-full max-w-full object-contain {frameBereit ? 'opacity-100' : 'opacity-0'} {frameBereit && slideLaeuft
+          ? slideRichtung === 1
+            ? 'video-slide-von-rechts'
+            : 'video-slide-von-links'
+          : ''}"
+        onanimationend={() => {
+          slideLaeuft = false;
+          alteUrl = null;
+        }}
         onclick={(e) => {
           e.stopPropagation();
           steuerungUmschalten();
@@ -531,3 +569,34 @@
 </Portal>
 {/if}
 <svelte:window onkeydown={taste} />
+
+<style>
+  /* Galerie-Übergang: das neue Video rutscht aus der Wischrichtung über
+     das abgedunkelte Standbild des bisherigen (Telegram-Feel). */
+  .video-slide-von-rechts {
+    animation: slide-von-rechts 250ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .video-slide-von-links {
+    animation: slide-von-links 250ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @keyframes slide-von-rechts {
+    from {
+      transform: translateX(60%);
+      opacity: 0.5;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes slide-von-links {
+    from {
+      transform: translateX(-60%);
+      opacity: 0.5;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+</style>
