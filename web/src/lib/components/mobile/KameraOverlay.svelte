@@ -395,6 +395,23 @@
     else vorschau.pause();
   }
 
+  /** Erster GEZEICHNETER Frame der Vorschau — bis er steht, deckt Schwarz
+   *  das graue WebView-Kästchen (dasselbe Muster wie beim Live-Bild; ein
+   *  pausiertes Video dekodiert von allein gar nichts). Der Mini-Seek auf
+   *  0.001 zwingt den Dekodierer, Frame 1 wirklich zu liefern. */
+  function vorschauFrameAbwarten(el: HTMLVideoElement): void {
+    const mitCallback = el as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+    };
+    if (mitCallback.requestVideoFrameCallback) {
+      mitCallback.requestVideoFrameCallback(() => (vorschauBereit = true));
+    } else if (el.readyState >= 2) {
+      vorschauBereit = true;
+    } else {
+      el.onloadeddata = () => (vorschauBereit = true);
+    }
+  }
+
   function entwurfSenden(): void {
     if (!entwurfDatei) return;
     const datei = entwurfDatei;
@@ -498,13 +515,22 @@
             bind:this={vorschau}
             src={entwurfUrl}
             playsinline
-            class="absolute inset-0 z-10 size-full object-contain"
+            preload="auto"
+            class="absolute inset-0 z-10 size-full object-contain {vorschauBereit ? 'opacity-100' : 'opacity-0'}"
             onclick={vorschauUmschalten}
+            onloadedmetadata={(e) => {
+              const el = e.currentTarget as HTMLVideoElement;
+              vorschauFrameAbwarten(el);
+              if (!el.currentTime) el.currentTime = 0.001;
+            }}
             ontimeupdate={() => (vorschauPosition = vorschau?.currentTime ?? 0)}
             onplay={() => (vorschauLaeuft = true)}
             onpause={() => (vorschauLaeuft = false)}
           ></video>
-          {#if !vorschauLaeuft}
+          {#if !vorschauBereit}
+            <!-- deckt das graue Kästchen, bis Frame 1 gezeichnet ist -->
+            <div class="absolute inset-0 z-10 bg-black"></div>
+          {:else if !vorschauLaeuft}
             <button
               type="button"
               class="absolute left-1/2 top-1/2 z-20 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white/80 bg-black/60"
