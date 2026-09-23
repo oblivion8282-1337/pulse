@@ -45,8 +45,15 @@
   let freundeZumHinzufuegen = $derived(
     friends.list.filter((f) => !gruppe.members.some((mm) => mm.user_id === f.user_id))
   );
-  /** Entfernen-X: nur der Ersteller, nur andere — so begrenzt es das Backend. */
-  let darfEntfernen = $derived(gruppe.ersteller_id === currentServerUserId());
+  /** Bin ich selbst noch dabei? Nach dem Verlassen bleibt der Chat lesbar —
+   *  aber Verlassen (nochmal), Hinzufügen, Entfernen und Anrufen gehören
+   *  dann der Vergangenheit an (Nutzerwunsch Testrunde 2026-09-24). */
+  let istMitglied = $derived(
+    gruppe.members.some((mm) => mm.user_id === currentServerUserId())
+  );
+  /** Entfernen-X: nur der Ersteller, nur andere, nur solange ER SELBST
+   *  Mitglied ist — so begrenzt es das Backend. */
+  let darfEntfernen = $derived(gruppe.ersteller_id === currentServerUserId() && istMitglied);
   let verlassenBestaetigt = $state(false);
   let amArbeiten = $state(false);
 
@@ -130,7 +137,7 @@
     <p class="text-text-muted text-xs">
       {m.gruppen_blatt_mitglieder({ count: gruppe.members.length })}
     </p>
-    {#if onAnrufen}
+    {#if onAnrufen && istMitglied}
       <button
         type="button"
         class="text-primary hover:bg-bg-hover mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2 text-sm font-semibold"
@@ -175,7 +182,7 @@
     {/each}
   </ul>
 
-  {#if freundeZumHinzufuegen.length > 0}
+  {#if istMitglied && freundeZumHinzufuegen.length > 0}
     <p class="text-text-muted mt-3 px-4 pb-1 text-xs font-bold uppercase">
       {m.gruppen_blatt_hinzufuegen_kopf()}
     </p>
@@ -202,16 +209,18 @@
     </ul>
   {/if}
 
-  <div class="mt-4 px-4 pb-2">
-    <button
-      type="button"
-      class="flex min-h-11 w-full items-center justify-center rounded-xl border border-red-500/40 py-2.5 text-sm font-bold text-red-500"
-      onclick={verlassen}
-      data-testid="group-leave"
-    >
-      {verlassenBestaetigt
-        ? m.gruppen_blatt_verlassen_bestaetigen()
-        : m.gruppen_blatt_verlassen()}
-    </button>
-  </div>
+  {#if istMitglied}
+    <div class="mt-4 px-4 pb-2">
+      <button
+        type="button"
+        class="flex min-h-11 w-full items-center justify-center rounded-xl border border-red-500/40 py-2.5 text-sm font-bold text-red-500"
+        onclick={verlassen}
+        data-testid="group-leave"
+      >
+        {verlassenBestaetigt
+          ? m.gruppen_blatt_verlassen_bestaetigen()
+          : m.gruppen_blatt_verlassen()}
+      </button>
+    </div>
+  {/if}
 </BottomSheet>
