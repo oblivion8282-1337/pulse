@@ -731,7 +731,7 @@
   "chat_view_typing_two": "{a} and {b} are typing …",
   "chat_view_yesterday": "Yesterday",
   "chats_compose": "New conversation",
-  "chats_empty": "Tap the pencil at the bottom right to message someone.",
+  "chats_empty": "Tap the three-dot menu at the top right to message someone.",
   "chats_empty_title": "No conversations yet",
   "chats_menu": "More options",
   "chats_new_chat_hint": "Tap a friend to open the conversation.",
