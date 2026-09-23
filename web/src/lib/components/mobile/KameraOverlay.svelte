@@ -728,13 +728,52 @@
             </button>
           {/if}
           {#if vorschauBereit && !schneideLaeuft}
-            <!-- Spul-/Schnittleiste oben (WhatsApp-Prinzip): ±10 s, Timeline
-                 antippbar, zwei Griffe markieren den Bereich, der bleibt. -->
+            <!-- Spul-/Schnittleiste oben (WhatsApp-Prinzip): Timeline in
+                 voller Breite, darunter die ±Knöpfe um die Zeitanzeige.
+                 Tippen auf einen Griff wählt ihn aus (weiß); die ±Knöpfe
+                 verschieben dann IHN in 1-s-Schritten, ohne Auswahl spulen
+                 sie ±10 s. -->
             <div class="absolute inset-x-0 top-0 z-20 px-5 pt-[26px]" data-testid="camera-draft-trim">
-              <div class="flex items-center gap-3">
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div
+                bind:this={spur}
+                class="relative h-10 touch-none"
+                onpointerdown={spurTippen}
+                onpointermove={griffBewegen}
+                onpointerup={griffLoslassen}
+                onpointercancel={griffLoslassen}
+              >
+                <div class="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/25"></div>
+                <div
+                  class="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-primary"
+                  style="left: {prozent(schnittStart, vorschauDauer)}%; width: {prozent(
+                    schnittEnde - schnittStart,
+                    vorschauDauer
+                  )}%;"
+                ></div>
+                <!-- Schnitt-Griffe: antippen wählt aus (weiß), die
+                     ±Knöpfe verschieben dann in 1-s-Schritten -->
+                <div
+                  class="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-lg {gewaehlterGriff === 'start'
+                    ? 'border-white bg-white'
+                    : 'border-white bg-black/70'}"
+                  style="left: {prozent(schnittStart, vorschauDauer)}%"
+                  onpointerdown={griffFassen('start')}
+                  data-testid="camera-trim-start"
+                ></div>
+                <div
+                  class="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-lg {gewaehlterGriff === 'ende'
+                    ? 'border-white bg-white'
+                    : 'border-white bg-black/70'}"
+                  style="left: {prozent(schnittEnde, vorschauDauer)}%"
+                  onpointerdown={griffFassen('ende')}
+                  data-testid="camera-trim-end"
+                ></div>
+              </div>
+              <div class="mt-1 flex items-center justify-center gap-5">
                 <button
                   type="button"
-                  class="flex size-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
+                  class="flex size-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
                   onclick={() => griffNudge(-10)}
                   aria-label={gewaehlterGriff
                     ? 'Schnittmarke 1 Sekunde nach links'
@@ -743,45 +782,17 @@
                 >
                   <RewindIcon class="size-5" />
                 </button>
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div
-                  bind:this={spur}
-                  class="relative h-10 flex-1 touch-none"
-                  onpointerdown={spurTippen}
-                  onpointermove={griffBewegen}
-                  onpointerup={griffLoslassen}
-                  onpointercancel={griffLoslassen}
-                >
-                  <div class="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/25"></div>
-                  <div
-                    class="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-primary"
-                    style="left: {prozent(schnittStart, vorschauDauer)}%; width: {prozent(
-                      schnittEnde - schnittStart,
-                      vorschauDauer
-                    )}%;"
-                  ></div>
-                  <!-- Schnitt-Griffe: antippen wählt aus (weiß), die
-                       ±10-s-Knöpfe verschieben dann in 1-s-Schritten -->
-                  <div
-                    class="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-lg {gewaehlterGriff === 'start'
-                      ? 'border-white bg-white'
-                      : 'border-white bg-black/70'}"
-                    style="left: {prozent(schnittStart, vorschauDauer)}%"
-                    onpointerdown={griffFassen('start')}
-                    data-testid="camera-trim-start"
-                  ></div>
-                  <div
-                    class="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-lg {gewaehlterGriff === 'ende'
-                      ? 'border-white bg-white'
-                      : 'border-white bg-black/70'}"
-                    style="left: {prozent(schnittEnde, vorschauDauer)}%"
-                    onpointerdown={griffFassen('ende')}
-                    data-testid="camera-trim-end"
-                  ></div>
-                </div>
+                <span class="text-2xs text-white/80 tabular-nums" data-testid="camera-draft-time">
+                  {formatiereDauer(vorschauPosition)} / {formatiereDauer(vorschauDauer)}
+                  {#if schnittStart > 0.05 || schnittEnde < vorschauDauer - 0.05}
+                    <span class="text-primary">
+                      · Schnitt {formatiereDauer(schnittEnde - schnittStart)}
+                    </span>
+                  {/if}
+                </span>
                 <button
                   type="button"
-                  class="flex size-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
+                  class="flex size-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
                   onclick={() => griffNudge(10)}
                   aria-label={gewaehlterGriff
                     ? 'Schnittmarke 1 Sekunde nach rechts'
@@ -790,14 +801,6 @@
                 >
                   <FastForwardIcon class="size-5" />
                 </button>
-              </div>
-              <div class="text-2xs text-center text-white/80 tabular-nums">
-                {formatiereDauer(vorschauPosition)} / {formatiereDauer(vorschauDauer)}
-                {#if schnittStart > 0.05 || schnittEnde < vorschauDauer - 0.05}
-                  <span class="text-primary">
-                    · Schnitt {formatiereDauer(schnittEnde - schnittStart)}
-                  </span>
-                {/if}
               </div>
             </div>
           {/if}
