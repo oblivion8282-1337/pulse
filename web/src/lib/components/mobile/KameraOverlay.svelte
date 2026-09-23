@@ -16,6 +16,11 @@
   <video>-Elemente wird durch schwarze Lade-Flächen verdeckt; die Freigabe
   erfolgt über den ersten GEZEICHNETEN Frame (requestVideoFrameCallback),
   nicht über das zu frühe „playing"-Ereignis.
+
+  Kamera-Wechsel (Testrunde 2026-09-23): kein Lade-Loch — das letzte Bild
+  der alten Kamera steht als Canvas-Standbild über dem Video, bis der
+  erste gezeichnete Frame der neuen Kamera dahinter steht; erst dann
+  verschwindet das Standbild (harter Schnitt).
 -->
 <script lang="ts">
   import CameraIcon from '@lucide/svelte/icons/camera';
@@ -66,6 +71,28 @@
   let frontKameraId: string | undefined;
   let stream: MediaStream | undefined;
   let videoTrack: MediaStreamTrack | undefined;
+
+  // Kamera-Wechsel ohne Lade-Loch: das letzte Bild der laufenden Kamera
+  // wird eingefroren (Canvas-Schnappschuss) und ÜBER dem Video gezeigt, bis
+  // der erste GEZEICHNETE Frame der anderen Kamera da ist — dann harter
+  // Schnitt. Die alte Kamera muss trotzdem ZUERST freigegeben werden
+  // (Android öffnet keine zweite gleichzeitig), aber das passiert jetzt
+  // HINTER dem Standbild.
+  let wechselLaeuft = $state(false);
+  let wechselLeinwand = document.createElement('canvas');
+  let wechselAnzeige: HTMLCanvasElement | undefined = $state();
+  let wechselWache: ReturnType<typeof setTimeout> | undefined;
+
+  function bildEinfrieren(): void {
+    if (!video?.videoWidth) return; // noch kein Bild → alter Lade-Weg greift
+    wechselLeinwand.width = video.videoWidth;
+    wechselLeinwand.height = video.videoHeight;
+    wechselLeinwand.getContext('2d')?.drawImage(video, 0, 0);
+    wechselLaeuft = true;
+    // Notfall-Aus: hängt der Wechsel, friert das Standbild nicht für immer.
+    clearTimeout(wechselWache);
+    wechselWache = setTimeout(() => (wechselLaeuft = false), 4000);
+  }
 
   // Aufnahme (Canvas-Zwischenstufe)
   let zeichenLeinwand = document.createElement('canvas');
@@ -158,6 +185,23 @@
     if (open) anzeigeBinden();
   });
 
+  $effect(() => {
+    // Standbild 1:1 ins angezeigte Canvas übernehmen, sobald es im DOM ist
+    // (die Quelle wurde synchron VOR dem Kamera-Stopp gezeichnet).
+    if (wechselLaeuft && wechselAnzeige) {
+      wechselAnzeige.width = wechselLeinwand.width;
+      wechselAnzeige.height = wechselLeinwand.height;
+      wechselAnzeige.getContext('2d')?.drawImage(wechselLeinwand, 0, 0);
+    }
+  });
+
+  $effect(() => {
+    // Der Schnitt: der erste GEZEICHNETE Frame der neuen Kamera löst das
+    // Standbild ab (gleiches Signal, das auch die anfängliche Lade-Fläche
+    // kennt — nicht das zu frühe „playing“).
+    if (wechselLaeuft && ersteFrameDa) wechselLaeuft = false;
+  });
+
   async function starten(): Promise<void> {
     fehler = false;
     liveLaeuft = false;
@@ -187,51 +231,61 @@
    *  Canvas-Streams; außerhalb nur ein Stream-Neustart. Parallel-Start
    *  (alte Kamera läuft bis die neue liefert) mit Fallback auf
    *  Stopp-dann-Start, wenn das Gerät zwei Kameras nicht gleichzeitig
-   *  öffnen mag (Testrunde 2026-09-23). */
+   *  öffnen mag (Testrunde 2026-09-23). Sichtbar bleibt DURCHGAENIG das
+   *  alte Standbild, bis die neue Kamera ihren ersten Frame zeichnet. */
   async function kameraWechseln(): Promise<void> {
-    // 1. Laufende Kamera FREIGEBEN — Android hält sie sonst belegt und die
-    //    Anfrage für die andere scheitert mit NotReadableError
-    //    (Testrunde 2026-09-23).
-    videoTrack?.stop();
-    videoTrack = undefined;
-    // 2. Kandidaten ermitteln (einmalig) — facingMode-Weichanfrage je Seite.
-    if (!hauptKameraId || !frontKameraId) {
-      try {
-        const rueck = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
-        });
-        hauptKameraId = rueck.getVideoTracks()[0].getSettings().deviceId;
-        rueck.getTracks().forEach((t) => t.stop());
-        const vorne = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user' }
-        });
-        frontKameraId = vorne.getVideoTracks()[0].getSettings().deviceId;
-        vorne.getTracks().forEach((t) => t.stop());
-      } catch {
-        // Erkennung fehlgeschlagen — Fallback unten greift.
-      }
-    }
-    nutzeFront = !nutzeFront;
-    liveLaeuft = false;
-    ersteFrameDa = false;
-    const ziel = nutzeFront ? frontKameraId : hauptKameraId;
-    let neu: MediaStream | undefined;
+    if (wechselLaeuft) return; // kein Doppel-Tipp in einen laufenden Wechsel
+    // 0. Standbild sichern, BEVOR die Kamera freigegeben wird — alles
+    //    Weitere (Freigabe, Probing, Neustart) passiert dahinter.
+    bildEinfrieren();
     try {
-      neu = await navigator.mediaDevices.getUserMedia({
-        video: ziel ? { deviceId: { exact: ziel } } : { facingMode: nutzeFront ? 'user' : 'environment' },
-        audio: true
-      });
+      // 1. Laufende Kamera FREIGEBEN — Android hält sie sonst belegt und die
+      //    Anfrage für die andere scheitert mit NotReadableError
+      //    (Testrunde 2026-09-23).
+      videoTrack?.stop();
+      videoTrack = undefined;
+      // 2. Kandidaten ermitteln (einmalig) — facingMode-Weichanfrage je Seite.
+      if (!hauptKameraId || !frontKameraId) {
+        try {
+          const rueck = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment' }
+          });
+          hauptKameraId = rueck.getVideoTracks()[0].getSettings().deviceId;
+          rueck.getTracks().forEach((t) => t.stop());
+          const vorne = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' }
+          });
+          frontKameraId = vorne.getVideoTracks()[0].getSettings().deviceId;
+          vorne.getTracks().forEach((t) => t.stop());
+        } catch {
+          // Erkennung fehlgeschlagen — Fallback unten greift.
+        }
+      }
+      nutzeFront = !nutzeFront;
+      const ziel = nutzeFront ? frontKameraId : hauptKameraId;
+      let neu: MediaStream | undefined;
+      try {
+        neu = await navigator.mediaDevices.getUserMedia({
+          video: ziel ? { deviceId: { exact: ziel } } : { facingMode: nutzeFront ? 'user' : 'environment' },
+          audio: true
+        });
+      } catch {
+        // Fallback: weiche facingMode-Anfrage statt exakter Geräte-ID.
+        neu = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: nutzeFront ? 'user' : 'environment' },
+          audio: true
+        });
+      }
+      videoTrack = neu.getVideoTracks()[0];
+      const audio = stream?.getAudioTracks() ?? [];
+      stream = new MediaStream([videoTrack, ...audio]);
+      anzeigeBinden();
     } catch {
-      // Fallback: weiche facingMode-Anfrage statt exakter Geräte-ID.
-      neu = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: nutzeFront ? 'user' : 'environment' },
-        audio: true
-      });
+      // Beide Anfragen scheitern: nicht im Standbild erstarren, sondern den
+      // bekannten Fehler zeigen (statt eines unhandled rejection).
+      fehler = true;
+      wechselLaeuft = false;
     }
-    videoTrack = neu.getVideoTracks()[0];
-    const audio = stream?.getAudioTracks() ?? [];
-    stream = new MediaStream([videoTrack, ...audio]);
-    anzeigeBinden();
   }
 
   function zeichneRahmen(): void {
@@ -329,6 +383,8 @@
     if (nimmtAuf) rekorder?.stop();
     cancelAnimationFrame(zeichenRahmen);
     clearInterval(rekordTimer);
+    clearTimeout(wechselWache);
+    wechselLaeuft = false;
     entwurfWeg();
     stream?.getTracks().forEach((t) => t.stop());
     stream = undefined;
@@ -348,6 +404,8 @@
         if (nimmtAuf) rekorder?.stop();
         cancelAnimationFrame(zeichenRahmen);
         clearInterval(rekordTimer);
+        clearTimeout(wechselWache);
+        wechselLaeuft = false;
         stream?.getTracks().forEach((t) => t.stop());
         stream = undefined;
       });
@@ -396,6 +454,17 @@
           >
             {m.camera_nicht_verfuegbar()}
           </div>
+        {/if}
+
+        <!-- Kamera-Wechsel: das Standbild der alten Kamera bleibt stehen und
+             verdeckt Lade-Loch wie Grau-Kästchen, bis der erste gezeichnete
+             Frame der neuen Kamera dahinter steht (dann harter Schnitt). -->
+        {#if wechselLaeuft}
+          <canvas
+            bind:this={wechselAnzeige}
+            class="absolute inset-0 z-10 size-full object-cover"
+            data-testid="camera-switch-frame"
+          ></canvas>
         {/if}
       {:else}
         <!-- Entwurf-Vorschau: Foto als Bild, Video mit Player + Steuerung. -->
