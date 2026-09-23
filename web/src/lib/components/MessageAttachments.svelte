@@ -38,6 +38,7 @@
   import DownloadIcon from '@lucide/svelte/icons/download';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import PlayIcon from '@lucide/svelte/icons/play';
   import XIcon from '@lucide/svelte/icons/x';
   import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
@@ -140,6 +141,10 @@
   let spielerLaeuft = $state(false);
   let spielerPosition = $state(0);
   let spielerDauer = $state(0);
+  /** False, bis der erste Frame des (neuen) Videos dekodiert ist — solange
+   *  bleibt das Element unsichtbar, sonst malt der WebView sein graues
+   *  Kästchen mitten ins Blättern. */
+  let frameBereit = $state(false);
   let wischX: number | null = null;
 
   function oeffneVollbild(url: string): void {
@@ -152,6 +157,7 @@
       )
     ];
     galerieIndex = Math.max(0, galerie.indexOf(nacktesVideo));
+    frameBereit = false;
     vollbildUrl = nacktesVideo;
   }
 
@@ -162,6 +168,7 @@
     spielerPosition = 0;
     spielerDauer = 0;
     spielerLaeuft = false;
+    frameBereit = false;
     vollbildUrl = galerie[ziel];
   }
 
@@ -359,8 +366,8 @@
       ontouchend={wischEnde}
       data-testid="attachment-video-fullscreen"
     >
-    <!-- Kopf: schließen + Galerie-Zähler -->
-    <div class="flex items-center justify-between p-4">
+    <!-- Kopf mit Verlauf: schließen + Galerie-Zähler -->
+    <div class="relative z-10 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent p-4 pb-8">
       <button
         type="button"
         class="flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
@@ -371,13 +378,17 @@
         <XIcon class="size-5" />
       </button>
       {#if galerie.length > 1}
-        <span class="text-xs text-white/70 tabular-nums">
+        <span
+          class="rounded-full border border-white/10 bg-black/40 px-3 py-1 text-xs text-white/90 tabular-nums backdrop-blur-md"
+          data-testid="attachment-fullscreen-counter"
+        >
           {galerieIndex + 1} / {galerie.length}
         </span>
       {/if}
     </div>
 
-    <!-- Video mittig; Tippen schaltet Wiedergabe um. -->
+    <!-- Video mittig; Tippen schaltet Wiedergabe um. Unsichtbar, bis der
+         erste Frame dekodiert ist — sonst graues Kästchen. -->
     <div class="relative flex flex-1 items-center justify-center">
       <!-- svelte-ignore a11y_media_has_caption, a11y_no_noninteractive_element_interactions -->
       <video
@@ -385,7 +396,7 @@
         src={vollbildUrl}
         autoplay
         playsinline
-        class="max-h-full max-w-full object-contain"
+        class="max-h-full max-w-full object-contain {frameBereit ? 'opacity-100' : 'opacity-0'}"
         onclick={(e) => {
           e.stopPropagation();
           spielerUmschalten();
@@ -393,9 +404,14 @@
         onplay={() => (spielerLaeuft = true)}
         onpause={() => (spielerLaeuft = false)}
         ontimeupdate={() => (spielerPosition = spieler?.currentTime ?? 0)}
-        onloadedmetadata={() => (spielerDauer = spieler?.duration ?? 0)}
+        onloadeddata={() => {
+          spielerDauer = spieler?.duration ?? 0;
+          frameBereit = true;
+        }}
       ></video>
-      {#if !spielerLaeuft}
+      {#if !frameBereit}
+        <LoaderCircleIcon class="absolute size-9 animate-spin text-white/80" />
+      {:else if !spielerLaeuft}
         <button
           type="button"
           class="pointer-events-none absolute flex size-16 items-center justify-center rounded-full border-2 border-white/80 bg-black/60"
@@ -404,7 +420,6 @@
           <PlayIcon class="size-8 text-white" />
         </button>
       {/if}
-      <!-- Galerie-Pfeile (nur mit Nachbarn; mobil wischen die Finger) -->
       {#if galerieIndex > 0}
         <button
           type="button"
@@ -435,10 +450,10 @@
       {/if}
     </div>
 
-    <!-- Schmale Spurliste unten -->
+    <!-- Schmale Spurliste unten mit Verlauf -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="flex items-center gap-3 px-4 pb-5 text-xs text-white/80 tabular-nums"
+      class="relative z-10 flex items-center gap-3 bg-gradient-to-t from-black/80 to-transparent px-4 pb-5 pt-8 text-xs text-white/80 tabular-nums"
       data-testid="attachment-fullscreen-controls"
       onclick={(e) => e.stopPropagation()}
     >
