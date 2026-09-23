@@ -184,11 +184,14 @@
   // page-reload onto `/app/guilds/X/channels/<voice-id>` could otherwise paint
   // before the overwrite list lands (STREAM/USE_VIDEO deny gates would miss).
   // Re-firing on every channelId change is idempotent — `ensure` short-circuits
-  // on a cached entry.
+  // on a cached entry. Der Server wird MIT gelesen: füllt sich der Multi-
+  // Server-Cache erst nach dem Mount, feuert der Effect erneut und richtet
+  // den Aufruf dann an die Communitys-Server statt blind auf den aktiven.
   $effect(() => {
     const cid = channelId;
     if (!cid || cid === '_') return;
-    void channelPermissions.ensure(cid).catch(() => undefined);
+    const sid = serverGuilds.serverIdForGuild(guildId);
+    void channelPermissions.ensure(cid, sid).catch(() => undefined);
   });
 
   // Keep the open channel at the head of the message-cache LRU so it is never

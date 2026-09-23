@@ -102,6 +102,32 @@
     });
   });
 
+  // Richtet den aktiven Server auf die Community der aktuellen Route aus —
+  // einmalig je BETRETEN einer Community (Mitteilungs-Klick, Deep-Link,
+  // Reload, Mitgliederliste), nicht dauerhaft: Ein absichtlicher Server-
+  // Wechsel per Server-Kopf-Klick (``activeServer.set`` OHNE Navigation,
+  // s. GuildRail) soll auf derselben Seite Bestand haben und darf nicht
+  // sofort wieder zurückgerungen werden. Der GuildRail-Klick auf eine
+  // Community macht dasselbe schon selbst (``selectGuildFromServer``);
+  // jeder direkte Sprung umgeht ihn aber — und Gilden-API-Aufrufe routen
+  // defaultmäßig auf ``activeServer``: 403 „not a member" / 404, leere
+  // Kanäle (Käfer-Log 2026-09-23, beide Richtungen). Ist die Community
+  // beim Boot noch keinem Server zugeordnet (Multi-Server-Cache füllt
+  // sich erst), bleibt die Route unversiegelt und der Effect feuert mit
+  // dem gefüllten Cache erneut — ``byServer`` wird hier gelesen.
+  let ausgerichteteGilde = $state('');
+  $effect(() => {
+    const gid = page.params.guildId;
+    if (!gid || !hydrated) return;
+    if (gid === ausgerichteteGilde) return;
+    const serverId = serverGuilds.serverIdForGuild(gid);
+    if (!serverId) return;
+    ausgerichteteGilde = gid;
+    if (serverId !== activeServer.serverId) {
+      activeServer.set(serverId);
+    }
+  });
+
   /** Single source of truth for notification-click navigation: SW postMessage
    *  → `navigateTo` event, and Electron `pulse.notify.onClick` → same path.
    *  Kept inline (instead of in `$lib/notifications/`) because it owns the

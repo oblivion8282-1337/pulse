@@ -39,6 +39,44 @@ import {
   oeffneGruppennachricht,
   verteilschluesselAufnehmen
 } from './gruppe/empfangen';
+import { melde } from '../diagnose/app-diagnose';
+
+/**
+ * Zählt erfolglose Öffnungsversuche je Zustellung — dauerhaft, im
+ * localStorage, damit ein App-Neustart den Zähler (und die Warnung) nicht
+ * vergisst. Ohne den Zähler SPAMT eine dauerhaft unlesbare Zustellung
+ * jeden Postfach-Zyklus: 20+ „Umschlag nicht zu öffnen" pro Minute waren
+ * Michaels Konsolen-Log 2026-09-23, während der Umschlag 30 Tage liegen
+ * bleibt (Server-Frist). Bewusst NICHT aufgeben/quittieren nach N Versuchen:
+ * ob ein Umschlag jemals wieder öffnbar ist, entscheidet der Krypto-Kern,
+ * nicht ein Zähler — aufgeben wäre Datenverlust nach Zeitplan.
+ *
+ * Deckel: 500 Einträge (die Server-Frist begrenzt die Lebensdauer ohnehin
+ * auf 30 Tage, verwaiste lokale Einträge sind nur Bytes).
+ */
+const ZAEHLER_SPEICHER = 'pulse.postfach.unlesbar';
+const ZAEHLER_DECKEL = 500;
+
+function versuchZaehlen(id: string): number {
+  try {
+    const roh = localStorage.getItem(ZAEHLER_SPEICHER);
+    const map = roh ? (JSON.parse(roh) as Record<string, number>) : {};
+    map[id] = (map[id] ?? 0) + 1;
+    const eintraege = Object.entries(map);
+    if (eintraege.length > ZAEHLER_DECKEL) {
+      // Älteste (kleinste Versuchszahl) kappen — grob, aber der Speicher
+      // ist rein diagnostisch.
+      eintraege.sort((a, b) => a[1] - b[1]);
+      for (const [k] of eintraege.slice(0, eintraege.length - ZAEHLER_DECKEL)) delete map[k];
+    }
+    localStorage.setItem(ZAEHLER_SPEICHER, JSON.stringify(map));
+    return map[id];
+  } catch {
+    // localStorage kann fehlen (Node-Test) oder voll sein — Zähler ist
+    // Diagnostik, niemals Störgrund.
+    return 1;
+  }
+}
 
 /**
  * Markiert, dass `sitzungMitKontoAtomarSichern` fuer eine Zustellung
@@ -143,7 +181,18 @@ export async function zustellungOeffnen(
       if (!geoeffnet) {
         // Laufende Nachricht ohne bekannte Sitzung, oder Sitzungsaufbau
         // ohne Identitaetsschluessel — nicht zu oeffnen, liegen lassen.
-        console.warn('[postfach] Umschlag nicht zu öffnen: keine Sitzung', { art: z.art });
+        // Einmal je Zustellung warnen + in den Kaefber-Ring (Zaehler s. o.,
+        // Modulkopf) — dieser Fall ist das Symptom eines Absenders, der in
+        // eine Sitzung schickt, die hier nie ankam, und gehoert in jeden
+        // Diagnosebericht.
+        const versuch = versuchZaehlen(`${z.id}`);
+        if (versuch === 1) {
+          console.warn('[postfach] Umschlag nicht zu öffnen: keine Sitzung', { art: z.art });
+          melde('postfach', 'umschlag_ohne_sitzung', 'Umschlag ohne passende Sitzung', {
+            art: z.art,
+            kanal: z.channel_id
+          });
+        }
         return null;
       }
       const sitzung = geoeffnet.sitzung;
@@ -221,10 +270,24 @@ export async function zustellungOeffnen(
       // Gegenseite schickte weiter in eine Sitzung, die hier nie ankam.
       // Ohne Inhalt: der Fehlertext kommt aus dem Krypto-Kern, nie aus dem
       // Umschlag.
-      console.warn('[postfach] Umschlag nicht zu öffnen', {
-        art: z.art,
-        fehler: err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-      });
+      //
+      // 2026-09-23: gewarnt/berichtet wird nur der ERSTE Fehlversuch je
+      // Zustellung (Zaehler oben) — der Postfach-Zyklus holt dieselbe
+      // unlesbare Zeile sonst jeden Durchlauf erneut, und die Konsole
+      // stand 20-fach voll, ohne dass eine neue Information dazukam. Der
+      // erste Fehlversuch geht zusätzlich in den Kaefber-Ring: console.warn
+      // wird dort nicht gefangen, und der Fehlertext (z. B.
+      // `SitzungsaufbauFehlgeschlagen`) ist genau der Baustein, der die
+      // Ursache im Feld sichtbar macht.
+      const versuch = versuchZaehlen(`${z.id}`);
+      if (versuch === 1) {
+        const fehlerText = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        console.warn('[postfach] Umschlag nicht zu öffnen', { art: z.art, fehler: fehlerText });
+        melde('postfach', 'umschlag_unlesbar', `Umschlag nicht zu öffnen: ${fehlerText}`, {
+          art: z.art,
+          kanal: z.channel_id
+        });
+      }
       return null;
     }
   });

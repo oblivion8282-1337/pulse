@@ -24,6 +24,7 @@ import { errText } from '$lib/utils/errText';
     type GuildPluginEntry
   } from '$lib/api/guild-plugins';
   import { setGuildPluginEnabled } from '$lib/plugins';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import Switch from '$lib/components/form/Switch.svelte';
@@ -38,9 +39,17 @@ import { errText } from '$lib/utils/errText';
   let loadError = $state<string | null>(null);
   let busy = $state<Record<string, boolean>>({});
 
+  // Anfragen an den Server der Community richten — der Dialog kann in
+  // einem Fenster offen sein, dessen aktiver Server ein anderer ist
+  // (Mitteilungs-Klick/Deep-Link in eine fremde Server-Community).
+  const route = $derived.by(() => {
+    const serverId = serverGuilds.serverIdForGuild(guildId);
+    return serverId ? { serverId } : {};
+  });
+
   onMount(async () => {
     try {
-      rows = await guildPluginsApi.list(guildId);
+      rows = await guildPluginsApi.list(guildId, route);
     } catch (e) {
       loadError = errText(e);
     } finally {
@@ -57,7 +66,7 @@ import { errText } from '$lib/utils/errText';
     // Optimistic flip — der Editor zeigt den Zielzustand sofort.
     rows[idx] = { ...rows[idx], enabled: target };
     try {
-      const updated = await guildPluginsApi.toggle(guildId, name, target);
+      const updated = await guildPluginsApi.toggle(guildId, name, target, route);
       rows[idx] = updated;
       setGuildPluginEnabled(guildId, name, updated.enabled);
       toast.success(

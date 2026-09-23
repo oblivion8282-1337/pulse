@@ -7,7 +7,7 @@
  * boundary.
  */
 
-import { request } from './client';
+import { request, type RequestRoute } from './client';
 
 export type Role = {
   id: string;
@@ -89,24 +89,35 @@ export const rolesApi = {
 };
 
 export const overwritesApi = {
-  list(channelId: string): Promise<Overwrite[]> {
-    return request<Overwrite[]>(`/channels/${channelId}/permissions`);
+  // ``route`` richtet an den Server der Community — Kanal-Rechte werden beim
+  // Betreten eines Kanals geladen und laufen damit genau in das Rennen, das
+  // Mitteilungs-Klick/Deep-Link in eine fremde Server-Community öffnet
+  // (404 auf dem aktiven Server, Käfer-Log 2026-09-23).
+  list(channelId: string, route: RequestRoute = {}): Promise<Overwrite[]> {
+    return request<Overwrite[]>(`/channels/${channelId}/permissions`, {}, route);
   },
   set(
     channelId: string,
     target_type: 0 | 1,
     target_id: string,
-    body: { allow: string; deny: string }
+    body: { allow: string; deny: string },
+    route: RequestRoute = {}
   ): Promise<Overwrite> {
     return request<Overwrite>(
       `/channels/${channelId}/permissions/${target_type}/${target_id}`,
-      { method: 'PUT', body }
+      { method: 'PUT', body },
+      route
     );
   },
-  delete(channelId: string, target_type: 0 | 1, target_id: string): Promise<void> {
+  delete(
+    channelId: string,
+    target_type: 0 | 1,
+    target_id: string,
+    route: RequestRoute = {}
+  ): Promise<void> {
     return request<void>(`/channels/${channelId}/permissions/${target_type}/${target_id}`, {
       method: 'DELETE'
-    });
+    }, route);
   }
 };
 

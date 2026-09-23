@@ -13,6 +13,7 @@
 import { untrack } from 'svelte';
 import { goto } from '$app/navigation';
 import { guilds } from '$lib/stores/guilds.svelte';
+import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
 import { messages } from '$lib/stores/messages.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
 import { readState } from '$lib/stores/readState.svelte';
@@ -77,7 +78,13 @@ export function erstelleKanalWechsel() {
       // doesn't false-positive against guild defaults. Best-effort:
       // a 403/500 here would only collapse UI affordances back to the
       // guild-level resolution, which is still correct (just permissive).
-      if (ch) void channelPermissions.ensure(ch.id).catch(() => undefined);
+      // An den Server der Community gerichtet — der Wechsel kann in eine
+      // fremde Server-Community fuehren (Mitteilungs-Klick/Deep-Link),
+      // bevor die Ausrichtung im App-Layout durchgegriffen hat.
+      if (ch) {
+        const sid = serverGuilds.serverIdForGuild(g);
+        void channelPermissions.ensure(ch.id, sid).catch(() => undefined);
+      }
       // Only text channels have message history + WS subscriptions.
       // Voice channels are handled entirely by VoiceChannelView/LiveKit.
       if (ch && ch.type === 0) {
