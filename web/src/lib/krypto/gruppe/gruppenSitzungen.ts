@@ -50,6 +50,7 @@ import {
 import { openIdentityDb, idbGetIdentity, idbPutIdentity } from '../../identity/idb-shared';
 import { pickelschluesselDesGeraets } from '../account.svelte';
 import type { Gruppenstand } from './sitzungswahl';
+import type { Wasserstand } from './wasserstand';
 
 /** Was unter dem Ausgang-Schluessel liegt: der Pickle plus die Buchhaltung
  *  aus `sitzungswahl.ts` (ohne das Sitzungsobjekt selbst). */
@@ -152,18 +153,10 @@ export async function gruppenempfangSichern(
  * aber jede seither gelesene Nachricht ein zweites Mal entschluesselbar
  * machen.
  *
- * **Der Zaehler faengt das heute NICHT ab.** Der Krypto-Kern gibt ihn zwar
- * heraus (`Gruppennachricht::zaehler`), aber `oeffneGruppennachricht` nimmt
- * nur den Klartext und wirft ihn weg — im ganzen Klienten wird er nirgends
- * gelesen. Die einzige Sperre gegen eine doppelt angezeigte Nachricht ist
- * `verlaufSchonAbgelegt` ueber die vom SERVER vergebene Zustellungs-Kennung;
- * derselbe Geheimtext unter einer neuen Kennung kaeme also durch. Hier stand
- * bis zum 2026-09-07 das Gegenteil („die Wiedereinspiel-Erkennung ueber den
- * Nachrichtenzaehler, die der Krypto-Kern ausdruecklich anbietet") — angeboten
- * ist sie, benutzt nicht, und dieser Absatz begruendete mit ihr sogar das
- * Nicht-Ueberschreiben. Das Nicht-Ueberschreiben bleibt trotzdem richtig, aus
- * dem ersten Grund oben; es ist nur nicht die zweite Haelfte eines Schutzes,
- * den es gibt.
+ * **Update 2026-09-23:** die zweite Hälfte existiert jetzt — der Wasserstand
+ * unten (`gruppenWasserstandLesen`/`gruppenWasserstandMerken`, Entscheidung
+ * in `wasserstand.ts`) verarbeitet `zaehler` gegen Höchststand plus
+ * Zustellungs-ID.
  */
 export async function gruppenempfangAnlegenFallsNeu(
   kanalId: string,
@@ -181,6 +174,34 @@ export async function gruppenempfangAnlegenFallsNeu(
   const pickel = await pickelschluesselDesGeraets();
   const empfang = GruppenempfangKlasse.ausVerteilschluessel(verteilschluessel);
   await idbPutIdentity(db, schluessel, empfang.einfrieren(pickel));
+  db.close();
+}
+
+function wasserstandSchluessel(sitzungId: string): string {
+  return `pulse.krypto-gruppenwasser.${sitzungId}`;
+}
+
+/** Höchster sauber geöffneter Zählerstand dieser eingehenden Sitzung
+ *  (Bughunt 2026-09-23) — `null`, wenn noch nie eine geöffnet wurde. Kein
+ *  Geheimnis (eine laufende Nummer), also ungefroren neben dem Pickle. */
+export async function gruppenWasserstandLesen(sitzungId: string): Promise<Wasserstand | null> {
+  const db = await openIdentityDb();
+  const roh = (await idbGetIdentity(db, wasserstandSchluessel(sitzungId))) as
+    | Wasserstand
+    | undefined;
+  db.close();
+  return roh ?? null;
+}
+
+/** Hebt den Wasserstand nach dem ersten sauberen Öffnen einer Nachricht.
+ *  Wird von `oeffneGruppennachricht` VOR dem Sichern der Sitzung gerufen —
+ *  beides gehört zu derselben Zustellung. */
+export async function gruppenWasserstandMerken(
+  sitzungId: string,
+  stand: Wasserstand
+): Promise<void> {
+  const db = await openIdentityDb();
+  await idbPutIdentity(db, wasserstandSchluessel(sitzungId), stand);
   db.close();
 }
 

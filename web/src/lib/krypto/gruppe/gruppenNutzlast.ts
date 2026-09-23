@@ -90,6 +90,14 @@ export type Verteilnutzlast = {
   sitzung: string;
   /** Base64, aus `Gruppensitzung::verteilschluessel()`. NIE loggen. */
   schluessel: string;
+  /** **Absender-Bindung (Bughunt 2026-09-23):** das Geraet, das diese
+   *  Sitzung angelegt hat. Die Registrierung der eingehenden Sitzung
+   *  geschah bislang unter dem METADATEN-Wert (`z.absender_device_pubkey`),
+   *  den der Server frei setzt — ein Gateway konnte so Mallorys Sitzung als
+   *  Bobs ausgeben und jeder späteren Megolm-Nachricht einen falschen
+   *  Absender unterschieben. Der Empfänger verlangt Übereinstimmung und
+   *  registriert unter dem Nutzlast-Wert. */
+  absenderGeraet?: string;
   /** NUR bei Ablage-Kanaelen (Design §3.1): der Ablage-Hauptschluessel des
    *  Kanalordners, Base64. Immer zusammen mit `freigabeAdresse` gesetzt oder
    *  gar nicht — die Haelfte eines Paars ist unbrauchbar. NIE loggen. */
@@ -115,12 +123,15 @@ export interface AblageVerteilzugabe {
 
 /** Baut die Klartext-Bytes, die anschliessend eine 1:1-Olm-Sitzung
  *  verschluesselt. `ablage` ist nur bei Ablage-Kanaelen gesetzt (Design
- *  §3.1) — ohne sie entsteht dieselbe Nutzlast wie bisher, byteidentisch. */
+ *  §3.1) — ohne sie entsteht dieselbe Nutzlast wie bisher, byteidentisch.
+ *  `absenderGeraet` bindet den Sitzungsinhaber (Bughunt 2026-09-23, s.
+ *  `Verteilnutzlast`). */
 export function baueVerteilNutzlast(
   kanal: string,
   sitzung: string,
   schluessel: string,
-  ablage?: AblageVerteilzugabe
+  ablage?: AblageVerteilzugabe,
+  absenderGeraet?: string
 ): Uint8Array {
   return new TextEncoder().encode(
     JSON.stringify({
@@ -129,6 +140,7 @@ export function baueVerteilNutzlast(
       kanal,
       sitzung,
       schluessel,
+      ...(absenderGeraet !== undefined ? { absenderGeraet } : {}),
       ...(ablage
         ? { ablageHauptschluessel: ablage.hauptschluessel, freigabeAdresse: ablage.freigabeAdresse }
         : {})
@@ -161,6 +173,12 @@ export function leseVerteilNutzlast(bytes: Uint8Array): Verteilnutzlast | null {
     return null;
   }
   const ergebnis: Verteilnutzlast = { kanal: o.kanal, sitzung: o.sitzung, schluessel: o.schluessel };
+  // Absender-Bindung (Bughunt 2026-09-23) — optional wie alles, was nur
+  // HINZUKAM: eine Nutzlast ohne das Feld stammt von einem Sender vor der
+  // Änderung und wird vom Empfänger wie bisher behandelt.
+  if (typeof o.absenderGeraet === 'string') {
+    ergebnis.absenderGeraet = o.absenderGeraet;
+  }
   // Nur setzen, wenn BEIDE da sind — s. Modulkopf. Damit bleibt eine
   // gewoehnliche Nutzlast (kein Ablage-Kanal) exakt das Objekt aus den drei
   // Pflichtfeldern, keine zusaetzlichen `undefined`-Schluessel.

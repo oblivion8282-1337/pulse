@@ -147,6 +147,10 @@ export async function zustellungOeffnen(
   if (istGruppennachricht(z)) {
     if (!PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) return null;
     const nachricht = await oeffneGruppennachricht(z);
+    // 'verworfen' (Wiedereinspiel, fremde Absender-Angabe — s.
+    // `gruppe/empfangen.ts`) ist erfolgreich BEHANDELT: quittieren, sonst
+    // versucht der naechste Zyklus denselben Angriff wieder zu oeffnen.
+    if (nachricht === 'verworfen') return { art: 'ohneAblage', id: z.id };
     return nachricht ? { art: 'neu', nachricht } : null;
   }
 
@@ -240,6 +244,23 @@ export async function zustellungOeffnen(
       // Umsetzung in die Anzeige-Form teilt sich dieser Weg mit dem
       // Megolm-Weg, s. `empfangeneNachricht.ts`.
       const gelesen = leseNachrichtNutzlast(klartextBytes);
+      // **Absender-Bindung (Bughunt 2026-09-23):** die Nutzlast nennt ihr
+      // Geraet; die Metadaten (`z.absender_device_pubkey`) setzt der Server
+      // frei. Stimmen sie nicht, ist einer der beiden verdreht — genau die
+      // Zuschreibungs-Faelschung, gegen die das Feld existiert. Verworfen
+      // und quittierbar ('ohneAblage'), sonst bliebe sie fuer immer liegen
+      // und wuerde jeden Abholzyklus erneut versuchen.
+      if (gelesen.absenderGeraet !== null && gelesen.absenderGeraet !== z.absender_device_pubkey) {
+        console.warn('[postfach] Nachricht mit fremder Absender-Angabe verworfen', {
+          nutzlast: gelesen.absenderGeraet,
+          zustellung: z.absender_device_pubkey
+        });
+        return { art: 'ohneAblage', id: z.id };
+      }
+      // Zuschreibung aus der authentisierten Nutzlast, wo vorhanden; erst
+      // das Fehlen (Sender vor der Aenderung) faellt auf die Metadaten
+      // und den DM-Rueckfall (`absenderErmitteln`) zurueck.
+      const zuschreibung = gelesen.absenderNutzer ?? absenderUserId;
       if (gelesen.geloescht && gelesen.id !== null) {
         // Lösch-Frame (2026-09-02): der Aufrufer entfernt die Nachricht
         // lokal (Grabstein im Verlauf, damit auch im Archiv) und quittiert
@@ -249,10 +270,10 @@ export async function zustellungOeffnen(
           id: z.id,
           channelId: z.channel_id,
           nachrichtId: gelesen.id,
-          absenderUserId
+          absenderUserId: zuschreibung
         };
       }
-      return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, absenderUserId, gelesen) };
+      return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, zuschreibung, gelesen) };
     } catch (err) {
       if (err instanceof KontoSicherungFehlgeschlagen) {
         // Weiterreichen, NICHT hier verschlucken — `postfachZyklus` laesst

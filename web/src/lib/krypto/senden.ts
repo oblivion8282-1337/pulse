@@ -244,7 +244,13 @@ export async function sendeVerschluesselt(
   const nachrichtId = lokaleNachrichtId();
   // Antwort-Kennung faehrt ebenfalls in der Nutzlast mit (statt eines
   // Klartext-Rueckfalls nur wegen `replyToId`) — s. `nachrichtNutzlast.ts`.
-  const klartextBytes = baueNachrichtNutzlast(klartext, nachrichtId, replyToId, anhaenge);
+  // Die Absender-Angabe faehrt mit denselben Gruenden wie die Autor-ID mit
+  // (Bughunt 2026-09-23): der Empfaenger attribuiert aus der authentisierten
+  // Nutzlast, nicht aus den vom Server frei gesetzten Metadaten.
+  const klartextBytes = baueNachrichtNutzlast(klartext, nachrichtId, replyToId, anhaenge, {
+    nutzer: eigeneUserId,
+    geraet: eigeneKennung
+  });
   const status = await versendeUmschlaege(kanalId, ziel, eigeneKennung, klartextBytes,
     anhaenge.map((a) => a.id));
   if (status !== 'verschluesselt') {
@@ -324,7 +330,7 @@ export async function sendeLoeschung(
     kanalId,
     ziel,
     eigeneKennung,
-    baueLoeschNutzlast(nachrichtId)
+    baueLoeschNutzlast(nachrichtId, { nutzer: eigeneUserId, geraet: eigeneKennung })
   );
   return status === 'verschluesselt';
 }
