@@ -146,9 +146,9 @@
    *  bleibt das Element unsichtbar, sonst malt der WebView sein graues
    *  Kästchen mitten ins Blättern. */
   let frameBereit = $state(false);
-  /** Bedienelemente (✕, Zähler, Pfeile, Mittel-Knopf, Spur): 3 s ohne
-   *  Interaktion → ausblenden; jeder Tipp aufs Bild holt sie zurück.
-   *  Pausiert bleibt die Steuerung bewusst stehen. */
+  /** Bedienelemente (✕, Zähler, Pfeile, Mittel-Knopf, Spur): 2 s ohne
+   *  Interaktion → ausblenden (nur bei laufendem Video). Ein Tipp auf den
+   *  Bildschirm SCHALTET: sichtbar → weg, weg → zurück. */
   let steuerungSichtbar = $state(true);
   let steuerungWache: ReturnType<typeof setTimeout> | undefined;
 
@@ -156,7 +156,16 @@
     steuerungSichtbar = true;
     clearTimeout(steuerungWache);
     if (!spieler?.paused) {
-      steuerungWache = setTimeout(() => (steuerungSichtbar = false), 3000);
+      steuerungWache = setTimeout(() => (steuerungSichtbar = false), 2000);
+    }
+  }
+
+  function steuerungUmschalten(): void {
+    if (steuerungSichtbar) {
+      clearTimeout(steuerungWache);
+      steuerungSichtbar = false;
+    } else {
+      steuerungZeigen();
     }
   }
   let wischX: number | null = null;
@@ -369,8 +378,8 @@
 
 {#if vollbildUrl}
   <!-- Video-Betrachter (WhatsApp/Telegram-Stil): schwarz, ohne native
-       Steuerleiste. Tippen aufs Bild zeigt die Steuerung (3 s Ruhe blendet
-       sie aus — nur bei laufendem Video), Start/Pause nur über den
+       Steuerleiste. Tippen aufs Bild schaltet die Steuerung um (2 s Ruhe
+       blendet sie aus — nur bei laufendem Video), Start/Pause nur über den
        Mittel-Knopf, Wischen/Pfeile blättern. Schließen: ✕ oder Esc.
        IM PORTAL: unter dem Swipe-Gesten-Vorfahren (transform!) würde sonst
        selbst `fixed inset-0` eingeklemmt. -->
@@ -380,7 +389,7 @@
       class="fixed inset-0 z-50 flex flex-col bg-black"
       onclick={(e) => {
         e.stopPropagation();
-        steuerungZeigen();
+        steuerungUmschalten();
       }}
       ontouchstart={wischStart}
       ontouchend={wischEnde}
@@ -425,7 +434,7 @@
         class="max-h-full max-w-full object-contain {frameBereit ? 'opacity-100' : 'opacity-0'}"
         onclick={(e) => {
           e.stopPropagation();
-          steuerungZeigen();
+          steuerungUmschalten();
         }}
         onplay={() => (spielerLaeuft = true)}
         onpause={() => (spielerLaeuft = false)}
