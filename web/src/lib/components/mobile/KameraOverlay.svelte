@@ -737,7 +737,7 @@
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 bind:this={spur}
-                class="relative h-10 touch-none"
+                class="relative h-8 touch-none"
                 onpointerdown={spurTippen}
                 onpointermove={griffBewegen}
                 onpointerup={griffLoslassen}
@@ -770,7 +770,7 @@
                   data-testid="camera-trim-end"
                 ></div>
               </div>
-              <div class="mt-1 flex items-center justify-center gap-5">
+              <div class="mt-1 flex items-center justify-center gap-8">
                 <button
                   type="button"
                   class="flex size-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
