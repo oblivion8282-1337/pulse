@@ -183,9 +183,14 @@ export function storeGet(key: string): unknown {
   if (roh === undefined) return undefined;
   const wert = entschluesseleWert(key, roh);
   if (wert === undefined && roh !== undefined) {
-    // Unentschlüsselbares Geheimnis wegwerfen — sonst bleibt der kaputte
-    // Wrapper liegen und jede weitere Nutzung schlägt wieder fehl.
-    if (data !== null && istGeheimWickel(roh)) {
+    // Unentschlüsselbares Geheimnis nur dann wegwerfen, wenn der Tresor im
+    // Fehlermoment bereit steht (Bughunt 2026-09-23, zweiter Lauf): dann ist
+    // der Wrapper wirklich kaputt bzw. der Schlüssel gewechselt — Neu-Pairing
+    // ist der Weg zurück. Steht KEIN Tresor bereit (gesperrter Keyring beim
+    // Autostart, libsecret-Timeout), wäre die Löschung die Zerstörung eines
+    // gesunden Geheimnisses wegen eines TRANSIENTEN Fehlers — der Wrapper
+    // bleibt liegen, der nächste Start versucht es erneut.
+    if (data !== null && istGeheimWickel(roh) && tresorBereit()) {
       delete data[key];
       persist();
     }
@@ -198,11 +203,19 @@ export function storeGet(key: string): unknown {
  *  Gewickelte Geheimnisse kommen transparent als Klartext zurück — der
  *  Renderer kennt nur die Klartext-Formen (die Geheimnis-Schlüssel sind
  *  über `RENDERER_BLOCKED_STORE_KEYS`/Allowlist ohnehin gesperrt bzw. nur
- *  Legacy). */
-export function storeGetAll(): Record<string, unknown> {
+ *  Legacy).
+ *  `geheimnisseAusnehmen` schlüsselt die genannten Schlüssel gar nicht erst
+ *  (Bughunt 2026-09-23, zweiter Lauf): der Renderer-getAll-Pfad reicht sie
+ *  danach ohnehin gefiltert weg — der Main-Prozess soll den am stärksten
+ *  geschützten Wert nicht bei jedem getAllSync entschlüsseln (libsecret-DBus
+ *  ist synchron und blockiert beim hängenden Keyring Main UND Renderer). */
+export function storeGetAll(
+  geheimnisseAusnehmen?: ReadonlySet<string>
+): Record<string, unknown> {
   if (!data) return {};
   const kopie: Record<string, unknown> = { ...data };
   for (const key of GEHEIME_SCHLUESSEL) {
+    if (geheimnisseAusnehmen?.has(key)) continue;
     if (kopie[key] === undefined) continue;
     const wert = entschluesseleWert(key, kopie[key]);
     if (wert === undefined) {

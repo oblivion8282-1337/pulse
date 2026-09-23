@@ -1396,7 +1396,11 @@ function wireStore(): void {
   });
   ipcMain.handle('store:getAll', () => {
     try {
-      return stripBlockedKeys(storeGetAll());
+      // Geheimnisse gar nicht erst entschlüsseln — die werden hier danach
+      // gefiltert weggeworfen (zweiter Bughunt-Lauf 2026-09-23: libsecret ist
+      // ein synchroner DBus-Aufruf; der Renderer soll einen hängenden Keyring
+      // nicht blockieren können, und der Klartext braucht hier niemand).
+      return stripBlockedKeys(storeGetAll(RENDERER_BLOCKED_STORE_KEYS));
     } catch (e) {
       console.error('[store] store:getAll failed:', e);
       return {};
@@ -1410,7 +1414,7 @@ function wireStore(): void {
   // sync IPC form; fired exactly once per launch.
   ipcMain.on('store:getAllSync', (e) => {
     try {
-      e.returnValue = stripBlockedKeys(storeGetAll());
+      e.returnValue = stripBlockedKeys(storeGetAll(RENDERER_BLOCKED_STORE_KEYS));
     } catch (err) {
       console.error('[store] store:getAllSync failed:', err);
       e.returnValue = {};
@@ -1481,8 +1485,17 @@ const _ALLOWED_PERMISSIONS = new Set([
   'clipboard-sanitized-write',
 ]);
 function wirePermissionGate(): void {
+  // Zweiter Bughunt-Lauf (2026-09-23): die Prüfung muss FRAME-EBENIG sein —
+  // `webContents.getURL()` liefert die Top-Page, ein Cross-Origin-iframe
+  // (Watch-Party-Embeds) hätte die App-Origin geerbt. Electron liefert dafür
+  // `details.requestingUrl` (Request) bzw. `requestingOrigin` (Check); nur wo
+  // beides fehlt, fällt der Gate auf die Top-URL zurück.
+  const erlaubt = (permission: string, quelle: string | null | undefined): boolean => {
+    if (!_ALLOWED_PERMISSIONS.has(permission)) return false;
+    return quelle != null && _isAllowedOrigin(quelle);
+  };
   session.defaultSession.setPermissionRequestHandler(
-    (webContents, permission, callback) => {
+    (webContents, permission, callback, details) => {
       // Fullscreen ist nutzerinitiiert und unkritisch — Watch-Party-Embeds
       // (YouTube/Twitch-iframe) brauchen ihn, deren Origin durchfällt sonst.
       if (permission === 'fullscreen') {
@@ -1490,14 +1503,22 @@ function wirePermissionGate(): void {
         return;
       }
       if (
-        _ALLOWED_PERMISSIONS.has(permission) &&
-        webContents != null &&
-        _isAllowedOrigin(webContents.getURL())
+        erlaubt(permission, details?.requestingUrl ?? webContents?.getURL() ?? null)
       ) {
         callback(true);
         return;
       }
       callback(false);
+    }
+  );
+  // Elektron verlangt BEIDE Handler für vollständige Permissions-Abdeckung
+  // (electron.d.ts): `navigator.permissions.query` und die synchronen Checks
+  // (pointerLock, clipboard-sanitized-write) laufen über DIESEN Handler — ohne
+  // ihn galt dort weiterhin Electron-Default statt der Allowlist.
+  session.defaultSession.setPermissionCheckHandler(
+    (_webContents, permission, requestingOrigin) => {
+      if (permission === 'fullscreen') return true;
+      return erlaubt(permission, requestingOrigin);
     }
   );
 }
