@@ -174,6 +174,7 @@
    *  Wischrichtung darüber (250 ms). Ende durch animationend, mit
    *  500-ms-Fallback, falls das Ereignis verpasst wird. */
   let alteUrl = $state<string | null>(null);
+  let unterlageBereit = $state(false);
   let slideRichtung = $state<1 | -1>(1);
   let slideLaeuft = $state(false);
   let slideWache: ReturnType<typeof setTimeout> | undefined;
@@ -200,6 +201,7 @@
     const ziel = galerieIndex + richtung;
     if (ziel < 0 || ziel >= galerie.length) return;
     alteUrl = vollbildUrl; // Standbild des bisherigen Videos liegt unter der Animation
+    unterlageBereit = false; // frisch gemountet → erst ab Frame sichtbar (kein Grau)
     slideRichtung = richtung >= 0 ? 1 : -1;
     slideLaeuft = true;
     galerieIndex = ziel;
@@ -452,7 +454,10 @@
           src={alteUrl}
           muted
           aria-hidden="true"
-          class="pointer-events-none absolute max-h-full max-w-full object-contain opacity-60 brightness-75"
+          class="pointer-events-none absolute max-h-full max-w-full object-contain brightness-75 {unterlageBereit
+            ? 'opacity-60'
+            : 'opacity-0'}"
+          onloadeddata={() => (unterlageBereit = true)}
         ></video>
       {/if}
       <!-- svelte-ignore a11y_media_has_caption, a11y_no_noninteractive_element_interactions -->
