@@ -88,6 +88,11 @@
     wechselLeinwand.width = video.videoWidth;
     wechselLeinwand.height = video.videoHeight;
     wechselLeinwand.getContext('2d')?.drawImage(video, 0, 0);
+    // ZWINGEND zuerst: den Frame-Wächter des ALTEN Kamerastarts löschen,
+    // bevor das Standbild hochgeht — sonst sieht der Schnitt-Effekt unten
+    // „Standbild da + Frame da“ und nimmt es sofort wieder weg (der schwarze
+    // Blitz, den der erste Versuch hatte).
+    ersteFrameDa = false;
     wechselLaeuft = true;
     // Notfall-Aus: hängt der Wechsel, friert das Standbild nicht für immer.
     clearTimeout(wechselWache);
@@ -198,8 +203,12 @@
   $effect(() => {
     // Der Schnitt: der erste GEZEICHNETE Frame der neuen Kamera löst das
     // Standbild ab (gleiches Signal, das auch die anfängliche Lade-Fläche
-    // kennt — nicht das zu frühe „playing“).
-    if (wechselLaeuft && ersteFrameDa) wechselLaeuft = false;
+    // kennt — nicht das zu frühe „playing“). liveLaeuft kommt hier mit hoch,
+    // damit nach dem Schnitt keine Lade-Fläche nachblitzt.
+    if (wechselLaeuft && ersteFrameDa) {
+      wechselLaeuft = false;
+      liveLaeuft = true;
+    }
   });
 
   async function starten(): Promise<void> {
@@ -290,7 +299,12 @@
 
   function zeichneRahmen(): void {
     if (!nimmtAuf) return;
-    if (zeichenLeinwand && video && video.videoWidth) {
+    // Kamera-Wechsel läuft: das Video-Element zeigt beim Stream-Tausch
+    // schwarz — den Frame NICHT zeichnen, der Canvas hält das letzte Bild
+    // und der Rekorder bekommt ein Standbild statt eines schwarzen Blocks.
+    // ponytail: eingefrorene Stelle statt hartem Schnitt im File — ein
+    // nahtloser Schnitt bräuchte Recorder-Neustart + Stitchen zweier Dateien.
+    if (!wechselLaeuft && zeichenLeinwand && video && video.videoWidth) {
       zeichenLeinwand
         .getContext('2d')
         ?.drawImage(video, 0, 0, zeichenLeinwand.width, zeichenLeinwand.height);
