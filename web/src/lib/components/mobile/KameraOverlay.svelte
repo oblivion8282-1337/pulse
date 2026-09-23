@@ -498,8 +498,9 @@
         {/if}
       {/if}
 
-      <!-- Kopfleiste -->
-      <div class="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-5">
+      <!-- Kopfleiste (pt bewusst 6 px unter den Standard-20 px: die Knöpfe
+           klebten sonst an der Statusleiste des Handys — Nutzerwunsch) -->
+      <div class="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 pt-[26px] pb-5">
         <button
           type="button"
           class="flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
