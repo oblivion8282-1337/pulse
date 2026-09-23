@@ -22,7 +22,7 @@
  * er es bei einem echten Identitätswechsel auch sein soll. Das Gerätemodell
  * selbst (Kopplung, Widerruf) bleibt unangetastet.
  */
-import { openIdentityDb, idbGetIdentity, idbPutIdentity } from '../identity/idb-shared';
+import { openIdentityDb, idbGetIdentity, idbPutIdentity, idbDeleteIdentity } from '../identity/idb-shared';
 import { signaturPruefen } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import {
   buendelAnmeldung,
@@ -94,4 +94,17 @@ export async function geraetebuendelAuthentifizieren(geraet: {
     curve25519: geraet.curve25519,
     ed25519: geraet.ed25519
   });
+}
+
+/** Löscht die Pinnung eines Geräts — die Nutzer-Entscheidung „das ist
+ *  wirklich mein neu aufgesetztes Gerät" (Bestätigungs-UI im Sendeweg,
+ *  `dmSenden.ts`). Danach pinnt der nächste verifizierte Kontakt den neuen
+ *  Stand ganz normal (TOFU von vorn); nichts weiter muss überführt werden.
+ *  **Genau hier liegt die Macht der Entscheidung:** ab diesem Augenblick
+ *  gilt, was der Server liefert, als neuer erster Kontakt — die Funktion
+ *  darf deshalb nur hinter einer ausdrücklichen Nutzerbestätigung stehen. */
+export async function geraetePinnVergessen(geraetePubkey: string): Promise<void> {
+  const db = await openIdentityDb();
+  await idbDeleteIdentity(db, idbSchluessel(geraetePubkey));
+  db.close();
 }

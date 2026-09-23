@@ -939,6 +939,7 @@
   "gast_besprechung_vorbei": "This meeting has ended or your access has expired.",
   "voice_admin_mute_aktiv": "Your microphone was muted by a moderator.",
   "dm_page_send_failed": "Failed to send",
+  "dm_tofu_identitaet_geaendert_frage": "The key bundle of device {geraet} has changed since first contact. If this device was genuinely set up again, you can trust the new identity — the message will then be sent encrypted. If this change is unexpected, an attacker might be able to read the message. Trust the new identity and send?",
   "dm_page_senden_kein_geraet": "Direct messages are end-to-end encrypted, and right now one of the two sides has no device with keys — for example because the other person has not signed in anywhere yet, or their device expired. Try again later.",
   "dm_preview_file": "File",
   "dm_preview_image": "Image",

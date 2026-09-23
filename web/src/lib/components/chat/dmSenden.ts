@@ -9,6 +9,7 @@ import { toast } from 'svelte-sonner';
 
 import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
 import { kanonischeAntwortId } from '$lib/krypto/kanonischeAntwortId';
+import { GeraeteIdentitaetGeaendertFehler } from '$lib/krypto/buendelSignatur';
 import type { DMChannel, Message } from '$lib/api/types';
 import { m } from '$lib/paraglide/messages.js';
 import { messages } from '$lib/stores/messages.svelte';
@@ -94,9 +95,29 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
     // `krypto/kanonischeAntwortId.ts`. Erst uebersetzen, dann senden.
     const kanonischeId = kanonischeAntwortId(replyToId, visibleMessages);
     void import('$lib/krypto/senden').then(async ({ sendeVerschluesselt }) => {
+      const senden = () => sendeVerschluesselt(cid, partnerId, text, kanonischeId, anhaenge);
       let ergebnis;
       try {
-        ergebnis = await sendeVerschluesselt(cid, partnerId, text, kanonischeId, anhaenge);
+        try {
+          ergebnis = await senden();
+        } catch (err) {
+          // **TOFU-Bestätigung (Bughunt 2026-09-23):** die Pinnung des Geräts
+          // weicht ab — legitimer Grund ist eine echte Neuaufsetzung, und für
+          // DIESEN Fall gibt es hier den einzigen Schlüssel zurück: die
+          // ausdrückliche Nutzerentscheidung. Abgelehnt oder erneut
+          // fehlgeschlagen → derselbe Weg wie jeder andere Fehler unten.
+          // Genau EINE Rückfrage pro Sendung — ein Retry, der wieder
+          // abweicht, ist ein echter Wechsel während des Sendens und wird
+          // nicht ein zweites Mal weggefragt.
+          if (!(err instanceof GeraeteIdentitaetGeaendertFehler)) throw err;
+          const vertrauen = confirm(
+            m.dm_tofu_identitaet_geaendert_frage({ geraet: err.geraet })
+          );
+          if (!vertrauen) throw err;
+          const { geraetePinnVergessen } = await import('$lib/krypto/geraetePinnung');
+          await geraetePinnVergessen(err.geraet);
+          ergebnis = await senden();
+        }
       } catch (err) {
         melden?.(false);
         // Ein UNERWARTETER Fehler (Bughunt 2026-08-28, zweiter Fund):
