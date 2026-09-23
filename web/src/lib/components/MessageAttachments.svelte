@@ -39,6 +39,7 @@
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import PauseIcon from '@lucide/svelte/icons/pause';
   import PlayIcon from '@lucide/svelte/icons/play';
   import XIcon from '@lucide/svelte/icons/x';
   import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
@@ -387,8 +388,9 @@
       {/if}
     </div>
 
-    <!-- Video mittig; Tippen schaltet Wiedergabe um. Unsichtbar, bis der
-         erste Frame dekodiert ist — sonst graues Kästchen. -->
+    <!-- Video mittig. Bewusst KEIN Tap-Toggle auf der Fläche — Start/Pause
+         läuft ausschließlich über den Knopf in der Mitte. Unsichtbar, bis
+         der erste Frame dekodiert ist — sonst graues Kästchen. -->
     <div class="relative flex flex-1 items-center justify-center">
       <!-- svelte-ignore a11y_media_has_caption, a11y_no_noninteractive_element_interactions -->
       <video
@@ -397,10 +399,7 @@
         autoplay
         playsinline
         class="max-h-full max-w-full object-contain {frameBereit ? 'opacity-100' : 'opacity-0'}"
-        onclick={(e) => {
-          e.stopPropagation();
-          spielerUmschalten();
-        }}
+        onclick={(e) => e.stopPropagation()}
         onplay={() => (spielerLaeuft = true)}
         onpause={() => (spielerLaeuft = false)}
         ontimeupdate={() => (spielerPosition = spieler?.currentTime ?? 0)}
@@ -411,13 +410,23 @@
       ></video>
       {#if !frameBereit}
         <LoaderCircleIcon class="absolute size-9 animate-spin text-white/80" />
-      {:else if !spielerLaeuft}
+      {:else}
+        <!-- Der Mittel-Knopf ist der EINZIGE Play/Pause-Schalter. -->
         <button
           type="button"
-          class="pointer-events-none absolute flex size-16 items-center justify-center rounded-full border-2 border-white/80 bg-black/60"
-          aria-hidden="true"
+          class="absolute flex size-16 items-center justify-center rounded-full border-2 border-white/80 bg-black/60 backdrop-blur-sm transition-transform active:scale-90"
+          onclick={(e) => {
+            e.stopPropagation();
+            spielerUmschalten();
+          }}
+          aria-label={spielerLaeuft ? m.audio_player_pause() : m.audio_player_play()}
+          data-testid="attachment-fullscreen-toggle"
         >
-          <PlayIcon class="size-8 text-white" />
+          {#if spielerLaeuft}
+            <PauseIcon class="size-8 text-white" />
+          {:else}
+            <PlayIcon class="size-8 text-white" />
+          {/if}
         </button>
       {/if}
       {#if galerieIndex > 0}
