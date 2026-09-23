@@ -33,12 +33,13 @@ Anmeldung (``CurrentUser``) der Ausweis. Dasselbe gilt fuer
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import or_, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.geraete_widerruf import darf_empfangen
 from dcc_chat_gateway.models import DeviceKeyBundle
+from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.schemas import (
     GeraeteBuendelAuskunftOut,
     GeraeteStandOut,
@@ -188,6 +189,12 @@ async def buendel_auskunft(
     """
     if not await darf_schluessel_holen(session, user.id, ziel_id):
         return []
+
+    # Zweiter Bughunt-Lauf (2026-09-23): Leserate braucht eine Bremse — das
+    # Claim-Budget deckt nur den OTK-Verbrauch, nie Last. Gleiche Familie wie
+    # die übrigen ratelimit-Regeln.
+    if not ratelimit_check("keys_buendel_auskunft", user.id):
+        raise HTTPException(status_code=429, detail="rate limited")
 
     zeilen = (
         await session.execute(
