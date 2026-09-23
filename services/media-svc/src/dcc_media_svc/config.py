@@ -81,7 +81,11 @@ class Settings(BaseSettings):
     # membership/VIEW_CHANNEL gate) and embedded as ``?token=`` so the auth-hook
     # can verify a viewer was authorised. Only needs to outlive connection setup;
     # the WhepPlayer re-fetches a fresh URL (and token) on every reconnect.
-    read_token_ttl_s: int = 60 * 60  # 1h
+    # 10 min statt 1 h (Bughunt 2026-09-23): die URL ist eine Bearer-Faehigkeit
+    # ohne Bindung an den Zuschauer — wer sie abfaengt, sieht denselben Stream
+    # bis zum Ablauf, auch ohne Kanalmitgliedschaft. Das Fenster zu schliessen
+    # ist frei, weil der Player ohnehin bei jedem (Re-)Connect frisch mintet.
+    read_token_ttl_s: int = 60 * 10  # 10 min
 
     # Self-heal TTL on `stream:channel:*` — bounded so a lost poller can't leave
     # a ghost "active" state forever (the poller normally clears it eagerly).
