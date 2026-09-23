@@ -34,7 +34,6 @@ from dcc_chat_gateway.device_meldungen import device_out
 from dcc_chat_gateway.models import (
     MENTION_TYPE_USER,
     Channel,
-    CommunityInvite,
     CommunityInviteNotification,
     Device,
     DirectMessageChannel,
@@ -437,24 +436,13 @@ async def _purge_db(
         sa_delete(UserPrivacy).where(UserPrivacy.user_id == user_id)
     )
 
-    # 10b. Community-invite broker rows (Stufe 2 / B-lite, cloud-only): drop
-    # every pending invite the user sent or received. Cheap belt-and-suspenders
-    # — the rows are short-lived and deleted on accept anyway, but a purge must
-    # not leave dangling cards pointing at a dead account.
-    await session.execute(
-        sa_delete(CommunityInvite).where(
-            or_(
-                CommunityInvite.inviter_id == user_id,
-                CommunityInvite.invitee_id == user_id,
-            )
-        )
-    )
-
-    # 10c. Community-Einladungs-Karten (2026-08-27-Schiene, kein FK auf
-    # User — dasselbe handgestempte Aufräumen wie ``delete_guild`` in
+    # 10b. Community-Einladungs-Karten (2026-08-27-Schiene, kein FK auf
+    # User — dasselbe handgestempelte Aufräumen wie ``delete_guild`` in
     # routes/guilds.py): Karten mit dem Geloeschten als Empfaenger sind
     # tot, als Absender zeigen sie auf "@unknown" und das Annehmen würde
     # eine Mitgliedschaft anlegen, die niemand mehr autorisieren kann.
+    # (Die aeltere, seit Migration 0063 tote Broker-Tabelle
+    # ``community_invites`` ist inklusive Modell weggefallen — 0092.)
     await session.execute(
         sa_delete(CommunityInviteNotification).where(
             or_(
