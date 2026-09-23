@@ -73,6 +73,8 @@ Backends, Vite. Diese Reihenfolge hat sich bewährt:
   Stift…" — der „Stift" (`chats_compose`) liegt aber im **Drei-Punkte-Menü der
   Kopfzeile** (bewusste Entscheidung, siehe Kommentar in
   `MobileChatsList.svelte`). Fix: Text an das •••-Menü anpassen.
+  — **erledigt (2026-09-23)**: Text verweist jetzt auf das Drei-Punkte-Menü
+  oben rechts (de/en).
 - **B2 — Konto-Wechsel-409 am echten Gerät reproduziert (bekannt aus
   Testrunde 2026-09-09, Übergabe §Testrunde).** Ablauf: Browser-Client richtete
   sich als `dev` ein (`PUT /keys/bundle` 204), dann Abmeldung + Anmeldung als
@@ -83,24 +85,19 @@ Backends, Vite. Diese Reihenfolge hat sich bewährt:
   Workaround heute: Website-Daten löschen → onboarding als neues Gerät.
   Fix-Ideen wie Übergabe: bei diesem 409 lokale Identität automatisch neu
   erzeugen oder sichtbaren „Als neues Gerät einrichten"-Weg anbieten.
-
-## Befunde
-
-- **B1 — Chats-Empty-State verweist auf nicht vorhandenen Stift.**
-  `chats_empty` (de/en, `web/messages/de.json:734`): „Tippe unten rechts auf den
-  Stift…" — der „Stift" (`chats_compose`) liegt aber im **Drei-Punkte-Menü der
-  Kopfzeile** (bewusste Entscheidung, siehe Kommentar in
-  `MobileChatsList.svelte`). Fix: Text an das •••-Menü anpassen.
-- **B2 — Konto-Wechsel-409 am echten Gerät reproduziert (bekannt aus
-  Testrunde 2026-09-09, Übergabe §Testrunde).** Ablauf: Browser-Client richtete
-  sich als `dev` ein (`PUT /keys/bundle` 204), dann Abmeldung + Anmeldung als
-  `bob` im selben Browser → `PUT /keys/bundle` **409** (`geraet_gehoert_anderem_konto`,
-  Log `.dev-local/logs/chat-gateway.log`), der Klient baut die Identität nicht
-  neu auf — bob bleibt ohne Bündel, Composer am Partner-Gerät bleibt gesperrt
-  („Du kannst nicht in diesen Chat schreiben"), keine sichtbare Anleitung im UI.
-  Workaround heute: Website-Daten löschen → onboarding als neues Gerät.
-  Fix-Ideen wie Übergabe: bei diesem 409 lokale Identität automatisch neu
-  erzeugen oder sichtbaren „Als neues Gerät einrichten"-Weg anbieten.
+  — **erledigt (2026-09-23), Wurzel enger als gedacht:** der
+  Konto-Wechsel-Wächter (`auth.svelte.ts::_enforceDeviceOwner`) wischte
+  Geheimnis, Kennung und Krypto-Zustand — aber NIE das Ed25519-Keypair
+  (`pulse.keypair`), obwohl sein Kommentar genau das verspricht. Überlebte
+  das Keypair, leitete `geraeteKennung()` die Kennung des VORGÄNGERS frisch
+  her (Pubkey hat in `kennungWaehlen` Vorrang) → 409. Fix: `keypairStore.wipe()`
+  in den Wisch-Block; der Issue-Flow läuft danach den normalen Erstlauf
+  (Keypair erzeugen → Bündel veröffentlichen → kein 409, kein UI-Weg nötig).
+  Begleitfund im selben Wisch: der Rueckfall-Schlüssel-Cache
+  (`pulse.krypto-rueckfallschluessel`) ist kein Pickle und überlebte bisher
+  ebenfalls — der Nachfolge-Account hätte den öffentlichen Halbteil des
+  Vorgängers wieder veröffentlicht (Fallback-Nachrichten wären unlesbar
+  angekommen); er wird jetzt mitgewischt (`geraeteGeheimnis.ts`).
 - **B3 — Lese-Häkchen bleibt einfach, obwohl die Gegenstelle gelesen hat.
   Wurzel gefunden: dieselbe Nachricht trägt auf Sender und Empfänger
   VERSCHIEDENE IDs.** Ablauf: Handy sendet E2EE-DM (lokale ID
@@ -123,6 +120,15 @@ Backends, Vite. Diese Reihenfolge hat sich bewährt:
   nutzt das Reply-to) ODER Sender übernimmt nach dem Senden die
   Server-ID in seinen Verlauf. Ersteres ist konsistenter: Sender- und
   Empfänger-Verlauf würden dasselbe ID-Schema je Nachricht führen.
+  — **erledigt (2026-09-23), erste Fix-Richtung umgesetzt:** neue
+  `lesestandAnker()` in `stores/lesestandKern.ts` — `krypto_id ?? id` —
+  angewandt an den drei Anker-Stellen (Postfach-WS-Handler `chat.ts`,
+  Chat-Öffnen `dmKanalWechsel.svelte.ts`, Häkchen-Prüfung
+  `MessageItem.svelte`). Die Häkchen-Prüfung über den Anker deckt auch das
+  eigene ZWEITgerät ab (dort liegt die Nachricht unter der Zustellungs-ID,
+  `krypto_id` springt ein). Test: `test/lesestand-kern.test.ts` (mit den
+  exakten IDs aus diesem Befund). **Live-Doppeltest am Gerät steht noch
+  aus** — derselbe Vorbehalt wie bei den E2EE-Reaktionen damals.
 
 ## Bestätigt arbeitend (echtes Gerät, feat/mobile)
 
@@ -137,6 +143,9 @@ Backends, Vite. Diese Reihenfolge hat sich bewährt:
 ## Noch offen in dieser Runde
 
 E2EE-DM bidirektional, Reaktionen/Bearbeiten/Löschen, Sprachnachrichten,
-Gruppen-UI, Anhänge/Medienübersicht, Lese-Häkchen, Anrufe (Audio/Video,
+Gruppen-UI, Anhänge/Medienübersicht, Anrufe (Audio/Video,
 Klingeln, E2EE-Badge), FCM-Push (wartet auf Firebase-Service-Account-JSON),
 Zurück-Taste/Share-Target/App-Links, Bluetooth, Offline, stiller 401.
+B1–B3 sind im Code gefixt (2026-09-23) — die Doppelverifikation am echten
+Gerät (Häkchen-Doppellauf, Konto-Wechsel dev→bob im selben Browser,
+Chats-Empty-State-Text) steht noch aus.
