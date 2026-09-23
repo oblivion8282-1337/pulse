@@ -146,6 +146,19 @@
    *  bleibt das Element unsichtbar, sonst malt der WebView sein graues
    *  Kästchen mitten ins Blättern. */
   let frameBereit = $state(false);
+  /** Bedienelemente (✕, Zähler, Pfeile, Mittel-Knopf, Spur): 3 s ohne
+   *  Interaktion → ausblenden; jeder Tipp aufs Bild holt sie zurück.
+   *  Pausiert bleibt die Steuerung bewusst stehen. */
+  let steuerungSichtbar = $state(true);
+  let steuerungWache: ReturnType<typeof setTimeout> | undefined;
+
+  function steuerungZeigen(): void {
+    steuerungSichtbar = true;
+    clearTimeout(steuerungWache);
+    if (!spieler?.paused) {
+      steuerungWache = setTimeout(() => (steuerungSichtbar = false), 3000);
+    }
+  }
   let wischX: number | null = null;
 
   function oeffneVollbild(url: string): void {
@@ -160,6 +173,7 @@
     galerieIndex = Math.max(0, galerie.indexOf(nacktesVideo));
     frameBereit = false;
     vollbildUrl = nacktesVideo;
+    steuerungZeigen();
   }
 
   function galerieWechsel(richtung: number): void {
@@ -171,6 +185,7 @@
     spielerLaeuft = false;
     frameBereit = false;
     vollbildUrl = galerie[ziel];
+    steuerungZeigen();
   }
 
   function spielerUmschalten(): void {
@@ -354,21 +369,30 @@
 
 {#if vollbildUrl}
   <!-- Video-Betrachter (WhatsApp/Telegram-Stil): schwarz, ohne native
-       Steuerleiste. Tippen aufs Bild startet/pausiert, schmale Spur unten,
-       Wischen/Pfeile blättern durch die Chat-Videos. Klick auf den dunklen
-       Hintergrund schließt. IM PORTAL: unter dem Swipe-Gesten-Vorfahren
-       (transform!) würde sonst selbst `fixed inset-0` eingeklemmt. -->
+       Steuerleiste. Tippen aufs Bild zeigt die Steuerung (3 s Ruhe blendet
+       sie aus — nur bei laufendem Video), Start/Pause nur über den
+       Mittel-Knopf, Wischen/Pfeile blättern. Schließen: ✕ oder Esc.
+       IM PORTAL: unter dem Swipe-Gesten-Vorfahren (transform!) würde sonst
+       selbst `fixed inset-0` eingeklemmt. -->
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <Portal>
     <div
       class="fixed inset-0 z-50 flex flex-col bg-black"
-      onclick={schliesseVollbild}
+      onclick={(e) => {
+        e.stopPropagation();
+        steuerungZeigen();
+      }}
       ontouchstart={wischStart}
       ontouchend={wischEnde}
       data-testid="attachment-video-fullscreen"
     >
-    <!-- Kopf mit Verlauf: schließen + Galerie-Zähler -->
-    <div class="relative z-10 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent p-4 pb-8">
+      <!-- Kopf mit Verlauf: schließen + Galerie-Zähler -->
+      <div
+        class="relative z-10 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent p-4 pb-8 transition-opacity duration-300 {steuerungSichtbar
+          ? 'opacity-100'
+          : 'pointer-events-none opacity-0'}"
+        data-testid="attachment-fullscreen-header"
+      >
       <button
         type="button"
         class="flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
@@ -399,7 +423,10 @@
         autoplay
         playsinline
         class="max-h-full max-w-full object-contain {frameBereit ? 'opacity-100' : 'opacity-0'}"
-        onclick={(e) => e.stopPropagation()}
+        onclick={(e) => {
+          e.stopPropagation();
+          steuerungZeigen();
+        }}
         onplay={() => (spielerLaeuft = true)}
         onpause={() => (spielerLaeuft = false)}
         ontimeupdate={() => (spielerPosition = spieler?.currentTime ?? 0)}
@@ -414,10 +441,13 @@
         <!-- Der Mittel-Knopf ist der EINZIGE Play/Pause-Schalter. -->
         <button
           type="button"
-          class="absolute flex size-16 items-center justify-center rounded-full border-2 border-white/80 bg-black/60 backdrop-blur-sm transition-transform active:scale-90"
+          class="absolute flex size-16 items-center justify-center rounded-full border-2 border-white/80 bg-black/60 backdrop-blur-sm transition-all duration-300 active:scale-90 {steuerungSichtbar
+            ? 'opacity-100'
+            : 'pointer-events-none opacity-0'}"
           onclick={(e) => {
             e.stopPropagation();
             spielerUmschalten();
+            steuerungZeigen();
           }}
           aria-label={spielerLaeuft ? m.audio_player_pause() : m.audio_player_play()}
           data-testid="attachment-fullscreen-toggle"
@@ -432,7 +462,9 @@
       {#if galerieIndex > 0}
         <button
           type="button"
-          class="absolute left-2 flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md"
+          class="absolute left-2 flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-all duration-300 {steuerungSichtbar
+            ? 'opacity-100'
+            : 'pointer-events-none opacity-0'}"
           onclick={(e) => {
             e.stopPropagation();
             galerieWechsel(-1);
@@ -446,7 +478,9 @@
       {#if galerieIndex < galerie.length - 1}
         <button
           type="button"
-          class="absolute right-2 flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md"
+          class="absolute right-2 flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-all duration-300 {steuerungSichtbar
+            ? 'opacity-100'
+            : 'pointer-events-none opacity-0'}"
           onclick={(e) => {
             e.stopPropagation();
             galerieWechsel(1);
@@ -462,7 +496,9 @@
     <!-- Schmale Spurliste unten mit Verlauf -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="relative z-10 flex items-center gap-3 bg-gradient-to-t from-black/80 to-transparent px-4 pb-5 pt-8 text-xs text-white/80 tabular-nums"
+      class="relative z-10 flex items-center gap-3 bg-gradient-to-t from-black/80 to-transparent px-4 pb-5 pt-8 text-xs text-white/80 tabular-nums transition-opacity duration-300 {steuerungSichtbar
+        ? 'opacity-100'
+        : 'pointer-events-none opacity-0'}"
       data-testid="attachment-fullscreen-controls"
       onclick={(e) => e.stopPropagation()}
     >
