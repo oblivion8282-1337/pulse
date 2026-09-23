@@ -41,6 +41,7 @@
     # (zwei Access-Control-Allow-Origin) → der Browser verwirft die Antwort als
     # CORS-Fehler ("Failed to fetch") und "Server hinzufügen" / Cert-Login bricht.
     # MediaMTX (/whep) bringt sein eigenes CORS via mediamtx.yml mit.
+    # EINZIGE Ausnahme: /pulse-attachments/* (Garage) — dort unten im Block.
     # ------------------------------------------------------------------ #
 
     # ------------------------------------------------------------------ #
@@ -210,11 +211,39 @@
     # SigV4 signiert den Host-Header → Host auf den Public-Host zwingen, damit
     # er zur vom chat-gateway signierten URL passt.
     handle /pulse-attachments/* {
+        # CORS — die EINZIGE Ausnahme von der „niemals CORS am Proxy"-Regel
+        # oben: Garage bedient diesen Prefix und setzt selbst keine CORS-
+        # Header (die FastAPI-Services tun es, Storage nicht). Cross-Origin
+        # ist aber Alltag: die App läuft auf dem Cloud-Origin (Spiegel-
+        # Kanäle einer Self-Host-Instanz im Cloud-Fenster) und PUTet/GETtet
+        # Anhänge direkt hierher — ohne diese Header bricht der Browser den
+        # Upload schon im Preflight ab (gemeldet 2026-09-23: Bildversand auf
+        # pulse.atrium-sinsheim.de aus howispulse.com heraus). "*" ist hier
+        # keine Öffnung: die SigV4-Signatur IST die Zugriffskontrolle — wer
+        # die URL hat, darf sie auch mit curl nutzen; CORS regelt nur, ob
+        # ein Browser die Antwort lesen darf. Credentials sind nie im Spiel.
+        header {
+            Access-Control-Allow-Origin "*"
+            Access-Control-Allow-Methods "GET, PUT, HEAD, OPTIONS"
+            Access-Control-Allow-Headers "*"
+            Access-Control-Expose-Headers "ETag, Content-Length, Content-Type"
+            Access-Control-Max-Age "86400"
+        }
+        # Preflight selbst beantworten: Garage würde das unsignierte OPTIONS
+        # mit 403/404 OHNE CORS-Header quittieren → Browser bricht ab.
+        @preflight method OPTIONS
+        respond @preflight 204
         reverse_proxy 127.0.0.1:9000 {
             header_up Host {host}
             # MinIO doesn't rate-limit on XFF, but keep every edge proxy block
             # consistent: never forward a client-supplied X-Forwarded-For.
             header_up X-Forwarded-For {remote_host}
+            # Hat der Betreiber eine Bucket-CORS-Regel gesetzt, schickt Garage
+            # eigene Access-Control-Header — zusammen mit unserem header{}-Block
+            # wären es ZWEI Allow-Origin-Werte, die der Browser verwirft.
+            header_down -Access-Control-Allow-Origin
+            header_down -Access-Control-Allow-Methods
+            header_down -Access-Control-Allow-Headers
         }
     }
 
