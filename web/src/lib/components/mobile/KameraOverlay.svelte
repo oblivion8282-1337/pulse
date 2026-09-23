@@ -784,11 +784,6 @@
                 </button>
                 <span class="text-2xs text-white/80 tabular-nums" data-testid="camera-draft-time">
                   {formatiereDauer(vorschauPosition)} / {formatiereDauer(vorschauDauer)}
-                  {#if schnittStart > 0.05 || schnittEnde < vorschauDauer - 0.05}
-                    <span class="text-primary">
-                      · Schnitt {formatiereDauer(schnittEnde - schnittStart)}
-                    </span>
-                  {/if}
                 </span>
                 <button
                   type="button"
