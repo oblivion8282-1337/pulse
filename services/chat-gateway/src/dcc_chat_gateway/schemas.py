@@ -1372,6 +1372,29 @@ class VerschluesselbarOut(BaseModel):
     verschluesselbar: bool
 
 
+class GeraeteBuendelAuskunftOut(BaseModel):
+    """Ein Bündel in der Antwort von ``GET /keys/buendel/{ziel_id}``.
+
+    Die verbrauchsfreie Leserate für den EMPFANGS-Weg (Bughunt 2026-09-23):
+    der Empfänger verifiziert das Absendergerät gegen das Verzeichnis, bevor
+    es eine Olm-Sitzung darauf baut — und ``POST /keys/claim`` würde dafür je
+    Gerät einen Einmalschlüssel VERBRAUCHEN, ohne ihn je zu benutzen
+    (derselbe Grund, aus dem ``/keys/verschluesselbar`` existiert; dort steht
+    die ganze Abwägung). Ohne Einmalschluessel-Felder bewusst: genau deren
+    Abwesenheit macht die Route zur Leserate.
+
+    ``rueckfallschluessel`` fährt trotzdem mit — die Bündel-Signatur deckt
+    ihn ab (``buendelAnmeldung``), ohne ihn liefe die Verifikation nicht.
+    Alles hier ist öffentliches Material, kein Geheimnis.
+    """
+
+    device_pubkey: str
+    curve25519: str
+    rueckfallschluessel: str | None = None
+    ed25519: str | None = None
+    bundel_signatur: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Postfach — Einliefern verschluesselter Umschlaege (Etappe D, E2E-DM)
 # ---------------------------------------------------------------------------

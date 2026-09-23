@@ -32,6 +32,7 @@ import { leseNachrichtNutzlast } from './nachrichtNutzlast';
 import { baueEmpfangeneNachricht } from './empfangeneNachricht';
 import { absenderErmitteln } from './absenderErmitteln';
 import { oeffneMitRueckfall } from './sitzungsRueckfall';
+import { absenderBinden } from './empfangsbindung';
 import { PRIVATE_GRUPPEN_ENABLED } from './schalter';
 import { ABLAGE_KANAL_ENABLED } from '../featureFlags';
 import {
@@ -160,6 +161,25 @@ export async function zustellungOeffnen(
   );
   if (!absenderUserId) return null;
 
+  // **Empfangs-Bindung (Bughunt 2026-09-23), VOR dem Rückfall-Block und
+  // außerhalb der Sitzungssperre:** ein Aufbau-Umschlag (Art 0) baut die
+  // Sitzung gegen die Metadaten-Kurve — die der Server frei setzt. Ohne
+  // diese Prüfung liesse sich mit eigenem Prekey eine komplette Sitzung
+  // „als die Gegenseite" fälschen (DM-Nachrichten wie Verteilschlüssel
+  // gleichermaßen — beide reisen als Olm-Umschläge hier hindurch). Details
+  // und die drei Ausgänge: `empfangsbindung.ts`. Läuft nur für Aufbau-
+  // Umschläge, also einmal je Gerät und Sitzungsleben.
+  let bindung: Awaited<ReturnType<typeof absenderBinden>> | null = null;
+  if (z.art === 0 && z.absender_curve25519 !== null) {
+    bindung = await absenderBinden(
+      absenderUserId,
+      z.absender_device_pubkey,
+      z.absender_curve25519
+    );
+    if (bindung.art === 'spaeter') return null; // Verzeichnis weg — liegen lassen, Retry im nächsten Zyklus
+    if (bindung.art === 'zurueckgewiesen') return { art: 'ohneAblage', id: z.id };
+  }
+
   return mitSitzungssperre(z.channel_id, z.absender_device_pubkey, async () => {
     try {
       const vorhanden = await sitzungLaden(z.channel_id, z.absender_device_pubkey);
@@ -170,8 +190,13 @@ export async function zustellungOeffnen(
       const aufbauen =
         z.art === 0 && z.absender_curve25519 !== null
           ? () => {
+              // Die KURVE kommt aus der Verzeichnis-Bindung oben (verifiziert
+              // gegen Bündel-Signatur + TOFU), nie aus den Metadaten. Der
+              // Cast ist durch den identischen Gate oben gesichert: `bindung`
+              // ist hier genau dann `geprueft`, wenn Art 0 und Kurve da sind.
+              const geprueft = bindung as { art: 'geprueft'; curve25519: string };
               const ergebnis = ident.sitzungEingehend(
-                z.absender_curve25519 as string,
+                geprueft.curve25519,
                 new Umschlag(z.art, z.daten)
               );
               return { sitzung: ergebnis.sitzung(), klartext: ergebnis.klartext() };
@@ -222,11 +247,13 @@ export async function zustellungOeffnen(
           throw new KontoSicherungFehlgeschlagen('Konto/Sitzung nicht sicherbar', { cause: err });
         }
         // Fuer wen die Sitzung gilt — damit `senden.ts` einen spaeteren
-        // Schluesselwechsel der Gegenseite erkennt.
+        // Schluesselwechsel der Gegenseite erkennt. Die VERIFIZIERTE Kurve
+        // aus der Verzeichnis-Bindung, nicht die Metadaten-Angabe (identisch,
+        // aber die Quelle ist die Zusicherung).
         await partnerSchluesselMerken(
           z.channel_id,
           z.absender_device_pubkey,
-          z.absender_curve25519 as string
+          (bindung as { art: 'geprueft'; curve25519: string }).curve25519
         );
       }
 

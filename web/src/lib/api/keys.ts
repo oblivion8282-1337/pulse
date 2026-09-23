@@ -143,5 +143,21 @@ export const keysApi = {
       { method: 'POST', body: { user_ids: userIds } },
       route
     );
+  },
+
+  /** Verbrauchsfreie Bündel-Auskunft für EIN Konto (Bughunt 2026-09-23,
+   *  `schluessel_auskunft.py`) — ohne Einmalschluessel-Felder, also ohne den
+   *  Vorratsverbrauch, den `claim` je Gerät auslösen würde. Grundlage der
+   *  Empfangs-Bindung (`krypto/empfangsbindung.ts`): das Absendergerät wird
+   *  verifiziert, BEVOR eine Olm-Sitzung darauf gebaut wird. */
+  buendelAuskunft(
+    zielId: string,
+    route: { serverId?: string } = {}
+  ): Promise<GeraeteSchluessel[]> {
+    return request<GeraeteSchluessel[]>(
+      `/keys/buendel/${encodeURIComponent(zielId)}`,
+      {},
+      route
+    );
   }
 };

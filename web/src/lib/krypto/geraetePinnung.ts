@@ -15,12 +15,15 @@
  * Material (die publizierten Schluessel selbst), kein Geheimnis, braucht
  * also keinen Pickle-Schutz.
  *
- * **Bekannte Grenze, bewusst eingeräumt:** setzt ein Nutzer sein Geraet
- * wirklich neu auf (neues Olm-Konto, `verlustPlan`), wirft der erste
- * Kontakt danach hier einen `GeraeteIdentitaetGeaendertFehler` — bis eine
- * Bestätigungs-UI existiert, ist der Weg für Gegenstellen so blockiert, wie
- * er es bei einem echten Identitätswechsel auch sein soll. Das Gerätemodell
- * selbst (Kopplung, Widerruf) bleibt unangetastet.
+ * **Bekannte Grenze, eingeräumt und seit dem 2026-09-23 beantwortet:** setzt
+ * ein Nutzer sein Geraet wirklich neu auf (neues Olm-Konto, `verlustPlan`),
+ * wirft der erste Kontakt hier einen `GeraeteIdentitaetGeaendertFehler` —
+ * der DM-Sendeweg (`dmSenden.ts`) fragt daraufhin NACH: „Neu aufgesetzt?
+ * Vertrauen & senden" ruft `geraetePinnVergessen` und pinnt beim Retry den
+ * neuen Stand. Die Entscheidung ist bewusst an den Nutzer gebunden, nicht
+ * automatisiert — ein stiller Keywechsel waere wieder Theater. Gruppen- und
+ * Ablage-Sendewege zeigen denselben Fehler als beschreibenden Toast (ohne
+ * Vertrauens-Dialog).
  */
 import { openIdentityDb, idbGetIdentity, idbPutIdentity, idbDeleteIdentity } from '../identity/idb-shared';
 import { signaturPruefen } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
