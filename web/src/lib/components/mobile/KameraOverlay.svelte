@@ -170,15 +170,17 @@
   }
 
   /** Die ±10-s-Knöpfe: ohne gewählten Griff spulen sie wie gehabt, mit
-   *  gewähltem Griff schieben sie DIESEN in 1-SEKUNDEN-Schritten — die
-   *  Vorschau springt zum neuen Schnittpunkt mit. */
+   *  gewähltem Griff schieben sie DIESEN — kurze Schnitte (≤ 20 s) in
+   *  1-s-Schritten, längere in 5-s-Schritten. Die Vorschau springt zum
+   *  neuen Schnittpunkt mit. */
+  const schnittSchrittweite = $derived(schnittEnde - schnittStart <= 20 ? 1 : 5);
   function griffNudge(sekunden: number): void {
     if (!vorschau || !vorschauDauer) return;
     if (!gewaehlterGriff) {
       spule(sekunden);
       return;
     }
-    const schritt = Math.sign(sekunden); // gewählt = fein: 1 s je Tipp
+    const schritt = Math.sign(sekunden) * schnittSchrittweite;
     if (gewaehlterGriff === 'start') {
       schnittStart = Math.min(vorschauDauer, Math.max(0, schnittStart + schritt));
       schnittStart = Math.min(schnittStart, schnittEnde - 0.3);
@@ -776,7 +778,7 @@
                   class="flex size-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
                   onclick={() => griffNudge(-10)}
                   aria-label={gewaehlterGriff
-                    ? 'Schnittmarke 1 Sekunde nach links'
+                    ? `Schnittmarke ${schnittSchrittweite} Sekunden nach links`
                     : '10 Sekunden zurück'}
                   data-testid="camera-draft-rewind"
                 >
@@ -790,7 +792,7 @@
                   class="flex size-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
                   onclick={() => griffNudge(10)}
                   aria-label={gewaehlterGriff
-                    ? 'Schnittmarke 1 Sekunde nach rechts'
+                    ? `Schnittmarke ${schnittSchrittweite} Sekunden nach rechts`
                     : '10 Sekunden vor'}
                   data-testid="camera-draft-forward"
                 >
