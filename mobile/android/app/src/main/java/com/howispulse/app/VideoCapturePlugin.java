@@ -9,8 +9,13 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
+
+import android.Manifest;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -31,7 +36,9 @@ import java.io.InputStream;
  * Grenze bewusst: sehr lange Videos erzeugen große Base64-Strings im Bridge-
  * Speicher; für Messenger-Kurzclips (≤ ~1 min) ist das ausreichend.
  */
-@CapacitorPlugin(name = "VideoCapture")
+@CapacitorPlugin(name = "VideoCapture", permissions = {
+        @Permission(alias = "camera", strings = { Manifest.permission.CAMERA })
+})
 public class VideoCapturePlugin extends Plugin {
 
     /** Der Call, dessen Ergebnis der ActivityCallback liefert. */
@@ -39,14 +46,35 @@ public class VideoCapturePlugin extends Plugin {
 
     @PluginMethod
     public void aufnehmen(PluginCall call) {
+        // Die Samsung-Kamera-App verlangt, dass der AUFRUFENDE die CAMERA-
+        // Berechtigung hält (SecurityException sonst — Crash der App,
+        // Testrunde 2026-09-11). Erst anfragen, dann starten.
+        if (getPermissionState("camera") != PermissionState.GRANTED) {
+            requestPermissionForAlias("camera", call, "cameraPermResult");
+            return;
+        }
+        startAufnahme(call);
+    }
+
+    @PermissionCallback
+    private void cameraPermResult(PluginCall call) {
+        if (getPermissionState("camera") == PermissionState.GRANTED) {
+            startAufnahme(call);
+        } else {
+            call.reject("kamera_berechtigung_fehlt");
+        }
+    }
+
+    private void startAufnahme(PluginCall call) {
         Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
-        // Messenger-Clip: kompakte Qualität + hartes Größenlimit — der DM-
-        // Anhang ist auf 5 MiB begrenzt, Hohe-Qualität-Aufnahmen sprengen
-        // die Grenze in Sekunden (Testrunde 2026-09-11). 0 = niedrige
-        // Qualität (~480p), 4,5 MB bleiben unter den 5 MiB mit Puffer.
+        // Messenger-Clip: kompakte Qualität. Das Instanz-Limit
+        // (ablage_anhang_max_bytes) wurde in der Testumgebung auf 50 MiB
+        // angehoben — das Größenlimit hier bleibt als hartes Sicherheitsnetz
+        // kurz darunter. Grenze bewusst: 180 s Deckel, längere Clips sind
+        // ein eigenes Thema (Testrunde 2026-09-11).
         intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 0);
-        intent.putExtra(MediaStore.EXTRA_SIZE_LIMIT, 4_500_000L);
-        intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, 60); // Sekunden — Messenger-Clip
+        intent.putExtra(MediaStore.EXTRA_SIZE_LIMIT, 50_000_000L);
+        intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, 180);
         aktiverCall = call;
         startActivityForResult(call, intent, "videoResultat");
     }

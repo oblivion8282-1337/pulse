@@ -1,7 +1,6 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
-  import { registerPlugin } from '@capacitor/core';
   import VideoIcon from '@lucide/svelte/icons/video';
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
   import CameraIcon from '@lucide/svelte/icons/camera';
@@ -14,6 +13,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { expandShortcodes } from '$lib/emoji';
   import { VerfasserAnhaenge } from '$lib/attachments/verfasserZeilen.svelte';
+  import { startUploadVerschluesselt } from '$lib/attachments/uploadVerschluesselt';
   import { dateienAusEinfuegen } from '$lib/attachments/eingefuegteDateien';
   import {
     beendeAufnahme,
@@ -27,6 +27,7 @@
   import ImageIcon from '@lucide/svelte/icons/image';
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import BottomSheet from '$lib/components/mobile/BottomSheet.svelte';
+  import KameraOverlay from '$lib/components/mobile/KameraOverlay.svelte';
   import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { toast } from 'svelte-sonner';
@@ -120,51 +121,40 @@
   /** Anhang-Auswahl am Handy (Foto/Galerie/Dokument) — WhatsApp-Prinzip,
    *  drei verborgene Datei-Eingaben dahinter. */
   let anhangSheet = $state(false);
-
-  /** Native Video-Aufnahme (Java-Plugin VideoCapturePlugin) — nur Android. */
-  const VideoCapture = registerPlugin<{
-    aufnehmen(): Promise<{ base64: string; mime: string; pfad: string; groesse: number }>;
-  }>('VideoCapture');
-
-  /** Foto über die NATIVE Kamera (Capacitor-Plugin): eigene Android-
-   *  Kameraansicht statt WebView-Video-Element — das graue Kästchen des
-   *  WebView ist damit im Foto-Weg komplett verschwunden (Testrunde
-   *  2026-09-11). Abbruch durch den Nutzer still schlucken. */
-  async function fotoAufnehmen(): Promise<void> {
-    try {
-      const foto = await Camera.getPhoto({
-        resultType: CameraResultType.Uri,
-        source: CameraSource.Camera,
-        quality: 90
-      });
-      if (!foto.webPath) return;
-      const antwort = await fetch(foto.webPath);
-      const blob = await antwort.blob();
-      addFiles([new File([blob], `kamera-${Date.now()}.jpg`, { type: 'image/jpeg' })]);
-    } catch {
-      // Nutzer hat abgebrochen oder Kamera verweigert — nichts tun.
-    }
-  }
-
-  /** Video über die NATIVE System-Kamera (eigenes VideoCapturePlugin):
-   *  ACTION_VIDEO_CAPTURE liefert eine mp4, das Plugin kopiert sie in den
-   *  Cache und gibt Base64 zurück → Datei → normale Anhang-Pipeline. */
-  async function videoAufnehmen(): Promise<void> {
-    try {
-      const ergebnis = await VideoCapture.aufnehmen();
-      if (!ergebnis?.base64) return;
-      const bytes = Uint8Array.from(atob(ergebnis.base64), (z) => z.charCodeAt(0));
-      addFiles([
-        new File([bytes], `kamera-video-${Date.now()}.mp4`, { type: ergebnis.mime })
-      ]);
-    } catch {
-      // Abbruch in der Kamera-App — nichts tun.
-    }
-  }
+  let videoOverlay = $state(false);
+  /** Wahr, während ein Kamera-Video hochgeladen und gesendet wird. */
+  let videoSendelauf = $state(false);
 
   // Anhang-Zeilen samt Upload-Buchfuehrung — inklusive der Weiche zwischen
   // Klartext- und verschluesseltem Weg (`verfasserZeilen.svelte.ts`).
   const anhaenge = new VerfasserAnhaenge();
+
+  /** Kamera-Entwurf (Foto oder Video aus dem Overlay) DIREKT senden:
+   *  hochladen, auf Fertigstellung warten, als Nachricht raus — ganz ohne
+   *  Entwurf in der Anhang-Leiste (Testrunde 2026-09-23). */
+  async function sendeKameraDirekt(datei: File): Promise<void> {
+    if (!channelId) return;
+    videoSendelauf = true;
+    try {
+      const ladung = startUploadVerschluesselt(channelId, datei, () => {});
+      await new Promise<void>((resolve) => {
+        const uhr = setInterval(() => {
+          if (ladung.row.state === 'done' || ladung.row.state === 'error') {
+            clearInterval(uhr);
+            resolve();
+          }
+        }, 200);
+      });
+      if (ladung.row.state === 'error' || !ladung.row.attachmentId || !ladung.row.anhang) {
+        toast.error(m.camera_nicht_verfuegbar());
+        return;
+      }
+      onSend('', [ladung.row.attachmentId], [ladung.row.anhang]);
+      videoOverlay = false;
+    } finally {
+      videoSendelauf = false;
+    }
+  }
 
   // Leaving the channel (switch or unmount) abandons any in-flight uploads of
   // the previous channel: abort them and revoke their preview object-URLs so a
@@ -552,7 +542,7 @@
             class="bg-bg-input hover:bg-bg-hover flex w-24 flex-col items-center gap-2 rounded-2xl border border-border px-2 py-4 transition-colors"
             onclick={() => {
               anhangSheet = false;
-              void fotoAufnehmen();
+              videoOverlay = true;
             }}
             data-testid="attachment-source-camera"
           >
@@ -561,23 +551,7 @@
             >
               <CameraIcon class="size-6" />
             </span>
-            <span class="text-xs font-semibold">{m.message_input_anhang_foto()}</span>
-          </button>
-          <button
-            type="button"
-            class="bg-bg-input hover:bg-bg-hover flex w-24 flex-col items-center gap-2 rounded-2xl border border-border px-2 py-4 transition-colors"
-            onclick={() => {
-              anhangSheet = false;
-              void videoAufnehmen();
-            }}
-            data-testid="attachment-source-video"
-          >
-            <span
-              class="bg-rose-500/20 text-rose-400 flex size-12 items-center justify-center rounded-full"
-            >
-              <VideoIcon class="size-6" />
-            </span>
-            <span class="text-xs font-semibold">{m.message_input_anhang_video()}</span>
+            <span class="text-xs font-semibold">{m.message_input_anhang_kamera()}</span>
           </button>
           <button
             type="button"
@@ -613,6 +587,14 @@
           </button>
         </div>
       </BottomSheet>
+    {/if}
+    {#if viewport.istHandy}
+      <KameraOverlay
+        open={videoOverlay}
+        sendeLaeuft={videoSendelauf}
+        onClose={() => (videoOverlay = false)}
+        onSend={(datei) => void sendeKameraDirekt(datei)}
+      />
     {/if}
     <!-- `min-h-*` + `py-*` in zwei Grössen: Der Kasten ist damit jeweils so hoch
          wie die Knöpfe daneben und führt seine Zeile selbst mittig — 44px auf dem
