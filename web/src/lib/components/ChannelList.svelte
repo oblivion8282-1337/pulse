@@ -20,6 +20,7 @@ import { errText } from '$lib/utils/errText';
   import { roles } from '$lib/stores/roles.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
   import { chatApi } from '$lib/api/chat';
@@ -84,9 +85,14 @@ import { errText } from '$lib/utils/errText';
   // `false` und das Tamagotchi-Widget war für niemanden sichtbar (auch nicht
   // für den Admin nach Reload). Idempotent je Guild; Fehler lässt den Slot
   // ungesetzt (Retry beim nächsten Mount, s. Store-Docstring).
+  // Der Server wird hier MIT gelesen (reaktiv): füllt sich der Multi-Server-
+  // Cache erst nach dem Mount (Boot-Rennen), feuert der Effect erneut und
+  // korrigiert einen ersten, noch unrouted abgeschossenen Fehlversuch.
   $effect(() => {
     const gid = guild?.id;
-    if (gid) void ensureGuildPluginsLoaded(gid);
+    if (!gid) return;
+    const sid = serverGuilds.serverIdForGuild(gid);
+    void ensureGuildPluginsLoaded(gid, sid);
   });
 
   let myId = $derived(currentServerUserId());

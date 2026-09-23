@@ -27,7 +27,12 @@ class ChannelPermissionsStore {
   // STALE Fetch-Snapshot gegenwehren — die Antwort schrieb ungeprüft zurück.
   #generationen = new Map<string, number>();
 
-  async ensure(channelId: string): Promise<Overwrite[]> {
+  /** Lädt die Overwrites eines Kanals. `serverId` richtet den Aufruf an
+   *  den Server, dem die Community des Kanals gehört — ohne ihn läuft er
+   *  auf den aktiven Server und 404t, wenn die Route in eine Community
+   *  eines anderen Servers führte (Käfer-Log 2026-09-23). Undefined =
+   *  aktiver Server (bisheriges Verhalten, z.B. DM-ähnliche Kontexte). */
+  async ensure(channelId: string, serverId?: string): Promise<Overwrite[]> {
     const cached = this.byChannel[channelId];
     if (cached) return cached;
     const inflight = this._inflight.get(channelId);
@@ -35,7 +40,7 @@ class ChannelPermissionsStore {
     const generation = (this.#generationen.get(channelId) ?? 0) + 1;
     this.#generationen.set(channelId, generation);
     const p = overwritesApi
-      .list(channelId)
+      .list(channelId, serverId ? { serverId } : {})
       .then((rows) => {
         // Antwort nur schreiben, wenn apply/forget dazwischenkam.
         if (this.#generationen.get(channelId) !== generation) return rows;

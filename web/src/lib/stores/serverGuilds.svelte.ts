@@ -45,6 +45,23 @@ class ServerGuildsStore {
     return undefined;
   }
 
+  /** Der Server, dem eine Community GEHÖRT — oder undefined, wenn er noch
+   *  nicht bekannt ist (Cache beim Boot noch nicht gefüllt / Loader der
+   *  betroffenen Server scheiterte). Aufrufer sollen dann wie bisher auf
+   *  den aktiven Server fallen.
+   *
+   *  Warum das hier stehen muss: Gilden-API-Aufrufe (Plugins, Rechte-)
+   *  routen defaultmäßig auf ``activeServer`` — bei Direktnavigation in
+   *  eine Community eines ANDEREN Servers (Mitteilungs-Klick, Deep-Link,
+   *  Reload) landen sie auf dem falschen Server: 403 „not a member" /
+   *  404 (Käfer-Log 2026-09-23, in BEIDE Richtungen beobachtet). */
+  serverIdForGuild(guildId: string): string | undefined {
+    for (const [serverId, list] of Object.entries(this.byServer)) {
+      if (list.some((g) => g.id === guildId)) return serverId;
+    }
+    return undefined;
+  }
+
   /** Best-effort REST-Fetch, dedupliziert pro Server-ID. Fehler werden
    *  geschluckt (Sidebar zeigt dann nur die anderen Sektionen).
    *
