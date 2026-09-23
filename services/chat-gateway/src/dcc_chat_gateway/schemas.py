@@ -1216,6 +1216,16 @@ class BundleVeroeffentlichenRequest(BaseModel):
     device_pubkey: GeraeteKennung
     curve25519: SchluesselMaterial
     rueckfallschluessel: SchluesselMaterial | None = None
+    #: Base64-Ed25519-Identitaetsschluessel, unter dem ``bundel_signatur``
+    #: erstellt wurde (Bughunt 2026-09-23). Bewusst OPTIONAL: Bestandsklienten
+    #: ohne Signatur duerfen ihr Buendel weiter ersetzen — die Trust-Entscheidung
+    #: trifft der PRUEFENDE Klient am Claim (unsigniert = keine neuen
+    #: verschluesselten DM-Sitzungen), nicht diese Route. Pflicht hier wuerde
+    #: den Rollout zum Flag-Day machen.
+    ed25519: SchluesselMaterial | None = None
+    #: Signatur ueber die kanonische Form von ``(device_pubkey, curve25519,
+    #: rueckfallschluessel)`` — s. ``web/src/lib/krypto/buendelSignatur.ts``.
+    bundel_signatur: SchluesselMaterial | None = None
     #: Selbstauskunft des Geraets — Electron- oder Android-App (Spec §3,
     #: Koexistenz-Regel). Das Geraet kann diese Aussage nur ueber SICH SELBST
     #: treffen (die Zeile gehoert ueber ``pruefe_geraet`` ohnehin schon zum
@@ -1258,6 +1268,11 @@ class GeraeteSchluesselOut(BaseModel):
 
     device_pubkey: str
     curve25519: str
+    #: Identitaet + Buendel-Signatur des Geraets (Bughunt 2026-09-23) — der
+    #: Klient verifiziert sie am Claim (``signaturPruefen``) und pinnt das
+    #: Geraet per TOFU. Beide ``None`` bei Bestandsbuendeln ohne Neupublikation.
+    ed25519: str | None = None
+    bundel_signatur: str | None = None
     einmalschluessel: str | None = None
     rueckfallschluessel: str | None = None
     #: Wie ``BundleVeroeffentlichenRequest.dauerhaft`` — durchgereicht aus

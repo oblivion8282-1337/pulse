@@ -25,6 +25,7 @@ import {
 } from '../sitzungen';
 import { baueVerteilNutzlast, type AblageVerteilzugabe } from './gruppenNutzlast';
 import type { Gruppenzielgeraet } from './gruppengeraete';
+import { geraetebuendelAuthentifizieren } from '../geraetePinnung';
 
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
@@ -51,6 +52,13 @@ export async function verteilUmschlaege(
   const klartext = baueVerteilNutzlast(kanalId, sitzungId, verteilschluessel, ablage);
   const nutzlasten: PostfachNutzlast[] = [];
   for (const { geraet } of ziel) {
+    // **Signatur + TOFU (Bughunt 2026-09-23)** — dieselbe geteilte
+    // Authentifizierung wie im DM-Weg (`../geraetePinnung.ts`); hier ist sie
+    // sogar der groesste Hebel: der Verteilschluessel der Gruppe geht durch
+    // diese Umschlaege. Wirft statt still zu ueberspringen — ein stiller
+    // Skip wuerde das Mitglied lautlos vom Verteilschluessel abschneiden.
+    await geraetebuendelAuthentifizieren(geraet);
+
     const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
       let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
       if (sitzung) {

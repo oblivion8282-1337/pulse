@@ -26,6 +26,7 @@ import {
   kryptoAccountSichern,
   rueckfallschluesselSicherstellen
 } from './account.svelte';
+import { buendelAnmeldung } from './buendelSignatur';
 import { geraeteKennung } from './geraeteKennung';
 import { pickelUebergangSicherstellen } from './pickelUebergang';
 import { mitKontosperre } from './sperren';
@@ -114,13 +115,24 @@ export async function veroeffentlicheSchluessel(): Promise<void> {
   await mitKontosperre(async () => {
     const ident = await kryptoAccountLaden();
     const rueckfallschluessel = await rueckfallschluesselSicherstellen(ident);
+    const curve25519 = ident.curve25519();
 
+    // Signiertes Buendel (Bughunt 2026-09-23): der Ed25519-Identitaetsschluessel
+    // des Accounts geht MIT ins Verzeichnis, und die Signatur ueber die
+    // kanonische Form (`buendelAnmeldung`) bindet curve25519 + Rueckfall an
+    // ihn. Der Server kann beides fortan nicht mehr stumm austauschen — er
+    // kann die Felder hoechstens WEGLASSEN, und genau das behandelt der
+    // Absender als unsigniert (s. `senden.ts`).
     await keysApi.publishBundle(
       {
         device_pubkey: kennung,
-        curve25519: ident.curve25519(),
+        curve25519,
         rueckfallschluessel,
-        dauerhaft: eigenesGeraetDauerhaft()
+        dauerhaft: eigenesGeraetDauerhaft(),
+        ed25519: ident.ed25519(),
+        bundel_signatur: ident.signieren(
+          buendelAnmeldung({ device_pubkey: kennung, curve25519, rueckfallschluessel })
+        )
       },
       cloudRoute()
     );

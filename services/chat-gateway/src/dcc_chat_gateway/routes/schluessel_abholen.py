@@ -150,6 +150,8 @@ async def schluessel_abholen(
                 GeraeteSchluesselOut(
                     device_pubkey=b.device_pubkey,
                     curve25519=b.curve25519,
+                    ed25519=b.ed25519,
+                    bundel_signatur=b.bundel_signatur,
                     einmalschluessel=einmal,
                     rueckfallschluessel=b.rueckfallschluessel if einmal is None else None,
                     dauerhaft=b.dauerhaft,

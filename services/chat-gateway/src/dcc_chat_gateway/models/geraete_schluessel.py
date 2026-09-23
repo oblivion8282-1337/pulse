@@ -11,6 +11,12 @@ Geraets ueber sein eigenes Buendel — sie wurde nur durchgereicht und von
 keiner Fassung des Klienten je geprueft). Beide hatten nach dem Wegfall des
 Zertifikats keine Quelle mehr; eine Spalte weiterzufuehren, die niemand
 befuellen kann, waere eine Behauptung ohne Deckung.
+
+**Bughunt 2026-09-23 (Migration 0092): die Unterschrift kommt zurueck, jetzt
+mit Prufer.** ``ed25519`` + ``bundel_signatur`` — signiert vom Olm-Account
+des Geraets, verifiziert beim Claim von jedem Klienten, gepinnt per TOFU.
+Der Unterschied zu vor 0079: es gibt einen Prufer, und die Pruftung ist der
+Grund der Spalte, nicht Zierrat.
 """
 
 from __future__ import annotations
@@ -42,6 +48,18 @@ class DeviceKeyBundle(Base):
     device_pubkey: Mapped[str] = mapped_column(Text, nullable=False)
     #: Base64, Curve25519 — der Schluessel, mit dem verschluesselt wird.
     curve25519: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Base64, Ed25519 — der Identitaetsschluessel, UNTER DEM das Buendel
+    #: signiert ist (Bughunt 2026-09-23, Migration 0092). NULL bei
+    #: Bestandszeilen: solche Buendel gelten im Klienten als unsigniert und
+    #: empfangen keine neuen verschluesselten DM-Sitzungen mehr, bis das
+    #: Geraet sich neu veroeffentlicht (was jeder Login-Start ohnehin tut).
+    ed25519: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Base64-Ed25519-Signatur ueber die kanonische Form von ``(device_pubkey,
+    #: curve25519, rueckfallschluessel)`` — kanonische Form und Pruefung liegen
+    #: beim Klienten (``web/src/lib/krypto/buendelSignatur.ts``); der Server
+    #: ist und bleibt ein Verzeichnis ohne Pruemoeglichkeit, er kann die
+    #: Signatur nur VON der Pruftung trennen, nicht faelschen.
+    bundel_signatur: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Greift, wenn der Vorrat an Einmalschluesseln leer ist.
     rueckfallschluessel: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Selbstauskunft des Geraets (Electron- oder Android-App), Grundlage der

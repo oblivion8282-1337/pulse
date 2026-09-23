@@ -77,6 +77,7 @@ import {
 import { baueNachrichtNutzlast, baueLoeschNutzlast, type AnhangAngabe } from './nachrichtNutzlast';
 import { anhangAngabeZuAttachment } from './anhangAnzeige';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
+import { geraetebuendelAuthentifizieren } from './geraetePinnung';
 import { wurdeZugestellt, deuteEinliefernFehler } from './zustellErgebnis';
 import { parseMentionMarkers } from '../components/mentionMarkierungen';
 
@@ -108,6 +109,13 @@ async function versendeUmschlaege(
   const ident = await kryptoAccountLaden();
 
   for (const { geraet } of ziel) {
+    // **Signatur + TOFU (Bughunt 2026-09-23), vor allem anderen** — die
+    // geteilte Authentifizierung (`geraetePinnung.ts`, gilt ebenso fuer den
+    // Gruppen-Verteilweg). Wirft bei fehlender/ungueltiger Signatur und bei
+    // Abweichung von der Pinnung; die Fehler landen sichtbar beim Aufrufer,
+    // kein Ueberspringen, kein Rueckfall.
+    await geraetebuendelAuthentifizieren(geraet);
+
     const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
       let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
       if (sitzung) {
@@ -117,7 +125,10 @@ async function versendeUmschlaege(
         // (Begruendung an `partnerSchluesselLesen`). Eine Sitzung ohne
         // gemerkten Partner (von vor dem 2026-09-03) gilt als ungewiss und
         // wird einmal neu gebaut; das kostet einen Einmalschluessel, nicht
-        // mehr.
+        // mehr. Der Fall ist seit der TOFU-Pinnung selten: ein echter
+        // Schluesselwechsel scheitert bereits OBEN an der Pinnung — dieser
+        // Zweig bleibt fuer Uebergangsbestaende (Sitzung aus der Zeit vor
+        // der Pinnung, gleiche Identitaet).
         const gemerkt = await partnerSchluesselLesen(kanalId, geraet.device_pubkey);
         if (gemerkt !== geraet.curve25519) {
           console.warn('[postfach] Gegenseite hat neuen Schlüsselbund — Sitzung wird neu aufgebaut');

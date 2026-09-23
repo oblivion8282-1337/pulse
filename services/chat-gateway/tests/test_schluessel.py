@@ -124,6 +124,59 @@ async def test_buendel_veroeffentlichen_und_wieder_abrufen(
 
 
 @pytest.mark.asyncio
+async def test_buendel_signatur_wird_gespeichert_und_beim_abholen_mitgeliefert(
+    client, app, cloud_mode, access_token
+):
+    """Bughunt 2026-09-23: ``ed25519`` + ``bundel_signatur`` laufen PUT → Claim.
+
+    Der Server ist ein Verzeichnis ohne Prüfmöglichkeit — er kann die Signatur
+    nur von der Prüfung trennen, nicht fälschen. Der Test hält deshalb nur den
+    Durchlauf fest: was hineingeht, kommt unverändert heraus, und ein UPDATE
+    ohne Signatur-Felder (alter Klient) räumt sie mit weg — ein Halb-Bündel
+    mit ed25519 aber ohne Signatur wäre schlimmer als keins."""
+    token, uid = access_token
+    pubkey = _make_device()
+
+    r = await client.put(
+        "/keys/bundle",
+        json={
+            "device_pubkey": pubkey,
+            "curve25519": "curve-pub",
+            "ed25519": "ed-pub",
+            "bundel_signatur": "sig-ueber-buendel",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    r = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(uid)]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    b = r.json()[str(uid)][0]
+    assert b["ed25519"] == "ed-pub"
+    assert b["bundel_signatur"] == "sig-ueber-buendel"
+
+    r = await client.put(
+        "/keys/bundle",
+        json={"device_pubkey": pubkey, "curve25519": "curve-pub"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+    r = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(uid)]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    b = r.json()[str(uid)][0]
+    assert b["ed25519"] is None
+    assert b["bundel_signatur"] is None
+
+
+@pytest.mark.asyncio
 async def test_fremdes_konto_kann_nicht_unter_fremder_kennung_handeln(
     client, session_factory, cloud_mode, _auth_signer
 ):

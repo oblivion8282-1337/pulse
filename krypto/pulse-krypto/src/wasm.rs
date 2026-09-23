@@ -25,6 +25,15 @@ fn schluessel32(schluessel: Vec<u8>) -> Result<[u8; 32], JsValue> {
     schluessel.try_into().map_err(|_| js_fehler(KryptoFehler::SchluesselUnlesbar))
 }
 
+/// Prueft eine Buendel-Signatur der Gegenstelle (Bughunt 2026-09-23): true
+/// nur bei exakter Uebereinstimmung, unparsbare Eingaben sind false
+/// (fail closed). Freistehend, weil der Pruefenden keinen Account braucht —
+/// s. ``identitaet::Identitaet::signatur_pruefen``.
+#[wasm_bindgen(js_name = signaturPruefen)]
+pub fn signatur_pruefen(ed25519: &str, nachricht: &str, signatur: &str) -> bool {
+    crate::Identitaet::signatur_pruefen(ed25519, nachricht, signatur)
+}
+
 #[wasm_bindgen(js_name = Umschlag)]
 pub struct JsUmschlag {
     inner: crate::Umschlag,
@@ -75,6 +84,11 @@ impl JsIdentitaet {
 
     pub fn ed25519(&self) -> String {
         self.inner.schluessel().ed25519
+    }
+
+    #[wasm_bindgen(js_name = signieren)]
+    pub fn signieren(&self, nachricht: &str) -> String {
+        self.inner.signieren(nachricht)
     }
 
     #[wasm_bindgen(js_name = einmalschluesselErzeugen)]
