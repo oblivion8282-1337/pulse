@@ -521,10 +521,10 @@
         </button>
       </div>
 
-      <!-- Aufnahme-Timer -->
+      <!-- Aufnahme-Timer (gleicher Riegel wie die Kopfleiste: ~1 mm tiefer) -->
       {#if nimmtAuf}
         <div
-          class="absolute left-1/2 top-6 z-20 flex -translate-x-1/2 items-center gap-2.5 rounded-full border border-white/10 bg-black/50 px-4 py-1.5 shadow-[0_0_24px_rgba(37,99,235,0.35)] backdrop-blur-md"
+          class="absolute left-1/2 top-[30px] z-20 flex -translate-x-1/2 items-center gap-2.5 rounded-full border border-white/10 bg-black/50 px-4 py-1.5 shadow-[0_0_24px_rgba(37,99,235,0.35)] backdrop-blur-md"
           data-testid="camera-overlay-timer"
         >
           <span class="bg-error size-2.5 animate-pulse rounded-full shadow-[0_0_8px_rgba(239,68,68,0.9)]"></span>
