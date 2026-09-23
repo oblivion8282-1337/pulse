@@ -37,16 +37,13 @@
 import init, { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { openIdentityDb, idbGetIdentity, idbPutIdentity } from '../identity/idb-shared';
 import { loadKeypair, signChallenge } from '../identity/keypair.svelte';
-import { pickelgeheimnisLesen, pickelmarkeLesen } from './geraeteGeheimnis';
+import { pickelgeheimnisLesen, pickelmarkeLesen, IDB_KEY_RUECKFALLSCHLUESSEL } from './geraeteGeheimnis';
 import { pickelschluesselAbleiten, pickelschluesselAusGeheimnis } from './pickelschluessel';
 import { markeDeuten } from './pickelUebergangPlan';
 
 /** Exportiert, weil `sitzungen.ts::sitzungMitKontoAtomarSichern` denselben
  *  Schluessel braucht — s. dort. */
 export const IDB_KEY = 'pulse.krypto-account';
-/** Cache des OEFFENTLICHEN Rueckfallschluessels, ausserhalb des Pickles —
- *  Begruendung an `rueckfallschluesselSicherstellen`. */
-const IDB_KEY_RUECKFALLSCHLUESSEL = 'pulse.krypto-rueckfallschluessel';
 
 /** Trennt diese Ableitung von jeder anderen Signatur, die derselbe
  *  Geraeteschluessel leistet (z. B. Cert-Login-Challenges). */
