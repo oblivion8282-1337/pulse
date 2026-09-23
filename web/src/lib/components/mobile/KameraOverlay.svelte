@@ -52,7 +52,8 @@
     /** Wahr, während der Parent das Medium hochlädt und sendet. */
     sendeLaeuft?: boolean;
     onClose: () => void;
-    onSend: (file: File) => void;
+    /** WhatsApp-Prinzip: das Medium geht MIT Textzeile raus. */
+    onSend: (file: File, text: string) => void;
   } = $props();
 
   type Modus = 'foto' | 'video';
@@ -139,6 +140,8 @@
   let vorschau: HTMLVideoElement | undefined = $state();
   let entwurfDatei: File | null = $state(null);
   let entwurfIstVideo = $state(false);
+  /** Beizeile (WhatsApp-Prinzip): Text, der MIT dem Medium rausgeht. */
+  let entwurfText = $state('');
   let vorschauLaeuft = $state(false);
   let vorschauBereit = $state(false);
   let vorschauPosition = $state(0);
@@ -281,6 +284,7 @@
     if (entwurfUrl) URL.revokeObjectURL(entwurfUrl);
     entwurfUrl = undefined;
     entwurfDatei = null;
+    entwurfText = '';
     vorschauLaeuft = false;
     vorschauBereit = false;
     vorschauPosition = 0;
@@ -576,6 +580,8 @@
   async function entwurfSenden(): Promise<void> {
     if (!entwurfDatei || schneideLaeuft) return;
     let datei = entwurfDatei;
+    // Beizeile SICHERHALTEN, bevor entwurfWeg() sie wegwirft.
+    const text = entwurfText;
     // Nur dann wirklich schneiden, wenn jemand an den Griffen war — der
     // ungeschnittene Entwurf geht ohne Echtzeit-Neukodierung raus.
     const ungeschnitten =
@@ -590,7 +596,7 @@
       schneideLaeuft = false;
     }
     entwurfWeg();
-    onSend(datei); // Parent lädt hoch, sendet und schließt das Overlay.
+    onSend(datei, text); // Parent lädt hoch, sendet und schließt das Overlay.
   }
 
   function schliessen(): void {
@@ -862,6 +868,18 @@
             </button>
           </div>
         {:else if entwurfDatei}
+          <!-- Beizeile (WhatsApp-Prinzip): Text, der MIT dem Medium rausgeht.
+               Enter sendet direkt. -->
+          <input
+            type="text"
+            bind:value={entwurfText}
+            placeholder={m.message_input_placeholder()}
+            class="mb-4 w-full rounded-2xl border border-white/15 bg-black/50 px-4 py-3 text-sm text-white backdrop-blur-md outline-none placeholder:text-white/50 focus:border-white/30"
+            onkeydown={(e) => {
+              if (e.key === 'Enter' && !e.isComposing) void entwurfSenden();
+            }}
+            data-testid="camera-draft-caption"
+          />
           <!-- Entwurf fertig: senden oder verwerfen. -->
           <div class="flex items-center justify-between">
             <button

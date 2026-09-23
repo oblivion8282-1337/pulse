@@ -131,8 +131,9 @@
 
   /** Kamera-Entwurf (Foto oder Video aus dem Overlay) DIREKT senden:
    *  hochladen, auf Fertigstellung warten, als Nachricht raus — ganz ohne
-   *  Entwurf in der Anhang-Leiste (Testrunde 2026-09-23). */
-  async function sendeKameraDirekt(datei: File): Promise<void> {
+   *  Entwurf in der Anhang-Leiste (Testrunde 2026-09-23). Mit Beizeile
+   *  (WhatsApp-Prinzip): der Text aus der Vorschau geht als Nachricht mit. */
+  async function sendeKameraDirekt(datei: File, text: string): Promise<void> {
     if (!channelId) return;
     videoSendelauf = true;
     try {
@@ -149,7 +150,7 @@
         toast.error(m.camera_nicht_verfuegbar());
         return;
       }
-      onSend('', [ladung.row.attachmentId], [ladung.row.anhang]);
+      onSend(text, [ladung.row.attachmentId], [ladung.row.anhang]);
       videoOverlay = false;
     } finally {
       videoSendelauf = false;
@@ -593,7 +594,7 @@
         open={videoOverlay}
         sendeLaeuft={videoSendelauf}
         onClose={() => (videoOverlay = false)}
-        onSend={(datei) => void sendeKameraDirekt(datei)}
+        onSend={(datei, text) => void sendeKameraDirekt(datei, text)}
       />
     {/if}
     <!-- `min-h-*` + `py-*` in zwei Grössen: Der Kasten ist damit jeweils so hoch
