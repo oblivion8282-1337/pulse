@@ -733,7 +733,7 @@
                  Tippen auf einen Griff wählt ihn aus (weiß); die ±Knöpfe
                  verschieben dann IHN in 1-s-Schritten, ohne Auswahl spulen
                  sie ±10 s. -->
-            <div class="absolute inset-x-0 top-0 z-20 px-5 pt-[26px]" data-testid="camera-draft-trim">
+            <div class="absolute inset-x-0 top-0 z-20 px-8 pt-[34px]" data-testid="camera-draft-trim">
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 bind:this={spur}
