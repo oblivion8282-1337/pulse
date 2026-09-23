@@ -144,6 +144,7 @@
   let vorschauPosition = $state(0);
   let vorschauStumm = $state(false);
   let vorschauRahmen = 0;
+  let vorschauWache = 0;
 
   // Schnitt (WhatsApp-Prinzip): Spulleiste oben, zwei Griffe markieren den
   // Bereich, der beim Senden übrig bleibt. Geschnitten wird in Echtzeit —
@@ -258,6 +259,7 @@
     vorschauDauer = 0;
     schnittStart = 0;
     schnittEnde = 0;
+    cancelAnimationFrame(vorschauWache);
   }
 
   function anzeigeBinden(): void {
@@ -489,11 +491,39 @@
 
   /** YouTube-Prinzip in der Entwurf-Vorschau: Tippen aufs Video schaltet
    *  zwischen Abspielen und Pause um — der Play-Kreis in der Mitte zeigt
-   *  sich nur im Stillstand. */
+   *  sich nur im Stillstand. Ein Schnittpunkt gilt dabei: außerhalb des
+   *  Bereichs gestartet wird auf schnittStart zurückgespult. */
   function vorschauUmschalten(): void {
     if (!vorschau || schneideLaeuft) return;
-    if (vorschau.paused) void vorschau.play().catch(() => {});
-    else vorschau.pause();
+    if (vorschau.paused) {
+      if (
+        vorschau.currentTime < schnittStart - 0.02 ||
+        vorschau.currentTime > schnittEnde - 0.02
+      ) {
+        vorschau.currentTime = schnittStart;
+      }
+      void vorschau.play().catch(() => {});
+    } else {
+      vorschau.pause();
+    }
+  }
+
+  /** Hält die Vorschau IM Schnittbereich: erreicht die Wiedergabe den
+   *  Endgriff, stoppt sie und rollt zum Startgriff zurück — ein 10-s-Video
+   *  auf 5 s geschnitten zeigt genau diese 5 s, nicht dahinter weiter. */
+  function vorschauWacheStarten(): void {
+    cancelAnimationFrame(vorschauWache);
+    if (!vorschau) return;
+    const schritt = () => {
+      if (!vorschau || vorschau.paused) return;
+      if (vorschau.currentTime >= schnittEnde - 0.02) {
+        vorschau.pause();
+        vorschau.currentTime = schnittStart;
+        return;
+      }
+      vorschauWache = requestAnimationFrame(schritt);
+    };
+    vorschauWache = requestAnimationFrame(schritt);
   }
 
   /** Erster GEZEICHNETER Frame der Vorschau — bis er steht, deckt Schwarz
@@ -641,8 +671,18 @@
               if (!el.currentTime) el.currentTime = 0.001;
             }}
             ontimeupdate={() => (vorschauPosition = vorschau?.currentTime ?? 0)}
-            onplay={() => (vorschauLaeuft = true)}
-            onpause={() => (vorschauLaeuft = false)}
+            onplay={() => {
+              vorschauLaeuft = true;
+              vorschauWacheStarten();
+            }}
+            onpause={() => {
+              vorschauLaeuft = false;
+              cancelAnimationFrame(vorschauWache);
+            }}
+            onended={() => {
+              // natürliches Ende (auch am Schnittrand): zurück zum Start
+              if (vorschau) vorschau.currentTime = schnittStart;
+            }}
           ></video>
           {#if !vorschauBereit}
             <!-- deckt das graue Kästchen, bis Frame 1 gezeichnet ist -->
