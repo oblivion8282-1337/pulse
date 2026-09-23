@@ -155,6 +155,9 @@
   let schnittStart = $state(0);
   let schnittEnde = $state(0);
   let spurlauf: 'start' | 'ende' | null = null;
+  /** Der antippbare Griff: ausgewählt = weiß, und die ±10-s-Knöpfe
+   *  verschieben dann IHN in 1-s-Schritten, statt zu spulen. */
+  let gewaehlterGriff: 'start' | 'ende' | null = $state(null);
   let schneideLaeuft = $state(false);
   let spur: HTMLDivElement | undefined = $state();
 
@@ -166,8 +169,30 @@
     );
   }
 
+  /** Die ±10-s-Knöpfe: ohne gewählten Griff spulen sie wie gehabt, mit
+   *  gewähltem Griff schieben sie DIESEN in 1-SEKUNDEN-Schritten — die
+   *  Vorschau springt zum neuen Schnittpunkt mit. */
+  function griffNudge(sekunden: number): void {
+    if (!vorschau || !vorschauDauer) return;
+    if (!gewaehlterGriff) {
+      spule(sekunden);
+      return;
+    }
+    const schritt = Math.sign(sekunden); // gewählt = fein: 1 s je Tipp
+    if (gewaehlterGriff === 'start') {
+      schnittStart = Math.min(vorschauDauer, Math.max(0, schnittStart + schritt));
+      schnittStart = Math.min(schnittStart, schnittEnde - 0.3);
+      vorschau.currentTime = schnittStart;
+    } else {
+      schnittEnde = Math.max(0, Math.min(vorschauDauer, schnittEnde + schritt));
+      schnittEnde = Math.max(schnittEnde, schnittStart + 0.3);
+      vorschau.currentTime = schnittEnde;
+    }
+  }
+
   function spurTippen(e: PointerEvent): void {
     if (spurlauf || !vorschau || !spur || !vorschauDauer) return;
+    gewaehlterGriff = null; // abseits der Griffe getippt → Auswahl lösen
     const rect = spur.getBoundingClientRect();
     vorschau.currentTime =
       Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * vorschauDauer;
@@ -176,7 +201,9 @@
   function griffFassen(art: 'start' | 'ende') {
     return (e: PointerEvent) => {
       spurlauf = art;
+      gewaehlterGriff = art;
       vorschau?.pause();
+      e.stopPropagation(); // nicht zugleich als Track-Tipp werten
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
     };
   }
@@ -259,6 +286,7 @@
     vorschauDauer = 0;
     schnittStart = 0;
     schnittEnde = 0;
+    gewaehlterGriff = null;
     cancelAnimationFrame(vorschauWache);
   }
 
@@ -707,8 +735,10 @@
                 <button
                   type="button"
                   class="flex size-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
-                  onclick={() => spule(-10)}
-                  aria-label="10 Sekunden zurück"
+                  onclick={() => griffNudge(-10)}
+                  aria-label={gewaehlterGriff
+                    ? 'Schnittmarke 1 Sekunde nach links'
+                    : '10 Sekunden zurück'}
                   data-testid="camera-draft-rewind"
                 >
                   <RewindIcon class="size-5" />
@@ -730,20 +760,20 @@
                       vorschauDauer
                     )}%;"
                   ></div>
-                  <!-- Abspielkopf -->
+                  <!-- Schnitt-Griffe: antippen wählt aus (weiß), die
+                       ±10-s-Knöpfe verschieben dann in 1-s-Schritten -->
                   <div
-                    class="absolute top-1 bottom-1 w-0.5 rounded-full bg-white"
-                    style="left: {prozent(vorschauPosition, vorschauDauer)}%"
-                  ></div>
-                  <!-- Schnitt-Griffe -->
-                  <div
-                    class="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-black/70 shadow-lg"
+                    class="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-lg {gewaehlterGriff === 'start'
+                      ? 'border-white bg-white'
+                      : 'border-white bg-black/70'}"
                     style="left: {prozent(schnittStart, vorschauDauer)}%"
                     onpointerdown={griffFassen('start')}
                     data-testid="camera-trim-start"
                   ></div>
                   <div
-                    class="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-black/70 shadow-lg"
+                    class="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-lg {gewaehlterGriff === 'ende'
+                      ? 'border-white bg-white'
+                      : 'border-white bg-black/70'}"
                     style="left: {prozent(schnittEnde, vorschauDauer)}%"
                     onpointerdown={griffFassen('ende')}
                     data-testid="camera-trim-end"
@@ -752,8 +782,10 @@
                 <button
                   type="button"
                   class="flex size-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
-                  onclick={() => spule(10)}
-                  aria-label="10 Sekunden vor"
+                  onclick={() => griffNudge(10)}
+                  aria-label={gewaehlterGriff
+                    ? 'Schnittmarke 1 Sekunde nach rechts'
+                    : '10 Sekunden vor'}
                   data-testid="camera-draft-forward"
                 >
                   <FastForwardIcon class="size-5" />
