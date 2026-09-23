@@ -25,9 +25,11 @@
 <script lang="ts">
   import CameraIcon from '@lucide/svelte/icons/camera';
   import CheckIcon from '@lucide/svelte/icons/check';
+  import FastForwardIcon from '@lucide/svelte/icons/fast-forward';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import PauseIcon from '@lucide/svelte/icons/pause';
   import PlayIcon from '@lucide/svelte/icons/play';
+  import RewindIcon from '@lucide/svelte/icons/rewind';
   import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
   import SquareIcon from '@lucide/svelte/icons/square';
   import SwitchCameraIcon from '@lucide/svelte/icons/switch-camera';
@@ -143,6 +145,102 @@
   let vorschauStumm = $state(false);
   let vorschauRahmen = 0;
 
+  // Schnitt (WhatsApp-Prinzip): Spulleiste oben, zwei Griffe markieren den
+  // Bereich, der beim Senden übrig bleibt. Geschnitten wird in Echtzeit —
+  // der Entwurf läuft von Start bis Ende durch einen MediaRecorder
+  // (ponytail: echte Sekunden statt Frame-genauer Neukodierung; ein
+  // ffmpeg.wasm wäre der Ausbau, lohnt erst bei langen Videos).
+  let vorschauDauer = $state(0);
+  let schnittStart = $state(0);
+  let schnittEnde = $state(0);
+  let spurlauf: 'start' | 'ende' | null = null;
+  let schneideLaeuft = $state(false);
+  let spur: HTMLDivElement | undefined = $state();
+
+  function spule(sekunden: number): void {
+    if (!vorschau || !vorschauDauer) return;
+    vorschau.currentTime = Math.min(
+      vorschauDauer,
+      Math.max(0, vorschau.currentTime + sekunden)
+    );
+  }
+
+  function spurTippen(e: PointerEvent): void {
+    if (spurlauf || !vorschau || !spur || !vorschauDauer) return;
+    const rect = spur.getBoundingClientRect();
+    vorschau.currentTime =
+      Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * vorschauDauer;
+  }
+
+  function griffFassen(art: 'start' | 'ende') {
+    return (e: PointerEvent) => {
+      spurlauf = art;
+      vorschau?.pause();
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    };
+  }
+
+  // svelte-ignore a11y_no_static_element_interactions
+  function griffBewegen(e: PointerEvent): void {
+    if (!spurlauf || !spur || !vorschau || !vorschauDauer) return;
+    const rect = spur.getBoundingClientRect();
+    const zeit =
+      Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * vorschauDauer;
+    // 0.3 s Mindestschnipsel — ein unbeabsichtigter Nullschnitt nutzt nichts.
+    if (spurlauf === 'start') {
+      schnittStart = Math.min(zeit, schnittEnde - 0.3);
+    } else {
+      schnittEnde = Math.max(zeit, schnittStart + 0.3);
+    }
+    // Die Vorschau springt zum Griff, damit man den Schnittpunkt SIEHT.
+    vorschau.currentTime = spurlauf === 'start' ? schnittStart : schnittEnde;
+  }
+
+  function griffLoslassen(): void {
+    spurlauf = null;
+  }
+
+  /** Schneidet in Echtzeit: der Entwurf läuft von schnittStart bis
+   *  schnittEnde, MediaRecorder nimmt den Element-Stream mit Ton auf. */
+  async function schnittAnwenden(): Promise<File> {
+    if (!vorschau || !entwurfDatei) throw new Error('kein Entwurf');
+    const mime = entwurfDatei.type || 'video/webm';
+    // captureStream fehlt im TS-lib-Dom — existiert in jedem Chromium/WebView.
+    const strom = (
+      vorschau as HTMLVideoElement & { captureStream(): MediaStream }
+    ).captureStream();
+    const teile: Blob[] = [];
+    const rekorder = new MediaRecorder(strom, { mimeType: mime });
+    const fertig = new Promise<Blob>((resolve) => {
+      rekorder.ondataavailable = (e) => {
+        if (e.data.size > 0) teile.push(e.data);
+      };
+      rekorder.onstop = () => resolve(new Blob(teile, { type: mime.split(';')[0] }));
+    });
+    vorschau.currentTime = schnittStart;
+    await new Promise<void>((resolve) => {
+      vorschau!.onseeked = () => resolve();
+      setTimeout(resolve, 1000); // Notfall: ohne seeked nicht ewig warten
+    });
+    rekorder.start();
+    void vorschau.play();
+    await new Promise<void>((resolve) => {
+      const wache = setInterval(() => {
+        if (!vorschau || vorschau.paused || vorschau.currentTime >= schnittEnde - 0.03) {
+          clearInterval(wache);
+          resolve();
+        }
+      }, 50);
+    });
+    vorschau.pause();
+    rekorder.stop();
+    const blob = await fertig;
+    const datei = new File([blob], `kamera-video-${Date.now()}.webm`, { type: blob.type });
+    // Dauer für die Empfänger-Anzeige ist jetzt die des SCHNITTS.
+    aufnahmeDauerRegister.set(datei, Math.round(schnittEnde - schnittStart));
+    return datei;
+  }
+
   function besterVideoMime(): string | undefined {
     if (typeof MediaRecorder === 'undefined') return undefined;
     const kandidaten = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
@@ -157,6 +255,9 @@
     vorschauBereit = false;
     vorschauPosition = 0;
     vorschauStumm = false;
+    vorschauDauer = 0;
+    schnittStart = 0;
+    schnittEnde = 0;
   }
 
   function anzeigeBinden(): void {
@@ -390,7 +491,7 @@
    *  zwischen Abspielen und Pause um — der Play-Kreis in der Mitte zeigt
    *  sich nur im Stillstand. */
   function vorschauUmschalten(): void {
-    if (!vorschau) return;
+    if (!vorschau || schneideLaeuft) return;
     if (vorschau.paused) void vorschau.play().catch(() => {});
     else vorschau.pause();
   }
@@ -412,9 +513,22 @@
     }
   }
 
-  function entwurfSenden(): void {
-    if (!entwurfDatei) return;
-    const datei = entwurfDatei;
+  async function entwurfSenden(): Promise<void> {
+    if (!entwurfDatei || schneideLaeuft) return;
+    let datei = entwurfDatei;
+    // Nur dann wirklich schneiden, wenn jemand an den Griffen war — der
+    // ungeschnittene Entwurf geht ohne Echtzeit-Neukodierung raus.
+    const ungeschnitten =
+      schnittStart <= 0.05 && schnittEnde >= vorschauDauer - 0.05;
+    if (!ungeschnitten) {
+      schneideLaeuft = true;
+      try {
+        datei = await schnittAnwenden();
+      } catch {
+        /* schneiden fehlgeschlagen → das ganze Video geht raus */
+      }
+      schneideLaeuft = false;
+    }
     entwurfWeg();
     onSend(datei); // Parent lädt hoch, sendet und schließt das Overlay.
   }
@@ -520,6 +634,9 @@
             onclick={vorschauUmschalten}
             onloadedmetadata={(e) => {
               const el = e.currentTarget as HTMLVideoElement;
+              vorschauDauer = el.duration || 0;
+              schnittStart = 0;
+              schnittEnde = vorschauDauer;
               vorschauFrameAbwarten(el);
               if (!el.currentTime) el.currentTime = 0.001;
             }}
@@ -530,7 +647,8 @@
           {#if !vorschauBereit}
             <!-- deckt das graue Kästchen, bis Frame 1 gezeichnet ist -->
             <div class="absolute inset-0 z-10 bg-black"></div>
-          {:else if !vorschauLaeuft}
+          {/if}
+          {#if !vorschauLaeuft && vorschauBereit}
             <button
               type="button"
               class="absolute left-1/2 top-1/2 z-20 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white/80 bg-black/60"
@@ -540,6 +658,76 @@
             >
               <PlayIcon class="size-7 text-white" />
             </button>
+          {/if}
+          {#if vorschauBereit && !schneideLaeuft}
+            <!-- Spul-/Schnittleiste oben (WhatsApp-Prinzip): ±10 s, Timeline
+                 antippbar, zwei Griffe markieren den Bereich, der bleibt. -->
+            <div class="absolute inset-x-0 top-0 z-20 px-5 pt-[26px]" data-testid="camera-draft-trim">
+              <div class="flex items-center gap-3">
+                <button
+                  type="button"
+                  class="flex size-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
+                  onclick={() => spule(-10)}
+                  aria-label="10 Sekunden zurück"
+                  data-testid="camera-draft-rewind"
+                >
+                  <RewindIcon class="size-5" />
+                </button>
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  bind:this={spur}
+                  class="relative h-10 flex-1 touch-none"
+                  onpointerdown={spurTippen}
+                  onpointermove={griffBewegen}
+                  onpointerup={griffLoslassen}
+                  onpointercancel={griffLoslassen}
+                >
+                  <div class="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/25"></div>
+                  <div
+                    class="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-primary"
+                    style="left: {prozent(schnittStart, vorschauDauer)}%; width: {prozent(
+                      schnittEnde - schnittStart,
+                      vorschauDauer
+                    )}%;"
+                  ></div>
+                  <!-- Abspielkopf -->
+                  <div
+                    class="absolute top-1 bottom-1 w-0.5 rounded-full bg-white"
+                    style="left: {prozent(vorschauPosition, vorschauDauer)}%"
+                  ></div>
+                  <!-- Schnitt-Griffe -->
+                  <div
+                    class="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-black/70 shadow-lg"
+                    style="left: {prozent(schnittStart, vorschauDauer)}%"
+                    onpointerdown={griffFassen('start')}
+                    data-testid="camera-trim-start"
+                  ></div>
+                  <div
+                    class="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-black/70 shadow-lg"
+                    style="left: {prozent(schnittEnde, vorschauDauer)}%"
+                    onpointerdown={griffFassen('ende')}
+                    data-testid="camera-trim-end"
+                  ></div>
+                </div>
+                <button
+                  type="button"
+                  class="flex size-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
+                  onclick={() => spule(10)}
+                  aria-label="10 Sekunden vor"
+                  data-testid="camera-draft-forward"
+                >
+                  <FastForwardIcon class="size-5" />
+                </button>
+              </div>
+              <div class="text-2xs text-center text-white/80 tabular-nums">
+                {formatiereDauer(vorschauPosition)} / {formatiereDauer(vorschauDauer)}
+                {#if schnittStart > 0.05 || schnittEnde < vorschauDauer - 0.05}
+                  <span class="text-primary">
+                    · Schnitt {formatiereDauer(schnittEnde - schnittStart)}
+                  </span>
+                {/if}
+              </div>
+            </div>
           {/if}
         {:else}
           <img src={entwurfUrl} alt="" class="absolute inset-0 z-10 size-full object-contain" />
@@ -620,11 +808,11 @@
             <button
               type="button"
               class="accent-gradient flex size-16 items-center justify-center rounded-full shadow-[0_8px_30px_rgba(37,99,235,0.5)] transition-transform active:scale-90"
-              onclick={entwurfSenden}
-              disabled={sendeLaeuft}
+              onclick={() => void entwurfSenden()}
+              disabled={sendeLaeuft || schneideLaeuft}
               data-testid="camera-send"
             >
-              {#if sendeLaeuft}
+              {#if sendeLaeuft || schneideLaeuft}
                 <LoaderCircleIcon class="size-7 animate-spin text-white" />
               {:else}
                 <SendHorizontalIcon class="size-7 text-white" />
