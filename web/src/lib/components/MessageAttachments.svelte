@@ -36,8 +36,12 @@
   import FileIcon from '@lucide/svelte/icons/file';
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import DownloadIcon from '@lucide/svelte/icons/download';
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import PlayIcon from '@lucide/svelte/icons/play';
   import XIcon from '@lucide/svelte/icons/x';
+  import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
+  import { Portal } from 'bits-ui';
   import { m } from '$lib/paraglide/messages.js';
   import { formatBytes } from '$lib/utils/formatBytes';
   import { istAnhangAbgelaufenFehler } from '$lib/krypto/anhangAbgelaufen';
@@ -125,10 +129,69 @@
     lightboxOpen = true;
   }
 
-  /** Video-Vollbild (Messenger-Stil): die Bubble zeigt nur einen Play-Knopf
-   *  über dem Vorschaubild; erst der Klick öffnet den echten Player im
-   *  Vollbild-Overlay. */
+  /** Video-Betrachter (WhatsApp/Telegram-Stil): schwarz, kein nativer
+   *  Media-Player — Tippen startet/pausiert, schmale Spur unten, und
+   *  Wischen (bzw. die Pfeile) blättert durch die Videos DES CHATS. Die
+   *  Galerie wird beim Öffnen aus den sichtbaren Thumbnails gesammelt. */
   let vollbildUrl = $state<string | null>(null);
+  let galerie: string[] = $state([]);
+  let galerieIndex = $state(0);
+  let spieler: HTMLVideoElement | undefined = $state();
+  let spielerLaeuft = $state(false);
+  let spielerPosition = $state(0);
+  let spielerDauer = $state(0);
+  let wischX: number | null = null;
+
+  function oeffneVollbild(url: string): void {
+    const nacktesVideo = url.split('#')[0];
+    galerie = [
+      ...new Set(
+        [...document.querySelectorAll('[data-testid="attachment-video-thumb"] video')]
+          .map((v) => v.getAttribute('src')?.split('#')[0] ?? '')
+          .filter((s) => s !== '')
+      )
+    ];
+    galerieIndex = Math.max(0, galerie.indexOf(nacktesVideo));
+    vollbildUrl = nacktesVideo;
+  }
+
+  function galerieWechsel(richtung: number): void {
+    const ziel = galerieIndex + richtung;
+    if (ziel < 0 || ziel >= galerie.length) return;
+    galerieIndex = ziel;
+    spielerPosition = 0;
+    spielerDauer = 0;
+    spielerLaeuft = false;
+    vollbildUrl = galerie[ziel];
+  }
+
+  function spielerUmschalten(): void {
+    if (!spieler) return;
+    if (spieler.paused) void spieler.play().catch(() => {});
+    else spieler.pause();
+  }
+
+  function wischStart(e: TouchEvent): void {
+    wischX = e.touches[0]?.clientX ?? null;
+  }
+
+  function wischEnde(e: TouchEvent): void {
+    const start = wischX;
+    wischX = null;
+    if (start === null) return;
+    // Auf der Spurliste wischen heißt spülen, nicht blättern.
+    if ((e.target as Element)?.closest('[data-testid="attachment-fullscreen-controls"]')) return;
+    const dx = (e.changedTouches[0]?.clientX ?? start) - start;
+    if (dx < -60) galerieWechsel(1);
+    else if (dx > 60) galerieWechsel(-1);
+  }
+
+  function taste(e: KeyboardEvent): void {
+    if (!vollbildUrl) return;
+    if (e.key === 'ArrowRight') galerieWechsel(1);
+    else if (e.key === 'ArrowLeft') galerieWechsel(-1);
+    else if (e.key === 'Escape') schliesseVollbild();
+  }
 
   function schliesseVollbild(): void {
     vollbildUrl = null;
@@ -208,7 +271,7 @@
         <div
           class="relative w-72 max-w-full cursor-pointer overflow-hidden rounded-xl border border-border"
           style={reserveBox(a) || 'aspect-ratio:16 / 9;'}
-          onclick={() => (vollbildUrl = quelleVideo)}
+          onclick={() => quelleVideo && oeffneVollbild(quelleVideo)}
           data-testid="attachment-video-thumb"
         >
           {#if quelleVideo}
@@ -282,30 +345,120 @@
 {/if}
 
 {#if vollbildUrl}
-  <!-- Video-Vollbild: Klick auf den dunklen Hintergrund schließt. -->
+  <!-- Video-Betrachter (WhatsApp/Telegram-Stil): schwarz, ohne native
+       Steuerleiste. Tippen aufs Bild startet/pausiert, schmale Spur unten,
+       Wischen/Pfeile blättern durch die Chat-Videos. Klick auf den dunklen
+       Hintergrund schließt. IM PORTAL: unter dem Swipe-Gesten-Vorfahren
+       (transform!) würde sonst selbst `fixed inset-0` eingeklemmt. -->
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/95"
-    onclick={schliesseVollbild}
-    data-testid="attachment-video-fullscreen"
-  >
-    <!-- svelte-ignore a11y_media_has_caption, a11y_no_noninteractive_element_interactions -->
-    <video
-      src={vollbildUrl}
-      controls
-      autoplay
-      playsinline
-      class="max-h-full max-w-full"
-      onclick={(e) => e.stopPropagation()}
-    ></video>
-    <button
-      type="button"
-      class="bg-white/90 hover:bg-white absolute right-4 top-4 rounded-full p-2"
+  <Portal>
+    <div
+      class="fixed inset-0 z-50 flex flex-col bg-black"
       onclick={schliesseVollbild}
-      aria-label={m.attachment_preview_strip_remove_label()}
-      data-testid="attachment-video-fullscreen-close"
+      ontouchstart={wischStart}
+      ontouchend={wischEnde}
+      data-testid="attachment-video-fullscreen"
     >
-      <XIcon class="size-5 text-black" />
-    </button>
+    <!-- Kopf: schließen + Galerie-Zähler -->
+    <div class="flex items-center justify-between p-4">
+      <button
+        type="button"
+        class="flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
+        onclick={schliesseVollbild}
+        aria-label={m.attachment_preview_strip_remove_label()}
+        data-testid="attachment-video-fullscreen-close"
+      >
+        <XIcon class="size-5" />
+      </button>
+      {#if galerie.length > 1}
+        <span class="text-xs text-white/70 tabular-nums">
+          {galerieIndex + 1} / {galerie.length}
+        </span>
+      {/if}
+    </div>
+
+    <!-- Video mittig; Tippen schaltet Wiedergabe um. -->
+    <div class="relative flex flex-1 items-center justify-center">
+      <!-- svelte-ignore a11y_media_has_caption, a11y_no_noninteractive_element_interactions -->
+      <video
+        bind:this={spieler}
+        src={vollbildUrl}
+        autoplay
+        playsinline
+        class="max-h-full max-w-full object-contain"
+        onclick={(e) => {
+          e.stopPropagation();
+          spielerUmschalten();
+        }}
+        onplay={() => (spielerLaeuft = true)}
+        onpause={() => (spielerLaeuft = false)}
+        ontimeupdate={() => (spielerPosition = spieler?.currentTime ?? 0)}
+        onloadedmetadata={() => (spielerDauer = spieler?.duration ?? 0)}
+      ></video>
+      {#if !spielerLaeuft}
+        <button
+          type="button"
+          class="pointer-events-none absolute flex size-16 items-center justify-center rounded-full border-2 border-white/80 bg-black/60"
+          aria-hidden="true"
+        >
+          <PlayIcon class="size-8 text-white" />
+        </button>
+      {/if}
+      <!-- Galerie-Pfeile (nur mit Nachbarn; mobil wischen die Finger) -->
+      {#if galerieIndex > 0}
+        <button
+          type="button"
+          class="absolute left-2 flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md"
+          onclick={(e) => {
+            e.stopPropagation();
+            galerieWechsel(-1);
+          }}
+          aria-label="Vorheriges Video"
+          data-testid="attachment-fullscreen-prev"
+        >
+          <ChevronLeftIcon class="size-6" />
+        </button>
+      {/if}
+      {#if galerieIndex < galerie.length - 1}
+        <button
+          type="button"
+          class="absolute right-2 flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md"
+          onclick={(e) => {
+            e.stopPropagation();
+            galerieWechsel(1);
+          }}
+          aria-label="Nächstes Video"
+          data-testid="attachment-fullscreen-next"
+        >
+          <ChevronRightIcon class="size-6" />
+        </button>
+      {/if}
+    </div>
+
+    <!-- Schmale Spurliste unten -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="flex items-center gap-3 px-4 pb-5 text-xs text-white/80 tabular-nums"
+      data-testid="attachment-fullscreen-controls"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <span>{formatiereDauer(spielerPosition)}</span>
+      <input
+        type="range"
+        min="0"
+        max={spielerDauer || 0.1}
+        step="0.1"
+        value={spielerPosition}
+        oninput={(e) => {
+          if (spieler) spieler.currentTime = Number(e.currentTarget.value);
+        }}
+        class="h-1.5 flex-1 cursor-pointer accent-white/90"
+        aria-label="Wiedergabeposition"
+        data-testid="attachment-fullscreen-seek"
+      />
+      <span>{formatiereDauer(spielerDauer)}</span>
+    </div>
   </div>
+</Portal>
 {/if}
+<svelte:window onkeydown={taste} />
