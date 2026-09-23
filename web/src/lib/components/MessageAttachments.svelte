@@ -206,7 +206,7 @@
              den echten Player im Vollbild-Overlay. -->
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
-          class="relative w-96 max-w-full cursor-pointer overflow-hidden rounded-xl border border-border"
+          class="relative w-72 max-w-full cursor-pointer overflow-hidden rounded-xl border border-border"
           style={reserveBox(a) || 'aspect-ratio:16 / 9;'}
           onclick={() => (vollbildUrl = quelleVideo)}
           data-testid="attachment-video-thumb"
@@ -224,7 +224,7 @@
               <track kind="captions" />
             </video>
           {:else}
-            <div class="block aspect-video w-96 bg-black/40"></div>
+            <div class="block aspect-video w-72 bg-black/40"></div>
           {/if}
           <span class="absolute inset-0 flex items-center justify-center">
             <span class="bg-black/60 flex size-14 items-center justify-center rounded-full border-2 border-white/80">

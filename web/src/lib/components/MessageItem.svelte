@@ -280,6 +280,10 @@
         {m.message_item_edit_hint()}
       </div>
     {:else}
+      <!-- Beizeile UNTER dem Medium (WhatsApp-Prinzip): bei Medien steht der
+           Text direkt drunter in derselben Blase; bei reinen Textnachrichten
+           ändert die Reihenfolge nichts (keine Anhänge → kein Block). -->
+      <MessageAttachments {attachments} />
       {#if message.content && !isInviteOnly}
         <div class="text-text-base break-words text-[15px]" data-testid="message-content">
           {@html html}
@@ -294,7 +298,6 @@
       {#each linkEmbeds as embed (embed.url)}
         <LinkEmbed url={embed.url} provider={embed.provider} />
       {/each}
-      <MessageAttachments {attachments} />
       <!-- Verschluesselt: keine `messageId` — der „Wer hat reagiert"-Popover
            fragt `GET /messages/{id}/reactions`, und die Zeile gibt es nicht
            (404). Die Pille schaltet dann direkt um (wie im Watch-Chat). -->
