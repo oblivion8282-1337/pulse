@@ -386,6 +386,15 @@
     entwurfWeg();
   }
 
+  /** YouTube-Prinzip in der Entwurf-Vorschau: Tippen aufs Video schaltet
+   *  zwischen Abspielen und Pause um — der Play-Kreis in der Mitte zeigt
+   *  sich nur im Stillstand. */
+  function vorschauUmschalten(): void {
+    if (!vorschau) return;
+    if (vorschau.paused) void vorschau.play().catch(() => {});
+    else vorschau.pause();
+  }
+
   function entwurfSenden(): void {
     if (!entwurfDatei) return;
     const datei = entwurfDatei;
@@ -481,45 +490,63 @@
           ></canvas>
         {/if}
       {:else}
-        <!-- Entwurf-Vorschau: Foto als Bild, Video mit Player + Steuerung. -->
+        <!-- Entwurf-Vorschau: Foto als Bild, Video YouTube-artig — Tippen
+             aufs Video startet/pausiert, Play-Kreis nur im Stillstand. -->
         {#if entwurfIstVideo}
           <!-- svelte-ignore a11y_media_has_caption, a11y_no_noninteractive_element_interactions -->
           <video
             bind:this={vorschau}
             src={entwurfUrl}
-            autoplay
-            loop
             playsinline
             class="absolute inset-0 z-10 size-full object-contain"
+            onclick={vorschauUmschalten}
             ontimeupdate={() => (vorschauPosition = vorschau?.currentTime ?? 0)}
+            onplay={() => (vorschauLaeuft = true)}
+            onpause={() => (vorschauLaeuft = false)}
           ></video>
+          {#if !vorschauLaeuft}
+            <button
+              type="button"
+              class="absolute left-1/2 top-1/2 z-20 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white/80 bg-black/60"
+              onclick={vorschauUmschalten}
+              aria-label={m.audio_player_play()}
+              data-testid="camera-draft-play"
+            >
+              <PlayIcon class="size-7 text-white" />
+            </button>
+          {/if}
         {:else}
           <img src={entwurfUrl} alt="" class="absolute inset-0 z-10 size-full object-contain" />
         {/if}
       {/if}
 
       <!-- Kopfleiste (pt bewusst 6 px unter den Standard-20 px: die Knöpfe
-           klebten sonst an der Statusleiste des Handys — Nutzerwunsch) -->
-      <div class="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 pt-[26px] pb-5">
-        <button
-          type="button"
-          class="flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
-          onclick={schliessen}
-          aria-label={m.message_input_recording_discard()}
-          data-testid="camera-overlay-close"
-        >
-          <XIcon class="size-5" />
-        </button>
-        <button
-          type="button"
-          class="flex size-12 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-md transition-transform active:scale-95"
-          onclick={() => void kameraWechseln()}
-          aria-label="Kamera wechseln"
-          data-testid="camera-overlay-flip"
-        >
-          <SwitchCameraIcon class="size-6" />
-        </button>
-      </div>
+           klebten sonst an der Statusleiste des Handys — Nutzerwunsch).
+           Im Entwurf bewusst WEG: dort wäre das ✕ nur das zweite ✕ neben
+           dem Verwerfen-Knopf, und ein Kamera-Wechsel über dem Entwurf
+           wäre tote UI. -->
+      {#if !entwurfDatei}
+        <div class="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 pt-[26px] pb-5">
+          <button
+            type="button"
+            class="flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
+            onclick={schliessen}
+            aria-label={m.message_input_recording_discard()}
+            data-testid="camera-overlay-close"
+          >
+            <XIcon class="size-5" />
+          </button>
+          <button
+            type="button"
+            class="flex size-12 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-md transition-transform active:scale-95"
+            onclick={() => void kameraWechseln()}
+            aria-label="Kamera wechseln"
+            data-testid="camera-overlay-flip"
+          >
+            <SwitchCameraIcon class="size-6" />
+          </button>
+        </div>
+      {/if}
 
       <!-- Aufnahme-Timer (gleicher Riegel wie die Kopfleiste: ~1 mm tiefer) -->
       {#if nimmtAuf}
