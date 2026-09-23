@@ -138,24 +138,43 @@
   let vollbildUrl = $state<string | null>(null);
   let galerie: string[] = $state([]);
   let galerieIndex = $state(0);
-  let spieler: HTMLVideoElement | undefined = $state();
+  /** Zwei dauerhafte Spieler-Slots (WhatsApp-Trick): das SICHTBARE Video
+   *  wird NIE umgeschrieben — der Quellwechsel passiert nur im verdeckten
+   *  Slot, und der wird erst sichtbar, wenn sein Frame dekodiert ist. Der
+   *  Nachbar wird nach jedem Wechsel vorgeladen, damit Wisch-Wechsel
+   *  ohne Lade-Loch laufen. Ein src-Wechsel auf der sichtbaren Fläche ist
+   *  die Stelle, an der der WebView sein graues Kästchen malt. */
+  let urlA = $state<string | null>(null);
+  let urlB = $state<string | null>(null);
+  let bereitA = $state(false);
+  let bereitB = $state(false);
+  let aktiverSlot = $state<'A' | 'B'>('A');
+  let spielerA: HTMLVideoElement | undefined = $state();
+  let spielerB: HTMLVideoElement | undefined = $state();
   let spielerLaeuft = $state(false);
   let spielerPosition = $state(0);
   let spielerDauer = $state(0);
-  /** False, bis der erste Frame des (neuen) Videos dekodiert ist — solange
-   *  bleibt das Element unsichtbar, sonst malt der WebView sein graues
-   *  Kästchen mitten ins Blättern. */
-  let frameBereit = $state(false);
+  /** Nutzer hat per Knopf pausiert — der Auto-Start nach einem Slot-Wechsel
+   *  darf das nicht überstimmen. */
+  let nutzerPausiert = false;
   /** Bedienelemente (✕, Zähler, Pfeile, Mittel-Knopf, Spur): 2 s ohne
    *  Interaktion → ausblenden (nur bei laufendem Video). Ein Tipp auf den
    *  Bildschirm SCHALTET: sichtbar → weg, weg → zurück. */
   let steuerungSichtbar = $state(true);
   let steuerungWache: ReturnType<typeof setTimeout> | undefined;
 
+  function aktivesVideo(): HTMLVideoElement | undefined {
+    return aktiverSlot === 'A' ? spielerA : spielerB;
+  }
+
+  function aktiverBereit(): boolean {
+    return aktiverSlot === 'A' ? bereitA : bereitB;
+  }
+
   function steuerungZeigen(): void {
     steuerungSichtbar = true;
     clearTimeout(steuerungWache);
-    if (!spieler?.paused) {
+    if (!aktivesVideo()?.paused) {
       steuerungWache = setTimeout(() => (steuerungSichtbar = false), 2000);
     }
   }
@@ -169,14 +188,39 @@
     }
   }
   let wischX: number | null = null;
-  /** Übergangs-Animation beim Blättern: das neue Video schiebt sich aus der
-   *  Wischrichtung über SCHWARZ (250 ms). Bewusst OHNE Standbild-Unterlage:
-   *  die zeigt den ERSTEN Frame des alten Videos — bei hellen Szenen ein
-   *  grau-wirkendes Bild mitten im Wechsel. Ende durch animationend, mit
-   *  400-ms-Fallback, falls das Ereignis verpasst wird. */
+  /** Übergangs-Animation beim Blättern: der frisch aktivierte Slot schiebt
+   *  sich aus der Wischrichtung über Schwarz (250 ms). Ende durch
+   *  animationend, mit 400-ms-Fallback, falls das Ereignis verpasst wird. */
   let slideRichtung = $state<1 | -1>(1);
   let slideLaeuft = $state(false);
   let slideWache: ReturnType<typeof setTimeout> | undefined;
+  /** Serialize Slots: zwei rasche Wische dürfen sich nicht in die Lade-
+   *  Wartephase des anderen fahren. */
+  let wechselLaeuft = false;
+
+  function warteAufFrame(el: HTMLVideoElement, frist = 1500): Promise<void> {
+    if (el.readyState >= 2) return Promise.resolve();
+    return new Promise((resolve) => {
+      el.onloadeddata = () => resolve();
+      setTimeout(resolve, frist);
+    });
+  }
+
+  /** Lädt die Nachbar-URL in den FREIEN Slot (verdeckt — dort kann nie
+   *  etwas Graues sichtbar werden), damit der nächste Wechsel instant ist. */
+  function nachladen(richtung: number): void {
+    const ziel = galerieIndex + richtung;
+    if (ziel < 0 || ziel >= galerie.length) return;
+    if (aktiverSlot === 'A') {
+      if (urlB !== galerie[ziel]) {
+        urlB = galerie[ziel];
+        bereitB = false;
+      }
+    } else if (urlA !== galerie[ziel]) {
+      urlA = galerie[ziel];
+      bereitA = false;
+    }
+  }
 
   function oeffneVollbild(url: string): void {
     const nacktesVideo = url.split('#')[0];
@@ -188,34 +232,82 @@
       )
     ];
     galerieIndex = Math.max(0, galerie.indexOf(nacktesVideo));
-    frameBereit = false;
+    urlA = nacktesVideo;
+    bereitA = false;
+    urlB = null;
+    bereitB = false;
+    aktiverSlot = 'A';
+    nutzerPausiert = false;
     vollbildUrl = nacktesVideo;
     slideLaeuft = false;
     clearTimeout(slideWache);
     steuerungZeigen();
   }
 
-  function galerieWechsel(richtung: number): void {
+  async function galerieWechsel(richtung: number): Promise<void> {
     const ziel = galerieIndex + richtung;
-    if (ziel < 0 || ziel >= galerie.length) return;
-    slideRichtung = richtung >= 0 ? 1 : -1;
-    slideLaeuft = true;
-    galerieIndex = ziel;
-    spielerPosition = 0;
-    spielerDauer = 0;
-    spielerLaeuft = false;
-    frameBereit = false;
-    vollbildUrl = galerie[ziel];
-    clearTimeout(slideWache);
-    slideWache = setTimeout(() => (slideLaeuft = false), 400);
-    steuerungZeigen();
+    if (ziel < 0 || ziel >= galerie.length || wechselLaeuft) return;
+    wechselLaeuft = true;
+    try {
+      const neueUrl = galerie[ziel];
+      const naechster: 'A' | 'B' = aktiverSlot === 'A' ? 'B' : 'A';
+      const el = naechster === 'A' ? spielerA : spielerB;
+      if (!el) return;
+      slideRichtung = richtung >= 0 ? 1 : -1;
+      steuerungZeigen();
+      // Slot ggf. laden/awaiten — passiert VERDECKT, das Sichtbare steht
+      // einfach noch auf dem alten (bereits dekodierten) Bild.
+      const slotUrl = naechster === 'A' ? urlA : urlB;
+      const slotBereit = naechster === 'A' ? bereitA : bereitB;
+      if (slotUrl !== neueUrl || !slotBereit) {
+        if (naechster === 'A') {
+          urlA = neueUrl;
+          bereitA = false;
+        } else {
+          urlB = neueUrl;
+          bereitB = false;
+        }
+        await warteAufFrame(el);
+      }
+      aktivesVideo()?.pause();
+      nutzerPausiert = false;
+      aktiverSlot = naechster;
+      galerieIndex = ziel;
+      spielerPosition = 0;
+      spielerDauer = el.duration || 0;
+      slideLaeuft = true;
+      clearTimeout(slideWache);
+      slideWache = setTimeout(() => (slideLaeuft = false), 400);
+      void el.play().catch(() => {});
+      nachladen(1);
+    } finally {
+      wechselLaeuft = false;
+    }
   }
 
   function spielerUmschalten(): void {
-    if (!spieler) return;
-    if (spieler.paused) void spieler.play().catch(() => {});
-    else spieler.pause();
+    const el = aktivesVideo();
+    if (!el) return;
+    if (el.paused) {
+      nutzerPausiert = false;
+      void el.play().catch(() => {});
+    } else {
+      nutzerPausiert = true;
+      el.pause();
+    }
+    steuerungZeigen();
   }
+
+  /** Sobald der AKTIVE Slot seinen ersten Frame hat: abspielen (außer der
+   *  Nutzer hat bewusst pausiert) und den Nachbarn vorladen. */
+  $effect(() => {
+    const bereit = aktiverBereit();
+    if (!bereit || nutzerPausiert) return;
+    const el = aktivesVideo();
+    if (el && el.paused) void el.play().catch(() => {});
+    spielerDauer = el?.duration || 0;
+    nachladen(1);
+  });
 
   function wischStart(e: TouchEvent): void {
     wischX = e.touches[0]?.clientX ?? null;
@@ -435,37 +527,68 @@
       {/if}
     </div>
 
-    <!-- Video mittig. Bewusst KEIN Tap-Toggle auf der Fläche — Start/Pause
-         läuft ausschließlich über den Knopf in der Mitte. Unsichtbar, bis
-         der erste Frame dekodiert ist — sonst graues Kästchen. Beim
-         Blättern schiebt sich das neue Video aus der Wischrichtung über
-         Schwarz. -->
+    <!-- Video mittig — ZWEI dauerhafte Slots: das sichtbare Video wird nie
+         umgeschrieben (dort malt der WebView sonst sein graues Kästchen),
+         geladen wird immer verdeckt im anderen Slot, der nach Frame-Ready
+         übernimmt. Bewusst KEIN Tap-Toggle auf der Fläche — Start/Pause
+         läuft ausschließlich über den Knopf in der Mitte. -->
     <div class="relative flex flex-1 items-center justify-center overflow-hidden">
-      <!-- svelte-ignore a11y_media_has_caption, a11y_no_noninteractive_element_interactions -->
-      <video
-        bind:this={spieler}
-        src={vollbildUrl}
-        autoplay
-        playsinline
-        class="relative max-h-full max-w-full object-contain {frameBereit ? 'opacity-100' : 'opacity-0'} {frameBereit && slideLaeuft
+      <div
+        class="relative flex size-full items-center justify-center {slideLaeuft
           ? slideRichtung === 1
             ? 'video-slide-von-rechts'
             : 'video-slide-von-links'
           : ''}"
         onanimationend={() => (slideLaeuft = false)}
-        onclick={(e) => {
-          e.stopPropagation();
-          steuerungUmschalten();
-        }}
-        onplay={() => (spielerLaeuft = true)}
-        onpause={() => (spielerLaeuft = false)}
-        ontimeupdate={() => (spielerPosition = spieler?.currentTime ?? 0)}
-        onloadeddata={() => {
-          spielerDauer = spieler?.duration ?? 0;
-          frameBereit = true;
-        }}
-      ></video>
-      {#if !frameBereit}
+      >
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          bind:this={spielerA}
+          src={urlA ?? undefined}
+          playsinline
+          preload="auto"
+          class="absolute inset-0 size-full object-contain {aktiverSlot === 'A' && bereitA
+            ? 'opacity-100'
+            : 'opacity-0'}"
+          onloadeddata={() => {
+            bereitA = true;
+            if (aktiverSlot === 'A') spielerDauer = spielerA?.duration || 0;
+          }}
+          onplay={() => {
+            if (aktiverSlot === 'A') spielerLaeuft = true;
+          }}
+          onpause={() => {
+            if (aktiverSlot === 'A') spielerLaeuft = false;
+          }}
+          ontimeupdate={() => {
+            if (aktiverSlot === 'A') spielerPosition = spielerA?.currentTime ?? 0;
+          }}
+        ></video>
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          bind:this={spielerB}
+          src={urlB ?? undefined}
+          playsinline
+          preload="auto"
+          class="absolute inset-0 size-full object-contain {aktiverSlot === 'B' && bereitB
+            ? 'opacity-100'
+            : 'opacity-0'}"
+          onloadeddata={() => {
+            bereitB = true;
+            if (aktiverSlot === 'B') spielerDauer = spielerB?.duration || 0;
+          }}
+          onplay={() => {
+            if (aktiverSlot === 'B') spielerLaeuft = true;
+          }}
+          onpause={() => {
+            if (aktiverSlot === 'B') spielerLaeuft = false;
+          }}
+          ontimeupdate={() => {
+            if (aktiverSlot === 'B') spielerPosition = spielerB?.currentTime ?? 0;
+          }}
+        ></video>
+      </div>
+      {#if !aktiverBereit()}
         <LoaderCircleIcon class="absolute size-9 animate-spin text-white/80" />
       {:else}
         <!-- Der Mittel-Knopf ist der EINZIGE Play/Pause-Schalter. -->
@@ -539,9 +662,10 @@
         max={spielerDauer || 0.1}
         step="0.1"
         value={spielerPosition}
-        oninput={(e) => {
-          if (spieler) spieler.currentTime = Number(e.currentTarget.value);
-        }}
+          oninput={(e) => {
+            const el = aktivesVideo();
+            if (el) el.currentTime = Number(e.currentTarget.value);
+          }}
         class="h-1.5 flex-1 cursor-pointer accent-white/90"
         aria-label="Wiedergabeposition"
         data-testid="attachment-fullscreen-seek"
