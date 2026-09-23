@@ -169,12 +169,11 @@
     }
   }
   let wischX: number | null = null;
-  /** Übergangs-Animation beim Blättern: das alte Video bleibt als
-   *  abgedunkeltes Standbild stehen, das neue schiebt sich aus der
-   *  Wischrichtung darüber (250 ms). Ende durch animationend, mit
-   *  500-ms-Fallback, falls das Ereignis verpasst wird. */
-  let alteUrl = $state<string | null>(null);
-  let unterlageBereit = $state(false);
+  /** Übergangs-Animation beim Blättern: das neue Video schiebt sich aus der
+   *  Wischrichtung über SCHWARZ (250 ms). Bewusst OHNE Standbild-Unterlage:
+   *  die zeigt den ERSTEN Frame des alten Videos — bei hellen Szenen ein
+   *  grau-wirkendes Bild mitten im Wechsel. Ende durch animationend, mit
+   *  400-ms-Fallback, falls das Ereignis verpasst wird. */
   let slideRichtung = $state<1 | -1>(1);
   let slideLaeuft = $state(false);
   let slideWache: ReturnType<typeof setTimeout> | undefined;
@@ -191,7 +190,6 @@
     galerieIndex = Math.max(0, galerie.indexOf(nacktesVideo));
     frameBereit = false;
     vollbildUrl = nacktesVideo;
-    alteUrl = null;
     slideLaeuft = false;
     clearTimeout(slideWache);
     steuerungZeigen();
@@ -200,8 +198,6 @@
   function galerieWechsel(richtung: number): void {
     const ziel = galerieIndex + richtung;
     if (ziel < 0 || ziel >= galerie.length) return;
-    alteUrl = vollbildUrl; // Standbild des bisherigen Videos liegt unter der Animation
-    unterlageBereit = false; // frisch gemountet → erst ab Frame sichtbar (kein Grau)
     slideRichtung = richtung >= 0 ? 1 : -1;
     slideLaeuft = true;
     galerieIndex = ziel;
@@ -211,10 +207,7 @@
     frameBereit = false;
     vollbildUrl = galerie[ziel];
     clearTimeout(slideWache);
-    slideWache = setTimeout(() => {
-      slideLaeuft = false;
-      alteUrl = null;
-    }, 500);
+    slideWache = setTimeout(() => (slideLaeuft = false), 400);
     steuerungZeigen();
   }
 
@@ -446,20 +439,8 @@
          läuft ausschließlich über den Knopf in der Mitte. Unsichtbar, bis
          der erste Frame dekodiert ist — sonst graues Kästchen. Beim
          Blättern schiebt sich das neue Video aus der Wischrichtung über
-         das abgedunkelte Standbild des bisherigen. -->
+         Schwarz. -->
     <div class="relative flex flex-1 items-center justify-center overflow-hidden">
-      {#if slideLaeuft && alteUrl}
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video
-          src={alteUrl}
-          muted
-          aria-hidden="true"
-          class="pointer-events-none absolute max-h-full max-w-full object-contain brightness-75 {unterlageBereit
-            ? 'opacity-60'
-            : 'opacity-0'}"
-          onloadeddata={() => (unterlageBereit = true)}
-        ></video>
-      {/if}
       <!-- svelte-ignore a11y_media_has_caption, a11y_no_noninteractive_element_interactions -->
       <video
         bind:this={spieler}
@@ -471,10 +452,7 @@
             ? 'video-slide-von-rechts'
             : 'video-slide-von-links'
           : ''}"
-        onanimationend={() => {
-          slideLaeuft = false;
-          alteUrl = null;
-        }}
+        onanimationend={() => (slideLaeuft = false)}
         onclick={(e) => {
           e.stopPropagation();
           steuerungUmschalten();
