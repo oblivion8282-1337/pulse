@@ -16,6 +16,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { blocks } from '$lib/stores/blocks.svelte';
   import { readState } from '$lib/stores/readState.svelte';
+  import { lesestandAnker } from '$lib/stores/lesestandKern';
   import { nachrichtVonBlockiertem } from '$lib/nachrichten/blockierteAnzeige';
 
   let {
@@ -133,7 +134,11 @@
     if (layout !== 'bubble' || !istEigene || nachricht.id.startsWith('tmp-')) return undefined;
     if (!nachricht.channel_id) return undefined;
     // `null` (kein Partner-Stand) → `undefined` (gar kein Häkchen).
-    return readState.istGelesen(nachricht.channel_id, nachricht.id) ?? undefined;
+    // Anker = kanonische ID (B3): die eigene Nachricht trägt hier ihre
+    // lokale ID, der Partner-Stand ist an ebendiese geankert — auf dem
+    // eigenen Zweitgerät (Nachricht unter der Zustellungs-ID abgelegt)
+    // springt `krypto_id` ein.
+    return readState.istGelesen(nachricht.channel_id, lesestandAnker(nachricht)) ?? undefined;
   }
 
   // Eine verschluesselte DM hat keine `messages`-Zeile — `createOperatorReport`

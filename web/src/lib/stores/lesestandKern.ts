@@ -28,3 +28,18 @@ export function istGelesenBis(partnerStand: string | undefined, messageId: strin
   if (!partnerStand) return null;
   return compareSnowflakeId(partnerStand, messageId) >= 0;
 }
+
+/**
+ * Die ID, an der Lesestand für eine Nachricht geankert wird. Auf dem
+ * verschlüsselten Weg kennt der Empfänger die Nachricht unter seiner
+ * Zustellungs-ID (`id`, Server-Snowflake) — der Absender aber unter seiner
+ * lokalen ID. Anker auf SEITENVERSCHIEDENE IDs lässt das Lese-Häkchen nie
+ * zustande kommen (Befund B3, Testrunde 2026-09-11): dieselbe Nachricht,
+ * ~200 ms auseinander, Vergleich sagt „neuer als der Stand“. Die kanonische
+ * Absender-ID fährt verschlüsselt im Umschlag mit (`krypto_id`) — dort
+ * ankern, dann führen Sender und Empfänger dieselbe Kennung je Nachricht.
+ * Der Klartext-Weg hat kein `krypto_id` und bleibt bei der eigenen ID.
+ */
+export function lesestandAnker(nachricht: { id: string; krypto_id?: string }): string {
+  return nachricht.krypto_id ?? nachricht.id;
+}

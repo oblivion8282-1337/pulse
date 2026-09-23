@@ -21,6 +21,7 @@ import { alsGruppeErkennenNachWarten } from '$lib/gruppen/kanalArtWarten';
 import { messages } from '$lib/stores/messages.svelte';
 import { verlaufSpeichern, verlaufLesen, verlaufMergen } from '$lib/verlauf';
 import { readState } from '$lib/stores/readState.svelte';
+import { lesestandAnker } from '$lib/stores/lesestandKern';
 import { m } from '$lib/paraglide/messages.js';
 
 export interface DmRoute {
@@ -174,7 +175,10 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     // (`ws/handlers/ready.ts`).
     if (alreadyLoaded && !istGruppe) void cloudGateway.gapFill(cid);
     const loaded = messages.for(cid);
-    const latestSeen = loaded[loaded.length - 1]?.id;
+    // Anker = kanonische Absender-ID bei verschlüsselten Nachrichten (B3,
+    // s. `lesestandKern.lesestandAnker`) — nicht die Zustellungs-ID.
+    const letzte = loaded[loaded.length - 1];
+    const latestSeen = letzte ? lesestandAnker(letzte) : undefined;
     if (latestSeen) readState.recordSeen(cid, latestSeen);
     // Acknowledge up to whatever we know is the latest — including ids
     // bumped in via dm_bump while we weren't subscribed (those don't land
