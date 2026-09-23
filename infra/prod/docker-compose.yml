@@ -91,6 +91,14 @@ services:
     image: dxflrs/garage:v1.1.0
     container_name: pulse_garage
     restart: unless-stopped
+    environment:
+      # Bughunt 2026-09-23: rpc_secret per Umgebung statt Placeholder in
+      # garage/garage.toml — der startete still durch, wenn der Manuell-
+      # Schritt (DEPLOY.md) vergessen wurde. `:?` bricht `docker compose up`
+      # laut ab, genau wie POSTGRES_PASSWORD/LIVEKIT_API_SECRET oben.
+      # GARAGE_RPC_SECRET OVERRIDES die gemountete toml (Garage-Env-Mapping);
+      # Bestandswert in die .env ÜBERNEHMEN, nicht neu würfeln.
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?GARAGE_RPC_SECRET required (openssl rand -hex 32; Bestandswert aus garage.toml übernehmen)}
     # Bughunt Runde 42: hier stand ["-c", "/etc/garage.toml"] — das Image hat
     # KEINEN Entrypoint (CMD ist [/garage, server]), "-c" wurde als Programm
     # ausgeführt und der Container landete im Crash-Loop. Volle Befehlszeile.

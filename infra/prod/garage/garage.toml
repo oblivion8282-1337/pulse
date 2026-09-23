@@ -2,10 +2,15 @@
 # Der `garage`-Service in docker-compose.yml mountet diese Datei nach
 # /etc/garage.toml.
 #
-# RPC_SECRET: eigenständiger 32-Byte-Hex-Wert (Generierung: openssl rand -hex 32;
-# in der Prod-.env zusätzlich als GARAGE_RPC_SECRET pflegen — dort für die Doku).
+# RPC_SECRET: eigenständiger 32-Byte-Hex-Wert (Generierung: openssl rand -hex 32).
 # Er schützt das interne Cluster-RPC; Single-Node, RPC nicht nach außen
-# veröffentlicht.
+# veröffentlicht. **Bughunt 2026-09-23: bewusst NICHT mehr in dieser Datei** —
+# der Placeholder „BITTE_ERSETZEN…“ startete still durch, wenn der
+# Manuell-Schritt vergessen wurde. Der Wert kommt per GARAGE_RPC_SECRET aus
+# der Compose-Umgebung (docker-compose.yml, `:?required` — ohne bricht der
+# Start laut) und würde eine hier stehende Angabe ohnehin OVERRIDEN.
+# Bestands-Deployment: den bisherigen Wert in die .env ÜBERNEHMEN, nicht neu
+# würfeln — die Node-Identität hängt daran.
 #
 # Erstinbetriebnahme (einmalig, nach `docker compose up -d garage`):
 #   docker compose exec garage /garage status        # Node-ID notieren
@@ -26,7 +31,7 @@ db_engine = "lmdb"
 replication_factor = 1
 
 rpc_bind_addr = "[::]:3901"
-rpc_secret = "BITTE_ERSETZEN_MIT_OPENSLL_RAND_HEX_32"
+# rpc_secret kommt per GARAGE_RPC_SECRET aus der Umgebung — s. Header.
 
 [s3_api]
 # Region MUSS zu S3_REGION passen, mit der chat-gateway SigV4-signiert

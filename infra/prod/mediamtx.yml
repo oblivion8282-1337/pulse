@@ -127,6 +127,20 @@ authHTTPExclude:
   - action: metrics
   - action: pprof
 
+# Bughunt 2026-09-23: `authInternalUsers` bewusst GEPINNT. Der Upstream-
+# Default (mediamtx.yml im Upstream-Repo, verifiziert gegen v1.19) enthält
+# einen anonymen „any“-Nutzer mit publish/read/playback auf ALLEN Pfaden —
+# und interne Nutzer werden VOR der externen Auth geprüft. Würde eine
+# künftige MediaMTX-/Fork-Version diese Liste unter `authMethod: http`
+# aktivieren, hätte jeder Prozess auf dem Host (network_mode: host!) am Hook
+# vorbei publishen und lesen können. Bislang lief publish/read ausschließlich
+# über den Hook (Token, single-use) — diese Zeile zementiert genau das:
+# KEINE internen Nutzer, wie es der Header oben bereits behauptet. Die
+# Control-API braucht keinen Eintrag: sie steht in `authHTTPExclude` und
+# wird vom Docker-Bridge-Poller (host.docker.internal, nicht Loopback)
+# genutzt; die UFW-Pflicht dazu steht im Kommentar oben.
+authInternalUsers: []
+
 paths:
   # Pulse HQ channel streams are named `channel-<snowflake>`. Every connection is
   # allowed/denied by the auth hook; this default entry just lets MediaMTX accept
