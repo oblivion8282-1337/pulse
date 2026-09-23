@@ -565,21 +565,17 @@
   @keyframes slide-von-rechts {
     from {
       transform: translateX(60%);
-      opacity: 0.5;
     }
     to {
       transform: translateX(0);
-      opacity: 1;
     }
   }
   @keyframes slide-von-links {
     from {
       transform: translateX(-60%);
-      opacity: 0.5;
     }
     to {
       transform: translateX(0);
-      opacity: 1;
     }
   }
 </style>
