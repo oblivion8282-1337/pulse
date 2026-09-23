@@ -162,7 +162,11 @@ export async function oeffneGruppennachricht(
     return null;
   }
 
-  const stand = await gruppenWasserstandLesen(huelle.sitzung);
+  const stand = await gruppenWasserstandLesen(
+    z.channel_id,
+    z.absender_device_pubkey,
+    huelle.sitzung
+  );
   const entscheidung = wasserstandEntscheidung(stand, geoeffnet.zaehler(), z.id);
   if (entscheidung === 'wiedereinspiel') {
     console.warn('[gruppe] Wiedereinspiel abgewiesen', {
@@ -187,15 +191,38 @@ export async function oeffneGruppennachricht(
     });
     return 'verworfen';
   }
+  if (
+    gelesen.absenderNutzer !== null &&
+    z.absender_user_id !== null &&
+    gelesen.absenderNutzer !== z.absender_user_id
+  ) {
+    // Zweiter Bughunt-Lauf (2026-09-23): dasselbe für das KONTO. Ein
+    // bösartiges MITGLIED (nicht nur der Server) kann in seiner eigenen
+    // Nutzlast `absenderNutzer` auf ein fremdes Konto setzen — der
+    // Geräte-Check passt dann (eigenes Gerät), die Nachricht erschiene als
+    // fremde Worte, und ein Lösch-Frame würde fremde Nachrichten
+    // löschen (`loeschZiel` vertraut der Zuschreibung). `absender_user_id`
+    // füllt der Server aus dem Login — Diskrepanz = Fälschung.
+    console.warn('[gruppe] Gruppennachricht mit fremder Absender-Konto-Angabe verworfen', {
+      nutzlast: gelesen.absenderNutzer,
+      zustellung: z.absender_user_id
+    });
+    return 'verworfen';
+  }
 
   // Sichern VOR der Quittung — der Ratchet ist weitergedreht. Der
   // Wasserstand wandert mit: erst nach beiden ist die Nachricht „gesehen".
   await gruppenempfangSichern(z.channel_id, z.absender_device_pubkey, huelle.sitzung, empfang);
   if (entscheidung === 'ok') {
-    await gruppenWasserstandMerken(huelle.sitzung, {
-      zaehler: geoeffnet.zaehler(),
-      zustellung: z.id
-    });
+    await gruppenWasserstandMerken(
+      z.channel_id,
+      z.absender_device_pubkey,
+      huelle.sitzung,
+      {
+        zaehler: geoeffnet.zaehler(),
+        zustellung: z.id
+      }
+    );
   }
 
   // Dieselbe Umsetzung in die Anzeige-Form wie im Olm-Weg, s.

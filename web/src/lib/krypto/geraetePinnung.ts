@@ -26,6 +26,7 @@
  * Vertrauens-Dialog).
  */
 import { openIdentityDb, idbGetIdentity, idbPutIdentity, idbDeleteIdentity } from '../identity/idb-shared';
+import { mitSchluesselsperre } from './sperren';
 import { signaturPruefen } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import {
   buendelAnmeldung,
@@ -68,7 +69,15 @@ export async function geraetePinnMerken(
  *  Die EINE Stelle, die beide Sendewege (DM `senden.ts`, Gruppe
  *  `gruppe/gruppenEinliefern.ts`) aufrufen — der Megolm-Verteilschluessel
  *  geht ueber dieselben Olm-Sitzungen und ist deshalb der groesste Preis,
- *  den ein Schluesseltausch am Verzeichnis erzielen koennte. */
+ *  den ein Schluesseltausch am Verzeichnis erzielen koennte.
+ *
+ *  **Zweiter Bughunt-Lauf (2026-09-23): die Pruefung laeuft unter einer
+ *  Geraete-Sperre** (`sperren.ts`, navigator.locks gilt tabuebergreifend).
+ *  Ohne sie koennten zwei Tabs bei einem bisher unbekannten Geraet beide
+ *  `pinn === null` lesen, verschieden-Pinnbares (böswilliger Server liefert
+ *  je Anfrage ein anderes, sauber selbst signiertes Bündel) schreiben und
+ *  der letzte Schreiber gewinnt — einer der Tabs baute dann auf dem
+ *  Angreifer-Bündel weiter, und der gepinnte Stand haelt den Angriff fest. */
 export async function geraetebuendelAuthentifizieren(geraet: {
   device_pubkey: string;
   curve25519: string;
@@ -76,26 +85,30 @@ export async function geraetebuendelAuthentifizieren(geraet: {
   ed25519?: string | null;
   bundel_signatur?: string | null;
 }): Promise<void> {
-  if (!geraet.ed25519 || !geraet.bundel_signatur) {
+  const ed25519 = geraet.ed25519;
+  const signatur = geraet.bundel_signatur;
+  if (!ed25519 || !signatur) {
     throw new BuendelUnsigniertFehler(geraet.device_pubkey);
   }
-  if (!signaturPruefen(geraet.ed25519, buendelAnmeldung(geraet), geraet.bundel_signatur)) {
+  if (!signaturPruefen(ed25519, buendelAnmeldung(geraet), signatur)) {
     throw new BuendelSignaturFehler(geraet.device_pubkey);
   }
-  const pinn = await geraetePinnLesen(geraet.device_pubkey);
-  if (pinn !== null) {
-    if (pinn.ed25519 !== geraet.ed25519 || pinn.curve25519 !== geraet.curve25519) {
-      throw new GeraeteIdentitaetGeaendertFehler(geraet.device_pubkey);
+  await mitSchluesselsperre(`pinn.${geraet.device_pubkey}`, async () => {
+    const pinn = await geraetePinnLesen(geraet.device_pubkey);
+    if (pinn !== null) {
+      if (pinn.ed25519 !== ed25519 || pinn.curve25519 !== geraet.curve25519) {
+        throw new GeraeteIdentitaetGeaendertFehler(geraet.device_pubkey);
+      }
+      return;
     }
-    return;
-  }
-  // Erster verifizierter Kontakt — hier (nicht erst beim gebauten Sitzungs-
-  // paket) pinnen: die Pinnung haelt OEFFENTLICHES Material fest, und ein
-  // Geraet, dessen Vorrat gerade leer ist, hat seinen ersten Kontakt damit
-  // trotzdem gehabt.
-  await geraetePinnMerken(geraet.device_pubkey, {
-    curve25519: geraet.curve25519,
-    ed25519: geraet.ed25519
+    // Erster verifizierter Kontakt — hier (nicht erst beim gebauten Sitzungs-
+    // paket) pinnen: die Pinnung haelt OEFFENTLICHES Material fest, und ein
+    // Geraet, dessen Vorrat gerade leer ist, hat seinen ersten Kontakt damit
+    // trotzdem gehabt.
+    await geraetePinnMerken(geraet.device_pubkey, {
+      curve25519: geraet.curve25519,
+      ed25519
+    });
   });
 }
 

@@ -177,18 +177,32 @@ export async function gruppenempfangAnlegenFallsNeu(
   db.close();
 }
 
-function wasserstandSchluessel(sitzungId: string): string {
-  return `pulse.krypto-gruppenwasser.${sitzungId}`;
+function wasserstandSchluessel(
+  kanalId: string,
+  geraetePubkey: string,
+  sitzungId: string
+): string {
+  return `pulse.krypto-gruppenwasser.${kanalId}.${geraetePubkey}.${sitzungId}`;
 }
 
 /** Höchster sauber geöffneter Zählerstand dieser eingehenden Sitzung
  *  (Bughunt 2026-09-23) — `null`, wenn noch nie eine geöffnet wurde. Kein
- *  Geheimnis (eine laufende Nummer), also ungefroren neben dem Pickle. */
-export async function gruppenWasserstandLesen(sitzungId: string): Promise<Wasserstand | null> {
+ *  Geheimnis (eine laufende Nummer), also ungefroren neben dem Pickle.
+ *  **Zweiter Bughunt-Lauf:** im selben Schlüsselraum wie die eingehende
+ *  Sitzung selbst (Kanal, Gerät, Sitzung) — global über nur die sitzungId
+ *  könnte ein bösartiges Mitglied in KANAL A den Wasserstand einer
+ *  gleichnamigen (frei gewählten!) Sitzung in KANAL B hochtreiben und dort
+ *  jede Nachricht still als "Wiedereinspiel" entsorgen. */
+export async function gruppenWasserstandLesen(
+  kanalId: string,
+  geraetePubkey: string,
+  sitzungId: string
+): Promise<Wasserstand | null> {
   const db = await openIdentityDb();
-  const roh = (await idbGetIdentity(db, wasserstandSchluessel(sitzungId))) as
-    | Wasserstand
-    | undefined;
+  const roh = (await idbGetIdentity(
+    db,
+    wasserstandSchluessel(kanalId, geraetePubkey, sitzungId)
+  )) as Wasserstand | undefined;
   db.close();
   return roh ?? null;
 }
@@ -197,11 +211,13 @@ export async function gruppenWasserstandLesen(sitzungId: string): Promise<Wasser
  *  Wird von `oeffneGruppennachricht` VOR dem Sichern der Sitzung gerufen —
  *  beides gehört zu derselben Zustellung. */
 export async function gruppenWasserstandMerken(
+  kanalId: string,
+  geraetePubkey: string,
   sitzungId: string,
   stand: Wasserstand
 ): Promise<void> {
   const db = await openIdentityDb();
-  await idbPutIdentity(db, wasserstandSchluessel(sitzungId), stand);
+  await idbPutIdentity(db, wasserstandSchluessel(kanalId, geraetePubkey, sitzungId), stand);
   db.close();
 }
 

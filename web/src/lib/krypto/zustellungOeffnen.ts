@@ -170,7 +170,13 @@ export async function zustellungOeffnen(
   // und die drei Ausgänge: `empfangsbindung.ts`. Läuft nur für Aufbau-
   // Umschläge, also einmal je Gerät und Sitzungsleben.
   let bindung: Awaited<ReturnType<typeof absenderBinden>> | null = null;
-  if (z.art === 0 && z.absender_curve25519 !== null) {
+  if (z.art === 0 && z.absender_curve25519 !== null && z.absender_user_id !== null) {
+    // Zweiter Bughunt-Lauf, Ergänzung: OHNE Metadaten-Konto keine Bindung —
+    // `absenderErmitteln` fällt dann auf den Kanal-Gegenpart zurück, und für
+    // eine Zustellung des EIGENEN anderen Geräts würde das Verzeichnis des
+    // GEGNERS nach dem eigenen Gerät gefragt (nicht gefunden → legitime
+    // Nachricht verworfen). Nur-Zeilen vor Migration 0076 tragen das leere
+    // Feld und sterben an der Postfach-Frist; der Legacy-Weg bleibt für sie.
     bindung = await absenderBinden(
       absenderUserId,
       z.absender_device_pubkey,
@@ -281,6 +287,25 @@ export async function zustellungOeffnen(
         console.warn('[postfach] Nachricht mit fremder Absender-Angabe verworfen', {
           nutzlast: gelesen.absenderGeraet,
           zustellung: z.absender_device_pubkey
+        });
+        return { art: 'ohneAblage', id: z.id };
+      }
+      // **Zweiter Bughunt-Lauf (2026-09-23): dasselbe für das KONTO.** Der
+      // Geräte-Check oben fängt den bösartigen Server — aber ein bösartiges
+      // MITGLIED kann in seiner Nutzlast `absenderNutzer` auf ein fremdes
+      // Konto setzen (eigenes Gerät = Metadaten passt!) und sich so eine
+      // Zuschreibung erschreiben; schlimmer: einen Lösch-Frame mit fremder
+      // Nutzer-ID, den `loeschZiel` als berechtigt einstuft. `absender_user_id`
+      // füllt der Server aus dem Login — die Diskrepanz ist also immer eine
+      // Fälschung. Nutzlasten ohne das Feld (Legacy) fallen durch zum Fallback.
+      if (
+        gelesen.absenderNutzer !== null &&
+        z.absender_user_id !== null &&
+        gelesen.absenderNutzer !== z.absender_user_id
+      ) {
+        console.warn('[postfach] Nachricht mit fremder Absender-Konto-Angabe verworfen', {
+          nutzlast: gelesen.absenderNutzer,
+          zustellung: z.absender_user_id
         });
         return { art: 'ohneAblage', id: z.id };
       }
