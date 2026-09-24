@@ -139,10 +139,13 @@
     clearTimeout(bereitWache);
     // 150 ms RUHE abwarten: auf den lokalen Schwanz folgt der Server-
     // Nachschlag, der die Liste neu misst — erst wenn der Strom kurz ruhig
-    // ist, wird freigegeben. Kurz halten, damit der Merge nicht ins Fenster
-    // faellt; die Frist ist bewusst knapp gehalten (Nutzerwunsch: keine
-    // langen Wartezeiten beim Oeffnen).
-    bereitWache = setTimeout(() => (initialBereit = true), 150);
+    // ist, wird freigegeben. Und der FREIGABE-Moment endet verbindlich auf
+    // der letzten Nachricht: ein Halb-Scroll waehrend des Ladens bleibt
+    // nicht haengen, der gewollte Stand ist das Listenende.
+    bereitWache = setTimeout(() => {
+      initialBereit = true;
+      pinToEnd();
+    }, 150);
   }
 
   function handleVirtuaScroll(offset: number) {
