@@ -78,6 +78,8 @@ import { baueNachrichtNutzlast, baueLoeschNutzlast, type AnhangAngabe } from './
 import { anhangAngabeZuAttachment } from './anhangAnzeige';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
 import { geraetebuendelAuthentifizieren } from './geraetePinnung';
+import { BuendelUnsigniertFehler } from './buendelSignatur';
+import { melde } from '../diagnose/app-diagnose';
 import { wurdeZugestellt, deuteEinliefernFehler } from './zustellErgebnis';
 import { parseMentionMarkers } from '../components/mentionMarkierungen';
 
@@ -107,14 +109,28 @@ async function versendeUmschlaege(
 ): Promise<'verschluesselt' | 'unverschluesselt' | null> {
   const nutzlasten: PostfachNutzlast[] = [];
   const ident = await kryptoAccountLaden();
+  // Vorzeichenlose Alt-Bündel (Vorfall 2026-09-24: Nutzer „dev" mit drei
+  // September-Registrierungen blockierte JEDE Zustellung, obwohl sein
+  // lebendes Gerät frisch signiert hatte). Sie werden je Gerät übersprungen
+  // — nicht still: der Sprung geht in den Käfer-Ring, und bleibt am Ende
+  // kein einziges signiertes Gerät übrig, wirft die Schleife denselben
+  // Fehler wie vorher. Kein Abstieg in den Klartext-Weg: die Signatur-lose
+  // Ausrede darf niemals „dann eben unverschlüsselt" nach sich ziehen.
+  const unsignierteAltgeraete: string[] = [];
 
   for (const { geraet } of ziel) {
     // **Signatur + TOFU (Bughunt 2026-09-23), vor allem anderen** — die
     // geteilte Authentifizierung (`geraetePinnung.ts`, gilt ebenso fuer den
-    // Gruppen-Verteilweg). Wirft bei fehlender/ungueltiger Signatur und bei
-    // Abweichung von der Pinnung; die Fehler landen sichtbar beim Aufrufer,
-    // kein Ueberspringen, kein Rueckfall.
-    await geraetebuendelAuthentifizieren(geraet);
+    // Gruppen-Verteilweg). Ungültige Signatur und Pinnungs-Abweichung
+    // werfen weiterhin hart; nur das VORHANDENSEIN einer Signatur ist kein
+    // Grund, die ganze Sendung zu töten (s. unsignierteAltgeraete oben).
+    try {
+      await geraetebuendelAuthentifizieren(geraet);
+    } catch (err) {
+      if (!(err instanceof BuendelUnsigniertFehler)) throw err;
+      unsignierteAltgeraete.push(geraet.device_pubkey);
+      continue;
+    }
 
     const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
       let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
@@ -154,7 +170,20 @@ async function versendeUmschlaege(
     });
   }
 
+  if (unsignierteAltgeraete.length > 0) {
+    melde(
+      'postfach',
+      'buendel_unsigniert_uebersprungen',
+      `Geräte ohne signiertes Bündel übersprungen: ${unsignierteAltgeraete.join(', ')}`
+    );
+  }
+
   if (nutzlasten.length === 0) {
+    if (unsignierteAltgeraete.length > 0) {
+      // Alles übersprungen, nichts zugestellt — derselbe laute Fehler wie
+      // vor der Skip-Regel: „App dort einmal öffnen". Fail-closed.
+      throw new BuendelUnsigniertFehler(unsignierteAltgeraete[0]);
+    }
     // Alle Zielgeraete waren ohne verwertbaren Schluessel — dieselbe
     // Antwort wie "kein Geraet ueberhaupt".
     return 'unverschluesselt';

@@ -26,6 +26,8 @@ import {
 import { baueVerteilNutzlast, type AblageVerteilzugabe } from './gruppenNutzlast';
 import type { Gruppenzielgeraet } from './gruppengeraete';
 import { geraetebuendelAuthentifizieren } from '../geraetePinnung';
+import { BuendelUnsigniertFehler } from '../buendelSignatur';
+import { melde } from '../../diagnose/app-diagnose';
 
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
@@ -59,13 +61,28 @@ export async function verteilUmschlaege(
   const ident = await kryptoAccountLaden();
   const klartext = baueVerteilNutzlast(kanalId, sitzungId, verteilschluessel, ablage, absenderGeraet);
   const nutzlasten: PostfachNutzlast[] = [];
+  // Vorzeichenlose Alt-Bündel je Gerät überspringen statt die ganze Verteilung
+  // zu töten (Vorfall 2026-09-24 im DM-Weg: totes Altgerät blockierte jede
+  // Zustellung an die lebenden Geräte). Nicht still — der Sprung geht in den
+  // Käfer-Ring; bleibt kein signiertes Gerät übrig, wirft die Schleife
+  // denselben Fehler wie vorher. Ein Mitglied VERLIERT den Verteilschluessel
+  // dadurch nicht, das es gar nicht bekam: das alte Gerät hätte ihn nie
+  // entpacken können.
+  const unsignierteAltgeraete: string[] = [];
   for (const { geraet } of ziel) {
     // **Signatur + TOFU (Bughunt 2026-09-23)** — dieselbe geteilte
     // Authentifizierung wie im DM-Weg (`../geraetePinnung.ts`); hier ist sie
     // sogar der groesste Hebel: der Verteilschluessel der Gruppe geht durch
-    // diese Umschlaege. Wirft statt still zu ueberspringen — ein stiller
-    // Skip wuerde das Mitglied lautlos vom Verteilschluessel abschneiden.
-    await geraetebuendelAuthentifizieren(geraet);
+    // diese Umschlaege. Ungueltige Signatur und Pinnungs-Abweichung werfen
+    // weiterhin hart; nur ein Bündel OHNE Signatur wird uebersprungen
+    // (s. unsignierteAltgeraete oben).
+    try {
+      await geraetebuendelAuthentifizieren(geraet);
+    } catch (err) {
+      if (!(err instanceof BuendelUnsigniertFehler)) throw err;
+      unsignierteAltgeraete.push(geraet.device_pubkey);
+      continue;
+    }
 
     const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
       let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
@@ -101,6 +118,18 @@ export async function verteilUmschlaege(
       daten: umschlag.daten(),
       empfaenger: [geraet.device_pubkey]
     });
+  }
+  if (unsignierteAltgeraete.length > 0) {
+    melde(
+      'gruppe',
+      'buendel_unsigniert_uebersprungen',
+      `Geräte ohne signiertes Bündel übersprungen: ${unsignierteAltgeraete.join(', ')}`
+    );
+  }
+  if (nutzlasten.length === 0 && unsignierteAltgeraete.length > 0) {
+    // Alles übersprungen, niemand bekommt den Verteilschluessel — derselbe
+    // laute Fehler wie vor der Skip-Regel. Fail-closed.
+    throw new BuendelUnsigniertFehler(unsignierteAltgeraete[0]);
   }
   return nutzlasten;
 }
