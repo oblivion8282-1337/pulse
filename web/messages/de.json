@@ -723,6 +723,7 @@
   "chat_view_placeholder_in": "in",
   "chat_view_placeholder_to": "an",
   "chat_view_select_channel": "Wähle einen Kanal aus",
+  "chat_neue_nachrichten_button": "{anzahl} neue Nachrichten",
   "chat_view_today": "Heute",
   "chat_view_toggle_member_list": "Mitgliederliste umschalten",
   "chat_view_typing_many": "Mehrere Leute schreiben …",

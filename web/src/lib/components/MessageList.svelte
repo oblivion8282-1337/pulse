@@ -2,6 +2,7 @@
   import { tick, untrack, type Snippet } from 'svelte';
   import { VList, type VListHandle } from 'virtua/svelte';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import MessageItem from './MessageItem.svelte';
   import { plainifyMentions } from './messageRender';
   import { messages as messageStore } from '$lib/stores/messages.svelte';
@@ -110,6 +111,10 @@
   // nach. Der Echo-Swap (Laenge gleich) und der Initial-Load animieren
   // bewusst nicht — nur echtes Listenwachstum.
   let freshKey = $state<string | null>(null);
+  /** Neue Nachrichten, die ankamen, waehrend der Nutzer weiter oben liest —
+   *  Zaehler fuer den „Neue Nachrichten“-Knopf; Nullstellung, sobald der
+   *  Blick wieder am Ende ist. */
+  let neueUnten = $state(0);
   let freshTimer: ReturnType<typeof setTimeout> | null = null;
   function markiereFrisch(key: string) {
     freshKey = key;
@@ -192,7 +197,11 @@
     // („die Nachrichten haengen zu weit oben, ich kann nicht hochscrollen").
     // Nach unten geht es seither nur ueber erklaerte Absicht: Rad/Finger
     // nach oben, Tasten, Griff an die Scrollleiste (`unpin` im Effekt unten).
-    if (offset + vlist.getViewportSize() >= size - 80) pinnedToBottom = true;
+    if (offset + vlist.getViewportSize() >= size - 80) {
+      pinnedToBottom = true;
+      // Wieder am Ende: der „Neue Nachrichten“-Zaehler ist abgearbeitet.
+      if (neueUnten !== 0) neueUnten = 0;
+    }
     if (
       canPaginate &&
       hasMore &&
@@ -319,6 +328,7 @@
       initialBereit = false;
       scrollBlockBis = performance.now() + 150;
       blockReferenz = 0;
+      neueUnten = 0;
       clearTimeout(bereitWache);
       bereitWache = setTimeout(() => (initialBereit = true), 1200);
     });
@@ -346,6 +356,11 @@
       // Jeder Nachschub in der Sperrphase stellt die Ruhe-Frist neu: erst
       // wenn 350 ms lang NICHTS mehr kam (lokal + Server-merge), geht es auf.
       if (!initialBereit) gibInitialFrei();
+      // Neue Nachrichten, waehrend der Nutzer weiter oben liest: zaehlen
+      // fuer den „Neue Nachrichten“-Knopf — die Leseposition bleibt unberuehrt.
+      if (gewachsen && !isInitialLoad && !pinnedToBottom && count > 0) {
+        neueUnten += count - lastCount;
+      }
       if (gewachsen && !isInitialLoad && count > 0) {
         markiereFrisch(messages[count - 1].nonce ?? lastId);
       }
@@ -757,6 +772,24 @@
           {/if}
         {/snippet}
       </VList>
+      {#if neueUnten > 0 && !pinnedToBottom}
+        <!-- „Neue Nachrichten“-Knopf (WhatsApp-Prinzip): neue Nachrichten
+             waehrend des Lesens weiter oben stossen nicht — der Klick holt
+             sie und gleitet ans Ende. -->
+        <button
+          type="button"
+          class="bg-bg-input/95 text-text-bright hover:bg-bg-hover border-border absolute right-3 bottom-3 z-10 flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-semibold shadow-lg backdrop-blur-md transition-transform active:scale-95"
+          onclick={() => {
+            pinnedToBottom = true;
+            neueUnten = 0;
+            pinToEnd(true);
+          }}
+          data-testid="message-list-neue-nachrichten"
+        >
+          <ChevronDownIcon class="text-primary size-4" />
+          {pm.chat_neue_nachrichten_button({ anzahl: neueUnten })}
+        </button>
+      {/if}
     {/if}
   {/if}
 </div>
