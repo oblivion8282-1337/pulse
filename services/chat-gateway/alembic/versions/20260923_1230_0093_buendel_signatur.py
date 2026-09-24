@@ -27,7 +27,7 @@ Anmerkung zur Nummerierung: `feat/mobile` traegt ebenfalls 009xer Revisionen
 220119df9614 die Merge-Revision, und tests/test_alembic_koepfe.py wacht
 darueber.
 
-Revision ID: 0092_buendel_signatur
+Revision ID: 0093_buendel_signatur
 Revises: 0091_pubkey_eindeutig
 Create Date: 2026-09-23 12:00:00.000000+00:00
 
@@ -42,8 +42,8 @@ from alembic import op
 # Siehe 0088: die Tabellen dieses Dienstes leben im Schema ``chat``.
 SCHEMA = "chat"
 
-revision: str = "0092_buendel_signatur"
-down_revision: str | Sequence[str] | None = "0091_pubkey_eindeutig"
+revision: str = "0093_buendel_signatur"
+down_revision: str | Sequence[str] | None = "0092_drop_community_invites"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
