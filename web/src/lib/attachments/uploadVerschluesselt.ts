@@ -31,7 +31,7 @@ import {
 import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
 import { anhangBytesSichern, anhangBytesLoeschen } from '$lib/verlauf/db';
 import { m } from '$lib/paraglide/messages.js';
-import { erzeugeVorschaubild } from './vorschaubild';
+import { erzeugeVorschaubild, erzeugeVideoVorschaubild } from './vorschaubild';
 import { aufnahmeDauerRegister } from './aufnahmeKern';
 import { putMitFortschritt } from './putMitFortschritt';
 import { nextLocalId, type PendingAttachment } from './upload.svelte';
@@ -125,7 +125,11 @@ export function startUploadVerschluesselt(
         throw new Error(m.anhang_zu_gross({ grenze: groesseText(maxBytes!) }));
       }
 
-      const vorschau = await erzeugeVorschaubild(file);
+      // Vorschaubild: Bilder ueber Canvas, VIDEOS ueber den ersten Frame
+      // (erzeugeVideoVorschaubild) — ohne ihn bliebe die Empfaenger-Kachel
+      // beim Nachladen schwarz.
+      const vorschau =
+        (await erzeugeVorschaubild(file)) ?? (await erzeugeVideoVorschaubild(file));
       if (cancelled) return;
 
       // Verschluesseln VOR dem Anfordern der Adresse: die Adresse wird auf

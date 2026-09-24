@@ -42,13 +42,30 @@
   import PauseIcon from '@lucide/svelte/icons/pause';
   import PlayIcon from '@lucide/svelte/icons/play';
   import XIcon from '@lucide/svelte/icons/x';
-  import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
-  import { Portal } from 'bits-ui';
+import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
+import { anhangBlob } from '../krypto/anhangHolen';
+import { Portal } from 'bits-ui';
   import { m } from '$lib/paraglide/messages.js';
   import { formatBytes } from '$lib/utils/formatBytes';
   import { istAnhangAbgelaufenFehler } from '$lib/krypto/anhangAbgelaufen';
 
   let { attachments }: { attachments: Attachment[] } = $props();
+
+  /** Poster für Video-Kacheln: das beim Upload mitgelieferte Vorschaubild
+   *  (lokale Bytes) als Objekt-URL — ein <img> steht sofort, auch wenn die
+   *  Virtualisierung das Video-Element beim Scrollen neu mountet. */
+  let videoPoster = $state<Record<string, string>>({});
+  $effect(() => {
+    for (const a of attachments) {
+      if (!a.mime?.startsWith('video/') || !a.thumb_schluessel) continue;
+      if (videoPoster[a.id]) continue;
+      void anhangBlob(a.id, a.thumb_schluessel, 'image/webp', true)
+        .then((blob) => {
+          if (blob) videoPoster = { ...videoPoster, [a.id]: URL.createObjectURL(blob) };
+        })
+        .catch(() => {});
+    }
+  });
 
   let lightboxAttachment = $state<Attachment | null>(null);
   let lightboxOpen = $state(false);
@@ -413,22 +430,27 @@
           data-testid="attachment-video-thumb"
         >
           {#if quelleVideo}
-            <!-- Das Media-Fragment #t=0.1 zwingt den Browser, den ERSTEN
-                 Frame zu dekodieren und als Vorschaubild zu rendern — mit
-                 plain preload="metadata" bliebe die Fläche sonst grau. Das
-                 Video startet UNSICHTBAR und blendet erst mit dem ersten
-                 gezeichneten Frame ein — beim schnellen Scrollen malt der
-                 WebView sonst sein graues Kästchen in jede nachladende
-                 Kachel (gleiche Technik wie im Betrachter). -->
-            <video
-              src={`${quelleVideo}#t=0.1`}
-              preload="metadata"
-              playsinline
-              class="pointer-events-none block size-full object-cover opacity-0 transition-opacity"
-              onloadeddata={(e) => (e.currentTarget.style.opacity = '1')}
-            >
-              <track kind="captions" />
-            </video>
+            <!-- Mit Vorschaubild: ein <img> steht sofort und überlebt das
+                 Scroll-Remount der Virtualisierung. Ohne Vorschaubild (alte
+                 Anhänge): das Video-Element — unsichtbar bis der erste
+                 gezeichnete Frame da ist (sonst graues Kästchen). -->
+            {#if videoPoster[a.id]}
+              <img
+                src={videoPoster[a.id]}
+                alt=""
+                class="pointer-events-none absolute inset-0 size-full object-cover"
+              />
+            {:else}
+              <video
+                src={`${quelleVideo}#t=0.1`}
+                preload="metadata"
+                playsinline
+                class="pointer-events-none block size-full object-cover opacity-0 transition-opacity"
+                onloadeddata={(e) => (e.currentTarget.style.opacity = '1')}
+              >
+                <track kind="captions" />
+              </video>
+            {/if}
           {:else}
             <div class="block aspect-video w-72 bg-black/40"></div>
           {/if}
