@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
   import { VList, type VListHandle } from 'virtua/svelte';
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import MessageItem from './MessageItem.svelte';
   import { plainifyMentions } from './messageRender';
   import { messages as messageStore } from '$lib/stores/messages.svelte';
@@ -127,6 +128,21 @@
   // wodurch Inhalt/Bilder unsichtbar bleiben. Nur `loadOlder()` (der einzige
   // Prepend-Pfad) schaltet es kurzzeitig true.
   let prependShift = $state(false);
+  /** Erstladung-Sperre: von Kanalöffnung bis der Erst-Pin auf gemessenen
+   *  Inhalt gelandet ist, blockt ein Spinner die Liste. Ohne Sperre wandert
+   *  ein sofortiges Runterwischen in den UNGEMESSENEN Schätzbereich der
+   *  Virtualisierung — endloses Leerscrollen (Testrunde 2026-09-24). */
+  let initialBereit = $state(false);
+  let bereitWache: ReturnType<typeof setTimeout> | undefined;
+
+  function gibInitialFrei(): void {
+    clearTimeout(bereitWache);
+    void tick().then(() =>
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => (initialBereit = true))
+      )
+    );
+  }
 
   function handleVirtuaScroll(offset: number) {
     if (!vlist) return;
@@ -267,6 +283,12 @@
       freshKey = null;
       if (freshTimer) clearTimeout(freshTimer);
       vlist?.scrollToIndex(0);
+      // Sperre an + Fallback: ein wirklich leeres Gespraech (keine messages
+      // in Sicht) entlasst sich nach kurzer Frist selbst — der Spinner
+      // darf dort nie haengen.
+      initialBereit = false;
+      clearTimeout(bereitWache);
+      bereitWache = setTimeout(() => (initialBereit = true), 1200);
     });
   });
 
@@ -289,6 +311,7 @@
       lastCount = count;
       lastSeenId = lastId;
       if (shouldScroll) pinToEndWhenMeasured(isInitialLoad);
+      if (isInitialLoad) gibInitialFrei();
       if (gewachsen && !isInitialLoad && count > 0) {
         markiereFrisch(messages[count - 1].nonce ?? lastId);
       }
@@ -582,7 +605,21 @@
      einer an der Virtualisierung selbst — mit Rueckwirkung auf das Nachladen
      nach oben und die Sprungmarken. Fuer einen kosmetischen Randfall, der nur
      bei ganz neuen Gespraechen sichtbar ist, ist das der falsche Preis. -->
-<div class="flex-1 min-h-0" bind:this={wrapperEl} data-testid="message-list">
+<div class="relative flex-1 min-h-0" bind:this={wrapperEl} data-testid="message-list">
+  {#if !initialBereit}
+    <!-- Erstladung-Sperre (WhatsApp-Prinzip): die Liste ist ans Ende
+         gepinnt, sobald der erste Frame gemessen ist — vorher ist der
+         Schätzbereich der Virtualisierung leer, und ein sofortiges
+         Runterwischen wandert ins Unendliche. Der Spinner blockt die
+         Berührung, bis gepinnt ist; leere Gespraäche entlassen sich per
+         Fallback-Timer selbst. -->
+    <div
+      class="absolute inset-0 z-20 flex items-center justify-center bg-bg"
+      data-testid="message-list-loading"
+    >
+      <LoaderCircleIcon class="text-primary size-8 animate-spin" />
+    </div>
+  {/if}
   {#if channel}
     {#if messages.length === 0}
       <!-- `{' '}` statt eines Leerzeichens am Ende des Textbausteins: dort wäre es
