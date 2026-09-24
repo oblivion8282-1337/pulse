@@ -621,7 +621,7 @@
         shift={prependShift}
         itemSize={48}
         bufferSize={800}
-        style="height:100%"
+        style="height:100%; overscroll-behavior-y: contain;"
       >
         {#snippet children(item)}
           {#if item.kind === 'divider'}

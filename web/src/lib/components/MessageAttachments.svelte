@@ -407,7 +407,7 @@
              den echten Player im Vollbild-Overlay. -->
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
-          class="relative w-72 max-w-full cursor-pointer overflow-hidden rounded-xl border border-border"
+          class="relative w-72 max-w-full cursor-pointer overflow-hidden rounded-xl border border-border bg-black"
           style={reserveBox(a) || 'aspect-ratio:16 / 9;'}
           onclick={() => quelleVideo && oeffneVollbild(quelleVideo)}
           data-testid="attachment-video-thumb"
@@ -415,12 +415,17 @@
           {#if quelleVideo}
             <!-- Das Media-Fragment #t=0.1 zwingt den Browser, den ERSTEN
                  Frame zu dekodieren und als Vorschaubild zu rendern — mit
-                 plain preload="metadata" bliebe die Fläche sonst grau. -->
+                 plain preload="metadata" bliebe die Fläche sonst grau. Das
+                 Video startet UNSICHTBAR und blendet erst mit dem ersten
+                 gezeichneten Frame ein — beim schnellen Scrollen malt der
+                 WebView sonst sein graues Kästchen in jede nachladende
+                 Kachel (gleiche Technik wie im Betrachter). -->
             <video
               src={`${quelleVideo}#t=0.1`}
               preload="metadata"
               playsinline
-              class="pointer-events-none block size-full object-cover"
+              class="pointer-events-none block size-full object-cover opacity-0 transition-opacity"
+              onloadeddata={(e) => (e.currentTarget.style.opacity = '1')}
             >
               <track kind="captions" />
             </video>
