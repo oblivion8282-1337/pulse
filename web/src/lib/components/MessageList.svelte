@@ -153,6 +153,11 @@
     const size = vlist.getScrollSize();
     // Vor dem ersten echten Inhalt ist die Größe 0 → nicht auswerten.
     if (size === 0) return;
+    // Positions-Entpin (weiche Form): wer DEUTLICH ueber 400 px vom Ende
+    // weg ist, hat den Pin verloren — auch bei schnellen Wisches, deren
+    // Fingerbewegung < 8 px war. Die enge 80-px-Grenze unten bleibt unberuehrt,
+    // damit der Gleit-Pin beim Anhaengen nicht gekappt wird.
+    if (offset + vlist.getViewportSize() < size - 400) pinnedToBottom = false;
     // NUR nach true schalten, nie nach false. Bis zum 2026-09-03 stand hier
     // eine Zuweisung in beide Richtungen — und die riss das Kleben ab, ohne
     // dass der Nutzer etwas getan hatte: `pinToEnd(true)` gleitet ans Ende,
@@ -347,6 +352,15 @@
         return;
       }
       const groesse = vlist.getScrollSize();
+      // NUR nahe am Ende nachziehen: weit oben (z. B. nach einem schnellen
+      // Wisch, dessen Richtung das Unpin verpasst hat) wuerde der Pin den
+      // Nutzer mitten im Stoebern ans Ende reissen („haengt beim Halten").
+      const naheEnde =
+        vlist.getScrollOffset() + vlist.getViewportSize() >= groesse - 150;
+      if (!naheEnde) {
+        letzteGemessene = groesse;
+        return;
+      }
       if (Math.abs(groesse - letzteGemessene) > 10) {
         letzteGemessene = groesse;
         pinToEnd();
