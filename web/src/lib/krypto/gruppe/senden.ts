@@ -218,7 +218,12 @@ export async function sendeInGruppe(
       await bloeckeEinliefern(
         kanalId,
         eigeneKennung,
-        inBloecke(nachrichtUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
+        inBloecke(nachrichtUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE),
+        // Die Anhang-Kennungen NUR bei der Nachricht melden (nicht bei den
+        // Schlüssel-Verteilschlägen): der Server bindet damit die Anhänge an
+        // die Zustellungen — ohne diese Bindung verweigert der Abrufweg
+        // jedem Empfänger die Bytes (404, Testrunde 2026-09-24).
+        anhaenge.map((a) => a.id)
       );
 
     if (nachrichtBeliefert.size === 0) {

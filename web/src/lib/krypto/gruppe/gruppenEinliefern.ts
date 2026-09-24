@@ -82,10 +82,20 @@ export async function verteilUmschlaege(
 export async function einliefernEinmal(
   kanalId: string,
   geraeteKennung: string,
-  nutzlasten: PostfachNutzlast[]
+  nutzlasten: PostfachNutzlast[],
+  /** Anhang-Kennungen — der Server kann den Chiffraten nicht sehen und
+   *  braucht sie SICHTBAR: nur mit ihnen bindet er die Anhänge an die
+   *  Zustellungen (`postfach_anhaenge.py::binde_anhaenge`). Ohne Bindung
+   *  verweigert der Abrufweg jedem Empfaenger die Bytes (404). */
+  anhangIds: string[] = []
 ): Promise<string[]> {
   const ergebnis = await postfachApi.einliefern(
-    { channel_id: kanalId, device_pubkey: geraeteKennung, nutzlasten },
+    {
+      channel_id: kanalId,
+      device_pubkey: geraeteKennung,
+      nutzlasten,
+      ...(anhangIds.length > 0 ? { anhaenge: anhangIds } : {})
+    },
     cloudRoute()
   );
   return ergebnis?.uebersprungene_empfaenger ?? [];
@@ -111,14 +121,20 @@ export async function einliefernEinmal(
 export async function bloeckeEinliefern(
   kanalId: string,
   geraeteKennung: string,
-  bloecke: PostfachNutzlast[][]
+  bloecke: PostfachNutzlast[][],
+  anhangIds: string[] = []
 ): Promise<{ beliefert: Set<string>; letzterFehler: unknown }> {
   const beliefert = new Set<string>();
   let letzterFehler: unknown;
   for (const block of bloecke) {
     const geraeteImBlock = block.flatMap((n) => n.empfaenger);
     try {
-      const uebersprungeneDesBlocks = await einliefernEinmal(kanalId, geraeteKennung, block);
+      const uebersprungeneDesBlocks = await einliefernEinmal(
+        kanalId,
+        geraeteKennung,
+        block,
+        anhangIds
+      );
       for (const g of geraeteImBlock) {
         if (!uebersprungeneDesBlocks.includes(g)) beliefert.add(g);
       }
