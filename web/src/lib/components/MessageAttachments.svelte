@@ -424,8 +424,8 @@ import { Portal } from 'bits-ui';
              den echten Player im Vollbild-Overlay. -->
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
-          class="relative w-72 max-w-full cursor-pointer overflow-hidden rounded-xl border border-border bg-black"
-          style={reserveBox(a) || 'aspect-ratio:16 / 9;'}
+          class="relative w-72 max-w-full cursor-pointer overflow-hidden rounded-xl border border-border"
+          style="aspect-ratio: 16 / 9;"
           onclick={() => quelleVideo && oeffneVollbild(quelleVideo)}
           data-testid="attachment-video-thumb"
         >
