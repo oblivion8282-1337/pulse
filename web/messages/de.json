@@ -939,6 +939,7 @@
   "gast_besprechung_vorbei": "Diese Besprechung ist beendet oder der Zugang ist abgelaufen.",
   "voice_admin_mute_aktiv": "Dein Mikrofon wurde von einem Moderator stummgeschaltet.",
   "dm_page_send_failed": "Senden fehlgeschlagen",
+  "dm_tofu_titel": "Geräteschlüssel geändert",
   "dm_tofu_identitaet_geaendert_frage": "Der Schlüsselbund des Geräts {geraet} hat sich seit dem ersten Kontakt geändert. Wenn dieses Gerät tatsächlich neu aufgesetzt wurde, kannst du der neuen Identität vertrauen — die Nachricht wird dann verschlüsselt gesendet. Handelt es sich um einen unbekannten Wechsel, könnte ein Angreifer die Nachricht mitlesen. Der neuen Identität vertrauen und senden?",
   "dm_page_senden_kein_geraet": "Direktnachrichten gehen nur verschlüsselt, und dafür fehlt gerade auf einer der beiden Seiten ein Gerät mit Schlüsseln — etwa weil die Gegenseite sich noch nirgendwo angemeldet hat oder ihr Gerät verfallen ist. Versuche es später erneut.",
   "dm_preview_file": "Datei",

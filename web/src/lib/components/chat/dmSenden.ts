@@ -14,6 +14,7 @@ import type { DMChannel, Message } from '$lib/api/types';
 import { m } from '$lib/paraglide/messages.js';
 import { messages } from '$lib/stores/messages.svelte';
 import { sendeKlartextDm } from '$lib/components/chat/dmKlartextSenden';
+import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
 export interface DmSendeAuftrag {
   userId: string | null;
@@ -110,9 +111,14 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
           // abweicht, ist ein echter Wechsel während des Sendens und wird
           // nicht ein zweites Mal weggefragt.
           if (!(err instanceof GeraeteIdentitaetGeaendertFehler)) throw err;
-          const vertrauen = confirm(
-            m.dm_tofu_identitaet_geaendert_frage({ geraet: err.geraet })
-          );
+          // Haus-Dialog statt nativem confirm(): gleiche Versprechen-Form,
+          // aber Pulse-Erscheinungsbild, Esc/Randklick gelten als Ablehnung
+          // (eine Vertrauensfrage muss ausdrücklich beantwortet werden).
+          const vertrauen = await confirmDialog({
+            title: m.dm_tofu_titel(),
+            description: m.dm_tofu_identitaet_geaendert_frage({ geraet: err.geraet }),
+            confirmLabel: m.direct_trust_accept()
+          });
           if (!vertrauen) throw err;
           const { geraetePinnVergessen } = await import('$lib/krypto/geraetePinnung');
           await geraetePinnVergessen(err.geraet);
