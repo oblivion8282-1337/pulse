@@ -128,6 +128,12 @@
   // wodurch Inhalt/Bilder unsichtbar bleiben. Nur `loadOlder()` (der einzige
   // Prepend-Pfad) schaltet es kurzzeitig true.
   let prependShift = $state(false);
+  /** Erste 150 ms nach Kanalwechsel: Runter-Scrollen blockiert. In dem
+   *  Fenster misst die Virtualisierung noch — ein Sofort-Wisch wandert in
+   *  den Leerbereich unter der letzten Nachricht (Nutzerwunsch
+   *  2026-09-25: die ersten 150 ms nicht nach unten scrollen koennen). */
+  let scrollBlockBis = 0;
+  let blockReferenz = 0;
   /** Erstladung-Sperre: von Kanalöffnung bis der Erst-Pin auf gemessenen
    *  Inhalt gelandet ist, blockt ein Spinner die Liste. Ohne Sperre wandert
    *  ein sofortiges Runterwischen in den UNGEMESSENEN Schätzbereich der
@@ -155,6 +161,19 @@
     const size = vlist.getScrollSize();
     // Vor dem ersten echten Inhalt ist die Größe 0 → nicht auswerten.
     if (size === 0) return;
+    // Erste 150 ms nach Kanalwechsel: nur ABWAERTS blockieren — der Finger
+    // kommt nicht in den Leerbereich unter der letzten Nachricht. Nach oben
+    // (aeltere Nachrichten) bleibt das Scrollen frei; die Referenz folgt
+    // nach unten, damit der Block nicht springt.
+    if (performance.now() < scrollBlockBis) {
+      if (offset > blockReferenz) {
+        blockReferenz = offset;
+        vlist.scrollTo(blockReferenz);
+      } else {
+        blockReferenz = offset;
+      }
+      return;
+    }
     // Positions-Entpin (weiche Form): wer DEUTLICH ueber 400 px vom Ende
     // weg ist, hat den Pin verloren — auch bei schnellen Wisches, deren
     // Fingerbewegung < 8 px war. Die enge 80-px-Grenze unten bleibt unberuehrt,
@@ -298,6 +317,8 @@
       // in Sicht) entlasst sich nach kurzer Frist selbst — der Spinner
       // darf dort nie haengen.
       initialBereit = false;
+      scrollBlockBis = performance.now() + 150;
+      blockReferenz = 0;
       clearTimeout(bereitWache);
       bereitWache = setTimeout(() => (initialBereit = true), 1200);
     });
