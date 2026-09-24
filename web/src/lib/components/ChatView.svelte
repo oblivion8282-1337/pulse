@@ -591,7 +591,7 @@
       onTyping={notifyTyping}
       channelId={channel.id}
       placeholder={viewport.isMobile
-        ? `${namePrefix}${channel.name}`
+        ? pm.message_input_placeholder()
         : pm.chat_view_message_placeholder({ preposition: headerKind === 'dm' ? pm.chat_view_placeholder_to() : pm.chat_view_placeholder_in(), prefix: namePrefix, name: channel.name })}
       onSend={handleSend}
       replyTo={replyBanner}
