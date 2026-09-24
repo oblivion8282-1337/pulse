@@ -144,7 +144,9 @@
     // nicht haengen, der gewollte Stand ist das Listenende.
     bereitWache = setTimeout(() => {
       initialBereit = true;
-      pinToEnd();
+      // Sanfter Gleitlauf statt hartem Sprung: der Uebergang ins Listenende
+      // ist als kurze Bewegung erkennbar, nicht als Haengen.
+      pinToEnd(true);
     }, 150);
   }
 
@@ -363,7 +365,7 @@
       }
       if (Math.abs(groesse - letzteGemessene) > 10) {
         letzteGemessene = groesse;
-        pinToEnd();
+        pinToEnd(true);
       }
     }, 250);
     // Scroll-Absicht des Users schlägt das automatische Ans-Ende-Ziehen — und
