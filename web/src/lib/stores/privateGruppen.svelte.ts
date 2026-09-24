@@ -60,10 +60,23 @@ class PrivateGruppenStore {
   }
 
   /** Ersetzt den ganzen Bestand — die Antwort von `GET /gruppen` ist
-   *  vollstaendig, ein Merge wuerde eine verlassene Gruppe stehen lassen. */
+   *  vollstaendig, ein Merge wuerde eine verlassene Gruppe stehen lassen.
+   *  EINE Ausnahme: `last_message_id` zieht der Klient selbst nach (der
+   *  Server sieht verschluesselte Gruppen-Nachrichten nie) — ein frischer
+   *  Seed darf die Ordnung der Chats-Liste nicht zuruecksetzen. */
   seed(gruppen: PrivateGruppe[]): void {
     const next: Record<string, PrivateGruppe> = {};
-    for (const g of gruppen) next[g.id] = g;
+    for (const g of gruppen) {
+      const lokal = this.byId[g.id];
+      if (
+        lokal?.last_message_id &&
+        (!g.last_message_id || lokal.last_message_id > g.last_message_id)
+      ) {
+        next[g.id] = { ...g, last_message_id: lokal.last_message_id };
+      } else {
+        next[g.id] = g;
+      }
+    }
     this.byId = next;
     this.#bereitAufloesen();
   }

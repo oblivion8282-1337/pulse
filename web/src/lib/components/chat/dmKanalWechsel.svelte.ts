@@ -14,6 +14,7 @@
  */
 import { untrack } from 'svelte';
 import { chatApi } from '$lib/api/chat';
+import { gruppenApi } from '$lib/api/gruppen';
 import { cloudGateway } from '$lib/ws/connection';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
@@ -82,6 +83,19 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
         () => privateGruppen.bereit
       );
       if (isStale()) return;
+    }
+
+    if (istGruppe) {
+      // Gruppen haben keinen Live-Pfad (kein WS-Ereignis, kein ready-Feld —
+      // s. Store-Kopf `privateGruppen`): der einzige Weg an Membership-
+      // Änderungen ist GET /gruppen, das sonst nur beim Neustart/reconnect
+      // läuft. Beim Öffnen frisch nachhalten — Verlassen/Re-Add werden damit
+      // ohne App-Neustart sichtbar (Testrunde 2026-09-24). Fire-and-forget:
+      // der lokale Bestand zeigt sofort, der Seed korrigiert danach.
+      void gruppenApi
+        .auflisten()
+        .then((gruppen) => privateGruppen.seed(gruppen))
+        .catch(() => {});
     }
 
     if (!istGruppe && !directMessages.byId[cid]) {
