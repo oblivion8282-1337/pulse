@@ -137,11 +137,11 @@
 
   function gibInitialFrei(): void {
     clearTimeout(bereitWache);
-    void tick().then(() =>
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => (initialBereit = true))
-      )
-    );
+    // 350 ms RUHE abwarten: auf den lokalen Schwanz folgt der Server-
+    // Nachschlag, der die Liste neu misst — erst wenn der Strom ruhig ist,
+    // wird freigegeben. Sonst scrollt der Nutzer genau in das Fenster der
+    // Ersetzung hinein.
+    bereitWache = setTimeout(() => (initialBereit = true), 350);
   }
 
   function handleVirtuaScroll(offset: number) {
@@ -311,7 +311,9 @@
       lastCount = count;
       lastSeenId = lastId;
       if (shouldScroll) pinToEndWhenMeasured(isInitialLoad);
-      if (isInitialLoad) gibInitialFrei();
+      // Jeder Nachschub in der Sperrphase stellt die Ruhe-Frist neu: erst
+      // wenn 350 ms lang NICHTS mehr kam (lokal + Server-merge), geht es auf.
+      if (!initialBereit) gibInitialFrei();
       if (gewachsen && !isInitialLoad && count > 0) {
         markiereFrisch(messages[count - 1].nonce ?? lastId);
       }
