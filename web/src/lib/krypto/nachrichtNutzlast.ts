@@ -83,6 +83,14 @@ export type NachrichtNutzlast = {
    *  Nutzlast ohne dieses Feld. */
   id: string | null;
   replyToId: string | null;
+  /** **Absender-Bindung (Bughunt 2026-09-23):** Konto-ID und Geraetekennung
+   *  des wahren Absenders, aus SICHERHEITSGRÜNDEN in der Nutzlast. Die
+   *  Zuschreibung aus den Postfach-Metadaten (`z.absender_user_id`) setzt
+   *  der Server frei — ohne diese Felder könnte er Mallorys Geheimtext als
+   *  Bob ausliefern. Beide `null` bei Legacy-Nutzlasten; der Empfänger fällt
+   *  dann (nur dort) auf die Metadaten zurück. */
+  absenderNutzer: string | null;
+  absenderGeraet: string | null;
   /** Lösch-Frame (2026-09-02): `true` = die Nachricht mit dieser ID wurde
    *  vom Autor gelöscht — Empfaenger entfernen sie lokal (Grabstein). */
   geloescht?: true;
@@ -135,29 +143,47 @@ function leseAnhang(wert: unknown): AnhangAngabe | null {
 /** Baut die Klartext-Bytes, die die Sitzung anschliessend verschluesselt.
  *  `nachrichtId` ist IMMER die kanonische Autor-ID dieser Nachricht (s.
  *  Modulkopf); `replyToId` (falls gesetzt) MUSS bereits die kanonische Form
- *  des Ziels sein (`kanonischeAntwortId.ts`), keine lokale ID. */
+ *  des Ziels sein (`kanonischeAntwortId.ts`), keine lokale ID. `absender`
+ *  bindet den wahren Absender in die authentisierte Nutzlast (Bughunt
+ *  2026-09-23) — jeder Sendeweg (DM, Lösch-Frame, Gruppe) übergibt ihn. */
 export function baueNachrichtNutzlast(
   text: string,
   nachrichtId: string,
   replyToId: string | null,
-  anhaenge: AnhangAngabe[] = []
+  anhaenge: AnhangAngabe[] = [],
+  absender?: { nutzer: string; geraet: string }
 ): Uint8Array {
   const objekt: Record<string, unknown> = { v: FASSUNG, text, id: nachrichtId };
   if (replyToId !== null) objekt.replyToId = replyToId;
   // Nur schreiben, wenn es etwas zu schreiben gibt — eine leere Liste
   // vergroesserte jede gewoehnliche Nachricht ohne Gegenwert.
   if (anhaenge.length > 0) objekt.anhaenge = anhaenge;
+  if (absender) {
+    objekt.absenderNutzer = absender.nutzer;
+    objekt.absenderGeraet = absender.geraet;
+  }
   return new TextEncoder().encode(JSON.stringify(objekt));
 }
 
-/** Liest die entschluesselten Klartext-Bytes einer Zustellung zurueck. */
 /** Lösch-Frame: leere Nutzlast, die nur die kanonische ID der gelöschten
  *  Nachricht trägt. Läuft über denselben verschlüsselten Sendeweg wie eine
- *  gewöhnliche Nachricht — der Server bleibt blindes Postfach. */
-export function baueLoeschNutzlast(nachrichtId: string): Uint8Array {
-  return new TextEncoder().encode(
-    JSON.stringify({ v: FASSUNG, text: '', id: nachrichtId, geloescht: true })
-  );
+ *  gewöhnliche Nachricht — der Server bleibt blindes Postfach. Die
+ *  Absender-Bindung fährt mit denselben Gründen mit. */
+export function baueLoeschNutzlast(
+  nachrichtId: string,
+  absender?: { nutzer: string; geraet: string }
+): Uint8Array {
+  const objekt: Record<string, unknown> = {
+    v: FASSUNG,
+    text: '',
+    id: nachrichtId,
+    geloescht: true
+  };
+  if (absender) {
+    objekt.absenderNutzer = absender.nutzer;
+    objekt.absenderGeraet = absender.geraet;
+  }
+  return new TextEncoder().encode(JSON.stringify(objekt));
 }
 
 export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
@@ -182,6 +208,8 @@ export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
         text: o.text as string,
         id: typeof o.id === 'string' ? o.id : null,
         replyToId: typeof o.replyToId === 'string' ? o.replyToId : null,
+        absenderNutzer: typeof o.absenderNutzer === 'string' ? o.absenderNutzer : null,
+        absenderGeraet: typeof o.absenderGeraet === 'string' ? o.absenderGeraet : null,
         anhaenge,
         ...(o.geloescht === true ? { geloescht: true as const } : {})
       };
@@ -189,5 +217,5 @@ export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
   } catch {
     // Kein JSON, oder nicht Fassung 1 -> Legacy-Klartext, s. Modulkopf.
   }
-  return { text: roh, id: null, replyToId: null, anhaenge: [] };
+  return { text: roh, id: null, replyToId: null, absenderNutzer: null, absenderGeraet: null, anhaenge: [] };
 }

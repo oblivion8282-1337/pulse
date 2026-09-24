@@ -63,14 +63,11 @@ async def join_instance_membership(
     """
     user = await _require_user(request, db)
     # Beitreten ist billig, idempotent und braucht keinen Nachweis — deshalb
-    # eignet es sich zum Durchprobieren von Instanz-Kennungen. Das lohnt sich,
-    # weil eine eingetragene Mitgliedschaft heute die Bedingung fuer die
-    # Telefonbuch-Auskunft des Direktwegs ist (``routes_selfhost_directory``,
-    # ``routes_selfhost_signal``), und die gibt die Heimadresse des Betreibers
-    # heraus. Dass sie das tut, ist der eigentliche Fehler und woanders zu
-    # beheben (s. ``docs/2026-09-07-direktweg-berechtigung.md``); die Bremse
-    # hier steht unabhaengig davon richtig und nimmt keinem der drei dort
-    # beschriebenen Wege etwas vorweg. Der Konto-Eimer ist der wichtigere:
+    # eignet es sich zum Durchprobieren von Instanz-Kennungen. Die eingetragene
+    # Membership ist eine Merkhilfe ohne Zugriffsbeweis; die Direktpfad-Routen
+    # (Telefonbuch, direct-offer) fragen deshalb Owner-Rolle statt „Eintrag
+    # vorhanden" (Bughunt 2026-09-23, Weg 1 aus
+    # ``docs/2026-09-07-direktweg-berechtigung.md``). Der Konto-Eimer bleibt:
     # Kennungen durchprobieren kostet ein Konto, nicht eine IP.
     await _check_rate(request, "instance_membership_join", "30/hour", account=str(user.id))
     # Eine unbrauchbare Kennung ist erwartetes Verhalten, kein Fehlerfall —

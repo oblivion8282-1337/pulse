@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -54,9 +55,31 @@ def _coerce_id(value: object) -> int:
 SnowflakeId = Annotated[int, BeforeValidator(_coerce_id)]
 
 
+_ICON_URL_RE = re.compile(r"^/api/chat/guild-icons/[0-9]+\.webp(\?.*)?$")
+
+
+def _pruefe_icon_url(wert: str | None) -> str | None:
+    """Bughunt 2026-09-23 (zweiter Lauf): ``icon_url`` war ein frei wählbarer
+    String (≤512), der an alle Mitglieder/Verzeichnis-Betrachter als
+    Bildquelle ausgeliefert wird — Fremd-Fetch (Mitglieder-IPs pingen den
+    Angreifer-Host), Spoofing unter Umgehung der re-encodierenden Upload-
+    Route, und am rohen ``/c/[handle]``-Sink sogar ``data:``-URLs. Der
+    EINZIGE legitime Schreiber ist die Upload-Route mit ihrem
+    WebP-Pfadschema; ``None``/``""`` bleibt erlaubt (Null-Filter des
+    Patch-Loops, Alt-Daten ohne Icon)."""
+    if wert is None or wert == "":
+        return wert
+    if not _ICON_URL_RE.match(wert):
+        raise ValueError(
+            "icon_url: nur /api/chat/guild-icons/<id>.webp (Upload-Route)"
+        )
+    return wert
+
+
 class GuildIn(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=64)]
     icon_url: Annotated[str | None, Field(default=None, max_length=512)] = None
+    _pruefe_icon = field_validator("icon_url")(_pruefe_icon_url)
 
 
 class GuildOut(BaseModel):
@@ -138,6 +161,7 @@ class GuildLimitsPatch(BaseModel):
 class GuildPatchIn(BaseModel):
     name: Annotated[str | None, Field(default=None, min_length=1, max_length=64)] = None
     icon_url: Annotated[str | None, Field(default=None, max_length=512)] = None
+    _pruefe_icon = field_validator("icon_url")(_pruefe_icon_url)
     # Public-address fields (Stufe 4). Both optional so a single PATCH can set
     # one without touching the other. ``handle`` is validated for *format* here
     # (3–32 lowercase-slug); per-instance uniqueness is a DB constraint enforced
@@ -1216,6 +1240,26 @@ class BundleVeroeffentlichenRequest(BaseModel):
     device_pubkey: GeraeteKennung
     curve25519: SchluesselMaterial
     rueckfallschluessel: SchluesselMaterial | None = None
+    #: Base64-Ed25519-Identitaetsschluessel, unter dem ``bundel_signatur``
+    #: erstellt wurde (Bughunt 2026-09-23). Bewusst OPTIONAL: Bestandsklienten
+    #: ohne Signatur duerfen ihr Buendel weiter ersetzen — die Trust-Entscheidung
+    #: trifft der PRUEFENDE Klient am Claim (unsigniert = keine neuen
+    #: verschluesselten DM-Sitzungen), nicht diese Route. Pflicht hier wuerde
+    #: den Rollout zum Flag-Day machen. ZWEITER Bughunt-Lauf: aber nur PAARWEISE —
+    #: genau ein Feld (auch ``""``) wäre ein Halb-Bündel, gegen das jeder
+    #: Empfang hart scheitert; der model_validator darunter weist das mit 422 ab.
+    ed25519: Annotated[str | None, Field(min_length=1, max_length=128)] = None
+    #: Signatur ueber die kanonische Form von ``(device_pubkey, curve25519,
+    #: rueckfallschluessel)`` — s. ``web/src/lib/krypto/buendelSignatur.ts``.
+    bundel_signatur: Annotated[str | None, Field(min_length=1, max_length=128)] = None
+
+    @model_validator(mode="after")
+    def _signatur_paarweise(self) -> "BundleVeroeffentlichenRequest":
+        if (self.ed25519 is None) != (self.bundel_signatur is None):
+            raise ValueError(
+                "ed25519 und bundel_signatur muessen gemeinsam gesetzt (oder beide weggelassen) sein"
+            )
+        return self
     #: Selbstauskunft des Geraets — Electron- oder Android-App (Spec §3,
     #: Koexistenz-Regel). Das Geraet kann diese Aussage nur ueber SICH SELBST
     #: treffen (die Zeile gehoert ueber ``pruefe_geraet`` ohnehin schon zum
@@ -1249,15 +1293,24 @@ class SchluesselAbholenRequest(BaseModel):
 class GeraeteSchluesselOut(BaseModel):
     """Ein Buendel in der Antwort von ``POST /keys/claim``.
 
-    Hoechstens EINES der beiden Felder ``einmalschluessel``/
-    ``rueckfallschluessel`` ist gesetzt — nie beide. Beide ``None`` ist
-    moeglich: leerer Einmalschluessel-Vorrat (oder erschoepftes Claim-Budget)
-    bei einem Geraet ohne veroeffentlichten Rueckfallschluessel — der Klient
-    behandelt das Geraet dann als unerreichbar (``senden.ts``).
+    ``einmalschluessel`` ist gesetzt, wenn ein Vorrat verbraucht wurde, sonst
+    ``None``. ``rueckfallschluessel`` faehrt SEIT dem zweiten Bughunt-Lauf
+    (2026-09-23) IMMER mit — die Bündel-Signatur des Klienten deckt die
+    publizierte Form AB, und die frühere Nüllung bei geliefertem
+    Einmalschluessel ließ die Verifikation genau im Regelfall scheitern. Die
+    Sende-Wahl ``einmalschluessel ?? rueckfallschluessel`` bleibt unveraendert.
+    Beide ``None``: leerer Vorrat (oder erschoepftes Claim-Budget) bei einem
+    Geraet ohne veroeffentlichten Rueckfallschluessel — der Klient behandelt
+    das Geraet dann als unerreichbar (``senden.ts``).
     """
 
     device_pubkey: str
     curve25519: str
+    #: Identitaet + Buendel-Signatur des Geraets (Bughunt 2026-09-23) — der
+    #: Klient verifiziert sie am Claim (``signaturPruefen``) und pinnt das
+    #: Geraet per TOFU. Beide ``None`` bei Bestandsbuendeln ohne Neupublikation.
+    ed25519: str | None = None
+    bundel_signatur: str | None = None
     einmalschluessel: str | None = None
     rueckfallschluessel: str | None = None
     #: Wie ``BundleVeroeffentlichenRequest.dauerhaft`` — durchgereicht aus
@@ -1355,6 +1408,29 @@ class VerschluesselbarOut(BaseModel):
     """
 
     verschluesselbar: bool
+
+
+class GeraeteBuendelAuskunftOut(BaseModel):
+    """Ein Bündel in der Antwort von ``GET /keys/buendel/{ziel_id}``.
+
+    Die verbrauchsfreie Leserate für den EMPFANGS-Weg (Bughunt 2026-09-23):
+    der Empfänger verifiziert das Absendergerät gegen das Verzeichnis, bevor
+    es eine Olm-Sitzung darauf baut — und ``POST /keys/claim`` würde dafür je
+    Gerät einen Einmalschlüssel VERBRAUCHEN, ohne ihn je zu benutzen
+    (derselbe Grund, aus dem ``/keys/verschluesselbar`` existiert; dort steht
+    die ganze Abwägung). Ohne Einmalschluessel-Felder bewusst: genau deren
+    Abwesenheit macht die Route zur Leserate.
+
+    ``rueckfallschluessel`` fährt trotzdem mit — die Bündel-Signatur deckt
+    ihn ab (``buendelAnmeldung``), ohne ihn liefe die Verifikation nicht.
+    Alles hier ist öffentliches Material, kein Geheimnis.
+    """
+
+    device_pubkey: str
+    curve25519: str
+    rueckfallschluessel: str | None = None
+    ed25519: str | None = None
+    bundel_signatur: str | None = None
 
 
 # ---------------------------------------------------------------------------

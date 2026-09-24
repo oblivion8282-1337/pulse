@@ -250,10 +250,24 @@ def _is_private_host(hostname: str) -> bool:
             or addr.is_multicast
             or addr.is_reserved
             or addr.is_unspecified
+            # NAT64 (Well-Known-Prefix): die letzten 32 Bit sind IPv4 — die
+            # Abdeckung soll nicht von der ipaddress-Registry-Version des
+            # Python-Baus abhängen (Bughunt 2026-09-23, zweiter Lauf).
+            or (addr.version == 6 and addr in ipaddress.ip_network("64:ff9b::/96"))
         )
     except ValueError:
         # Not an IP literal — it's a regular hostname.  We cannot do DNS
         # resolution here (no async context, and resolving would be a DoS
         # vector).  Public hostnames that split-horizon-resolve to private IPs
         # are mitigated by the permission gate described in the docstring.
+        #
+        # Bughunt 2026-09-23 (zweiter Lauf): BROWSER kanonisieren reine
+        # Zahlen-Hosts zum IPv4-Ziel (WHATWG-URL-Parser) — ``2852039166`` IST
+        # 169.254.169.254, ``0x7f000001`` ist 127.0.0.1 — während
+        # ``ip_address()`` hier ValueError wirft und der Host als harmloser
+        # Name durchging. Ein echter Domainname hat nie ein rein numerisches
+        # TLD-Label, also: jede Zahlen-Schreibweise (dezimal/hex/oktal, auch
+        # punktiert gemischt) gilt als privat.
+        if re.fullmatch(r"(?:0[xX][0-9A-Fa-f]+|\d+)(?:\.(?:0[xX][0-9A-Fa-f]+|\d+))*", hostname):
+            return True
         return False

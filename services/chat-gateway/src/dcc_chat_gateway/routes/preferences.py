@@ -32,6 +32,7 @@ caller sent — that way malformed reads/writes fail loud.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Annotated, Any
 
@@ -52,6 +53,11 @@ router = APIRouter()
 # at the route boundary so a malformed write never silently inserts a
 # garbage row.
 _SECTION_NAME_RE = re.compile(r"^[a-z][a-z0-9_:-]{0,63}$")
+
+#Serialisierter JSON-Wert je Section (Bughunt 2026-09-23: unbounded JSON
+# in ungebundener JSON-Spalte war ein gratis Disk-Full-Hebel gegen die
+# geteilte Postgres).
+_MAX_VALUE_BYTES = 64 * 1024
 
 
 class PreferenceOut(BaseModel):
@@ -168,6 +174,14 @@ async def put_my_preference(
         return 412.
     """
     _validate_section(section)
+    # Größen-Deckel: ``value`` ist ein freier JSON-Blob in einer ungebundenen
+    # JSON-Spalte — ohne Deckel füllt ein Skript die geteilte Postgres (der
+    # übrige Schreibweg hat Nachrichtengrenzen + Rate-Limit, dieser hatte
+    # keinen). 64 KiB sind ein Mehrfaches der größten bekannten Section.
+    if len(json.dumps(payload.value, ensure_ascii=False).encode()) > _MAX_VALUE_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="preference_too_large"
+        )
     expected = _parse_if_match(if_match)
 
     row = await session.get(UserPreference, (current.id, section))

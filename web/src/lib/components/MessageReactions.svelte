@@ -24,6 +24,7 @@ import { errText } from '$lib/utils/errText';
   import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { safeAvatarUrl } from '$lib/avatar';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
   import XIcon from '@lucide/svelte/icons/x';
   import EmojiPicker from './EmojiPicker.svelte';
@@ -232,7 +233,7 @@ import { errText } from '$lib/utils/errText';
                 >
                   <Avatar.Root class="size-7 shrink-0">
                     {#if userCache.get(uid)?.avatar_url}
-                      <Avatar.Image src={userCache.get(uid)?.avatar_url ?? undefined} alt={displayNameFor(uid)} />
+                      <Avatar.Image src={safeAvatarUrl(userCache.get(uid)?.avatar_url) ?? undefined} alt={displayNameFor(uid)} />
                     {/if}
                     <Avatar.Fallback
                       class="text-2xs font-semibold"

@@ -47,6 +47,8 @@ from dcc_chat_gateway.models import (
 from dcc_chat_gateway.permissions import (
     Permissions,
     check_permission,
+    has_permission,
+    resolve_permissions,
 )
 from dcc_chat_gateway.routes._deps import guild_or_404, resolve_channel_or_raise
 from dcc_chat_gateway.schemas import (
@@ -327,13 +329,17 @@ async def refresh_download_url(
         if row.uploader_id != current.id:
             raise HTTPException(404, detail="attachment not found")
     else:
-        # Bound to a message: caller must be able to view that channel.
+        # Bound to a message: caller must be able to view that channel —
+        # und genau denselben READ_HISTORY-Gate wie list_messages fahren:
+        # sonst ließe sich über alte Anhänge lesen, was der Verlaufssperre
+        # (VIEW_CHANNEL erlaubt, READ_HISTORY entzogen) entzogen ist.
         kind, ch = await resolve_channel_or_raise(session, row.channel_id, current.id)
         if kind == "guild":
-            await check_permission(
-                session, current, ch.guild_id, Permissions.VIEW_CHANNEL,
-                channel_id=row.channel_id,
+            perms = await resolve_permissions(
+                session, current, ch.guild_id, channel_id=row.channel_id
             )
+            if not has_permission(perms, Permissions.READ_HISTORY):
+                raise HTTPException(403, detail="missing permission: READ_HISTORY")
 
     inline = _is_inline_mime(row.mime)
     url = await s3.presigned_get_url(

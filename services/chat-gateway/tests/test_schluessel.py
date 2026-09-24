@@ -124,6 +124,189 @@ async def test_buendel_veroeffentlichen_und_wieder_abrufen(
 
 
 @pytest.mark.asyncio
+async def test_buendel_signatur_wird_gespeichert_und_beim_abholen_mitgeliefert(
+    client, app, cloud_mode, access_token
+):
+    """Bughunt 2026-09-23: ``ed25519`` + ``bundel_signatur`` laufen PUT → Claim.
+
+    Der Server ist ein Verzeichnis ohne Prüfmöglichkeit — er kann die Signatur
+    nur von der Prüfung trennen, nicht fälschen. Der Test hält deshalb nur den
+    Durchlauf fest: was hineingeht, kommt unverändert heraus, und ein UPDATE
+    ohne Signatur-Felder (alter Klient) räumt sie mit weg — ein Halb-Bündel
+    mit ed25519 aber ohne Signatur wäre schlimmer als keins."""
+    token, uid = access_token
+    pubkey = _make_device()
+
+    r = await client.put(
+        "/keys/bundle",
+        json={
+            "device_pubkey": pubkey,
+            "curve25519": "curve-pub",
+            "ed25519": "ed-pub",
+            "bundel_signatur": "sig-ueber-buendel",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    r = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(uid)]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    b = r.json()[str(uid)][0]
+    assert b["ed25519"] == "ed-pub"
+    assert b["bundel_signatur"] == "sig-ueber-buendel"
+
+    r = await client.put(
+        "/keys/bundle",
+        json={"device_pubkey": pubkey, "curve25519": "curve-pub"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+    r = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(uid)]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    b = r.json()[str(uid)][0]
+    assert b["ed25519"] is None
+    assert b["bundel_signatur"] is None
+
+
+@pytest.mark.asyncio
+async def test_buendel_auskunft_liest_verbrauchsfrei(
+    client, app, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Bughunt 2026-09-23: die Empfangs-Bindung braucht das Bündel des
+    Absenders, OHNE seinen Einmalschluessel-Vorrat anzutasten — ``claim``
+    löscht je Gerät einen Schlüssel (deshalb existiert ``/keys/verschluesselbar``
+    als Leserate-Muster), diese Route liest ausschließlich."""
+    sender_token, sender_uid = _register(_auth_signer)
+    empf_token, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+
+    r = await client.put(
+        "/keys/bundle",
+        json={
+            "device_pubkey": "absender-geraet-01",
+            "curve25519": "curve-absender",
+            "rueckfallschluessel": "rueckfall-a",
+            "ed25519": "ed-absender",
+            "bundel_signatur": "sig-absender",
+        },
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 204, r.text
+    r = await client.post(
+        "/keys/onetime",
+        json={"device_pubkey": "absender-geraet-01", "schluessel": ["otk-1"]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    r = await client.get(
+        f"/keys/buendel/{sender_uid}",
+        headers={"Authorization": f"Bearer {empf_token}"},
+    )
+    assert r.status_code == 200, r.text
+    (b,) = r.json()
+    assert b["device_pubkey"] == "absender-geraet-01"
+    assert b["curve25519"] == "curve-absender"
+    assert b["rueckfallschluessel"] == "rueckfall-a"
+    assert b["ed25519"] == "ed-absender"
+    assert b["bundel_signatur"] == "sig-absender"
+    # Bewusst KEIN Einmalschluessel-Feld — seine Abwesenheit macht die Route
+    # zur Leserate.
+    assert "einmalschluessel" not in b
+
+    # Und der Vorrat ist unberührt — ``claim`` hätte ihn hier verbrannt.
+    r = await client.get(
+        "/keys/onetime/count",
+        params={"device_pubkey": "absender-geraet-01"},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"vorrat": 1}
+
+    # Fremde (ohne Beziehung) bekommen leer — dieselbe Gate-Regel wie claim.
+    fremd_token, _fremd_uid = _register(_auth_signer)
+    r = await client.get(
+        f"/keys/buendel/{sender_uid}",
+        headers={"Authorization": f"Bearer {fremd_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_buendel_auskunft_liest_verbrauchsfrei(
+    client, app, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Bughunt 2026-09-23: die Empfangs-Bindung braucht das Bündel des
+    Absenders, OHNE seinen Einmalschluessel-Vorrat anzutasten — ``claim``
+    löscht je Gerät einen Schlüssel (deshalb existiert ``/keys/verschluesselbar``
+    als Leserate-Muster), diese Route liest ausschließlich."""
+    sender_token, sender_uid = _register(_auth_signer)
+    empf_token, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+
+    r = await client.put(
+        "/keys/bundle",
+        json={
+            "device_pubkey": "absender-geraet-01",
+            "curve25519": "curve-absender",
+            "rueckfallschluessel": "rueckfall-a",
+            "ed25519": "ed-absender",
+            "bundel_signatur": "sig-absender",
+        },
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 204, r.text
+    r = await client.post(
+        "/keys/onetime",
+        json={"device_pubkey": "absender-geraet-01", "schluessel": ["otk-1"]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    r = await client.get(
+        f"/keys/buendel/{sender_uid}",
+        headers={"Authorization": f"Bearer {empf_token}"},
+    )
+    assert r.status_code == 200, r.text
+    (b,) = r.json()
+    assert b["device_pubkey"] == "absender-geraet-01"
+    assert b["curve25519"] == "curve-absender"
+    assert b["rueckfallschluessel"] == "rueckfall-a"
+    assert b["ed25519"] == "ed-absender"
+    assert b["bundel_signatur"] == "sig-absender"
+    # Bewusst KEIN Einmalschluessel-Feld — seine Abwesenheit macht die Route
+    # zur Leserate.
+    assert "einmalschluessel" not in b
+
+    # Und der Vorrat ist unberührt — ``claim`` hätte ihn hier verbrannt.
+    r = await client.get(
+        "/keys/onetime/count",
+        params={"device_pubkey": "absender-geraet-01"},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"vorrat": 1}
+
+    # Fremde (ohne Beziehung) bekommen leer — dieselbe Gate-Regel wie claim.
+    fremd_token, _fremd_uid = _register(_auth_signer)
+    r = await client.get(
+        f"/keys/buendel/{sender_uid}",
+        headers={"Authorization": f"Bearer {fremd_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
 async def test_fremdes_konto_kann_nicht_unter_fremder_kennung_handeln(
     client, session_factory, cloud_mode, _auth_signer
 ):
@@ -385,7 +568,11 @@ async def test_abholen_verbraucht_den_einmalschluessel(
     assert r1.status_code == 200, r1.text
     b1 = r1.json()[str(empf_uid)][0]
     assert b1["einmalschluessel"] == "otk-1"
-    assert b1["rueckfallschluessel"] is None
+    # Zweiter Bughunt-Lauf (2026-09-23): der Rückfall fährt IMMER mit — die
+    # Bündel-Signatur der Klienten deckt die publizierte Form ab, und die
+    # alte Nüllung bei geliefertem Einmalschluessel ließ die Verifikation im
+    # Regelfall scheitern.
+    assert b1["rueckfallschluessel"] == "rueckfall-1"
 
     r2 = await client.post(
         "/keys/claim",

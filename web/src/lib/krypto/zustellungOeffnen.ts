@@ -32,6 +32,7 @@ import { leseNachrichtNutzlast } from './nachrichtNutzlast';
 import { baueEmpfangeneNachricht } from './empfangeneNachricht';
 import { absenderErmitteln } from './absenderErmitteln';
 import { oeffneMitRueckfall } from './sitzungsRueckfall';
+import { absenderBinden } from './empfangsbindung';
 import { PRIVATE_GRUPPEN_ENABLED } from './schalter';
 import { ABLAGE_KANAL_ENABLED } from '../featureFlags';
 import {
@@ -147,6 +148,10 @@ export async function zustellungOeffnen(
   if (istGruppennachricht(z)) {
     if (!PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) return null;
     const nachricht = await oeffneGruppennachricht(z);
+    // 'verworfen' (Wiedereinspiel, fremde Absender-Angabe — s.
+    // `gruppe/empfangen.ts`) ist erfolgreich BEHANDELT: quittieren, sonst
+    // versucht der naechste Zyklus denselben Angriff wieder zu oeffnen.
+    if (nachricht === 'verworfen') return { art: 'ohneAblage', id: z.id };
     return nachricht ? { art: 'neu', nachricht } : null;
   }
 
@@ -155,6 +160,31 @@ export async function zustellungOeffnen(
     directMessages.byId[z.channel_id]?.other_user_id
   );
   if (!absenderUserId) return null;
+
+  // **Empfangs-Bindung (Bughunt 2026-09-23), VOR dem Rückfall-Block und
+  // außerhalb der Sitzungssperre:** ein Aufbau-Umschlag (Art 0) baut die
+  // Sitzung gegen die Metadaten-Kurve — die der Server frei setzt. Ohne
+  // diese Prüfung liesse sich mit eigenem Prekey eine komplette Sitzung
+  // „als die Gegenseite" fälschen (DM-Nachrichten wie Verteilschlüssel
+  // gleichermaßen — beide reisen als Olm-Umschläge hier hindurch). Details
+  // und die drei Ausgänge: `empfangsbindung.ts`. Läuft nur für Aufbau-
+  // Umschläge, also einmal je Gerät und Sitzungsleben.
+  let bindung: Awaited<ReturnType<typeof absenderBinden>> | null = null;
+  if (z.art === 0 && z.absender_curve25519 !== null && z.absender_user_id !== null) {
+    // Zweiter Bughunt-Lauf, Ergänzung: OHNE Metadaten-Konto keine Bindung —
+    // `absenderErmitteln` fällt dann auf den Kanal-Gegenpart zurück, und für
+    // eine Zustellung des EIGENEN anderen Geräts würde das Verzeichnis des
+    // GEGNERS nach dem eigenen Gerät gefragt (nicht gefunden → legitime
+    // Nachricht verworfen). Nur-Zeilen vor Migration 0076 tragen das leere
+    // Feld und sterben an der Postfach-Frist; der Legacy-Weg bleibt für sie.
+    bindung = await absenderBinden(
+      absenderUserId,
+      z.absender_device_pubkey,
+      z.absender_curve25519
+    );
+    if (bindung.art === 'spaeter') return null; // Verzeichnis weg — liegen lassen, Retry im nächsten Zyklus
+    if (bindung.art === 'zurueckgewiesen') return { art: 'ohneAblage', id: z.id };
+  }
 
   return mitSitzungssperre(z.channel_id, z.absender_device_pubkey, async () => {
     try {
@@ -166,8 +196,13 @@ export async function zustellungOeffnen(
       const aufbauen =
         z.art === 0 && z.absender_curve25519 !== null
           ? () => {
+              // Die KURVE kommt aus der Verzeichnis-Bindung oben (verifiziert
+              // gegen Bündel-Signatur + TOFU), nie aus den Metadaten. Der
+              // Cast ist durch den identischen Gate oben gesichert: `bindung`
+              // ist hier genau dann `geprueft`, wenn Art 0 und Kurve da sind.
+              const geprueft = bindung as { art: 'geprueft'; curve25519: string };
               const ergebnis = ident.sitzungEingehend(
-                z.absender_curve25519 as string,
+                geprueft.curve25519,
                 new Umschlag(z.art, z.daten)
               );
               return { sitzung: ergebnis.sitzung(), klartext: ergebnis.klartext() };
@@ -218,11 +253,13 @@ export async function zustellungOeffnen(
           throw new KontoSicherungFehlgeschlagen('Konto/Sitzung nicht sicherbar', { cause: err });
         }
         // Fuer wen die Sitzung gilt — damit `senden.ts` einen spaeteren
-        // Schluesselwechsel der Gegenseite erkennt.
+        // Schluesselwechsel der Gegenseite erkennt. Die VERIFIZIERTE Kurve
+        // aus der Verzeichnis-Bindung, nicht die Metadaten-Angabe (identisch,
+        // aber die Quelle ist die Zusicherung).
         await partnerSchluesselMerken(
           z.channel_id,
           z.absender_device_pubkey,
-          z.absender_curve25519 as string
+          (bindung as { art: 'geprueft'; curve25519: string }).curve25519
         );
       }
 
@@ -240,6 +277,42 @@ export async function zustellungOeffnen(
       // Umsetzung in die Anzeige-Form teilt sich dieser Weg mit dem
       // Megolm-Weg, s. `empfangeneNachricht.ts`.
       const gelesen = leseNachrichtNutzlast(klartextBytes);
+      // **Absender-Bindung (Bughunt 2026-09-23):** die Nutzlast nennt ihr
+      // Geraet; die Metadaten (`z.absender_device_pubkey`) setzt der Server
+      // frei. Stimmen sie nicht, ist einer der beiden verdreht — genau die
+      // Zuschreibungs-Faelschung, gegen die das Feld existiert. Verworfen
+      // und quittierbar ('ohneAblage'), sonst bliebe sie fuer immer liegen
+      // und wuerde jeden Abholzyklus erneut versuchen.
+      if (gelesen.absenderGeraet !== null && gelesen.absenderGeraet !== z.absender_device_pubkey) {
+        console.warn('[postfach] Nachricht mit fremder Absender-Angabe verworfen', {
+          nutzlast: gelesen.absenderGeraet,
+          zustellung: z.absender_device_pubkey
+        });
+        return { art: 'ohneAblage', id: z.id };
+      }
+      // **Zweiter Bughunt-Lauf (2026-09-23): dasselbe für das KONTO.** Der
+      // Geräte-Check oben fängt den bösartigen Server — aber ein bösartiges
+      // MITGLIED kann in seiner Nutzlast `absenderNutzer` auf ein fremdes
+      // Konto setzen (eigenes Gerät = Metadaten passt!) und sich so eine
+      // Zuschreibung erschreiben; schlimmer: einen Lösch-Frame mit fremder
+      // Nutzer-ID, den `loeschZiel` als berechtigt einstuft. `absender_user_id`
+      // füllt der Server aus dem Login — die Diskrepanz ist also immer eine
+      // Fälschung. Nutzlasten ohne das Feld (Legacy) fallen durch zum Fallback.
+      if (
+        gelesen.absenderNutzer !== null &&
+        z.absender_user_id !== null &&
+        gelesen.absenderNutzer !== z.absender_user_id
+      ) {
+        console.warn('[postfach] Nachricht mit fremder Absender-Konto-Angabe verworfen', {
+          nutzlast: gelesen.absenderNutzer,
+          zustellung: z.absender_user_id
+        });
+        return { art: 'ohneAblage', id: z.id };
+      }
+      // Zuschreibung aus der authentisierten Nutzlast, wo vorhanden; erst
+      // das Fehlen (Sender vor der Aenderung) faellt auf die Metadaten
+      // und den DM-Rueckfall (`absenderErmitteln`) zurueck.
+      const zuschreibung = gelesen.absenderNutzer ?? absenderUserId;
       if (gelesen.geloescht && gelesen.id !== null) {
         // Lösch-Frame (2026-09-02): der Aufrufer entfernt die Nachricht
         // lokal (Grabstein im Verlauf, damit auch im Archiv) und quittiert
@@ -249,10 +322,10 @@ export async function zustellungOeffnen(
           id: z.id,
           channelId: z.channel_id,
           nachrichtId: gelesen.id,
-          absenderUserId
+          absenderUserId: zuschreibung
         };
       }
-      return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, absenderUserId, gelesen) };
+      return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, zuschreibung, gelesen) };
     } catch (err) {
       if (err instanceof KontoSicherungFehlgeschlagen) {
         // Weiterreichen, NICHT hier verschlucken — `postfachZyklus` laesst

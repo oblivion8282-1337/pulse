@@ -20,13 +20,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
-from dcc_auth.models_instances import RegisteredInstance, SuspendedInstance
+from dcc_auth.models_instances import (
+    InstanceDirectEndpoint,
+    RegisteredInstance,
+    SuspendedInstance,
+)
 from dcc_auth.routes import _require_admin
 from dcc_auth.routes_admin import _audit
 from dcc_auth.routes_suspended_instances import (
@@ -206,6 +210,14 @@ async def suspend_instance(
         return  # idempotent
 
     instance.status = "suspended"
+    # Telefonbuch-Eintrag mitlöschen (Muster routes_instance_delete): der
+    # Kill-Switch stoppt den Container — die letzte bekannte Heimadresse des
+    # Betreibers darf er trotzdem nicht weiter aussprechen.
+    await session.execute(
+        delete(InstanceDirectEndpoint).where(
+            InstanceDirectEndpoint.instance_id == instance_id
+        )
+    )
     session.add(
         SuspendedInstance(
             instance_id=instance_id,

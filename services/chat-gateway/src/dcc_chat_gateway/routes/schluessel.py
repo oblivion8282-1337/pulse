@@ -118,6 +118,12 @@ async def bundle_veroeffentlichen(
         vorhanden.curve25519 = body.curve25519
         vorhanden.rueckfallschluessel = body.rueckfallschluessel
         vorhanden.dauerhaft = body.dauerhaft
+        # Signatur-Felder (Bughunt 2026-09-23): nur ERSETZEN, nie auffuellen —
+        # ein UPDATE mit ed25519 aber ohne Signatur (oder umgekehrt) liefe sonst
+        # auf ein Halb-Buendel hinaus, das der Klient zu Recht verwirft. Alte
+        # Klienten schicken beides nicht; deren Zeile bleibt ganz unsigniert.
+        vorhanden.ed25519 = body.ed25519
+        vorhanden.bundel_signatur = body.bundel_signatur
         vorhanden.updated_at = func.now()
         if gekoppelt_am is not None:
             vorhanden.gekoppelt_am = gekoppelt_am
@@ -139,6 +145,8 @@ async def bundle_veroeffentlichen(
                 device_pubkey=body.device_pubkey,
                 curve25519=body.curve25519,
                 rueckfallschluessel=body.rueckfallschluessel,
+                ed25519=body.ed25519,
+                bundel_signatur=body.bundel_signatur,
                 dauerhaft=body.dauerhaft,
                 gekoppelt_am=gekoppelt_am,
             )

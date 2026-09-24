@@ -146,6 +146,23 @@ def test_parse_native_mp4_webm():
         assert parse_source(url) == {"type": "native", "url": url}
 
 
+def test_parse_rejects_numerische_ip_formen():
+    # Zweiter Bughunt-Lauf (2026-09-23): Browser kanonisieren reine Zahlen-
+    # Hosts zum IPv4-Ziel (WHATWG) — 2852039166 IST 169.254.169.254
+    # (Cloud-Metadata), 0x7f000001/0177.0.0.1 ist 127.0.0.1. ``ip_address()``
+    # wirft für diese Formen ValueError; der Host darf deshalb nie als
+    # harmloser Name durchgehen.
+    for host in ("2852039166", "0x7f000001", "0177.0.0.1", "2130706433.7"):
+        assert parse_source(f"https://{host}/a.mp4") is None, host
+    # NAT64 mit eingebettetem Metadata-Ziel ebenfalls nicht.
+    assert parse_source("https://[64:ff9b::a9fe:a9fe]/a.mp4") is None
+    # Gegenprobe: ein echter Domainname mit Ziffern bleibt erlaubt.
+    assert parse_source("https://123videos.example.com/a.mp4") == {
+        "type": "native",
+        "url": "https://123videos.example.com/a.mp4",
+    }
+
+
 def test_parse_rejects_hls_m3u8():
     # HLS isn't playable by the plain <video> viewer on Chromium/Electron, so
     # the parser rejects it rather than accepting an un-playable source.

@@ -22,7 +22,7 @@ from dcc_shared.snowflake import kennung_aus_text
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.direct_signal import InstanceOffline, OfferTimeout, hub
-from dcc_auth.models_instances import UserInstanceMembership
+from dcc_auth.models_instances import RegisteredInstance, UserInstanceMembership
 from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
 from dcc_auth.routes_instance_applications import _require_user
@@ -87,7 +87,8 @@ async def directory_ws(ws: WebSocket, db: SessionDep) -> None:
 async def direct_offer(
     instance_id: str, body: DirectOfferIn, request: Request, db: SessionDep
 ) -> DirectOfferOut:
-    """WebRTC-Offer an die Server-App durchreichen, Answer zurückgeben."""
+    """WebRTC-Offer an die Server-App durchreichen, Answer zurückgeben
+    (owner-only wie der Telefonbuch-Lookup — Bughunt 2026-09-23)."""
     settings = get_settings()
     await _check_rate(request, "directory_offer", settings.rate_limit_directory_offer)
     user = await _require_user(request, db)
@@ -95,8 +96,17 @@ async def direct_offer(
     iid = kennung_aus_text(instance_id)
     if iid is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+    # Direktpfad ist Owner-Sache: der Mitglied-Eintrag ist eine Merkhilfe ohne
+    # Nachweis („beitreten" braucht keinen Beleg), und die Route gibt die
+    # Heim-IP des Betreibers her bzw. spannt einen Draht auf seine interne
+    # HTTP-Fläche — docs/2026-09-07-direktweg-berechtigung.md, Weg 1.
     membership = await db.get(UserInstanceMembership, (user.id, iid))
-    if membership is None:
+    if membership is None or membership.role != "owner":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+    # Suspendierte Instanz: Kill-Switch darf nicht nur den Container stoppen,
+    # sondern muss auch die letzte bekannte Heimadresse versiegen.
+    inst = await db.get(RegisteredInstance, iid)
+    if inst is None or inst.status != "active":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
 
     try:

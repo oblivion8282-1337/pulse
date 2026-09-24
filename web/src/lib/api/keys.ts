@@ -26,6 +26,12 @@ import { request } from './client';
 export interface GeraeteSchluessel {
   device_pubkey: string;
   curve25519: string;
+  /** Identitaet + Buendel-Signatur des Geraets (Bughunt 2026-09-23). Beide
+   *  `null` bei Bestandsbuendeln ohne Neupublikation — solche Geraete empfangen
+   *  keine neuen verschluesselten DM-Sitzungen mehr (``senden.ts``), bis ihr
+   *  naechster Start das Buendel neu veroeffentlicht. */
+  ed25519: string | null;
+  bundel_signatur: string | null;
   einmalschluessel: string | null;
   rueckfallschluessel: string | null;
   /** Ob dieses Geraet dauerhaft ist (Electron- oder Android-App) — Grundlage
@@ -60,6 +66,10 @@ export const keysApi = {
       curve25519: string;
       rueckfallschluessel?: string | null;
       dauerhaft: boolean;
+      /** Ed25519-Identitaet + Signatur ueber ``buendelAnmeldung(...)``
+       *  (Bughunt 2026-09-23, `krypto/buendelSignatur.ts`). */
+      ed25519?: string;
+      bundel_signatur?: string;
     },
     route: { serverId?: string } = {}
   ): Promise<void> {
@@ -131,6 +141,22 @@ export const keysApi = {
     return request<Record<string, GeraeteSchluessel[]>>(
       '/keys/claim',
       { method: 'POST', body: { user_ids: userIds } },
+      route
+    );
+  },
+
+  /** Verbrauchsfreie Bündel-Auskunft für EIN Konto (Bughunt 2026-09-23,
+   *  `schluessel_auskunft.py`) — ohne Einmalschluessel-Felder, also ohne den
+   *  Vorratsverbrauch, den `claim` je Gerät auslösen würde. Grundlage der
+   *  Empfangs-Bindung (`krypto/empfangsbindung.ts`): das Absendergerät wird
+   *  verifiziert, BEVOR eine Olm-Sitzung darauf gebaut wird. */
+  buendelAuskunft(
+    zielId: string,
+    route: { serverId?: string } = {}
+  ): Promise<GeraeteSchluessel[]> {
+    return request<GeraeteSchluessel[]>(
+      `/keys/buendel/${encodeURIComponent(zielId)}`,
+      {},
       route
     );
   }

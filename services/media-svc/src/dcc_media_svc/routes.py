@@ -453,7 +453,8 @@ async def _read_token_fuer(
 
     Deterministisch statt je Anfrage frisch: ein Zuschauer in einer
     Wiederverbindungs-Schleife haeufte sonst pro Anlauf einen lebenden
-    Redis-Schluessel an (je 1 h TTL), ohne dass sich am Umfang des Tokens
+    Redis-Schluessel an (TTL = ``read_token_ttl_s``, seit dem zweiten
+    Bughunt-Lauf 2026-09-23 10 min), ohne dass sich am Umfang des Tokens
     etwas aenderte.
 
     Sicherheit: Lese-Token sind **nicht** einmalig — der auth-hook nimmt sie

@@ -170,6 +170,25 @@ async def test_lookup_without_membership_404(client, bob, instance):
     assert r.status_code == 404
 
 
+async def test_plain_member_gets_404_even_with_heartbeat(client, bob, instance, session_factory):
+    """Bughunt 2026-09-23: „beitreten" braucht keinen Nachweis — die Merkhilfe-
+    Membership darf daher die Heim-IP nicht offenlegen. Nur der Owner kommt an
+    Telefonbuch und Direktpfad (docs/2026-09-07-direktweg-berechtigung.md → Weg 1)."""
+    await client.post("/selfhost/directory/heartbeat", json=_heartbeat_body(instance))
+    async with session_factory() as session:
+        session.add(
+            UserInstanceMembership(
+                user_id=int(bob["id"]), instance_id=_INSTANCE_ID, role="member"
+            )
+        )
+        await session.commit()
+    r = await client.get(
+        f"/me/instances/{instance['id']}/direct-endpoint",
+        headers={"Cookie": bob["cookie"]},
+    )
+    assert r.status_code == 404
+
+
 async def test_lookup_without_heartbeat_404(client, alice, instance):
     r = await client.get(
         f"/me/instances/{instance['id']}/direct-endpoint",

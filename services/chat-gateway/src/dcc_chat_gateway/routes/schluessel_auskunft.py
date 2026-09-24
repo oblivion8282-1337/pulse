@@ -33,16 +33,23 @@ Anmeldung (``CurrentUser``) der Ausweis. Dasselbe gilt fuer
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import or_, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.geraete_widerruf import darf_empfangen
 from dcc_chat_gateway.models import DeviceKeyBundle
-from dcc_chat_gateway.schemas import GeraeteStandOut, SnowflakeId, VerschluesselbarOut
+from dcc_chat_gateway.ratelimit import check as ratelimit_check
+from dcc_chat_gateway.schemas import (
+    GeraeteBuendelAuskunftOut,
+    GeraeteStandOut,
+    SnowflakeId,
+    VerschluesselbarOut,
+)
 from dcc_chat_gateway.schluessel_verfall import ist_verfallen, verfall_grenze
 from dcc_chat_gateway.schluessel_zugriff import darf_schluessel_holen
 from dcc_chat_gateway.security import CurrentUser
+from dcc_chat_gateway.config import get_settings
 
 router = APIRouter(tags=["keys"])
 
@@ -158,3 +165,58 @@ async def geraetestand(
     if zeile.entfernt:
         return GeraeteStandOut(stand="entfernt")
     return GeraeteStandOut(stand="verfallen" if zeile.verfallen else "gueltig")
+
+
+@router.get("/keys/buendel/{ziel_id}", response_model=list[GeraeteBuendelAuskunftOut])
+async def buendel_auskunft(
+    ziel_id: SnowflakeId,
+    session: SessionDep,
+    user: CurrentUser,
+) -> list[GeraeteBuendelAuskunftOut]:
+    """Die Bündel eines Zielkontos — verbrauchsfrei (Bughunt 2026-09-23).
+
+    Der EMPFANGS-Weg verifiziert das Absendergerät gegen das Verzeichnis,
+    bevor es eine Olm-Sitzung darauf baut (``web/src/lib/krypto/
+    empfangsbindung.ts``). ``POST /keys/claim`` wäre die falsche Quelle: er
+    VERBRAUCHT je Gerät einen Einmalschluessel, der hier nie benutzt würde —
+    derselbe Grund, aus dem ``/keys/verschluesselbar`` existiert (s. dessen
+    Modulkopf für die ganze Abwägung). Diese Route liest ausschließlich, mit
+    derselben ``darf_schluessel_holen``-Prüfung wie der Abholweg (wer dort
+    eine leere Liste bekäme, bekommt hier eine leere Liste) und demselben
+    ``darf_empfangen``-Filter (verfallene/entfernte Geräte sind keine
+    Absender mehr). Bewusst ohne Einmalschluessel-Felder — genau deren
+    Abwesenheit macht sie zur Leserate.
+    """
+    if not await darf_schluessel_holen(session, user.id, ziel_id):
+        return []
+
+    # Zweiter Bughunt-Lauf (2026-09-23): Leserate braucht eine Bremse — das
+    # Claim-Budget deckt nur den OTK-Verbrauch, nie Last. Gleiche Familie wie
+    # die übrigen ratelimit-Regeln.
+    if not ratelimit_check("keys_buendel_auskunft", user.id):
+        raise HTTPException(status_code=429, detail="rate limited")
+
+    zeilen = (
+        await session.execute(
+            select(DeviceKeyBundle)
+            .where(
+                DeviceKeyBundle.user_id == ziel_id,
+                darf_empfangen(verfall_grenze()),
+            )
+            # Dieselbe defensive Obergrenze wie im Abholweg — das Konto kann
+            # so viele Zeilen gar nicht mehr anhaeufen; bewacht wird der Fall
+            # alter Bestandsdaten (s. ``schluessel_abholen.py``).
+            .limit(get_settings().schluessel_max_buendel_je_konto)
+        )
+    ).scalars().all()
+
+    return [
+        GeraeteBuendelAuskunftOut(
+            device_pubkey=b.device_pubkey,
+            curve25519=b.curve25519,
+            rueckfallschluessel=b.rueckfallschluessel,
+            ed25519=b.ed25519,
+            bundel_signatur=b.bundel_signatur,
+        )
+        for b in zeilen
+    ]

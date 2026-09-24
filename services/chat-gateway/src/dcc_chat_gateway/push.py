@@ -158,6 +158,8 @@ def _send_one(
             data=body,
             vapid_private_key=vapid_pem,
             vapid_claims=dict(vapid_claims),
+            timeout=10,  # ohne Timeout hängt ein zäher Vendor-POST einen
+            # to_thread-Worker dauerhaft und verhungert den ganzen Push-Versand
         )
         return "ok"
     except WebPushException as exc:  # noqa: BLE001

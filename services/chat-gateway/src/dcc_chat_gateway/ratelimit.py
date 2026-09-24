@@ -32,6 +32,10 @@ _RULES: dict[str, tuple[int, float]] = {
     # nicht gegen den Menschen: jeder Aufruf schreibt eine Zeile, und die
     # Liste im Dialog wuerde bei tausenden unbrauchbar.
     "attach": (20, 60.0),           # 20 upload-URL requests / minute
+    # Verbrauchsfreie Bündel-Leserate (Bughunt 2026-09-23, zweiter Lauf):
+    # liefert Schlüssel-Material an Freunde — ohne Bremse dauerhaft hämmerbar
+    # (bis 4 DB-Lookups je Aufruf). Das Claim-Budget deckt nur OTK-Verbrauch.
+    "keys_buendel_auskunft": (60, 60.0), # 60 Leserate-Abrufe / Minute
     "dropbox_mint": (30, 60.0),     # 30 dropbox upload-URL mints / minute
     "dropbox_folder_create": (20, 60.0), # 20 folder creates / minute
     "dropbox_finish": (60, 60.0),    # 60 finish-upload calls / minute

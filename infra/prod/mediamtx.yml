@@ -127,6 +127,21 @@ authHTTPExclude:
   - action: metrics
   - action: pprof
 
+# Bughunt 2026-09-23, zweiter Lauf: `authInternalUsers` bewusst GEPINNT —
+# gegen Upstream v1.19.1 verifiziert (`internal/conf/conf.go`,
+# `internal/auth/manager.go`): interne Nutzer und der HTTP-Hook sind
+# EXKLUSIVE Branches (`authMethod`), d. h. unter `authMethod: http` wird
+# diese Liste NIE konsultiert — der Pin ist heute ein Verhaltens-No-op und
+# verteidigt gegen Fork-/Upstream-Divergenz (ein Default-Flip allein wäre
+# wirkungslos). Zwei Konsequenzen, die NICHT aus dem Pin ableitbar sind:
+# publish/read hängen AUSSCHLIESSLICH am Hook (Token, single-use), und
+# api/metrics/pprof hängen AUSSCHLIESSLICH an `authHTTPExclude` plus
+# Bindung/UFW — wer `authHTTPExclude` entfernt, in der Annahme, diese Liste
+# schütze die API, öffnet sie vollständig (leere Liste = keine Auth).
+# Der Control-API-Poller kommt über host.docker.internal (Docker-Bridge,
+# nicht Loopback) und braucht hier keinen Eintrag; UFW-Pflicht s. oben.
+authInternalUsers: []
+
 paths:
   # Pulse HQ channel streams are named `channel-<snowflake>`. Every connection is
   # allowed/denied by the auth hook; this default entry just lets MediaMTX accept
