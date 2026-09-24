@@ -329,6 +329,7 @@
       onBack={() => goto('/app/@me')}
       cloudScoped
       showMemberList={false}
+      verschluesselteAnhaenge={PRIVATE_GRUPPEN_ENABLED}
       reaktionUmschlag={PRIVATE_GRUPPEN_ENABLED}
       bearbeitungErlaubt={PRIVATE_GRUPPEN_ENABLED}
       onEditMessage={editMessage}

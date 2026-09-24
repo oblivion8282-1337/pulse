@@ -50,13 +50,12 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
   // dieselbe verschluesselte Nachricht unter verschiedenen lokalen IDs.
   if (aktiveGruppe) {
     const gruppenKanal = aktiveGruppe.id;
-    if (attachmentIds.length > 0 || anhaenge.length > 0) {
-      toast.error(m.gruppe_senden_ohne_anhaenge());
-      return;
-    }
+    // Anhänge fahren seit dem Gruppen-Anhangsweg MIT — verschlüsselt im
+    // Megolm-Frame, die Bytes bleiben serverseitig an die Mitglieds-Zustel-
+    // lungen gebunden (derselbe sterbliche Weg wie bei DMs).
     const kanonischeId = kanonischeAntwortId(replyToId, visibleMessages);
     void import('$lib/krypto/gruppe/sendenMitAnzeige').then(({ gruppeSendenMitAnzeige }) =>
-      gruppeSendenMitAnzeige(gruppenKanal, text, kanonischeId)
+      gruppeSendenMitAnzeige(gruppenKanal, text, kanonischeId, anhaenge)
     );
     return;
   }

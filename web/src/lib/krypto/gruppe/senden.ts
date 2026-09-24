@@ -58,7 +58,8 @@ import { parseMentionMarkers } from '../../components/mentionMarkierungen';
 import { geraeteKennung } from '../geraeteKennung';
 import { lokaleNachrichtId } from '../lokaleNachrichtId';
 import { mitGruppensitzungssperre } from '../sperren';
-import { baueNachrichtNutzlast } from '../nachrichtNutzlast';
+import { baueNachrichtNutzlast, type AnhangAngabe } from '../nachrichtNutzlast';
+import { anhangAngabeZuAttachment } from '../anhangAnzeige';
 import { PRIVATE_GRUPPEN_ENABLED } from '../schalter';
 import { sitzungWaehlen, standNachSendung } from './sitzungswahl';
 import { bloeckeEinliefern, verteilUmschlaege } from './gruppenEinliefern';
@@ -95,7 +96,8 @@ function cloudRoute(): { serverId?: string } {
 export async function sendeInGruppe(
   kanalId: string,
   klartext: string,
-  replyToId: string | null = null
+  replyToId: string | null = null,
+  anhaenge: AnhangAngabe[] = []
 ): Promise<GruppenSendeErgebnis> {
   // Der Riegel VOR dem ersten Serveraufruf. `gruppenApi` verriegelt selbst
   // noch einmal (s. dort) — hier steht er trotzdem, weil sonst schon die
@@ -167,7 +169,7 @@ export async function sendeInGruppe(
     // Schritt 5.
     const nachrichtId = lokaleNachrichtId();
     const geheimtext = stand.sitzung.verschluesseln(
-      baueNachrichtNutzlast(klartext, nachrichtId, replyToId)
+      baueNachrichtNutzlast(klartext, nachrichtId, replyToId, anhaenge)
     );
     const daten = baueGruppenhuelle(stand.sitzungId, geheimtext);
     const alleGeraete = ziel.map((z) => z.geraet.device_pubkey);
@@ -253,7 +255,8 @@ export async function sendeInGruppe(
       reply_to_id: replyToId,
       created_at: new Date().toISOString(),
       mentions: parseMentionMarkers(klartext),
-      verschluesselt: true
+      verschluesselt: true,
+      ...(anhaenge.length > 0 ? { attachments: anhaenge.map(anhangAngabeZuAttachment) } : {})
     };
     try {
       await verlaufSpeichernPflicht(kanalId, [nachricht]);

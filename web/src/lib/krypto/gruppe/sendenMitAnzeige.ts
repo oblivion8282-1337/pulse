@@ -17,18 +17,20 @@
  */
 import { toast } from 'svelte-sonner';
 
+import type { AnhangAngabe } from '../nachrichtNutzlast';
 import { messages } from '../../stores/messages.svelte';
 import { m } from '../../paraglide/messages.js';
 
 export async function gruppeSendenMitAnzeige(
   kanalId: string,
   text: string,
-  replyToId: string | null
+  replyToId: string | null,
+  anhaenge: AnhangAngabe[] = []
 ): Promise<void> {
   let ergebnis;
   try {
     const { sendeInGruppe } = await import('./senden');
-    ergebnis = await sendeInGruppe(kanalId, text, replyToId);
+    ergebnis = await sendeInGruppe(kanalId, text, replyToId, anhaenge);
   } catch (err) {
     toast.error(m.gruppe_senden_fehlgeschlagen(), {
       description: (err as Error).message
