@@ -27,7 +27,10 @@ import {
   rueckfallschluesselSicherstellen
 } from './account.svelte';
 import { buendelAnmeldung } from './buendelSignatur';
-import { geraeteKennung } from './geraeteKennung';
+import { geraeteKennung, geraeteKennungWischen } from './geraeteKennung';
+import { ApiError } from '../api/client';
+import { extractDetail } from '../api/parse';
+import { generateKeypair, saveKeypair, wipeKeypair } from '../identity/keypair.svelte';
 import { pickelUebergangSicherstellen } from './pickelUebergang';
 import { mitKontosperre } from './sperren';
 import { verfallPruefen } from './verfallPruefen';
@@ -61,8 +64,49 @@ const NACHFUELL_BATCH = 30;
  *  **Der erste Aufruf auf einem Geraet ist zugleich der Moment, in dem die
  *  Kennung dem Konto bekannt wird** (Spec §3b): `PUT /keys/bundle` ist eine
  *  der beiden Routen, die ein noch unbekanntes Geraet zulassen. Jede andere
- *  Krypto-Route dieses Geraets scheitert vorher mit 403. */
+ *  Krypto-Route dieses Geraets scheitert vorher mit 403.
+ *
+ * **Selbstheilung bei Fremdkonto-Kennung (2026-09-24):** lehnt der Server
+ * die Kennung mit „Geraet gehoert nicht zum angemeldeten Konto" ab, gehoert
+ * die lokale Geraete-Identitaet einem ANDEREN Nutzer — der Account-Switch-
+ * Wächter in `auth.svelte.ts` verhindert das normalerweise, aber sein
+ * Owner-Merker kann fehlen ( partiell geräumter Browser-Speicher,
+ * Experimentier-Profile). Bis hierher hing die App dann in der 403-Schleife:
+ * Anmeldung, Postfach-Abholung und Einmalschluessel-Nachschub scheiterten
+ * endlos mit derselben Kennung. Jetzt wird die Identitaet verworfen (Keypair
+ * + abgelegte Kennung), ein frisches Geraet erzeugt und GENAU EINMAL erneut
+ * veroeffentlicht — ein zweiter Fehlschlag geht wie jeder andere Fehler raus.
+ * Kein Sicherheitsverlust: das fremde Geraet war fuer DIES Konto nie nutzbar. */
 export async function veroeffentlicheSchluessel(): Promise<void> {
+  try {
+    await veroeffentlichenLauf();
+  } catch (err) {
+    if (!istFremdkontoAblehnung(err)) throw err;
+    console.warn(
+      '[krypto] Gerätekennung gehört fremdem Konto — Geräte-Identität wird neu aufgebaut'
+    );
+    await Promise.allSettled([wipeKeypair(), geraeteKennungWischen()]);
+    // Frisches Geraet OHNE Rueckfrage: die alte Kennung ist fuer dieses
+    // Konto unbrauchbar, ein leeres Geraet ist der dokumentierte Weg
+    // (``geraeteKennung.ts``: „ein Wechsel ist ein neues, leeres Geraet").
+    const frisch = await generateKeypair();
+    await saveKeypair(frisch);
+    await veroeffentlichenLauf();
+  }
+}
+
+/** Erkennt die serverseitige Eigentümer-Ablehnung (schluessel_nachweis.py,
+ *  403 „Geraet gehoert nicht zum angemeldeten Konto") — exakt dieser Text,
+ *  keine andere 403 (Rate-Limit & Co. dürfen keine Identitaet vernichten). */
+function istFremdkontoAblehnung(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status === 403 &&
+    extractDetail(err.body) === 'Geraet gehoert nicht zum angemeldeten Konto'
+  );
+}
+
+async function veroeffentlichenLauf(): Promise<void> {
   let kennung: string;
   try {
     kennung = await geraeteKennung();
