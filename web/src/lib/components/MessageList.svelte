@@ -137,11 +137,12 @@
 
   function gibInitialFrei(): void {
     clearTimeout(bereitWache);
-    // 350 ms RUHE abwarten: auf den lokalen Schwanz folgt der Server-
-    // Nachschlag, der die Liste neu misst — erst wenn der Strom ruhig ist,
-    // wird freigegeben. Sonst scrollt der Nutzer genau in das Fenster der
-    // Ersetzung hinein.
-    bereitWache = setTimeout(() => (initialBereit = true), 350);
+    // 150 ms RUHE abwarten: auf den lokalen Schwanz folgt der Server-
+    // Nachschlag, der die Liste neu misst — erst wenn der Strom kurz ruhig
+    // ist, wird freigegeben. Kurz halten, damit der Merge nicht ins Fenster
+    // faellt; die Frist ist bewusst knapp gehalten (Nutzerwunsch: keine
+    // langen Wartezeiten beim Oeffnen).
+    bereitWache = setTimeout(() => (initialBereit = true), 150);
   }
 
   function handleVirtuaScroll(offset: number) {
