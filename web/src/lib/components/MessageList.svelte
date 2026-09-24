@@ -332,6 +332,22 @@
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onGrow);
     ro?.observe(el);
     el.addEventListener('load', onGrow, true);
+    // Messungs-Wachstum: virtua misst Items erst beim Rendern nach — der
+    // Inhalt wächst also UNTER einem unten klebenden Nutzer (48er-Schätzung
+    // vs. reale Medienhöhen) und er scrollt „ins Nichts". Der Wächter hält
+    // den Pin, solange der Nutzer unten klebt.
+    let letzteGemessene = 0;
+    const wache = setInterval(() => {
+      if (!vlist || !pinnedToBottom || items.length === 0) {
+        letzteGemessene = 0;
+        return;
+      }
+      const groesse = vlist.getScrollSize();
+      if (Math.abs(groesse - letzteGemessene) > 10) {
+        letzteGemessene = groesse;
+        pinToEnd();
+      }
+    }, 250);
     // Scroll-Absicht des Users schlägt das automatische Ans-Ende-Ziehen — und
     // zwar SOFORT, nicht erst wenn das daraus folgende scroll-Event
     // `pinnedToBottom` neu berechnet. Ohne das kann ein Bild, das genau in
@@ -379,6 +395,7 @@
       el.removeEventListener('touchmove', onTouchMove, true);
       el.removeEventListener('keydown', onKey, true);
       el.removeEventListener('mousedown', onMouseDown, true);
+      clearInterval(wache);
     };
   });
 
@@ -658,7 +675,7 @@
         bind:this={vlist}
         onscroll={handleVirtuaScroll}
         shift={prependShift}
-        itemSize={48}
+        itemSize={120}
         bufferSize={800}
         style="height:100%; overscroll-behavior-y: contain;"
       >
