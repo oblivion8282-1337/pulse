@@ -385,23 +385,22 @@
     // den Pin, solange der Nutzer unten klebt.
     let letzteGemessene = 0;
     const wache = setInterval(() => {
-      if (!vlist || !pinnedToBottom || items.length === 0) {
+      if (!vlist || items.length === 0) {
         letzteGemessene = 0;
         return;
       }
       const groesse = vlist.getScrollSize();
-      // NUR nahe am Ende nachziehen: weit oben (z. B. nach einem schnellen
-      // Wisch, dessen Richtung das Unpin verpasst hat) wuerde der Pin den
-      // Nutzer mitten im Stoebern ans Ende reissen („haengt beim Halten").
-      const naheEnde =
-        vlist.getScrollOffset() + vlist.getViewportSize() >= groesse - 150;
-      if (!naheEnde) {
+      // Lueckenlos solange unten geklebt: jedes Messungs-Nachziehen oberhalb
+      // vergroessert den Inhalt und drueckt das Listenende nach unten — ohne
+      // Neu-Pin driftet die Ansicht vom Ende weg (Scrollbar-Dezentliness).
+      // Bewusst unpinnte Nutzer (weiter oben lesen) werden nicht gestoert.
+      if (!pinnedToBottom) {
         letzteGemessene = groesse;
         return;
       }
       if (Math.abs(groesse - letzteGemessene) > 10) {
         letzteGemessene = groesse;
-        pinToEnd(true);
+        pinToEnd();
       }
     }, 250);
     // Scroll-Absicht des Users schlägt das automatische Ans-Ende-Ziehen — und
