@@ -119,6 +119,21 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     // deshalb IMMER zusätzlich gefragt. Jedes Öffnen läuft daher durch
     // dieselbe Sequenz (lokal → zeigen → Server) — ein wiedergeöffneter
     // Chat sieht aus und lädt damit genauso wie der erste Besuch.
+    //
+    // Wiedereintritt: den Altbestand der letzten Visite vorher leeren. Startet
+    // die virtuelle Liste mit ihm, laufen die setInitial unten mitten in der
+    // Pin-Scroll-Phase über gemessene Items — virtuas Größenmodell verliert
+    // dabei Updates und die Liste bekommt Phantom-Höhe am Ende (die
+    // Scrollbar zeigt „nicht unten", obwohl die letzte Nachricht sichtbar
+    // ist, und man kann in nichts weiterscrollen). Leeren macht den
+    // Wiedereinstieg strukturell zum Erstbesuch: die Liste startet bei 0 und
+    // misst einmalig den finalen Bestand.
+    // untrack, weil das umgebende Effekt-Feuern sonst die eigene Schreiberei
+    // auf `loadedChannels` als Abhängigkeit sieht und sich endlos selbst
+    // stale-abortet (Kanal bliebe leer).
+    untrack(() => {
+      if (messages.loadedChannels[cid]) messages.setInitial(cid, []);
+    });
     let lokal: Awaited<ReturnType<typeof verlaufLesen>> = [];
     try {
       lokal = await verlaufLesen(cid, { anzahl: 50 });

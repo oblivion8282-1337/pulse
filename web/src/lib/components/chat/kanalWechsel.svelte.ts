@@ -83,7 +83,11 @@ export function erstelleKanalWechsel() {
       if (ch && ch.type === 0) {
         // Jedes Öffnen lädt dieselbe Sequenz (lokal/Server → setInitial) —
         // ein wiedergeöffneter Kanal sieht aus und lädt damit genauso wie
-        // beim ersten Besuch.
+        // beim ersten Besuch. Altbestand vorher leeren (Begründung s.
+        // dmKanalWechsel.svelte.ts); untrack gegen Selbst-Stale-Abort.
+        untrack(() => {
+          if (messages.loadedChannels[target]) messages.setInitial(target, []);
+        });
         try {
           // Ablage-Kanal: der Server hat den Klartext nie gesehen (B1) —
           // lokaler Bestand statt REST, wie bei einer privaten Gruppe
