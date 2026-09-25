@@ -166,6 +166,20 @@
     const size = vlist.getScrollSize();
     // Vor dem ersten echten Inhalt ist die Größe 0 → nicht auswerten.
     if (size === 0) return;
+    // Phantomspace unten KLEMMEN: der virtuelle Umfang rechnet mit Schaetzwerten
+    // (120 px) fuer nie gerenderte Nachrichten und kann ueber dem realen
+    // Inhalt liegen — ohne Klemme scrollt man in die Leere unter der letzten
+    // Nachricht. Max. 30 px Luft zwischen letzter Nachricht und Listenende.
+    if (items.length > 0) {
+      const letzteIndex = items.length - 1;
+      const inhaltBisLetzte =
+        vlist.getItemOffset(letzteIndex) + vlist.getItemSize(letzteIndex);
+      const maxErlaubt = Math.max(0, inhaltBisLetzte + 30 - vlist.getViewportSize());
+      if (offset > maxErlaubt) {
+        vlist.scrollTo(maxErlaubt);
+        return;
+      }
+    }
     // Erste 150 ms nach Kanalwechsel: nur ABWAERTS blockieren — der Finger
     // kommt nicht in den Leerbereich unter der letzten Nachricht. Nach oben
     // (aeltere Nachrichten) bleibt das Scrollen frei; die Referenz folgt
