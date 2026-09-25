@@ -367,6 +367,13 @@
       lastCount = count;
       lastSeenId = lastId;
       if (shouldScroll) pinToEndWhenMeasured(isInitialLoad);
+      // Erstladung: etwas Inhalt kam NACH dem Notfall-Timer (langsames Netz,
+      // >1,2 s) — dann ist die Sperre schon auf, ohne dass gepinnt wurde:
+      // wieder schließen und erst nach der Ruhe-Frist mit Pin freigeben.
+      if (isInitialLoad && initialBereit) {
+        initialBereit = false;
+        gibInitialFrei();
+      }
       // Jeder Nachschub in der Sperrphase stellt die Ruhe-Frist neu: erst
       // wenn 350 ms lang NICHTS mehr kam (lokal + Server-merge), geht es auf.
       if (!initialBereit) gibInitialFrei();
@@ -701,8 +708,13 @@
          Runterwischen wandert ins Unendliche. Der Spinner blockt die
          Berührung, bis gepinnt ist; leere Gespraäche entlassen sich per
          Fallback-Timer selbst. -->
+    <!-- bg-bg-panel + Blur, NICHT bg-bg: das Token `--color-bg` existiert in
+         der Glasshouse-Palette nicht — die Fläche war rgba(0,0,0,0), der
+         Spinner schwebte frei, und beim Eintritt blitzten Leer-State-Text
+         und obenliegende Nachrichten durch (Aufnahme 2026-09-25 04:02).
+         panel-solid ist 92 % deckend, der Blur frisst den Rest. -->
     <div
-      class="absolute inset-0 z-20 flex items-center justify-center bg-bg"
+      class="absolute inset-0 z-20 flex items-center justify-center bg-bg-panel backdrop-blur-2xl"
       data-testid="message-list-loading"
     >
       <LoaderCircleIcon class="text-primary size-8 animate-spin" />
