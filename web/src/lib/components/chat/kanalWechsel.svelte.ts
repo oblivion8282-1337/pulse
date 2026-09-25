@@ -128,6 +128,15 @@ export function erstelleKanalWechsel() {
     resolving = false;
   }
 
+  /** Altbestand des Zielkanals vor dem ersten Rendern leeren (Begründung s.
+   *  `dmKanalWechsel.vorbereiten` — sonst blitzt die Liste einen Frame lang
+   *  den Altbestand, bevor der Sprung nach unten kommt). */
+  function vorbereiten(cid: string) {
+    untrack(() => {
+      if (cid && messages.loadedChannels[cid]) messages.setInitial(cid, []);
+    });
+  }
+
   // WS reconnect path: connection.ts calls messages.clearChannel(cid) for every
   // subscribed channel on `open`, which empties byChannel + loadedChannels.
   // switchTo only fires on URL change — so without this effect the user would
@@ -200,6 +209,7 @@ export function erstelleKanalWechsel() {
     get loadError() {
       return loadError;
     },
+    vorbereiten,
     switchTo,
     nachladenWennNoetig,
     retry,

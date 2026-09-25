@@ -167,6 +167,13 @@
   // die Rechnung, hier nur die Verdrahtung mit dieser Seite.
   const kanalWechsel = erstelleKanalWechsel();
   const kanalNachrichten = erstelleKanalNachrichtenAktionen();
+  // SYNCHRON im Setup, vor dem ersten Rendern: Altbestand leeren, damit die
+  // Liste leer startet und nicht einen Frame lang die obersten Nachrichten
+  // blitzt (Begründung s. `dmKanalWechsel.vorbereiten`). Bewusst nur der
+  // Eingangswert — spaetere Kanalwechsel im selben Dokument übernimmt der
+  // switchTo-Effekt (der leert ebenfalls).
+  // svelte-ignore state_referenced_locally
+  if (channelId && channelId !== '_') kanalWechsel.vorbereiten(channelId);
 
   $effect(() => {
     const g = guildId;

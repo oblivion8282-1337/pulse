@@ -131,6 +131,13 @@
   // Umschalten zwischen Gespraechen (Laden, Abonnieren, Nachhol-Bestellungen)
   // ausgelagert — s. `chat/dmKanalWechsel.svelte.ts`.
   const kanalWechsel = erstelleDmKanalWechsel(cloudRoute);
+  // SYNCHRON im Setup, vor dem ersten Rendern: Altbestand leeren, damit die
+  // Liste leer startet und nicht einen Frame lang die obersten Nachrichten
+  // blitzt, bevor der Sprung nach unten kommt (s. `vorbereiten`/`switchTo`).
+  // Bewusst nur der Eingangswert: spaetere Kanalwechsel im selben Dokument
+  // laeuft der switchTo-Effekt (der leert ebenfalls).
+  // svelte-ignore state_referenced_locally
+  if (dmChannelId) kanalWechsel.vorbereiten(dmChannelId);
   const pendingOptimisticTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   // Mirrors the channel-page effect: when the DM id in the URL changes, load

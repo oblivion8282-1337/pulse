@@ -236,6 +236,17 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     if (prevDM) abonnementAufgeben(prevDM);
   }
 
+  /** Altbestand des Zielkanals vor dem ersten Rendern leeren (derselben
+   *  Grund wie das Leeren in `switchTo` — s. dort). Muss SYNCHRON im Setup
+   *  der Seite laufen: läuft es erst im Effekt, rendert die Liste einen Frame
+   *  lang den Altbestand oben und blitzt, bevor der Sprung nach unten kommt.
+   */
+  function vorbereiten(cid: string) {
+    untrack(() => {
+      if (cid && messages.loadedChannels[cid]) messages.setInitial(cid, []);
+    });
+  }
+
   return {
     get loadError() {
       return loadError;
@@ -243,6 +254,7 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     get resolving() {
       return resolving;
     },
+    vorbereiten,
     switchTo,
     nachladenWennNoetig,
     aufraeumen
