@@ -114,34 +114,31 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
       }
     }
 
-    // Cached from an earlier visit? Then its WS subscription lapsed while we
-    // were away — re-subscribe + gap-fill below instead of re-fetching.
-    const alreadyLoaded = !!messages.loadedChannels[cid];
     // C2: lokal ist ein Vorrat, keine Wahrheit — der lokale Bestand deckt nur
     // ab, was DIESER Klient seit C1 selbst gesehen hat. Der Server wird
-    // deshalb IMMER zusätzlich gefragt, auch wenn lokal schon etwas da war.
+    // deshalb IMMER zusätzlich gefragt. Jedes Öffnen läuft daher durch
+    // dieselbe Sequenz (lokal → zeigen → Server) — ein wiedergeöffneter
+    // Chat sieht aus und lädt damit genauso wie der erste Besuch.
     let lokal: Awaited<ReturnType<typeof verlaufLesen>> = [];
     try {
-      if (!alreadyLoaded) {
-        lokal = await verlaufLesen(cid, { anzahl: 50 });
+      lokal = await verlaufLesen(cid, { anzahl: 50 });
+      if (isStale()) return;
+      // Sofort zeigen, was lokal liegt — das ist der spürbare Gewinn von
+      // C2 — bevor die Serverantwort überhaupt eingetroffen sein kann.
+      if (lokal.length > 0) messages.setInitial(cid, verlaufMergen(lokal, []));
+      if (istGruppe) {
+        // **Kein Serverabruf.** Der Server sieht in einer privaten Gruppe
+        // nie Klartext (Spec §9) und fuehrt dort keine `messages`-Zeile;
+        // `GET /channels/<id>/messages` antwortete 403. Der lokale Bestand
+        // IST der Verlauf — das ist keine Abkuerzung, sondern die einzige
+        // Kopie. Auch der leere Fall wird gesetzt, damit der Kanal als
+        // geladen gilt und der Nachfass-Effekt oben nicht anspringt.
+        messages.setInitial(cid, verlaufMergen(lokal, []));
+      } else {
+        const history = await chatApi.listMessages(cid, {}, cloudRoute);
         if (isStale()) return;
-        // Sofort zeigen, was lokal liegt — das ist der spürbare Gewinn von
-        // C2 — bevor die Serverantwort überhaupt eingetroffen sein kann.
-        if (lokal.length > 0) messages.setInitial(cid, verlaufMergen(lokal, []));
-        if (istGruppe) {
-          // **Kein Serverabruf.** Der Server sieht in einer privaten Gruppe
-          // nie Klartext (Spec §9) und fuehrt dort keine `messages`-Zeile;
-          // `GET /channels/<id>/messages` antwortete 403. Der lokale Bestand
-          // IST der Verlauf — das ist keine Abkuerzung, sondern die einzige
-          // Kopie. Auch der leere Fall wird gesetzt, damit der Kanal als
-          // geladen gilt und der Nachfass-Effekt oben nicht anspringt.
-          messages.setInitial(cid, verlaufMergen(lokal, []));
-        } else {
-          const history = await chatApi.listMessages(cid, {}, cloudRoute);
-          if (isStale()) return;
-          messages.setInitial(cid, verlaufMergen(lokal, history));
-          void verlaufSpeichern(cid, history);
-        }
+        messages.setInitial(cid, verlaufMergen(lokal, history));
+        void verlaufSpeichern(cid, history);
       }
     } catch (err) {
       if (isStale()) return;
@@ -161,15 +158,14 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     // über die Ids, hält die Scroll-Position, wirft nie (s.
     // `sicherungKanalSeiteLaden`). Bewusst NACH dem `setInitial` oben:
     // ein Treffer, der während des Serverabrufs einläuft, würde sonst
-    // überschrieben. Nur beim Frischladen; ein wiedergeöffneter Kanal
-    // deckt das Hochscrollen ab (`verlauf/nachladen.ts`). Dynamischer
+    // überschrieben. Dynamischer
     // Import wie in `verlauf/index.ts` — die Sicherung gehört nicht in
     // den Chat-Grundstack.
     // B5: das Gate zählt nur SICHTBARE Sätze — Grabstein-Zeilen
     // (`deleted_at !== null`) füllen die 50 auf, ohne etwas zu zeigen, und
     // würden ein nötiges Archiv-Nachladen stilllegen. Derselbe Filter wie
     // in `verlauf/nachladen.ts`.
-    if (!alreadyLoaded && lokal.filter((n) => n.deleted_at === null).length < 50) {
+    if (lokal.filter((n) => n.deleted_at === null).length < 50) {
       void import('$lib/sicherung/andock')
         .then(({ sicherungKanalSeiteLaden }) => sicherungKanalSeiteLaden(cid, 50))
         .then(async (angekommen) => {
@@ -183,11 +179,6 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
         });
     }
     cloudGateway.subscribe(cid);
-    // Backfill anything that landed while the subscription was dropped.
-    // Nicht fuer Gruppen: `gapFill` holt ueber die Klartext-Route nach, die
-    // eine Gruppen-ID abweist — das Nachholen dort erledigt das Postfach
-    // (`ws/handlers/ready.ts`).
-    if (alreadyLoaded && !istGruppe) void cloudGateway.gapFill(cid);
     const loaded = messages.for(cid);
     // Anker = kanonische Absender-ID bei verschlüsselten Nachrichten (B3,
     // s. `lesestandKern.lesestandAnker`) — nicht die Zustellungs-ID.
