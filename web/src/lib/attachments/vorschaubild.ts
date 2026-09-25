@@ -60,7 +60,18 @@ export async function erzeugeVorschaubild(file: File): Promise<Vorschaubild | nu
  *  nicht dekodieren kann oder die zu langsam liefern. */
 export async function erzeugeVideoVorschaubild(file: File): Promise<Vorschaubild | null> {
   if (!file.type.startsWith('video/')) return null;
-  const url = URL.createObjectURL(file);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return erzeugeVideoVorschaubildAusBytes(bytes, file.type);
+}
+
+/** Wie `erzeugeVideoVorschaubild`, aber aus bereits vorhandenen Bytes —
+ *  damit bekommen auch ALTE Video-Anhaenge (ohne gespeicherte Vorschau)
+ *  nachtraeglich ein Poster (aus den lokalen Verlauf-Bytes). */
+export async function erzeugeVideoVorschaubildAusBytes(
+  bytes: Uint8Array | Blob,
+  typ: string
+): Promise<Vorschaubild | null> {
+  const url = URL.createObjectURL(new Blob([bytes as unknown as BlobPart], { type: typ }));
   try {
     const video = document.createElement('video');
     video.muted = true;

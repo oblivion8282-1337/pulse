@@ -44,6 +44,8 @@
   import XIcon from '@lucide/svelte/icons/x';
 import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
 import { anhangBlob } from '../krypto/anhangHolen';
+import { anhangBytesLesen } from '../verlauf/db';
+import { erzeugeVideoVorschaubildAusBytes } from '../attachments/vorschaubild';
 import { Portal } from 'bits-ui';
   import { m } from '$lib/paraglide/messages.js';
   import { formatBytes } from '$lib/utils/formatBytes';
@@ -55,15 +57,41 @@ import { Portal } from 'bits-ui';
    *  (lokale Bytes) als Objekt-URL — ein <img> steht sofort, auch wenn die
    *  Virtualisierung das Video-Element beim Scrollen neu mountet. */
   let videoPoster = $state<Record<string, string>>({});
+  const posterLaeuft = new Set<string>();
   $effect(() => {
     for (const a of attachments) {
-      if (!a.mime?.startsWith('video/') || !a.thumb_schluessel) continue;
-      if (videoPoster[a.id]) continue;
-      void anhangBlob(a.id, a.thumb_schluessel, 'image/webp', true)
-        .then((blob) => {
-          if (blob) videoPoster = { ...videoPoster, [a.id]: URL.createObjectURL(blob) };
-        })
-        .catch(() => {});
+      if (!a.mime?.startsWith('video/') || videoPoster[a.id]) continue;
+      if (a.verschluesselt && a.thumb_schluessel) {
+        // Neuer Weg: verschluesselte Vorschau aus dem lokalen Bestand.
+        void anhangBlob(a.id, a.thumb_schluessel, 'image/webp', true)
+          .then((blob) => {
+            if (blob) videoPoster = { ...videoPoster, [a.id]: URL.createObjectURL(blob) };
+          })
+          .catch(() => {});
+      } else if (a.verschluesselt && !posterLaeuft.has(a.id)) {
+        // Alter Anhang OHNE gespeicherte Vorschau: den ersten Frame EINMAL
+        // aus den lokal gespeicherten Bytes ziehen und als Poster cachen —
+        // sonst bleibt die Kachel bei jedem Scroll-Remount schwarz.
+        posterLaeuft.add(a.id);
+        void (async () => {
+          const lokal = await anhangBytesLesen(a.id);
+          if (!lokal) return;
+          const v = await erzeugeVideoVorschaubildAusBytes(
+            lokal.daten,
+            a.mime ?? 'video/mp4'
+          );
+          if (v) videoPoster = { ...videoPoster, [a.id]: URL.createObjectURL(v.blob) };
+        })().catch(() => posterLaeuft.delete(a.id));
+      } else if (!a.verschluesselt && a.url) {
+        // Klartext-Anhang: Poster direkt aus der Server-Datei ziehen.
+        void fetch(a.url)
+          .then((r) => r.arrayBuffer())
+          .then((buf) => erzeugeVideoVorschaubildAusBytes(new Uint8Array(buf), a.mime ?? 'video/mp4'))
+          .then((v) => {
+            if (v) videoPoster = { ...videoPoster, [a.id]: URL.createObjectURL(v.blob) };
+          })
+          .catch(() => posterLaeuft.delete(a.id));
+      }
     }
   });
 
