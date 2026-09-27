@@ -432,7 +432,9 @@ impl Ausgabetakt {
     }
 
     /// Alles verwerfen (Sitzungsende, Codec-Wechsel).
-    #[cfg(test)]
+    ///
+    /// Seit dem Abbau-Umbau 2026-09-27 ausserhalb von Tests aufgerufen: der
+    /// Sitzungs-`Drop` gibt die Wartebilder her, bevor die Felder fallen.
     pub fn leeren(&mut self) {
         self.warteschlange.clear();
         self.anker = None;

@@ -262,6 +262,23 @@ impl Fremdbilder {
         }
     }
 
+    /// Alle Einhaengungen sofort loslassen — als eigener Schritt, nicht im
+    /// Felder-Abbau des Renderers.
+    ///
+    /// Jeder Eintrag haelt auf dem CUDA-Weg den Lebensanker eines Ringplatzes
+    /// (ueber den `drop_callback` der hal-Textur), und erst die letzte
+    /// freigegebene Textur stoesst den Ringplatz-Abbau an — der Treiber-Aufrufe
+    /// auf Geraet-Ebene ausloest (`zerocopy/linux/platz.rs`). Fallen die
+    /// Texturen erst, nachdem das Geraet selbst abgebaut wird, gehen diese
+    /// Rufe in halb abgebaute Treiberstrukturen: dreifach belegter SIGSEGV im
+    /// NVIDIA-Treiber 615.71.09 am 2026-09-27. Aufgerufen wird das deshalb
+    /// aus [`super::Renderer::fremdbilder_freigeben`], solange das Geraet
+    /// gewiss lebt.
+    pub fn leeren(&mut self) {
+        self.importe.clear();
+        self.nachhut.clear();
+    }
+
     /// Die Abdruck-Bindung eines Ringplatzes (s. [`Import::abdruck_gruppe`]).
     pub fn abdruckgruppe(&self, handle: isize) -> Option<&wgpu::BindGroup> {
         self.importe.get(&handle).map(|i| &i.abdruck_gruppe)

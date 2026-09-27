@@ -380,6 +380,27 @@ pub struct App {
 /// Zappeln nichts ausloest.
 const FALLBACK_GRACE: std::time::Duration = std::time::Duration::from_millis(400);
 
+impl Drop for Session {
+    /// Bild-Halterungen loesen, BEVOR die Felder fallen.
+    ///
+    /// Der Ringplatz-Abbau gibt Treiber-Ressourcen auf Geraet-Ebene frei und
+    /// braucht dafuer ein lebendes Geraet (Begruendung:
+    /// [`render::Renderer::fremdbilder_freigeben`]). Halterungen sind das
+    /// Pausenbild, die Takt-Warteschlange und die importierten Texturen des
+    /// Renderers. Fallen sie erst im Felder-Abbau, geht die Reihenfolge
+    /// schief: `renderer` steht in der Deklaration vor `pending` und `takt`,
+    /// und im Renderer selbst faellt `device` vor `fremdbilder`. Der Drop-
+    /// Rumpf laeuft VOR allen Feldern und gibt die Bilder in einer Reihenfolge
+    /// frei, in der das Geraet beim letzten Ringplatz-Verweis noch steht.
+    fn drop(&mut self) {
+        self.takt.leeren();
+        self.pending = None;
+        if let Some(r) = self.renderer.as_mut() {
+            r.fremdbilder_freigeben();
+        }
+    }
+}
+
 impl App {
     pub fn new(proxy: EventLoopProxy<UserEvent>, runtime: tokio::runtime::Handle) -> Self {
         Self {
@@ -1409,7 +1430,9 @@ impl App {
         }
         if let Some(session) = self.sessions.remove(&id) {
             self.by_window.remove(&session.window.id());
-            let tx = session.commands;
+            // Clone statt Rauszug: Session traegt ein Drop, und Feld-Rauszuege
+            // aus Drop-Typen verweigert der Compiler.
+            let tx = session.commands.clone();
             self.runtime.spawn(async move {
                 let _ = tx.send(SessionCommand::Stop).await;
             });

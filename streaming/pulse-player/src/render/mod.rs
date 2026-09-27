@@ -276,6 +276,29 @@ impl Renderer {
         }));
     }
 
+    /// Die importierten Bilder freigeben und die Zerstoerung DURCHZIEHEN,
+    /// solange das eigene Geraet unberuehrt lebt.
+    ///
+    /// wgpu vertagt die Zerstoerung abgegebener Texturen, bis jemand pollt.
+    /// Ohne das hier feuerte der Lebensanker-Rueckruf erst im Geraete-Abbau,
+    /// und der Ringplatz des Bildes raeumte auf einem halb abgebauten Geraet
+    /// auf (s. [`fremdbild::Fremdbilder::leeren`]). Das ist der feste letzte
+    /// Schritt des Sitzungs-Abbaus (`app::Session`'s `Drop`), nicht dem
+    /// Felder-Abbau dieses Renderers ueberlassen: `device` steht hier in der
+    /// Deklaration vor `fremdbilder` und faellt deshalb zuerst.
+    pub fn fremdbilder_freigeben(&mut self) {
+        self.fremdbilder.leeren();
+        // Nicht ewig warten: ein haengendes Geraet darf das Fenster-Schliessen
+        // nicht blockieren. Bleiben Texturen in der vertagten Zerstoerung
+        // zurueck, ist das der alte Zustand, kein neuer.
+        if let Err(e) = self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_millis(2000)),
+        }) {
+            eprintln!("pulse-player: Bild-Freigabe beim Abbau: {e:?}");
+        }
+    }
+
     fn build_uniforms(
         &self,
         opts: &PlayerOptions,
