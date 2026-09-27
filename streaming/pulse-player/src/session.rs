@@ -580,6 +580,20 @@ pub async fn run(
                         .start_recording(&path)
                         .map(|used| serde_json::json!({ "path": used }));
                     let _ = reply.send(answer);
+                    // Der Mitschnitt beginnt erst beim naechsten Vollbild
+                    // (sonst waere der Dateianfang Bildmuell) — aber auf eines
+                    // zu warten, darf niemand muessen: der Sender stellt
+                    // Vollbilder im Abstand von bis zu 60 s bereit. Eine
+                    // Anforderung ueber den Rueckkanal macht den Start fuer
+                    // jeden PLI-kundigen Sender SOFORT; ein unkuendiger (z. B.
+                    // ffmpeg-Testpusher) verhaelt sich wie vorher und liefert
+                    // das naechste regulaere Vollbild.
+                    if media.is_recording() {
+                        if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
+                            last_keyframe_request = Instant::now();
+                            strom.request_keyframe(ssrc).await;
+                        }
+                    }
                 }
                 Some(SessionCommand::StopRecord { reply }) => {
                     let _ = reply.send(media.stop_recording().map(|()| serde_json::Value::Null));
