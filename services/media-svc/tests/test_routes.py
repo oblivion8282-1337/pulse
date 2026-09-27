@@ -577,8 +577,14 @@ async def test_stream_token_selfhost_owner_admin_keeps_rtmps(
     monkeypatch_local = media_routes.get_settings
     import pytest as _pytest  # noqa: PLC0415
 
+    import dcc_media_svc.security as media_security  # noqa: PLC0415
+
     with _pytest.MonkeyPatch.context() as mp:
         mp.setattr(media_routes, "get_settings", lambda: settings)
+        # Der Token-Verifier (get_current_user) liest SEIN Modul-Globales —
+        # ohne diesen Patch waere is_self_host dort False und die Erkennung
+        # kaeme nie an (im Gate-Lauf mit PULSE_INSTANCE_MODE=cloud sichtbar).
+        mp.setattr(media_security, "get_settings", lambda: settings)
         access = auth_signer.issue_access(987654321, "owner", is_admin=True)
         cid = _unique_cid()
         r = await client.post(f"/channels/{cid}/stream-token", json={}, headers=_auth(access))
