@@ -46,7 +46,7 @@ impl Config {
                 let cid = std::env::var("PULSE_CLOUD_CLIENT_ID").ok()?;
                 let secret = std::env::var("PULSE_CLOUD_CLIENT_SECRET").ok()?;
                 (!cid.is_empty() && !secret.is_empty())
-                    .then_some(format!("{cid}\u{1f}:{secret}"))
+                    .then_some(format!("{cid}\u{1f}{secret}"))
             })
             .ok_or_else(|| {
                 anyhow::anyhow!(

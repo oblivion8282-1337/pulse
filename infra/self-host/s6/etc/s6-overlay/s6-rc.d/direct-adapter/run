@@ -4,8 +4,11 @@
 # gleicher Opt-out-Stil wie frpc/coturn.
 exec 2>&1
 . /etc/pulse/env.sh
-if [ -z "${PULSE_RELAY_TUNNEL_TOKEN:-}" ]; then
-    echo "[direct-adapter] kein Relay-Token — Direktpfad deaktiviert, sleeping" >&2
+# Heim-Server ohne Relay (Entscheid 2026-09-27): statt des Tunnel-Tokens
+# genügen die Pairing-Creds (client_id + client_secret) — der Adapter schläft
+# nur noch, wenn BEIDE Auth-Wege fehlen.
+if [ -z "${PULSE_RELAY_TUNNEL_TOKEN:-}" ] && { [ -z "${PULSE_CLOUD_CLIENT_ID:-}" ] || [ -z "${PULSE_CLOUD_CLIENT_SECRET:-}" ]; }; then
+    echo "[direct-adapter] weder Relay-Token noch Pairing-Creds — Direktpfad deaktiviert, sleeping" >&2
     exec sleep infinity
 fi
 exec /usr/sbin/gosu pulse /usr/local/bin/pulse-direct-adapter
