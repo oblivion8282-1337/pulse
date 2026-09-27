@@ -193,8 +193,9 @@ export function recordingDir(): string {
   return dir;
 }
 
-/** Zeitstempel-Dateiname, kollisionsfrei und sortierbar. */
-function recordingPath(kind: 'aufnahme' | 'clip'): string {
+/** Zeitstempel-Dateiname, kollisionsfrei und sortierbar. Englisch, weil die
+ *  Dateien ihren Weg in die Welt nehmen (Michaels Wunsch 2026-09-27). */
+function recordingPath(kind: 'recording' | 'clip'): string {
   const now = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
   const stamp =
@@ -522,7 +523,7 @@ class PlayerManager {
    * der Antwort — der hier gebaute ist nur der Vorschlag.
    */
   async startRecording(session: number): Promise<PlayerMessage> {
-    const target = recordingPath('aufnahme');
+    const target = recordingPath('recording');
     const res = await this.call('record', { session, path: target });
     if (res.ok === false) return res;
     return { ...res, path: typeof res.path === 'string' ? res.path : target };

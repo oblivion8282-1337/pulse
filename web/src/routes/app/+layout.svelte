@@ -28,6 +28,7 @@
   import WatchPartyPickerDialog from '$lib/components/WatchPartyPickerDialog.svelte';
   import StreamPickerDialog from '$lib/components/StreamPickerDialog.svelte';
   import RemoteConsentDialog from '$lib/remote/components/RemoteConsentDialog.svelte';
+  import RecordHintDialog from '$lib/player/RecordHintDialog.svelte';
   import RemoteHostBanner from '$lib/remote/components/RemoteHostBanner.svelte';
   import RemoteErrorToast from '$lib/remote/components/RemoteErrorToast.svelte';
   import RemoteControllerInput from '$lib/remote/components/RemoteControllerInput.svelte';
@@ -516,6 +517,7 @@
      RemoteControllerInput ist der Antrieb der steuernden Seite (Erfassung im
      Player-Fenster an/aus, Frames auf die WebSocket) — ebenfalls ohne Markup. -->
 <RemoteConsentDialog />
+  <RecordHintDialog />
 <RemoteHostBanner />
 <RemoteStandplatzBanner />
 <DeviceSichtschutz />

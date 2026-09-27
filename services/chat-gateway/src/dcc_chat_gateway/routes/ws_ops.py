@@ -30,7 +30,12 @@ from dcc_chat_gateway.db import SessionLocal  # noqa: F401
 # registry is fully populated.
 from dcc_chat_gateway.plugins.ws_op_gate import check_plugin_op_gate, parse_plugin_op
 from dcc_chat_gateway.routes import ws_ops_handlers  # noqa: F401
-from dcc_chat_gateway.routes import ws_device_handlers, ws_remote_teardown, ws_watch
+from dcc_chat_gateway.routes import (
+    ws_device_handlers,
+    ws_record_notice,
+    ws_remote_teardown,
+    ws_watch,
+)
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, get_handler
 from dcc_chat_gateway.routes.ws_token_renewal import TokenExpiryWatch
 from dcc_chat_gateway.security import AuthenticatedUser
@@ -185,6 +190,12 @@ async def run_session_op_loop(
         if ctx.token_expiry is not None:
             ctx.token_expiry.cancel()
             await ctx.token_expiry.wait_cancelled()
+        # Aufnahme-Hinweise: eine gemeldete Aufnahme endet mit der Verbindung
+        # des Zuschauers — sonst bliebe der Chip beim Streamer stehen.
+        try:
+            await ws_record_notice.cleanup_stream_record_on_disconnect(ctx, manager)
+        except Exception:  # noqa: BLE001
+            log.exception("stream_record cleanup failed for user=%s", user.id)
         # Watch parties: leave the watcher registry for every party this
         # socket watched and promote a new host (or end the party) where this
         # user was the host. Must run before remove_socket so the registry's

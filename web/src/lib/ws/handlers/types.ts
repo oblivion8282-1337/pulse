@@ -240,6 +240,16 @@ export type ServerEvent =
       user_ids: string[];
       streams?: StreamDescriptor[];
     }
+  // „Ein Zuschauer nimmt (nicht mehr) auf" — zugestellt an alle Geräte der
+  // Live-Streamer des Kanals. Live-only; endet mit der Verbindung des
+  // Zuschauers. `clip: true` = einmalige Clip-Sicherung (kein Zustand).
+  | {
+      op: 'stream_record';
+      channel_id: string;
+      from_user_id: string;
+      recording: boolean;
+      clip: boolean;
+    }
   | { op: 'presence_update'; user_id: string; online: boolean }
   | {
       op: 'stream_chat_message';
@@ -575,6 +585,10 @@ export type ClientEvent =
   // ohne diesen Austausch schliesst er ihn beim Ablauf und der Nutzer
   // flackerte im Token-Takt aus den Listen der anderen.
   | { op: 'token_refresh'; token: string }
+  // „Ich nehme auf Kanal X (nicht mehr) auf." Selbstauskunft des Clients an
+  // die Live-Streamer des Kanals (live-only, kein Protokoll auf dem Server).
+  // `clip: true` = einmalige Sicherung der letzten Sekunden, kein Zustand.
+  | { op: 'stream_record'; channel_id: string; recording: boolean; clip?: boolean }
   | { op: 'ping' };
 
 /** Narrow `ServerEvent` to the variant that has the given `op`. Used by

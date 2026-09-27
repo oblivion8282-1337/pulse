@@ -22,6 +22,8 @@
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import XIcon from '@lucide/svelte/icons/x';
   import { runningStreamSlots } from '../state.svelte';
+  import { recordNotice } from '$lib/stream/recordNotice.svelte';
+  import CircleIcon from '@lucide/svelte/icons/circle';
   import { stopSlot } from '../slotControl.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import {
@@ -34,6 +36,10 @@
   import HqStreamDialog from './HqStreamDialog.svelte';
 
   let runningSlots = $derived(runningStreamSlots());
+  // „Wird aufgenommen"-Hinweis: direkt am Stream verortet (Michaels Wunsch),
+  // rot und mit Zahl — 2 Zuschauer mit laufender Aufnahme sind eine andere
+  // Information als eine. Endet die letzte Aufnahme, verschwindet der Chip.
+  let aufnahmen = $derived(recordNotice.anzahl(voice.channelId));
 
   // Icon-Größe passend zur Voice-Leiste (Mute/Hangup): mobile size-6,
   // desktop size-4 — siehe `iconCls` in VoiceControlBar.svelte.
@@ -107,6 +113,16 @@
     <div class="flex items-center gap-1.5 px-1 text-xs font-semibold text-text-muted">
       <span class="size-2 rounded-full bg-red-500" aria-hidden="true"></span>
       <span>{runningSlots.length} Stream{runningSlots.length === 1 ? '' : 's'}</span>
+      {#if aufnahmen > 0}
+        <span
+          class="ml-1 flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-red-400"
+          data-testid="stream-record-chip"
+          title={m.record_notice_chip_tip()}
+        >
+          <CircleIcon class="size-2 fill-current" />
+          {#if aufnahmen === 1}{m.record_notice_chip_one()}{:else}{m.record_notice_chip_other({ count: aufnahmen })}{/if}
+        </span>
+      {/if}
     </div>
     <div class="flex flex-col gap-1">
     {#each runningSlots as slot (slot)}

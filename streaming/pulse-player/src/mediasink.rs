@@ -149,6 +149,11 @@ impl MediaSink {
         self.recorder.note_ten_bit(ten_bit);
     }
 
+    /// Bildrate aus dem RTP-Takt der Sitzung — Metadatum fuer den Container.
+    pub fn note_framerate(&mut self, num: i32, den: i32) {
+        self.recorder.note_framerate(num, den);
+    }
+
     /// Liefert den tatsaechlich benutzten Pfad — die Endung haengt am Codec.
     pub fn start_recording(&mut self, path: &str) -> Result<String, String> {
         self.recorder

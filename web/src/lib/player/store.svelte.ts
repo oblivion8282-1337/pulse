@@ -25,6 +25,8 @@ import { chatApi } from '$lib/api/chat';
 import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
 import { getStreamVolume, setStreamVolume } from '$lib/stream/streamVolume';
 import { loadAll, saveAll } from '$lib/stream/persistence';
+import { einmalHinweis, streamRecordMelden } from '$lib/stream/recordNotice.svelte';
+import { activeServer } from '$lib/stores/active-server.svelte';
 import { m } from '$lib/paraglide/messages.js';
 import {
   keyOf,
@@ -150,6 +152,7 @@ export class NativePlayerSession {
    *  WHEP-URL starten, der Offer-Umlauf läuft über die Fernsteuer-Sitzung
    *  (`$lib/remote/direktbild`); das Fenster verhält sich sonst identisch. */
   readonly #modus: 'whep' | 'direkt';
+  #serverId: string | null;
   /** Öffentlich für den Kachel-Abgleich (`HqStreamKeepAlive`): ein
    *  Direktfenster hängt an keiner Kachel und darf vom `closeExcept`-Lauf
    *  nicht mitgeräumt werden. */
@@ -162,6 +165,9 @@ export class NativePlayerSession {
     this.userId = userId;
     this.slot = slot;
     this.#modus = modus;
+    // Der Server, auf dem der Kanal liegt — Aufnahme-Meldungen gehen dorthin,
+    // auch wenn der Nutzer inzwischen die Community gewechselt hat.
+    this.#serverId = activeServer.serverId;
     this.#unlisten = onPlayerEvent((ev) => this.#onEvent(ev));
     this.#unlistenOptions = onPlayerOptionEvent((ev) => this.#onOptionEvent(ev));
     this.#unlistenRecord = onPlayerRecordRequest((session, on) => {
@@ -355,6 +361,9 @@ export class NativePlayerSession {
   async #mitschnitt(on: boolean): Promise<void> {
     if (this.#session === null) return;
     if (on) {
+      // Einmaliger Hinweis VOR der ersten Aufnahme (AGB-Hälfte der zweiten
+      // Stufe): Abbruch hier heißt, es wird gar nicht aufgenommen.
+      if (!(await einmalHinweis())) return;
       const start = await startRecording(this.#session);
       if (this.#disposed) return;
       if (!start.ok) {
@@ -363,6 +372,7 @@ export class NativePlayerSession {
       }
       this.#aufnahmePfad = start.path ?? null;
       toast.info(m.player_record_started(), { description: start.path });
+      streamRecordMelden(this.#serverId, this.channelId, true);
       return;
     }
     const stop = await stopRecording(this.#session);
@@ -375,6 +385,7 @@ export class NativePlayerSession {
       description: this.#aufnahmePfad ?? undefined,
     });
     this.#aufnahmePfad = null;
+    streamRecordMelden(this.#serverId, this.channelId, false);
   }
 
   /** Clip-Wunsch aus der Leiste — derselbe Weg, Vorgabe 30 Sekunden. */
@@ -387,6 +398,8 @@ export class NativePlayerSession {
       return;
     }
     toast.success(m.player_clip_saved(), { description: clip.path });
+    // Ein Clip ist auch eine Aufnahme — dieselbe Meldung, nur ohne Zustand.
+    streamRecordMelden(this.#serverId, this.channelId, false, true);
   }
 
   /** Die Sitzungsnummer IM Player-Prozess. `null`, solange kein Fenster offen
