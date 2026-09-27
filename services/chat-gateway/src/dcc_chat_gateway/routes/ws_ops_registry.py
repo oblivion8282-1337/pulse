@@ -126,8 +126,12 @@ class WSOpContext:
     # Monotonic-Zeitpunkt der letzten ``remote_request``-Anfrage dieses Sockets.
     # Anders als die beiden Deckel oben eine Mindestpause statt eines Zaehlers:
     # eine Anfrage kostet drei DB-Abfragen und legt beim Gegenueber einen
-    # modalen Dialog auf — der legitime Takt ist ein Klick, nicht ein Strom.
+    # modalen Dialog auf — der legitime Takt ist ein Klick, kein Strom.
     last_remote_request: float = 0.0
+    # Gemeldeter Aufnahmezustand dieses Sockets je Kanal (stream_record).
+    # Nur VERÄNDERUNGEN werden weitergeleitet; die Eintraege leben mit der
+    # Verbindung, und der Disconnect-Hook meldet offene Aufnahmen als beendet.
+    recording_states: dict[int, bool] = field(default_factory=dict)
     # Dasselbe fuer die beiden Geraete-Ops mit Datenbankzugriff. Getrennt
     # gefuehrt, weil ein verworfener Weckruf einen Klick kostet, eine
     # verworfene Anmeldung dagegen „Geraet bleibt offline"
@@ -186,6 +190,8 @@ CORE_OPS: frozenset[str] = frozenset({
     "remote_input",
     "remote_end",
     "remote_reclaim",
+    # Aufnahme-Hinweis (Zuschauer → Server → Live-Streamer), live-only.
+    "stream_record",
     "profile_statement",
     # Token-Austausch am offenen Socket (statt Reconnect bei Ablauf).
     "token_refresh",

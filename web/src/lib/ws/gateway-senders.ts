@@ -233,3 +233,17 @@ export function sendDeviceWake(
     ...(p2p ? { p2p: true } : {}),
   });
 }
+
+// ── Aufnahme-Hinweis (stream_record) ────────────────────────────────────────
+/** „Ich nehme auf diesem Kanal (nicht mehr) auf" — Best effort; geht die
+ *  Meldung verloren, verfällt sie lautlos (live-only, kein Protokoll). */
+export function sendStreamRecord(
+  send: SendRaw, channelId: string, recording: boolean, clip = false,
+): boolean {
+  return send({
+    op: 'stream_record',
+    channel_id: channelId,
+    recording,
+    ...(clip ? { clip: true } : {}),
+  });
+}

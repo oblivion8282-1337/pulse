@@ -50,6 +50,9 @@ export interface PulseSidecarApi {
   /** Start a stream in the given slot (0 = primary, 1 = a second concurrent
    *  stream e.g. a second monitor). Defaults to slot 0. */
   start(args: unknown, slot?: number): Promise<unknown>;
+  /** ShadowPlay: die letzten Sekunden des SENDENDEN Stroms sichern (Ring
+   *  läuft im Sidecar immer mit). Antwort trägt `path` + `units`. */
+  saveClip(slot?: number, seconds?: number): Promise<unknown>;
   /** Stop the stream in the given slot (default 0). */
   /** `grund` ist reine Diagnose — er landet in der Protokollzeile des Befehls
    *  (`sidecar-log-befehle.ts`) und wird vom Sidecar ignoriert. */
@@ -566,6 +569,11 @@ export interface PulsePlayerApi {
   stopRecord(session: number): Promise<PulsePlayerResult>;
   /** Letzte `seconds` Sekunden aus dem Ringpuffer sichern (1-60). */
   clip(session: number, seconds?: number): Promise<PulsePlayerResult>;
+  /** System-Ordnerdialog für den Mitschnitt-Speicherort (nur Hauptprozess
+   *  setzt den Pfad). Abbruch: `ok:false, canceled:true`. */
+  chooseRecordingDir?(): Promise<PulsePlayerResult & { canceled?: boolean }>;
+  /** Effektives Speicherverzeichnis (inkl. Fallback) zur Anzeige. */
+  recordingDir?(): Promise<PulsePlayerResult>;
   onEvent(cb: (ev: unknown) => void): () => void;
   /** Fernsteuerung — Eingabe-Erfassung im Player-Fenster. Fehlt in aelteren
    *  Shells, deshalb optional. */

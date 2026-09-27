@@ -1056,6 +1056,10 @@ export class GatewayConnection {
     sessionId: string, kind: RemoteSignalKind, data: unknown,
   ): boolean => senders.sendRemoteSignal(this._raw, sessionId, kind, data);
 
+  // Aufnahme-Hinweis (stream_record) — Selbstauskunft des Zuschauers.
+  sendStreamRecord = (channelId: string, recording: boolean, clip = false): boolean =>
+    senders.sendStreamRecord(this._raw, channelId, recording, clip);
+
   // `DeviceMonitor` statt eines eigenen Inline-Typs — s. Kommentar dort
   // (`$lib/api/devices.ts`): dieselbe Form wie in `gateway-senders.ts`, das
   // dieser Wrapper direkt durchreicht.

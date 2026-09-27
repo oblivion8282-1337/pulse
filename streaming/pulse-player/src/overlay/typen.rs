@@ -45,6 +45,17 @@ pub enum OverlayAction {
     /// ihn. Bewusst NICHT hier im Fenster: der Chat waere ein vollstaendiger
     /// Nachbau samt eigener Serververbindung.
     Chat,
+    /// Mitschnitt an- (`true`) oder abschalten (`false`). **Das Fenster nimmt
+    /// nichts selbst auf** — den Zielpfad bestimmt die App (Electron-Haupt-
+    /// prozess, Videos-Ordner); hier wird nur der Wunsch gemeldet, wie bei
+    /// [`OverlayAction::Chat`]. Der Zustand, aus dem der Knopf schaltet, ist
+    /// `StatsView::recording` — schlägt der Start fehl, bleibt der Knopf
+    /// deshalb beim Aus.
+    Record(bool),
+    /// Die letzten Sekunden aus dem Ringpuffer sichern. Der Ringpuffer läuft
+    /// immer, der Knopf funktioniert also jederzeit; wie lang der Clip wird,
+    /// entscheidet die App (Vorgabe 30 s, Player deckelt auf 60 s).
+    Clip,
     /// Statistikfeld ein- oder ausblenden.
     ToggleStats,
     /// Die Fernsteuerung ANFRAGEN — das Fenster fragt nicht selbst, es meldet

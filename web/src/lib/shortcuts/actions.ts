@@ -98,11 +98,12 @@ export const ACTIONS: readonly ActionDef[] = [
     description: m.shortcuts_stream_toggle_hq_description(), defaultBinding: null, context: 'global' },
   { id: 'stream.toggleScreenshare', category: 'stream', label: m.shortcuts_stream_toggle_screenshare_label(),
     description: m.shortcuts_stream_toggle_screenshare_description(), defaultBinding: null, context: 'global' },
-  // Noch nicht gebaut (30s-Roll-Buffer in media-svc fehlt). Versteckt geparkt:
-  // nicht im Spickzettel/Einstellungen. Re-enable = `hidden` entfernen.
+  // ShadowPlay: die letzten 90 Sekunden des eigenen Streams sichern. War von
+  // Anfang an als geparkte Aktion angelegt und wartete auf genau diesen
+  // Rollring (seit 2026-09-27 in allen drei Sidecars). Bewusst ohne Werk-
+  // Belegung wie alle anderen auch — vergeben wird er unter „Tastatur".
   { id: 'stream.highlightClip', category: 'stream', label: m.shortcuts_stream_highlight_clip_label(),
-    description: m.shortcuts_stream_highlight_clip_description(), defaultBinding: null, context: 'global',
-    hidden: true }
+    description: m.shortcuts_stream_highlight_clip_description(), defaultBinding: null, context: 'global' }
 ];
 
 export const ACTION_BY_ID: Record<ActionId, ActionDef> = Object.fromEntries(

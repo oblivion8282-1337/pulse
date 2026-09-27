@@ -42,6 +42,30 @@ fn ops_state_linux_gleich_mac() {
 // Orten gehalten — der MediaMTX-Fork baut ohne dieses Repo. Er wandert deshalb
 // hierher, statt mit seiner Datei zu verschwinden.
 
+/// `clip.rs` — der ShadowPlay-Ring. Bitgleich in ALLEN DREI Sidecars
+/// gehalten, weil er plattformneutral ist (Millisekunden-API, eigener
+/// Codec-Enum, ffmpeg-Writer). Die Einspeisestellen sind je Plattform
+/// verschieden, diese Datei nicht — lief sie auseinander, trüge jeder
+/// Plattform eigene Clip-Bugs.
+#[test]
+fn clip_ring_liegt_in_drei_sidecars_wortgleich() {
+    let linux = include_str!("../../linux-hq-sidecar/src/clip.rs");
+    let win = include_str!("../../win-hq-sidecar/src/clip.rs");
+    let mac = include_str!("../../mac-hq-sidecar/src/clip.rs");
+    assert_eq!(linux, win, "clip.rs linux != win");
+    assert_eq!(linux, mac, "clip.rs linux != mac");
+}
+
+/// `ops/clip_save.rs` — derselbe Op, dieselbe Deckelung.
+#[test]
+fn clip_save_op_liegt_in_drei_sidecars_wortgleich() {
+    let linux = include_str!("../../linux-hq-sidecar/src/ops/clip_save.rs");
+    let win = include_str!("../../win-hq-sidecar/src/ops/clip_save.rs");
+    let mac = include_str!("../../mac-hq-sidecar/src/ops/clip_save.rs");
+    assert_eq!(linux, win, "ops/clip_save.rs linux != win");
+    assert_eq!(linux, mac, "ops/clip_save.rs linux != mac");
+}
+
 /// Der Pruefstein, gegen den Sender und Fork gleichermassen pruefen.
 #[test]
 fn pruefstein_liegt_im_mediamtx_fork_wortgleich() {

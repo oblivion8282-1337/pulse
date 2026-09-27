@@ -38,6 +38,11 @@ declare const __APP_MODE__: 'client' | 'server';
 const sidecarCall = (op: string, params: unknown = {}, slot = 0): Promise<unknown> =>
   ipcRenderer.invoke('sidecar:call', op, params, slot);
 
+/** ShadowPlay: die letzten Sekunden des SENDENDEN Stroms sichern. Eigener
+ *  Kanal — der Zielpfad wird im Hauptprozess gebaut (wie player:record). */
+const sidecarClip = (slot = 0, seconds = 90): Promise<unknown> =>
+  ipcRenderer.invoke('sidecar:clip', slot, seconds);
+
 const playerCall = (op: string, params?: unknown): Promise<unknown> =>
   ipcRenderer.invoke('player:call', op, params);
 
@@ -89,6 +94,9 @@ contextBridge.exposeInMainWorld('pulse', {
     // concurrent one (e.g. a second monitor). The read-only catalog ops above
     // stay on slot 0; they don't depend on which stream is running.
     start: (args: unknown, slot = 0) => sidecarCall('start', args, slot),
+    /** ShadowPlay: letzten `seconds` Sekunden des sendenden Stroms sichern
+     *  (Ring laeuft im Sidecar immer mit). Pfad baut der Hauptprozess. */
+    saveClip: (slot = 0, seconds = 90) => sidecarClip(slot, seconds),
     // `grund` ist reine Diagnose und reist im Befehl mit, damit er in DERSELBEN
     // Protokollzeile steht wie der Stopp selbst (`sidecar-log-befehle.ts`). Der
     // Umweg über eine eigene Meldung schiede aus: der Renderer hat keinen Zugang
@@ -254,6 +262,12 @@ contextBridge.exposeInMainWorld('pulse', {
     /** Die letzten `seconds` Sekunden aus dem Ringpuffer sichern (1-60). */
     clip: (session: number, seconds = 30): Promise<unknown> =>
       ipcRenderer.invoke('player:clip', session, seconds),
+    /** System-Ordnerdialog fuer den Mitschnitt-Speicherort. Der Pfad wird
+     *  nur hier gesetzt — der Renderer selbst kann `recordingDir` nicht
+     *  schreiben (bewusst nicht in der store-Allowlist). */
+    chooseRecordingDir: (): Promise<unknown> => ipcRenderer.invoke('player:chooseRecordingDir'),
+    /** Effektives Speicherverzeichnis (inkl. Fallback) fuer die Anzeige. */
+    recordingDir: (): Promise<unknown> => ipcRenderer.invoke('player:recordingDir'),
 
     /** Zustandsereignisse (`player:state`). Liefert eine Abmelde-Funktion. */
     onEvent: (cb: (ev: unknown) => void): (() => void) => {

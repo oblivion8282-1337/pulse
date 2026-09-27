@@ -28,6 +28,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
+import { storeGet } from './store';
 import { app } from 'electron';
 
 import { diagnoseEingeschaltet } from './experimental-log-upload';
@@ -164,11 +165,22 @@ export function resolvePlayerBinary(): string | null {
 
 
 /**
- * Zielverzeichnis fuer Mitschnitte. Bewusst **nicht** vom Renderer gewaehlt:
- * ein frei uebergebener Pfad waere ein Schreibzugriff an beliebige Stelle.
- * Der Renderer loest nur aus, der Hauptprozess bestimmt wohin.
+ * Zielverzeichnis fuer Mitschnitte. Der Renderer uebertraegt weiterhin keinen
+ * Pfad — gewaehlt wird im SYSTEM-Ordnerdialog des Hauptprozesses
+ * (`player:chooseRecordingDir`, Einstellungen → Screen Share), gespeichert im
+ * Store, gelesen hier. Ein nicht les-/anlegbaeres Verzeichnis faellt laut auf
+ * den Standard zurueck, statt Aufnahmen ins Leere laufen zu lassen.
  */
-function recordingDir(): string {
+export function recordingDir(): string {
+  const gewaehlt = storeGet('recordingDir');
+  if (typeof gewaehlt === 'string' && gewaehlt.length > 0 && path.isAbsolute(gewaehlt)) {
+    try {
+      fs.mkdirSync(gewaehlt, { recursive: true });
+      return gewaehlt;
+    } catch {
+      // fallthrough: unlesbares Verzeichnis → Standard
+    }
+  }
   const base = (() => {
     try {
       return app.getPath('videos');
@@ -181,8 +193,9 @@ function recordingDir(): string {
   return dir;
 }
 
-/** Zeitstempel-Dateiname, kollisionsfrei und sortierbar. */
-function recordingPath(kind: 'aufnahme' | 'clip'): string {
+/** Zeitstempel-Dateiname, kollisionsfrei und sortierbar. Englisch, weil die
+ *  Dateien ihren Weg in die Welt nehmen (Michaels Wunsch 2026-09-27). */
+function recordingPath(kind: 'recording' | 'clip' | 'shadow'): string {
   const now = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
   const stamp =
@@ -191,6 +204,12 @@ function recordingPath(kind: 'aufnahme' | 'clip'): string {
   // Endung ist nur ein Vorschlag: der Player setzt sie passend zum Codec
   // (AV1 -> mkv, H.264 -> ts) und meldet den benutzten Pfad zurueck.
   return path.join(recordingDir(), `pulse-${kind}-${stamp}.ts`);
+}
+
+/** Ziel fuer den ShadowPlay-Clip des SENDENDEN Stroms (Sidecar). Gleiche
+ *  Konventionen wie oben — der Sidecar korrigiert die Endung je Codec. */
+export function shadowClipPath(): string {
+  return recordingPath('shadow');
 }
 
 class PlayerManager {
@@ -510,7 +529,7 @@ class PlayerManager {
    * der Antwort — der hier gebaute ist nur der Vorschlag.
    */
   async startRecording(session: number): Promise<PlayerMessage> {
-    const target = recordingPath('aufnahme');
+    const target = recordingPath('recording');
     const res = await this.call('record', { session, path: target });
     if (res.ok === false) return res;
     return { ...res, path: typeof res.path === 'string' ? res.path : target };
@@ -520,7 +539,7 @@ class PlayerManager {
   async saveClip(session: number, seconds: number): Promise<PlayerMessage> {
     const target = recordingPath('clip');
     // Grenzen hier UND im Player — der Renderer ist nicht vertrauenswuerdig.
-    const bounded = Math.min(Math.max(Number(seconds) || 30, 1), 60);
+    const bounded = Math.min(Math.max(Number(seconds) || 90, 1), 90);
     const res = await this.call('clip', { session, path: target, seconds: bounded });
     if (res.ok === false) return res;
     return { ...res, path: typeof res.path === 'string' ? res.path : target };

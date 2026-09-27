@@ -97,6 +97,9 @@ export const gateway = {
   sendRemoteEnd: (sessionId: string) => _active().sendRemoteEnd(sessionId),
   sendRemoteInput: (sessionId: string, slot: number, frames: string[]) =>
     _active().sendRemoteInput(sessionId, slot, frames),
+  // Aufnahme-Hinweis (stream_record) — Selbstauskunft des Zuschauers.
+  sendStreamRecord: (cid: string, recording: boolean, clip?: boolean) =>
+    _active().sendStreamRecord(cid, recording, clip),
   // State (reaktiv im Sinne von Re-Read pro Zugriff)
   get state() { return _active().state; },
   get helloMeta() { return _active().helloMeta; },

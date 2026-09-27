@@ -35,10 +35,10 @@ use ffmpeg_next as ffmpeg;
 use crate::depacket::av1::read_leb128;
 use crate::whep::Codec;
 
-/// Wie viel Vergangenheit der Ring vorhaelt. Deckt die uebliche
-/// "das haette ich gern gespeichert"-Spanne ab, ohne viel Speicher zu binden
-/// (bei 4000 kbps sind 60 s rund 30 MB).
-const RING_SECONDS: u64 = 60;
+/// Wie viel Vergangenheit der Ring vorhaelt — wie beim ShadowPlay-Ring des
+/// Senders (90 s, Michaels Angleichung 2026-09-27): der Zuschauer-Knopf
+/// sichert denselben vollen Puffer. Speicher: bei 4000 kbit/s rund 45 MB.
+const RING_SECONDS: u64 = 90;
 
 /// Container je Codec — gemessen, nicht gewaehlt.
 ///
@@ -275,6 +275,20 @@ struct Writer {
     /// Zeitpunkt der ersten geschriebenen Einheit — alles wird relativ dazu.
     origin_ms: Option<i64>,
     header_written: bool,
+    /// Wohin die Datei angelegt wurde — fuer das Aufraeumen, wenn am Ende
+    /// nichts geschrieben wurde (der Muxer legt sie schon beim Start an).
+    pfad: std::path::PathBuf,
+    /// Letzter geschriebener Zeitstempel je Spur, in der Zeitbasis des MUXERS.
+    ///
+    /// Der MPEG-TS-Muxer verlangt strikt steigende Werte je Spur und bricht
+    /// sonst mit EINVAL ab — gemessen 2026-09-27 gegen einen lebenden H.264-
+    /// Strom mit Ton: der Jitter-Puffer gibt mehrere Ton-Einheiten in einem
+    /// Durchlauf frei, alle bekommen dieselbe Millisekunden-Marke, und die
+    /// Aufnahme starb nach vier Paketen still (nur „Paket schreiben: Invalid
+    /// argument"). Der Ausgleich um EINEN Tick der Zielzeitbasis (11 µs bei
+    /// 90 kHz) hält die Drift selbst im Extremfall — alle Einheiten eines
+    /// 60-s-Clips mit demselben Stempel — unter 40 ms.
+    last_ts: Vec<Option<i64>>,
 }
 
 /// Haengt eine Spur an, die nur beschrieben und nie encodiert wird.
@@ -304,9 +318,16 @@ impl Writer {
     fn create(
         path: &Path,
         video: Option<(Codec, u32, u32)>,
+        fps: Option<(i32, i32)>,
         extradata: Option<&[u8]>,
         audio: bool,
     ) -> Result<Self> {
+        // Diagnose-Hilfe: FFmpegs eigene Muxer-Meldungen sind sonst stumm, und
+        // "Paket schreiben: Invalid argument" nennt keine Ursache.
+        if std::env::var("PULSE_PLAYER_FFMPEG_LOG").is_ok() {
+            let _ = ffmpeg::init();
+            ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Verbose);
+        }
         let mut output = ffmpeg::format::output(&path)
             .with_context(|| format!("Datei {} liess sich nicht anlegen", path.display()))?;
 
@@ -318,12 +339,26 @@ impl Writer {
                 Codec::H265 => ffmpeg::codec::Id::HEVC,
                 Codec::Opus => bail!("Opus ist keine Videospur"),
             };
+            // Remuxen braucht nur die Codec-BESCHREIBUNG, kein Encoder —
+            // geschrieben wird nichts. AV1 und HEVC haben in Vanilla-FFmpeg
+            // ohnehin keinen nativen Encoder (nur externe Bauten), während der
+            // native Decoder in jeder Fassung sitzt; ohne den Rückfall scheiterte
+            // der Mitschnitt dieser Codecs schon beim Anlegen der Spur („Muxer
+            // kennt AV1 nicht", 2026-09-15 gegen einen ffmpeg-Bau ohne AV1-
+            // Encoder gemessen).
             let enc = ffmpeg::encoder::find(id)
+                .or_else(|| ffmpeg::decoder::find(id))
                 .ok_or_else(|| anyhow!("Muxer kennt {id:?} nicht"))?;
             let index = add_stream(&mut output, id, enc, |p| unsafe {
                 (*p).codec_type = ffmpeg::ffi::AVMediaType::AVMEDIA_TYPE_VIDEO;
                 (*p).width = width as i32;
                 (*p).height = height as i32;
+                // Bildrate an BEIDE Stellen: der Matroska-Muxer leitet seine
+                // Default-Duration bevorzugt aus der Codec-Beschreibung ab,
+                // ffprobe zeigt sonst „1000/1" (Michaels Fund 2026-09-27).
+                if let Some((num, den)) = fps {
+                    (*p).framerate = ffmpeg::ffi::AVRational { num, den };
+                }
                 // AV1 braucht den Konfigurationsdatensatz als `extradata`,
                 // sonst kann Matroska die Spur nicht beschreiben. Der Puffer
                 // muss von FFmpegs Allokator kommen — `avcodec` gibt ihn frei.
@@ -339,6 +374,13 @@ impl Writer {
                 }
             })
             .context("Videospur")?;
+            // Bildrate als Spur-Metadatum: ohne sie bleibt `avg_frame_rate`
+            // 0/0 und Spieler raten aus der Zeitbasis (gemessen: „1000 fps").
+            if let Some((num, den)) = fps {
+                if let Some(mut spur) = output.stream_mut(index) {
+                    spur.set_avg_frame_rate(ffmpeg::Rational::new(num, den));
+                }
+            }
             video_stream = Some(index);
         }
 
@@ -360,7 +402,16 @@ impl Writer {
             bail!("weder Bild noch Ton zum Aufnehmen");
         }
 
-        Ok(Self { output, video_stream, audio_stream, origin_ms: None, header_written: false })
+        let spuren = output.nb_streams() as usize;
+        Ok(Self {
+            output,
+            video_stream,
+            audio_stream,
+            origin_ms: None,
+            header_written: false,
+            pfad: path.to_path_buf(),
+            last_ts: vec![None; spuren],
+        })
     }
 
     fn write(&mut self, unit: &Unit) -> Result<()> {
@@ -393,14 +444,37 @@ impl Writer {
             .stream(index)
             .map_or(ffmpeg::Rational::new(TIME_BASE.0, TIME_BASE.1), |s| s.time_base());
         packet.rescale_ts(ffmpeg::Rational::new(TIME_BASE.0, TIME_BASE.1), target);
+
+        // Strikt steigende Stempel je Spur erzwingen (Begruendung an
+        // `last_ts`). Der Recorder schreibt pts == dts, deshalb genuegt es,
+        // beide zusammen anzuheben — pts kann nie hinter dts zurueckfallen.
+        if let Some(ts) = packet.dts() {
+            let neu = match self.last_ts[index] {
+                Some(letzter) if ts <= letzter => letzter + 1,
+                _ => ts,
+            };
+            if neu != ts {
+                packet.set_pts(Some(neu));
+                packet.set_dts(Some(neu));
+            }
+            self.last_ts[index] = Some(neu);
+        }
+
         packet.write_interleaved(&mut self.output).context("Paket schreiben")
     }
 
-    fn finish(mut self) -> Result<()> {
-        if !self.header_written {
+    fn finish(self) -> Result<()> {
+        let Self { mut output, pfad, header_written, .. } = self;
+        if !header_written {
+            // Nichts reingeschrieben — dann darf auch keine leere Datei
+            // bleiben: der Muxer legt sie schon beim Start an, und eine
+            // 0-Byte-Datei neben der Meldung „nichts aufgenommen" ist Muell
+            // (gemessen 2026-09-27). Handle erst schliessen, dann entfernen.
+            drop(output);
+            let _ = std::fs::remove_file(&pfad);
             bail!("nichts aufgenommen");
         }
-        self.output.write_trailer().context("Dateiende")
+        output.write_trailer().context("Dateiende")
     }
 }
 
@@ -416,6 +490,9 @@ pub struct Recorder {
     /// Eine Aufnahme ist unterwegs gescheitert. Wird nach vorne gemeldet,
     /// damit es nicht so aussieht, als haette nie jemand gestartet.
     pub failed: bool,
+    /// Grund des Scheiterns — `stop` meldet ihn, statt mit „es laeuft keine
+    /// Aufnahme" zu tun, als waere nie eine gestartet worden.
+    fehler_grund: Option<String>,
     /// Solange noch kein Video-Keyframe geschrieben wurde. Eine Aufnahme, die
     /// mitten in einer GOP beginnt, faengt sonst mit Inter-Frames ohne
     /// Referenzbild an — der Anfang ist dann Bildmuell, obwohl die Datei
@@ -425,6 +502,11 @@ pub struct Recorder {
     av1_seq_header: Option<Vec<u8>>,
     /// Bittiefe des Bildes, fuer denselben Zweck.
     ten_bit: bool,
+    /// Bildrate als (zaehler, nenner), gemessen aus dem RTP-Takt der Sitzung.
+    /// Ohne sie bleibt `avg_frame_rate` in der Datei 0/0 und Spieler raten
+    /// aus der Millisekunden-Zeitbasis — gemessen 2026-09-27 stand da
+    /// „1000 fps" (Michaels Fund).
+    video_fps: Option<(i32, i32)>,
 }
 
 impl Recorder {
@@ -438,8 +520,29 @@ impl Recorder {
         self.ten_bit = ten_bit;
     }
 
+    /// Bildrate aus dem RTP-Takt der Sitzung — geht als `avg_frame_rate`
+    /// in die Spur. Muss VOR dem ersten Paket stehen, der Dateikopf wird
+    /// mit ihm geschrieben; spaetere Messungen wirken erst auf die naechste
+    /// Aufnahme.
+    pub fn note_framerate(&mut self, num: i32, den: i32) {
+        if num > 0 && den > 0 {
+            self.video_fps = Some((num, den));
+        }
+    }
+
     pub fn is_recording(&self) -> bool {
         self.active.is_some()
+    }
+
+    /// Aufnahme laeuft, aber es wurde noch kein Video-Vollbild geschrieben.
+    /// Die Sitzung fragt das ab, um weiter Vollbilder ANZUFORDERN: Der Sender
+    /// fasst Anforderungen binnen zwei Sekunden nach dem letzten erzwungenen
+    /// Vollbild zusammen (Anti-Flut, encode::keyframe_mindestabstand_ms) —
+    /// eine einzige Anforderung beim Knopfdruck kann also verschluckt werden,
+    /// wenn gerade ein Beitretender eines erzwungen hat (gemessen 2026-09-27:
+    /// Aufnahme blieb 6 s bei 0 Bytes, obgleich der Weg funktioniert).
+    pub fn wartet_auf_keyframe(&self) -> bool {
+        self.active.is_some() && self.awaiting_keyframe
     }
 
     pub fn buffered_seconds(&self) -> u64 {
@@ -476,6 +579,7 @@ impl Recorder {
         if let Some(writer) = self.active.as_mut() {
             if let Err(e) = writer.write(&unit) {
                 eprintln!("pulse-player: Aufnahme abgebrochen: {e:#}");
+                self.fehler_grund = Some(format!("{e:#}"));
                 // Datei trotzdem ordentlich abschliessen. Wuerde der Writer
                 // nur gedroppt, faehrt ffmpeg-next zwar `avio_close`, aber
                 // KEIN `av_write_trailer` — ohne Trailer fehlen Index und
@@ -516,13 +620,23 @@ impl Recorder {
         self.active = Some(self.make_writer(&target)?);
         self.written_units = 0;
         self.failed = false;
+        self.fehler_grund = None;
         self.awaiting_keyframe = true;
         Ok(target)
     }
 
     pub fn stop(&mut self) -> Result<()> {
-        let writer = self.active.take().ok_or_else(|| anyhow!("es laeuft keine Aufnahme"))?;
-        writer.finish()
+        if let Some(writer) = self.active.take() {
+            return writer.finish();
+        }
+        // Kein Writer mehr, aber es HAT eine Aufnahme gegeben: der Grund liegt
+        // vor — ihn verschlucken hiesse, dem Aufrufer „nie gestartet" zu
+        // sagen, obwohl er 8 Sekunden lang aufgezeichnet hat (gemessen
+        // 2026-09-27: genau so sah der Fehler von aussen aus).
+        if let Some(grund) = self.fehler_grund.take() {
+            bail!("Aufnahme ist unterwegs gescheitert: {grund}");
+        }
+        bail!("es laeuft keine Aufnahme")
     }
 
     /// Sammelt die letzten `seconds` Sekunden aus dem Ring ein, **ohne zu
@@ -553,6 +667,7 @@ impl Recorder {
         Ok(ClipData {
             units: self.ring.iter().skip(begin).cloned().collect(),
             video,
+            fps: self.video_fps,
             extradata: self.extradata(),
         })
     }
@@ -565,7 +680,13 @@ impl Recorder {
     }
 
     fn make_writer(&self, path: &Path) -> Result<Writer> {
-        Writer::create(path, Some(self.video_info()?), self.extradata().as_deref(), true)
+        Writer::create(
+            path,
+            Some(self.video_info()?),
+            self.video_fps,
+            self.extradata().as_deref(),
+            true,
+        )
     }
 
     /// Konfigurationsdatensatz fuer den Muxer, falls der Codec einen braucht.
@@ -585,6 +706,7 @@ impl Recorder {
 pub struct ClipData {
     units: Vec<Unit>,
     video: (Codec, u32, u32),
+    fps: Option<(i32, i32)>,
     extradata: Option<Vec<u8>>,
 }
 
@@ -595,7 +717,7 @@ pub fn write_clip(path: &Path, data: &ClipData) -> Result<(u64, std::path::PathB
     pruefe_ziel(path)?;
     let target = with_container(path, data.video.0);
     let mut writer =
-        Writer::create(&target, Some(data.video), data.extradata.as_deref(), true)?;
+        Writer::create(&target, Some(data.video), data.fps, data.extradata.as_deref(), true)?;
     let mut count = 0u64;
     for unit in &data.units {
         writer.write(unit)?;
@@ -727,6 +849,29 @@ mod tests {
         let mut r = Recorder::default();
         let err = r.start(&crate::ablage::temp("pulse-player-test.mkv"));
         assert!(err.is_err(), "ohne bekannte Bildgroesse darf nicht gestartet werden");
+    }
+
+    /// Regression (2026-09-15): „Muxer kennt AV1 nicht". Der Writer verlangte
+    /// für die Mux-Spur einen ENCODER-Eintrag — zum Remuxen gehört keiner, und
+    /// gegen eine FFmpeg-Fassung ohne AV1-Encoder (oder mit abweichenden
+    /// Codec-IDs) scheiterte jeder AV1-Mitschnitt bereits beim Start. Die
+    /// Spur darf den Decoder-Eintrag tragen.
+    #[test]
+    fn av1_aufnahme_muxt_ohne_encoder() {
+        let mut r = Recorder::default();
+        r.note_dimensions(640, 360);
+        // Sequence-Header + Vollbild: gilt als Keyframe und liefert zugleich
+        // die Grundlage für den AV1CodecConfigurationRecord (Matroska-Extradata).
+        let mut key = obu(1, 0xAA).to_vec();
+        key.extend(obu(6, VOLLBILD));
+        r.push(Codec::Av1, puffer(&key), 0);
+
+        let ziel = r.start(&crate::ablage::temp("pulse-player-av1-mux")).expect("AV1-Start");
+        assert_eq!(ziel.extension().and_then(|e| e.to_str()), Some("mkv"), "AV1 nach Matroska");
+
+        r.push(Codec::Av1, puffer(&key), 1000);
+        assert!(r.written_units > 0, "AV1-Einheiten muessen geschrieben werden");
+        r.stop().expect("Abschluss mit Trailer");
     }
 
     /// Zerlegt einen Annex-B-Strom in Zugriffseinheiten: jede beginnt mit dem
@@ -940,6 +1085,114 @@ mod tests {
         r.stop().expect("Aufnahme schliesst ab");
         let input = ffmpeg::format::input(&used).expect("Datei lesbar");
         assert!(input.streams().best(ffmpeg::media::Type::Video).is_some());
+    }
+
+    /// Regression (2026-09-27, gegen einen lebenden H.264-Strom mit Ton):
+    /// der Jitter-Puffer gibt mehrere Ton-Einheiten in einem Durchlauf frei,
+    /// alle tragen dieselbe Millisekunden-Marke — und der MPEG-TS-Muxer
+    /// bricht bei nicht strikt steigenden Stempeln je Spur mit EINVAL ab.
+    /// Die Aufnahme starb nach vier Paketen still; `stop` meldete danach
+    /// irrefuehrend „es laeuft keine Aufnahme".
+    #[test]
+    fn gleiche_zeitstempel_auf_der_tonspur_toenen_die_ts_aufnahme_nicht() {
+        ffmpeg::init().ok();
+        let out = &crate::ablage::temp_str("pulse-player-ton-dupts");
+        let mut r = Recorder::default();
+        r.note_dimensions(640, 360);
+        let key = [0u8, 0, 1, 0x65, 0x88]; // IDR
+        r.push(Codec::H264, puffer(&key), 0);
+        let used = r.start(Path::new(out)).expect("Aufnahme startet");
+        // Video-Keyframe schreiben, dann TON mit kollidierenden Stempeln —
+        // teilweise mehrere Einheiten auf dieselbe Millisekunde.
+        r.push(Codec::H264, puffer(&key), 0);
+        for i in 0..8 {
+            let ts = 20 * (i / 2); // 0,0,20,20,40,40,60,60 ms
+            r.push(Codec::Opus, puffer(&[0x4F, 0x00, i as u8, 0x00]), ts);
+        }
+        assert!(!r.failed, "Aufnahme bei gleichen Ton-Stempeln abgebrochen");
+        assert!(r.written_units >= 8, "Ton-Einheiten fehlen: {}", r.written_units);
+        r.stop().expect("Aufnahme schliesst ab");
+        let input = ffmpeg::format::input(&used).expect("Datei lesbar");
+        assert!(input.streams().best(ffmpeg::media::Type::Video).is_some());
+    }
+
+    /// Regression (2026-09-27): stirbt der Writer doch einmal unterwegs, darf
+    /// `stop` nicht behaupten, es haette nie eine Aufnahme gegeben — der
+    /// Nutzer hat minutenlang aufgezeichnet und bekommt sonst „es laeuft
+    /// keine Aufnahme" als Antwort.
+    #[test]
+    fn stop_meldet_den_grund_einer_gescheiterten_aufnahme() {
+        ffmpeg::init().ok();
+        let mut r = Recorder::default();
+        r.note_dimensions(640, 360);
+        r.push(Codec::H264, puffer(&[0, 0, 1, 0x65, 0x88]), 0);
+        r.start(&crate::ablage::temp("pulse-player-stop-grund")).expect("startet");
+        // Zustand nach einem Writer-Abbruch: kein aktiver Writer, Grund gesetzt.
+        r.active = None;
+        r.fehler_grund = Some("Paket schreiben: Invalid argument".into());
+        let meldung = r.stop().unwrap_err().to_string();
+        assert!(
+            meldung.contains("unterwegs gescheitert") && meldung.contains("Invalid argument"),
+            "falsche Meldung: {meldung}"
+        );
+        // Der Grund ist verbraucht — ein erneuter Stopp ist der normale Fehler.
+        assert!(r.stop().unwrap_err().to_string().contains("es laeuft keine"));
+    }
+
+    /// Regression (2026-09-27): stoppt eine Aufnahme VOR dem ersten Keyframe,
+    /// ist „nichts aufgenommen" die richtige Meldung — aber der Muxer hat die
+    /// Datei schon angelegt. Zurueckbleiben darf sie nicht (0-Byte-Muell).
+    #[test]
+    fn abgebrochene_aufnahme_hinterlaesst_keine_leerdatei() {
+        ffmpeg::init().ok();
+        let ziel = crate::ablage::temp("pulse-player-leerdatei");
+        let mut r = Recorder::default();
+        r.note_dimensions(640, 360);
+        // SPS macht den Codec bekannt, ist aber kein Startpunkt fuer den
+        // Schnitt — die Aufnahme wartet weiter auf ein Vollbild.
+        r.push(Codec::H264, puffer(&[0, 0, 1, 0x67, 0x42]), 0);
+        let benutzt = r.start(&ziel).expect("startet");
+        r.push(Codec::H264, puffer(&[0, 0, 1, 0x41, 0x9A]), 10); // Inter-Frame
+        assert!(r.stop().is_err(), "ohne Keyframe darf nichts aufgenommen werden");
+        assert!(!benutzt.exists(), "leere Datei {benutzt:?} ist liegengeblieben");
+    }
+
+    /// Regression (2026-09-27, Michaels Fund „fps stimmen nicht"): die Spur
+    /// bekam nie eine Bildrate, Spieler lasen „1000 fps" aus der
+    /// Millisekunden-Zeitbasis. `note_framerate` muss in der fertigen Datei
+    /// ankommen — Matroska ist der Fall, der zaehlt (AV1 ist der Standard-
+    /// Codec); MPEG-TS traegt keine Bildrate im Container, dort rechnen
+    /// Spieler sie ohnehin aus den Zeitstempeln.
+    #[test]
+    fn bildrate_steht_in_der_datei() {
+        ffmpeg::init().ok();
+        let ziel = crate::ablage::temp("pulse-player-fps-mkv");
+        let mut r = Recorder::default();
+        r.note_dimensions(320, 180);
+        r.note_framerate(60000, 1001); // 59,94 — der haeussliche Fall
+        // Sequence-Header + Vollbild: macht den Codec bekannt und liefert die
+        // Matroska-Extradata (Vorlage: av1_aufnahme_muxt_ohne_encoder).
+        let mut key = obu(1, 0xAA).to_vec();
+        key.extend(obu(6, VOLLBILD));
+        r.push(Codec::Av1, puffer(&key), 0);
+        let benutzt = r.start(&ziel).expect("startet");
+        assert_eq!(
+            benutzt.extension().and_then(|e| e.to_str()),
+            Some("mkv"),
+            "AV1 gehoert nach Matroska"
+        );
+        for i in 1..30 {
+            r.push(Codec::Av1, puffer(&key), i * 16);
+        }
+        r.stop().expect("stoppt");
+        let datei = ffmpeg::format::input(&benutzt).expect("lesbar");
+        let spur = datei.streams().best(ffmpeg::media::Type::Video).expect("Videospur");
+        let fps = spur.avg_frame_rate();
+        let wert = fps.numerator() as f64 / fps.denominator() as f64;
+        assert!(
+            (wert - 60000.0 / 1001.0).abs() < 0.01,
+            "avg_frame_rate fehlt/falsch: {wert}"
+        );
     }
 
     #[test]

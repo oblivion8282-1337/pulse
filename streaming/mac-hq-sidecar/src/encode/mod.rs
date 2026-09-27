@@ -76,6 +76,9 @@ struct VideoParams {
 
 pub struct VideoEncoder {
     encoder: codec::encoder::Video,
+    /// Codec-Art nur fuer den Clip-Ring (`crate::clip`): dort entscheidet sie
+    /// Container (AV1 → Matroska, H.264/HEVC → MPEG-TS) und Vollbild-Erkennung.
+    ring_codec: crate::clip::Codec,
     /// VideoToolbox hw-frames context — kept alive for the stream; each frame's
     /// `hw_frames_ctx` references it.
     hw: VtHwContext,
@@ -201,7 +204,13 @@ impl VideoEncoder {
 
         let mux = MuxWriter::start(output).context("start mux-writer")?;
 
+        // ShadowPlay-Ring: neuer Strom, neuer Stand; Mac encodiert heute 8 bit
+        // (s. start_whip-Kommentar zur Bittiefe).
+        crate::clip::leeren();
+        crate::clip::note_video(width, height, (fps as i32, 1), false);
+        let ring_codec = crate::clip::codec_aus_str(codec_id)?;
         Ok(Self {
+            ring_codec,
             encoder,
             hw,
             audio,
@@ -266,7 +275,13 @@ impl VideoEncoder {
         )
         .with_context(|| format!("WHIP-Aufbau zu {}", crate::redact::redact_url(push_url)))?;
 
+        // ShadowPlay-Ring: neuer Strom, neuer Stand; Mac encodiert heute 8 bit
+        // (s. start_whip-Kommentar zur Bittiefe).
+        crate::clip::leeren();
+        crate::clip::note_video(params.width, params.height, (params.fps as i32, 1), false);
+        let ring_codec = crate::clip::codec_aus_str(codec_id)?;
         Ok(Self {
+            ring_codec,
             encoder,
             hw,
             audio,
@@ -313,7 +328,13 @@ impl VideoEncoder {
         // hängen (der Aufruf bucht `nimm_senke` — genau einmal).
         let sender = crate::direct::sitzung().nimm_sender(codec_id, params.fps)?;
 
+        // ShadowPlay-Ring: neuer Strom, neuer Stand; Mac encodiert heute 8 bit
+        // (s. start_whip-Kommentar zur Bittiefe).
+        crate::clip::leeren();
+        crate::clip::note_video(params.width, params.height, (params.fps as i32, 1), false);
+        let ring_codec = crate::clip::codec_aus_str(codec_id)?;
         Ok(Self {
+            ring_codec,
             encoder,
             hw,
             audio,
@@ -453,7 +474,21 @@ impl VideoEncoder {
         loop {
             let mut packet = Packet::empty();
             match self.encoder.receive_packet(&mut packet) {
-                Ok(()) => match &self.ausgabe {
+                Ok(()) => {
+                    // ShadowPlay-Tee: die fertigen Bytes zusaetzlich in den
+                    // Clip-Ring (`crate::clip`). Die Millisekunden stammen aus
+                    // der Encoder-Uhr — auf dem Mux-Weg ist das 1/fps, auf
+                    // WHIP/Direct 1/90000; die Formel deckt beide ab.
+                    if let (Some(daten), Some(pts)) = (packet.data(), packet.pts()) {
+                        let tb = self.encoder_time_base;
+                        let ms = pts * i64::from(tb.numerator()) * 1000 / i64::from(tb.denominator());
+                        crate::clip::push_video(
+                            self.ring_codec,
+                            bytes::Bytes::copy_from_slice(daten),
+                            ms,
+                        );
+                    }
+                    match &self.ausgabe {
                     Ausgabe::Mux(m) => {
                         packet.set_stream(self.stream_idx);
                         packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
@@ -470,9 +505,10 @@ impl VideoEncoder {
                             w.send(daten, packet.pts())?;
                         }
                     }
-                    Ausgabe::Direct(d) => {
-                        if let Some(daten) = packet.data() {
-                            d.send(daten, packet.pts())?;
+                        Ausgabe::Direct(d) => {
+                            if let Some(daten) = packet.data() {
+                                d.send(daten, packet.pts())?;
+                            }
                         }
                     }
                 },

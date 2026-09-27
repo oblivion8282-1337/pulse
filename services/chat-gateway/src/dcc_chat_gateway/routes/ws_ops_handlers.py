@@ -40,6 +40,7 @@ from dcc_chat_gateway.presence_status import (
 from dcc_chat_gateway.routes import (
     watch_handoff,
     ws_device_handlers,
+    ws_record_notice,
     ws_remote_handlers,
     ws_remote_input,
     ws_remote_reconnect,
@@ -334,6 +335,13 @@ async def handle_remote_request(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     # Bekommt den ganzen Kontext: die Mindestpause zwischen zwei Anfragen ist
     # verbindungsgebundener Zustand und lebt auf ``ctx``.
     await ws_remote_handlers.handle_request(ctx, msg, session_factory=SessionLocal)
+
+
+@register_ws_op("stream_record")
+async def handle_stream_record_op(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    # Ganzer Kontext: der Zustandsfilter (nur Veraenderungen weiterleiten)
+    # und der Disconnect-Aufraeumer leben auf ``ctx``.
+    await ws_record_notice.handle_stream_record(ctx, msg, session_factory=SessionLocal)
 
 
 @register_ws_op("remote_respond")

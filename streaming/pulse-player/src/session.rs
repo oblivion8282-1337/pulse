@@ -6,7 +6,7 @@
 //! Die Reihenfolge ist der Kern des Ganzen. Chromium versteckt Puffer und
 //! Decoder-Wahl; hier ist beides sichtbar und zur Laufzeit einstellbar.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -114,6 +114,47 @@ const EINSTIEG_REQUEST_INTERVAL: Duration = Duration::from_millis(500);
 /// Ohne RTT-Messung (Verbindungsaufbau) bleibt die Geduld unveraendert.
 const FERN_JITTER_MIN_MS: u64 = 40;
 const FERN_JITTER_RTT_AUFSCHLAG_MS: u64 = 30;
+
+/// Gemessener Median-Abstand zweier Bilder in RTP-Ticks (90 kHz) als
+/// Container-Bildrate. Die Messung ist gegen Jitter robust, aber der Bruch
+/// `90000/median` ist nicht die ERNST gemeinte Rate: bei 59,94 Hz wechselt
+/// der Takt zwischen 1501 und 1502 Ticks, und `90000/1501` wuerde als
+/// „59,96 fps" in der Datei stehen. Deshalb Anschluss an die bekannten
+/// Raten innerhalb von 2 % — gemessen wird, geschrieben wird die Absicht,
+/// die dahinter liegt. Kein Treffer: der ehrliche Bruch.
+fn bildrate_als_rational(median_ticks: u64) -> (i32, i32) {
+    if median_ticks == 0 {
+        return (0, 1);
+    }
+    // Ganzzahlige Raten (24, 25, 30, 48, 50, 60, 90, 100, 120, 144, 240) und
+    // die „x000/1001"-Raten (23,976 / 29,97 / 59,94) liegen bis zu 1,5 Ticks
+    // auseinander — 60 Hz ist 1500 Ticks, 59,94 ist 1501,5. Eine Toleranz in
+    // PROZENT kann die beiden nicht trennen (0,1 % Abstand), also wird in
+    // TICKS geurteilt: exakter Treffer zuerst, danach die nicht-ganzzahligen
+    // Raten mit maximal einem Tick Abstand. Kein Treffer: der ehrliche Bruch.
+    const GANZZAHLIG: [(i32, i32); 11] = [
+        (24, 1), (25, 1), (30, 1), (48, 1), (50, 1), (60, 1),
+        (90, 1), (100, 1), (120, 1), (144, 1), (240, 1),
+    ];
+    const HUNDERTEL: [(i32, i32); 3] = [(24000, 1001), (30000, 1001), (60000, 1001)];
+    for &(num, den) in &GANZZAHLIG {
+        if 90_000 * den as u64 == num as u64 * median_ticks {
+            return (num, den);
+        }
+    }
+    for &(num, den) in &HUNDERTEL {
+        let erwartet = 90_000.0 * den as f64 / num as f64;
+        if (median_ticks as f64 - erwartet).abs() <= 1.0 {
+            return (num, den);
+        }
+    }
+    let g = gcd(90_000, median_ticks);
+    ((90_000 / g) as i32, (median_ticks / g) as i32)
+}
+
+fn gcd(a: u64, b: u64) -> u64 {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
 
 /// Die Zielgeduld waehrend einer Fernsteuerung — pure Rechnung, getrennt von
 /// der Schleife, damit die Grenzen pruefbar sind.
@@ -468,6 +509,14 @@ pub async fn run(
     // Die Kennung kommt aus dem ersten Videopaket; vorher gibt es nichts
     // anzufordern.
     let mut video_ssrc: Option<u32> = None;
+    // Bildraten-Messung fuer den Aufnahme-Container ( Begruendung am
+    // Medien-Sink-Aufruf): letzter RTP-Zeitstempel und rollierendes Fenster.
+    let mut letzte_rtp_ts: Option<u32> = None;
+    let mut rtp_deltas: VecDeque<u64> = VecDeque::new();
+    let mut fps_gemeldet = false;
+    // Nachholen fuer den Aufnahme-Start: Der Sender schluckt Anforderungen
+    // binnen seiner Zwei-Sekunden-Sperre; der Knopfdruck allein reicht nicht.
+    let mut aufnahme_pli_versuche: u32 = 0;
     // Diagnose der Verlust-Erholung, s. weiter unten beim Zusammensetzer.
     let erholung_log = std::env::var("PULSE_PLAYER_ERHOLUNG_LOG").as_deref() == Ok("1");
     let mut verworfene_einheiten: u64 = 0;
@@ -580,6 +629,21 @@ pub async fn run(
                         .start_recording(&path)
                         .map(|used| serde_json::json!({ "path": used }));
                     let _ = reply.send(answer);
+                    // Der Mitschnitt beginnt erst beim naechsten Vollbild
+                    // (sonst waere der Dateianfang Bildmuell) — aber auf eines
+                    // zu warten, darf niemand muessen: der Sender stellt
+                    // Vollbilder im Abstand von bis zu 60 s bereit. Eine
+                    // Anforderung ueber den Rueckkanal macht den Start fuer
+                    // jeden PLI-kundigen Sender SOFORT; ein unkuendiger (z. B.
+                    // ffmpeg-Testpusher) verhaelt sich wie vorher und liefert
+                    // das naechste regulaere Vollbild.
+                    if media.is_recording() {
+                        aufnahme_pli_versuche = 0;
+                        if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
+                            last_keyframe_request = Instant::now();
+                            strom.request_keyframe(ssrc).await;
+                        }
+                    }
                 }
                 Some(SessionCommand::StopRecord { reply }) => {
                     let _ = reply.send(media.stop_recording().map(|()| serde_json::Value::Null));
@@ -993,10 +1057,56 @@ pub async fn run(
                     }
                 }
 
+                // Aufnahme-Start beschleunigen: solange der Rekorder noch
+                // auf sein erstes Vollbild wartet, alle 500 ms erneut anfordern
+                // (maximal 10x) — die erste Anforderung kann in der Zwei-
+                // Sekunden-Sperre des Senders verschluckt worden sein.
+                if media.is_recording()
+                    && media.wartet_auf_keyframe()
+                    && aufnahme_pli_versuche < 10
+                    && last_keyframe_request.elapsed() >= Duration::from_millis(500)
+                {
+                    if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
+                        aufnahme_pli_versuche += 1;
+                        last_keyframe_request = Instant::now();
+                        strom.request_keyframe(ssrc).await;
+                    }
+                }
                 // Jede Einheit geht an den Medien-Sink: Ton wird dort
                 // dekodiert und ausgegeben, und beide Spuren laufen in den
                 // Ringpuffer fuer Aufnahme und Clip.
                 let ts_ms = started.elapsed().as_millis() as i64;
+                // Bildrate aus dem RTP-Takt messen (90 kHz, exakt) — der
+                // Container will sie als Metadatum, und die Wanduhr-Stempel
+                // der Aufnahme duerfen sie nicht hergeben: sie tragen den
+                // Jitter der Zustellung. Median über ein rollierendes Fenster
+                // ist gegen verlorene Bilder robust (deren Delta ist doppelt
+                // so gross und verliert gegen die Masse).
+                if let (true, Some(ts)) = (codec.is_video(), unit_rtp_ts) {
+                    if let Some(num) = letzte_rtp_ts.replace(ts) {
+                        let delta = ts.wrapping_sub(num) as u64;
+                        if delta > 0 {
+                            rtp_deltas.push_back(delta);
+                            if rtp_deltas.len() > 64 {
+                                rtp_deltas.pop_front();
+                            }
+                            if rtp_deltas.len() >= 16 && rtp_deltas.len() % 8 == 0 {
+                                let mut sortiert: Vec<u64> = rtp_deltas.iter().copied().collect();
+                                sortiert.sort_unstable();
+                                let median = sortiert[sortiert.len() / 2];
+                                let (num, den) = bildrate_als_rational(median);
+                                if !fps_gemeldet {
+                                    fps_gemeldet = true;
+                                    eprintln!(
+                                        "pulse-player: Bildrate aus dem RTP-Takt gemessen: \
+                                         {num}/{den} fps (Median {median} Ticks)"
+                                    );
+                                }
+                                media.note_framerate(num, den);
+                            }
+                        }
+                    }
+                }
                 // `clone()` ist hier nur ein Zaehler hoch: `unit` ist `Bytes`,
                 // und der Ringpuffer im Rekorder haelt genau diesen Speicher
                 // fest, statt ihn zu kopieren.
@@ -1456,6 +1566,23 @@ mod tests {
         assert_eq!(fern_jitter_ziel(90, 100), 100);
         // Nutzer hat selbst tiefer gestellt (Pruefstand): nie anheben.
         assert_eq!(fern_jitter_ziel(58, 20), 20);
+    }
+
+    /// Bildraten-Erkennung fuer den Aufnahme-Container (Michaels Fund
+    /// 2026-09-27: „1000 fps" in der Datei). 60 Hz = 1500 Ticks Abstand.
+    #[test]
+    fn bildrate_60_und_30_und_5994_erkennen() {
+        assert_eq!(bildrate_als_rational(1500), (60, 1));
+        assert_eq!(bildrate_als_rational(3000), (30, 1));
+        assert_eq!(bildrate_als_rational(750), (120, 1));
+        // 59,94 Hz: der Takt wechselt 1501/1502 — die Messung darf beides
+        // liefern, erkannt werden muss dieselbe Absicht.
+        assert_eq!(bildrate_als_rational(1501), (60000, 1001));
+        assert_eq!(bildrate_als_rational(1502), (60000, 1001));
+        // 23,976 („cinema"): 3753/3754 Ticks.
+        assert_eq!(bildrate_als_rational(3754), (24000, 1001));
+        // Unbekannte Rate: der ehrliche Bruch, gekuerzt (90000/1234).
+        assert_eq!(bildrate_als_rational(1234), (45000, 617));
     }
 
     #[tokio::test]

@@ -48,6 +48,7 @@ fn dispatch(req: Request) -> Response {
         "start" => ops::start::handle(req.params),
         "stop" => ops::stop::handle(req.params),
         "keyframe" => ops::keyframe::handle(req.params),
+        "clip_save" => ops::clip_save::handle(req.params),
         "state" => ops::state::handle(req.params),
         unknown => Err(anyhow::anyhow!("unknown op: {unknown}")),
     };

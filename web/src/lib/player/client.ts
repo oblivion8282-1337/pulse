@@ -231,3 +231,84 @@ export function onPlayerOptionEvent(cb: (ev: PlayerOptionEvent) => void): () => 
   });
 }
 
+/**
+ * Aufnahme-Wunsch aus der Bedienleiste des Player-Fensters. Das Fenster
+ * zeichnet nur den Knopf und seinen Zustand (aus `stats.recording`) — wer den
+ * Zielpfad bestimmt und die Operation wirklich schaltet, ist die App: der
+ * Hauptprozess wählt den Pfad, der Renderer löst über
+ * `startRecording`/`stopRecording` aus. `on` sagt, was gewünscht ist.
+ */
+export function onPlayerRecordRequest(cb: (session: number, on: boolean) => void): () => void {
+  const p = api();
+  if (!p) return () => {};
+  return p.onEvent((raw) => {
+    const ev = raw as { ev?: string; session?: unknown; on?: unknown };
+    if (ev?.ev !== 'player:recordRequest' || typeof ev.session !== 'number') return;
+    cb(ev.session, ev.on === true);
+  });
+}
+
+/** Clip-Wunsch aus der Bedienleiste — dieselbe Teilung wie die Aufnahme. */
+export function onPlayerClipRequest(cb: (session: number) => void): () => void {
+  const p = api();
+  if (!p) return () => {};
+  return p.onEvent((raw) => {
+    const ev = raw as { ev?: string; session?: unknown };
+    if (ev?.ev !== 'player:clipRequest' || typeof ev.session !== 'number') return;
+    cb(ev.session);
+  });
+}
+
+/**
+ * Ergebnis einer Aufnahme-Operation: `ok` plus — bei Erfolg — den Zielpfad,
+ * den der Hauptprozess bestimmt hat, bei Fehlschlag die URSCHE aus dem Player
+ * (z. B. „nichts aufgenommen", weil zwischen Start und Stopp kein Keyframe
+ * ankam — meist lief der Strom gar nicht). Der Renderer zeigt sie direkt an,
+ * statt einen Grund zu raten.
+ */
+export interface RecordingResult {
+  ok: boolean;
+  path?: string;
+  error?: string;
+}
+
+async function recordingResult(
+  what: string,
+  call: () => Promise<PulsePlayerResult> | undefined,
+): Promise<RecordingResult> {
+  try {
+    const res = await call();
+    if (!res?.ok) {
+      const error = typeof res?.error === 'string' ? res.error : undefined;
+      console.warn(`[player] ${what} fehlgeschlagen:`, error ?? res?.error);
+      return { ok: false, error };
+    }
+    return { ok: true, path: typeof res.path === 'string' ? res.path : undefined };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.warn(`[player] ${what} warf:`, e);
+    return { ok: false, error };
+  }
+}
+
+/**
+ * Startet einen Mitschnitt. Der Zielpfad wird vom Hauptprozess bestimmt —
+ * der Renderer darf keinen vorgeben, sonst waere das ein Schreibzugriff an
+ * beliebige Stelle.
+ */
+export function startRecording(session: number): Promise<RecordingResult> {
+  return recordingResult('Aufnahme', () => api()?.record(session));
+}
+
+export async function stopRecording(session: number): Promise<RecordingResult> {
+  return recordingResult('Stopp', () => api()?.stopRecord(session));
+}
+
+/**
+ * Sichert die letzten `seconds` Sekunden aus dem Ringpuffer des Players.
+ * Der Schnitt beginnt am letzten Keyframe davor, der Clip wird also etwas
+ * laenger als angefordert.
+ */
+export function saveClip(session: number, seconds = 30): Promise<RecordingResult> {
+  return recordingResult('Clip', () => api()?.clip(session, seconds));
+}

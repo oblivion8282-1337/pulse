@@ -40,7 +40,7 @@ import {
   onSidecarCreated,
   sidecarRunning,
 } from './sidecar';
-import { playerManager } from './player';
+import { playerManager, recordingDir, shadowClipPath } from './player';
 import { auftragLesen, EingabeWeiche, erfassungSchalten } from './remoteInput';
 import { RemoteEingabe } from './remoteInputHost';
 import { zielFuerAblage, rolleLesen, endeAnstoss } from './ablageWeiche';
@@ -963,6 +963,25 @@ function wireSidecar(): void {
   // Generic handler — the renderer calls `sidecar:call` with an op name + params +
   // an optional slot. Catch everything so a bad op / dead sidecar surfaces as
   // `{ok:false}` in the renderer instead of an unhandled rejection.
+  // ShadowPlay: die letzten 30 Sekunden des SENDENDEN Stroms sichern.
+  // Eigener Kanal statt sidecar:call — der Zielpfad wird HIER gebaut (wie
+  // player:record; der Renderer haelt nie einen Pfad in der Hand), derselbe
+  // Speicherort wie die Player-Aufnahmen, inklusive der eingestellten
+  // Ordnerwahl.
+  ipcMain.handle('sidecar:clip', async (_e, slot: unknown, seconds?: unknown) => {
+    try {
+      const ziel = shadowClipPath();
+      return await getSidecar(normaliseSlot(slot)).call('clip_save', {
+        path: ziel,
+        // Der ganze Puffer, nicht ein Bruchteil (Michaels Wunsch 2026-09-27):
+        // der Ring haelt 90 s, der Knopf sichert den aktuellen Stand.
+        seconds: Number(seconds) || 90,
+      });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
   ipcMain.handle('sidecar:call', async (_e, op: string, params: unknown, slot?: unknown) => {
     // Validate op against the allowlist (finding 156).
     if (!ALLOWED_SIDECAR_OPS.has(op)) {
@@ -1166,6 +1185,27 @@ function wirePlayer(): void {
   handleRecording('player:clip', (session, seconds) =>
     playerManager.saveClip(session, Number(seconds) || 30),
   );
+
+  // Speicherort der Mitschnitte: der Nutzer waehlt im SYSTEM-Ordnerdialog.
+  // Der Dialog laeuft bewusst HIER — der Renderer haelt nie einen Pfad in der
+  // Hand, den er setzen koennte; `recordingDir` steht deshalb BEWUSST NICHT
+  // in der store:set-Allowlist. Abbrechen veraendert nichts.
+  ipcMain.handle('player:chooseRecordingDir', async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'kein Fenster' };
+    const sel = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+      // Bewusst ohne Titel: das Betriebssystem liefert die lokalisierte
+      // Standard-Überschrift — ein fester Text hier wäre je Sprache falsch.
+    });
+    if (sel.canceled || !sel.filePaths[0]) return { ok: false, canceled: true };
+    storeSet('recordingDir', sel.filePaths[0]);
+    return { ok: true, path: sel.filePaths[0] };
+  });
+  // Effektives Verzeichnis fuer die Anzeige — berechnet der Hauptprozess
+  // (player.ts faellt auf den Standard zurueck, wenn der gewaehlte Ordner
+  // unbrauchbar wurde). store:get('recordingDir') wuerde nur den ROHEN Wert
+  // zeigen, ohne Fallback und Validierung.
+  ipcMain.handle('player:recordingDir', () => ({ ok: true, path: recordingDir() }));
 
   // Fernsteuerung: Eingabe-Erfassung im Player-Fenster schalten und zugleich
   // die Zuordnung zur Fernsteuerungs-Sitzung anlegen. Ohne Zuordnung verwirft

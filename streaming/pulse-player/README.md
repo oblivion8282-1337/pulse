@@ -81,12 +81,15 @@ nicht einsehbar.
   Sendeseitig ist alles am Bitstrom belegt:
   `docs/2026-08-06-hdr-windows-amd.md`.
 - **Bedienoberflaeche IM Fenster** (`src/overlay.rs`, egui): Lautstaerke samt
-  Verstaerkung ueber 100 %, Stumm, Vollbild (Knopf, Doppelklick, Esc) und ein
-  Statistik-Feld (Auflösung, Bilder/s, Bitrate, Decoder samt Hardware-Angabe,
-  **Ausgabeformat**, verworfene und uebersprungene Bilder, Paketverlust,
-  Pufferstand, Ton-Aussetzer). Blendet sich nach drei Sekunden ohne
-  Mausbewegung aus. Ob ohne neues Bild ueberhaupt ein Durchgang noetig ist,
-  entscheidet `Overlay::wants_redraw` VOR dem egui-Aufbau — an GRUENDEN
+  Verstaerkung ueber 100 %, Stumm, Aufnahme an/aus und Clip (Knöpfe neben der
+  Lautstaerke — sie melden nur den Wunsch als `player:recordRequest`/`clipRequest`
+  nach vorne; Zielpfad und Schalten liegen bei der App, der Knopfzustand liest
+  sich zurueck ueber `StatsView::recording`), Vollbild (Knopf, Doppelklick, Esc)
+  und ein Statistik-Feld (Auflösung, Bilder/s, Bitrate, Decoder samt
+  Hardware-Angabe, **Ausgabeformat**, verworfene und uebersprungene Bilder,
+  Paketverlust, Pufferstand, Ton-Aussetzer). Blendet sich nach drei Sekunden
+  ohne Mausbewegung aus. Ob ohne neues Bild ueberhaupt ein Durchgang noetig
+  ist, entscheidet `Overlay::wants_redraw` VOR dem egui-Aufbau — an GRUENDEN
   (Eingabe liegt an, neue Zahlen, Ausblenden), NICHT am Zustand `visible`: mit
   „sichtbar" als Grund hielt sich die Schleife selbst am Leben, weil jede
   Ausgabe den naechsten Durchlauf ausloest (gemessen 2500-3400 Ausgaben je

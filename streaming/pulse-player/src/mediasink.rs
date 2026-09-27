@@ -149,12 +149,22 @@ impl MediaSink {
         self.recorder.note_ten_bit(ten_bit);
     }
 
+    /// Bildrate aus dem RTP-Takt der Sitzung — Metadatum fuer den Container.
+    pub fn note_framerate(&mut self, num: i32, den: i32) {
+        self.recorder.note_framerate(num, den);
+    }
+
     /// Liefert den tatsaechlich benutzten Pfad — die Endung haengt am Codec.
     pub fn start_recording(&mut self, path: &str) -> Result<String, String> {
         self.recorder
             .start(Path::new(path))
             .map(|p| p.to_string_lossy().into_owned())
             .map_err(|e| format!("{e:#}"))
+    }
+
+    /// Aufnahme läuft, schreibt aber noch nicht (wartet aufs Vollbild).
+    pub fn wartet_auf_keyframe(&self) -> bool {
+        self.recorder.wartet_auf_keyframe()
     }
 
     pub fn is_recording(&self) -> bool {
