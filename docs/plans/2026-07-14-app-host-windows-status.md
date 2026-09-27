@@ -64,3 +64,24 @@ noch aufschieben. Branch sichern statt mergen.
    sidecar-ffmpeg mit OpenSSL. Voice-LAN-Relay nachziehen, falls gewünscht.
 3. Vor dem Merge: Changelog-Eintrag (Stil mit User), Bump ist schon auf 0.1.35, VPS-Feed
    `~/pulse/updates-win-server/` anlegen (Cloud-SSH steht jetzt).
+
+
+## Nachtrag 2026-09-27 (Heim-Server): Fix (b) umgesetzt
+
+Der RTMPS-Owner-Weg ist gebaut und der Schannel-Blocker damit umgangen:
+
+1. **media-svc-Owner-Erkennung** (`routes.py`): die Owner-Exemption erkennt
+   jetzt auch den Self-Host-Owner — dort ist ``sub`` die synthetische
+   pairwise-ID und der Cloud-Vergleich traf nie; der ``admin``-Claim des
+   Session-Tokens (session_ticket.py setzt ihn beim Betreiber-Vergleich der
+   CLOUD-sub) kennzeichnet ihn. Owner behält RTMPS, auch wenn die Instanz
+   WHIP erzwingt (Gäste-Fall).
+2. **Client** (`settings.svelte.ts::pushProtokoll`): Windows + Self-Host
+   wünscht ``rtmp`` statt ``whip`` — der win-hq-sidecar pusht damit über
+   TCP 1936 (auf dem Host per tcpRelay überbrückt) mit Schannel-TLS statt
+   am unmöglichen DTLS-Handshake zu sterben.
+
+Bekannte Grenze (bewusst, V1): NICHT-Owner, die von einem Windows-Gerät auf
+einem fremden Heim-Server in HQ senden wollen, bekommen weiterhin WHIP und
+scheitern dort an Schannel — ihr Weg bräuchte den größeren
+Reachability-Umbau (Relay/TURN), der V1 explizit nicht enthält.

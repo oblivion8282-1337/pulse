@@ -52,6 +52,19 @@ extraResources:
     to: build-resources/update-splash.html
   - from: electron/icon-server.png
     to: build-resources/icon-server.png
+# ── macOS (Heim-Server 2026-09-27): Drag-Install-DMG wie der Client, aber
+# OHNE HQ-Sidecar (der Server streamt nicht) und MIT gebundeltem Mac-Podman
+# (podman + gvproxy + vfkit, scripts/fetch-mac-podman.sh → resources-podman-mac).
+# Icon: das Client-icns (eigene Server-Bitmaps wie beim NSIS-Wizard out of
+# scope v1). Unsigniert wie der Client — Auto-Update auf mac entfällt deshalb
+# (manueller Download), der Windows-Server-Feed bleibt der einzige Auto-Weg.
+mac:
+  target: dmg
+  icon: build-resources/icon.icns
+  extraResources:
+    - from: resources-podman-mac
+      to: podman
+
 win:
   target: nsis
   extraResources:

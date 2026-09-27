@@ -557,6 +557,39 @@ async def test_stream_token_client_may_ask_for_whip(client, auth_signer, redis):
 
 
 @pytest.mark.asyncio
+async def test_stream_token_selfhost_owner_admin_keeps_rtmps(
+    _whip_settings, client, auth_signer, redis, _isolate_settings
+):
+    """Heim-Server 2026-09-27: auf einem Self-Host ist ``sub`` die SYNTHETISCHE
+    pairwise-ID — der Cloud-Vergleich gegen pulse_instance_owner_id trifft nie.
+    Der ``admin``-Claim des Session-Tokens kennzeichnet dort den Owner; ohne
+    diese Erkennung bekam der Windows-Owner WHIP aufgezwungen und der
+    win-hq-sidecar starb am Schannel-DTLS-Handshake."""
+    import dcc_media_svc.routes as media_routes
+
+    settings = _isolate_settings.model_copy(
+        update={
+            "mediamtx_push_protocol": "whip",
+            "pulse_instance_owner_id": "4242",
+            "pulse_instance_mode": "self-host",
+        }
+    )
+    monkeypatch_local = media_routes.get_settings
+    import pytest as _pytest  # noqa: PLC0415
+
+    with _pytest.MonkeyPatch.context() as mp:
+        mp.setattr(media_routes, "get_settings", lambda: settings)
+        access = auth_signer.issue_access(987654321, "owner", is_admin=True)
+        cid = _unique_cid()
+        r = await client.post(f"/channels/{cid}/stream-token", json={}, headers=_auth(access))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["push_protocol"] == "rtmp"
+        assert body["push_url"].startswith(f"rtmps://ingest.test:1936/{body['mediamtx_path']}")
+    assert monkeypatch_local is not None  # Referenz haelt den Import am Leben
+
+
+@pytest.mark.asyncio
 async def test_stream_token_whip_wish_beats_owner_exemption(
     _whip_settings, client, auth_signer
 ):

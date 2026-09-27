@@ -64,10 +64,11 @@ on:
       - 'packaging/com.howispulse.Pulse.desktop'
       - 'packaging/com.howispulse.Pulse.metainfo.xml'
       - 'packaging/com.howispulse.Pulse.svg'
-      # Server-App-Flatpak (com.howispulse.PulseServer) ist geparkt (App-Hosting
-      # zurückgestellt 2026-07-14) → Build-Schritte + Trigger entfernt. Die
-      # packaging/com.howispulse.PulseServer.* Manifeste bleiben im Repo liegen;
-      # zum Reaktivieren die Server-Schritte + diese Pfade wieder aufnehmen.
+      # Server-App teilt sich Repo + Signaturschlüssel mit dem Client.
+      - 'packaging/com.howispulse.PulseServer.yml'
+      - 'packaging/launcher-server.sh'
+      - 'packaging/com.howispulse.PulseServer.desktop'
+      - 'packaging/com.howispulse.PulseServer.metainfo.xml'
       - '.github/workflows/flatpak.yml'
   workflow_dispatch:    # also allow manual republish from the Actions tab
 
@@ -167,11 +168,21 @@ jobs:
             --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
             build/flatpak packaging/com.howispulse.Pulse.yml
 
-      # Server-App-Flatpak (com.howispulse.PulseServer) geparkt 2026-07-14
-      # (App-Hosting zurückgestellt) → Build-Schritt entfernt. Zum Reaktivieren
-      # nach dem Client-Build wieder `build:electron:server` + `flatpak-builder …
-      # packaging/com.howispulse.PulseServer.yml` einsetzen (MUSS nach dem
-      # Client-Build laufen, weil beide `desktop/electron/dist` überschreiben).
+      # ── Server-App in dasselbe Repo ──
+      # Beide Manifeste kopieren `desktop/electron/dist` — das Server-Bundle
+      # überschreibt dort main.cjs (__APP_MODE__='server') und legt server.html
+      # dazu. Deshalb MUSS es nach dem Client-Build entstehen, sonst packt der
+      # Client-Flatpak die Server-Variante ein.
+      - name: build:electron:server
+        run: pnpm --filter @dcc/desktop build:electron:server
+
+      - name: Build & sign Flatpak (Server-App)
+        run: |
+          flatpak-builder --force-clean \
+            --user --install-deps-from=flathub \
+            --repo=build/repo \
+            --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
+            build/flatpak-server packaging/com.howispulse.PulseServer.yml
 
       - name: Generate static deltas + prune old commits
         run: |

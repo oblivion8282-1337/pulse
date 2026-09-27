@@ -195,3 +195,60 @@ jobs:
       - name: SSH-Key wieder entfernen
         if: always()
         run: rm -f ~/.ssh/id_ed25519
+
+  # ── Server-App-DMG (Heim-Server 2026-09-27) ────────────────────────────────
+  # Schneller als der Client-Job: KEIN Rust/FFmpeg (der Server streamt nicht
+  # selbst — der allinone-Container tut's), nur esbuild-Server-Bundle + das
+  # gepinnte Mac-Podman (fetch-mac-podman.sh) + electron-builder mit der
+  # Server-Config. Läuft im selben Workflow, damit Secrets/Runner-Muster
+  # geteilt bleiben; Upload nur von main (wie der Client).
+  build-server:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Server-DMG bauen (unsigniert, mit Mac-Podman)
+        run: pnpm --filter @dcc/desktop run dist:mac:server
+
+      - name: Server-DMG als Workflow-Artefakt
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse-Server-mac-dmg
+          path: desktop/release-server/*.dmg
+          if-no-files-found: error
+
+      - name: SSH für scp einrichten
+        if: github.ref == 'refs/heads/main'
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Server-DMG nach howispulse hochladen
+        if: github.ref == 'refs/heads/main'
+        run: |
+          DMG=$(ls desktop/release-server/*.dmg | head -n1)
+          scp -i ~/.ssh/id_ed25519 \
+            "$DMG" \
+            michael@159.195.150.54:pulse/downloads/Pulse-Server-latest.dmg
+
+      - name: SSH-Key wieder entfernen
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519

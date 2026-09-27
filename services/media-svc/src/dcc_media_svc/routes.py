@@ -289,7 +289,18 @@ async def issue_stream_token(
     # Instanz ueberhaupt funktioniert.
     wunsch_whip = payload.protocol == "whip"
     protocol = settings.mediamtx_push_protocol
-    if user_id == settings.pulse_instance_owner_id and not wunsch_whip:
+    # Owner-Erkennung: Cloud-Vergleich gegen PULSE_INSTANCE_OWNER_ID plus —
+    # seit dem Heim-Server-Entscheid 2026-09-27 — dem Self-Host-Fall, wo die
+    # sub die SYNTHETISCHE pairwise-ID ist und der Cloud-Vergleich nie trifft.
+    # Dort kennzeichnet der ``admin``-Claim des Session-Tokens den Owner
+    # (session_ticket.py vergleicht die CLOUD-sub gegen PULSE_INSTANCE_OWNER_ID
+    # und setzt ihn beim Prägen). Ohne das bekam der Windows-Owner WHIP
+    # aufgedrückt — und der win-hq-sidecar scheitert am DTLS-Handshake mit
+    # Schannel (SEC_E_ALGORITHM_MISMATCH, s. docs/plans/2026-07-14-…-status.md).
+    owner_erkannt = user_id == settings.pulse_instance_owner_id or (
+        user.is_self_host and user.is_admin
+    )
+    if owner_erkannt and not wunsch_whip:
         protocol = "rtmp"
     if wunsch_whip:
         protocol = "whip"
