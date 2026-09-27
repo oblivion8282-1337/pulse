@@ -115,8 +115,12 @@ struct Shared {
     tonuhr: Option<lippen::Tonuhr>,
     /// Nutz-Trim `av_offset_ms` — positively = Ton spaeter (s. `OffsetMs`).
     trim_ms: i32,
-    /// Regel-Eingriff der Lippen-Synchronisation auf den Ring-Sollwert.
-    sync_ms: i32,
+    /// Regel-Eingriff der Lippen-Synchronisation auf den Ring-Sollwert. Als
+    /// Fliesskommazahl, weil der Schritt JE PAKET (dt = 20 ms) Bruchteile
+    /// eines ms betraegt — eine ganze Zahl wuerde jeden Schritt zu null
+    /// truncieren und der Eingriff bliebe fuer immer stehen (E2E-Lauf
+    /// 2026-09-27: 8 Minuten +68 ms Fehler, Eingriff reglos bei +0).
+    sync_ms: f32,
     /// Zuletzt gemessener Lippenfehler (positiv = Ton haengt hinterher),
     /// fuer die Statistik-Zeile.
     letzte_fehler_ms: f64,
@@ -145,8 +149,8 @@ impl Shared {
     /// Untergrenze 1 ms statt 0: der Anlauf-Zustand wartet auf den Sollwert,
     /// und 0 hiesse dauerhaft loslegen — jede Schwankung sofort hoerbar.
     fn ziel_setzen(&mut self) {
-        let basis_ms = RING_SOLL_MS as i32 + self.trim_ms.max(0) + self.sync_ms;
-        self.target_fill = (basis_ms.max(1) as usize * self.per_ms).min(self.max_ziel);
+        let basis_ms = RING_SOLL_MS as f32 + self.trim_ms.max(0) as f32 + self.sync_ms;
+        self.target_fill = (basis_ms.max(1.0).round() as usize * self.per_ms).min(self.max_ziel);
     }
 }
 
@@ -270,8 +274,17 @@ fn pump_commands(
                 if let Some(ts) = rtp_ts {
                     let jetzt = Instant::now();
                     let ausgabe = s.ausgabe;
+                    // Start-Vorhalt = aktueller Ring-Sollwert (s.
+                    // `lippen::Tonuhr::startvorhalt_s`): ohne ihn waere die
+                    // eigene Pufferlatenz ein Regel-Fehler.
+                    let vorhalt_s = s.target_fill as f64 / (s.per_ms as f64 * 1000.0);
                     let uhr = s.tonuhr.get_or_insert_with(|| {
-                        lippen::Tonuhr::neu(ts, ausgabe + (fuellstand - angehaengt) as u64, jetzt)
+                        lippen::Tonuhr::neu(
+                            ts,
+                            ausgabe + (fuellstand - angehaengt) as u64,
+                            jetzt,
+                            vorhalt_s,
+                        )
                     });
                     uhr.paket(ts, fuellstand, angehaengt, ausgabe, jetzt);
                     let fehler = uhr.fehler_ms(ausgabe, sample_rate, channels, jetzt);
@@ -438,7 +451,7 @@ impl AudioOutput {
             ausgabe: 0,
             tonuhr: None,
             trim_ms: 0,
-            sync_ms: 0,
+            sync_ms: 0.0,
             letzte_fehler_ms: 0.0,
             letzte_nachfuehr: None,
             per_ms,
@@ -538,7 +551,7 @@ impl AudioOutput {
                 alive: s.alive,
                 geraetefehler: s.geraetefehler,
                 lippen_ms: s.letzte_fehler_ms as f32,
-                sync_versatz_ms: s.sync_ms,
+                sync_versatz_ms: s.sync_ms.round() as i32,
             })
             .unwrap_or_default()
     }
@@ -574,7 +587,7 @@ mod tests {
             ausgabe: 0,
             tonuhr: None,
             trim_ms: 0,
-            sync_ms: 0,
+            sync_ms: 0.0,
             letzte_fehler_ms: 0.0,
             letzte_nachfuehr: None,
             per_ms: TEST_PER_MS,
