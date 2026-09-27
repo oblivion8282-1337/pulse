@@ -25,6 +25,7 @@
   import ShortcutCheatsheet from './ShortcutCheatsheet.svelte';
   import QuickSwitcher from './QuickSwitcher.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { schattenClipsSichern } from '$lib/stream/shadowClip';
 
   let cheatsheetOpen = $state(false);
 
@@ -125,11 +126,13 @@
           return;
         }
         voice.toggleScreenShare();
+      }),
+      register('stream.highlightClip', () => {
+        // ShadowPlay: sichert alle laufenden Slots — wer zwei Bildschirme
+        // streamt, will beide Momente. Hinweis statt Stille, wenn kein
+        // Stream laeuft.
+        void schattenClipsSichern();
       })
-      // 'stream.highlightClip' bewusst NICHT registriert: Feature noch nicht gebaut
-      // (30s-Roll-Buffer fehlt). Die Aktion ist in actions.ts `hidden` geparkt →
-      // unsichtbar in Spickzettel/Einstellungen, F8 bleibt frei. Re-enable: Handler
-      // hier wieder registrieren + `hidden` in actions.ts entfernen.
     ];
     return () => disposers.forEach((d) => d());
   });
