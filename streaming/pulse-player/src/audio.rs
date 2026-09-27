@@ -10,16 +10,19 @@
 //!   darf nicht blockieren und nicht allokieren — er kopiert nur heraus und
 //!   fuellt bei Unterlauf Stille auf.
 //! * `av_offset_ms` wird als Ziel-Fuellstand des Rings umgesetzt: mehr Puffer
-//!   heisst spaeterer Ton. Das ist grob, aber ehrlich — eine echte
-//!   Zeitstempel-Synchronisierung braeuchte eine gemeinsame Uhr mit dem
-//!   Videopfad, die es hier noch nicht gibt.
+//!   heisst spaeterer Ton. Das ist der NUTZ-Trim; darueber liegt seit der
+//!   Lippen-Synchronisation der Regel-Eingriff aus [`lippen`], der den
+//!   Soll-Fuellstand gegen die Ton-RTP-Uhr nachfuehrt — die „gemeinsame Uhr
+//!   mit dem Videopfad", deren Fehlen hier frueher stand.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use anyhow::{anyhow, Context as _, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
+mod lippen;
 mod opus;
 mod ringregelung;
 mod uhrenabgleich;
@@ -41,17 +44,18 @@ const MAX_RING_SECONDS: usize = 6;
 
 /// Steuerbefehle an den Ausgabe-Thread.
 enum AudioCommand {
-    Pcm(Vec<f32>),
-    /// Rohes Opus-Paket. Dekodiert und umgerechnet wird es auf DIESEM Thread,
-    /// nicht beim Aufrufer — der Aufrufer ist die Sitzungsschleife, die auch
-    /// die Bilder bearbeitet.
+    Pcm(Vec<f32>, Option<u32>),
+    /// Rohes Opus-Paket samt RTP-Zeitstempel (48-k-Takte, fuer die
+    /// Lippen-Vermessung, s. [`lippen`]). Dekodiert und umgerechnet wird es
+    /// auf DIESEM Thread, nicht beim Aufrufer — der Aufrufer ist die
+    /// Sitzungsschleife, die auch die Bilder bearbeitet.
     ///
     /// Gemessen am 2026-07-26 (144-fps-Stream, 1440p10): mit Ton entstanden
     /// 42-44 Aussetzer je Sekunde mit Luecken bis 24 ms, ohne Ton NULL und der
     /// groesste Abstand lag bei 11 ms. Die 44 entsprachen dem Opus-Takt (ein
     /// Paket je 20 ms) — jedes Paket hielt die Bildverarbeitung an, solange es
     /// dekodiert und von 48000 auf die Geraeterate umgerechnet wurde.
-    Packet(Vec<u8>),
+    Packet(Vec<u8>, Option<u32>),
     Volume(f32),
     OffsetMs(i32),
     Stop,
@@ -103,6 +107,30 @@ struct Shared {
     /// fuer den Rest der Sitzung stumm, und die Anzeige meldete unveraendert
     /// "laeuft". Ein Ausfall, den niemand sieht, ist der schlimmere Ausfall.
     geraetefehler: bool,
+    /// Verschraenkte Samples, die das Geraet bisher AUSGEGEBEN hat — auch
+    /// Stille zaehlt, denn auch Stille ist verstrichene Kling-Zeit. Die
+    /// Lippen-Vermessung rechnet daraus, welche RTP-Position gerade klingt.
+    ausgabe: u64,
+    /// Vermessung gegen die Ton-RTP-Uhr (s. [`lippen`]), ab dem ersten Paket.
+    tonuhr: Option<lippen::Tonuhr>,
+    /// Nutz-Trim `av_offset_ms` — positively = Ton spaeter (s. `OffsetMs`).
+    trim_ms: i32,
+    /// Regel-Eingriff der Lippen-Synchronisation auf den Ring-Sollwert. Als
+    /// Fliesskommazahl, weil der Schritt JE PAKET (dt = 20 ms) Bruchteile
+    /// eines ms betraegt — eine ganze Zahl wuerde jeden Schritt zu null
+    /// truncieren und der Eingriff bliebe fuer immer stehen (E2E-Lauf
+    /// 2026-09-27: 8 Minuten +68 ms Fehler, Eingriff reglos bei +0).
+    sync_ms: f32,
+    /// Zuletzt gemessener Lippenfehler (positiv = Ton haengt hinterher),
+    /// fuer die Statistik-Zeile.
+    letzte_fehler_ms: f64,
+    /// Wann der Regel-Eingriff zuletzt fortgeschrieben wurde — fuer den
+    /// Zeitschritt und um nach Stillpausen nicht mit altem Fehler zu regeln.
+    letzte_nachfuehr: Option<Instant>,
+    /// Samples je Millisekunde ueber alle Kanaele und die Sollwert-Grenze —
+    /// beides gebraucht, um den Sollwert aus Trim + Eingriff neu zu setzen.
+    per_ms: usize,
+    max_ziel: usize,
 }
 
 impl Shared {
@@ -115,6 +143,15 @@ impl Shared {
     fn zurueckfuehren(&mut self) {
         self.dropped += self.regelung.nach_anhaengen(&mut self.ring, self.target_fill);
     }
+
+    /// Ring-Sollwert aus Nutz-Trim und Lippen-Eingriff neu setzen.
+    ///
+    /// Untergrenze 1 ms statt 0: der Anlauf-Zustand wartet auf den Sollwert,
+    /// und 0 hiesse dauerhaft loslegen — jede Schwankung sofort hoerbar.
+    fn ziel_setzen(&mut self) {
+        let basis_ms = RING_SOLL_MS as f32 + self.trim_ms.max(0) as f32 + self.sync_ms;
+        self.target_fill = (basis_ms.max(1.0).round() as usize * self.per_ms).min(self.max_ziel);
+    }
 }
 
 /// Geraete-Callback. Laeuft im Echtzeit-Kontext: nicht blockieren, nicht
@@ -124,6 +161,10 @@ fn fill_output(shared: &Mutex<Shared>, out: &mut [f32]) {
         out.fill(0.0);
         return;
     };
+    // Verstrichene Kling-Zeit zaehlt IMMER, auch Stille im Anlauf und im
+    // Unterlauf — sonst stünde die Lippen-Vermessung still, genau wenn der
+    // Puffer leerlaeuft und der Fehler am groessten waere.
+    s.ausgabe += out.len() as u64;
     // Erst anlaufen lassen, wenn der Zielfuellstand da ist — sonst startet die
     // Wiedergabe direkt mit Unterlauf. Das gilt beim Start und nach einem
     // leergelaufenen Ring, NICHT bei jeder Delle darunter (s. [`Shared::anlauf`]).
@@ -173,7 +214,7 @@ fn pump_commands(
         // Geraete-Callback, und ein Decode unter ihr wuerde ihn ausbremsen —
         // aus einem Bildruckler wuerde ein Tonaussetzer.
         let cmd = match cmd {
-            AudioCommand::Packet(bytes) => {
+            AudioCommand::Packet(bytes, rtp_ts) => {
                 if decoder.is_none() && !decoder_failed {
                     match OpusDecoder::new(sample_rate, channels) {
                         Ok(d) => decoder = Some(d),
@@ -185,7 +226,7 @@ fn pump_commands(
                 }
                 let Some(dec) = decoder.as_mut() else { continue };
                 match dec.decode(&bytes) {
-                    Ok(pcm) => AudioCommand::Pcm(pcm),
+                    Ok(pcm) => AudioCommand::Pcm(pcm, rtp_ts),
                     Err(e) => {
                         eprintln!("pulse-player: Opus-Decode: {e:#}");
                         continue;
@@ -202,8 +243,8 @@ fn pump_commands(
         match cmd {
             // Oben in fertiges PCM verwandelt — hier kann es nicht mehr
             // auftreten.
-            AudioCommand::Packet(_) => {}
-            AudioCommand::Pcm(samples) => {
+            AudioCommand::Packet(..) => {}
+            AudioCommand::Pcm(samples, rtp_ts) => {
                 let angehaengt = samples.len();
                 s.ring.extend(samples);
                 // NACH dem Anhaengen kappen, nicht vorher: eine einzelne Charge
@@ -225,6 +266,43 @@ fn pump_commands(
                 let fuellstand = s.ring.len();
                 stellgroesse =
                     s.abgleich.beobachten(fuellstand, soll, angehaengt, per_ms, channels as usize);
+                // Lippen-Vermessung und Regel-Eingriff (s. [`lippen`]): der
+                // Fehler wird je Paket gemessen, der Eingriff rueckt nur um
+                // Bruchteile des Fehlers weiter — der Uhrenabgleich darunter
+                // kann höchstens 1 ms je Sekunde umsetzen, und ein Regler, der
+                // schneller stellt als seine Strecke, schaukelt sich hoch.
+                if let Some(ts) = rtp_ts {
+                    let jetzt = Instant::now();
+                    let ausgabe = s.ausgabe;
+                    // Start-Vorhalt = aktueller Ring-Sollwert (s.
+                    // `lippen::Tonuhr::startvorhalt_s`): ohne ihn waere die
+                    // eigene Pufferlatenz ein Regel-Fehler.
+                    let vorhalt_s = s.target_fill as f64 / (s.per_ms as f64 * 1000.0);
+                    let uhr = s.tonuhr.get_or_insert_with(|| {
+                        lippen::Tonuhr::neu(
+                            ts,
+                            ausgabe + (fuellstand - angehaengt) as u64,
+                            jetzt,
+                            vorhalt_s,
+                        )
+                    });
+                    uhr.paket(ts, fuellstand, angehaengt, ausgabe, jetzt);
+                    let fehler = uhr.fehler_ms(ausgabe, sample_rate, channels, jetzt);
+                    s.letzte_fehler_ms = fehler;
+                    match s.letzte_nachfuehr {
+                        None => s.letzte_nachfuehr = Some(jetzt),
+                        Some(zuletzt) => {
+                            let dt = jetzt.duration_since(zuletzt).as_secs_f64();
+                            // Laengere Stille als 2 s: der Fehler ist Schnee von
+                            // gestern — Zeitpunkt erneuern, aber nicht regeln.
+                            if dt <= 2.0 {
+                                s.sync_ms = lippen::nachfuehren(s.sync_ms, fehler, dt);
+                                s.ziel_setzen();
+                            }
+                            s.letzte_nachfuehr = Some(jetzt);
+                        }
+                    }
+                }
             }
             AudioCommand::Volume(v) => s.volume = v,
             AudioCommand::OffsetMs(ms) => {
@@ -235,8 +313,8 @@ fn pump_commands(
                 // Der Trim ist ein ZUSCHLAG auf den Sollwert, kein Ersatz.
                 // Bis 2026-08-05 stand hier nur `ms`, und damit hiess der
                 // Vorgabewert 0 "gar kein Puffer" — s. `RING_SOLL_MS`.
-                s.target_fill = ((RING_SOLL_MS + ms.max(0) as usize) * per_ms)
-                    .min(max_ring_samples / 2);
+                s.trim_ms = ms;
+                s.ziel_setzen();
                 if ms < 0 {
                     // Negativ = Ton frueher: vorhandenen Vorlauf kappen.
                     let n = ((-ms) as usize * per_ms).min(s.ring.len());
@@ -291,8 +369,13 @@ pub struct AudioCounters {
     pub abgleich_ppm: i32,
     /// Ob der Ausgabe-Thread noch laeuft.
     pub alive: bool,
-    /// Das Ausgabegeraet hat einen Fehler gemeldet (s. `Shared::geraetefehler`).
+    /// Ob der Ausgabegeraet-Fehlerzustand gesetzt ist (s. `Shared::geraetefehler`).
     pub geraetefehler: bool,
+    /// Zuletzt gemessener Lippenfehler in ms (positiv = Ton haengt hinterher,
+    /// s. `audio::lippen`). 0 solange keine Vermessung laeuft.
+    pub lippen_ms: f32,
+    /// Regel-Eingriff der Lippen-Synchronisation auf den Ring-Sollwert in ms.
+    pub sync_versatz_ms: i32,
 }
 
 /// Abtastrate von Opus. Der Codec kennt nur diese eine — alles andere
@@ -365,6 +448,14 @@ impl AudioOutput {
             anlauf: true,
             alive: true,
             geraetefehler: false,
+            ausgabe: 0,
+            tonuhr: None,
+            trim_ms: 0,
+            sync_ms: 0.0,
+            letzte_fehler_ms: 0.0,
+            letzte_nachfuehr: None,
+            per_ms,
+            max_ziel: (MAX_RING_SECONDS * sample_rate as usize * channels as usize) / 2,
         }));
         let max_ring_samples =
             MAX_RING_SECONDS * sample_rate as usize * channels as usize;
@@ -426,13 +517,15 @@ impl AudioOutput {
         Ok(Self { tx, shared, sample_rate, channels })
     }
 
-    /// Rohes Opus-Paket zur Wiedergabe geben. Kehrt sofort zurueck — Dekodieren
-    /// und Umrechnen passieren auf dem Ton-Thread (s. [`AudioCommand::Packet`]).
-    pub fn push_packet(&self, packet: &[u8]) {
+    /// Rohes Opus-Paket zur Wiedergabe geben, samt RTP-Zeitstempel (48-k-Takte)
+    /// fuer die Lippen-Vermessung (s. [`lippen`]). Ohne Zeitstempel spielt der
+    /// Ton weiter — nur die Synchronisation ruht dann. Kehrt sofort zurueck —
+    /// Dekodieren und Umrechnen passieren auf dem Ton-Thread.
+    pub fn push_packet(&self, packet: &[u8], rtp_ts: Option<u32>) {
         if packet.is_empty() {
             return;
         }
-        let _ = self.tx.send(AudioCommand::Packet(packet.to_vec()));
+        let _ = self.tx.send(AudioCommand::Packet(packet.to_vec(), rtp_ts));
     }
 
     pub fn set_volume(&self, v: f32) {
@@ -457,6 +550,8 @@ impl AudioOutput {
                 abgleich_ppm: s.abgleich.letzte_ppm,
                 alive: s.alive,
                 geraetefehler: s.geraetefehler,
+                lippen_ms: s.letzte_fehler_ms as f32,
+                sync_versatz_ms: s.sync_ms.round() as i32,
             })
             .unwrap_or_default()
     }
@@ -489,6 +584,14 @@ mod tests {
             anlauf: true,
             alive: true,
             geraetefehler: false,
+            ausgabe: 0,
+            tonuhr: None,
+            trim_ms: 0,
+            sync_ms: 0.0,
+            letzte_fehler_ms: 0.0,
+            letzte_nachfuehr: None,
+            per_ms: TEST_PER_MS,
+            max_ziel: TEST_MAX_RING / 2,
         })
     }
 
@@ -573,7 +676,7 @@ mod tests {
         let soll = RING_SOLL_MS * TEST_PER_MS;
         let (tx, rx) = std::sync::mpsc::channel();
         // Vier Sollwerte auf einmal — ueber der Kappschwelle (Faktor 3).
-        tx.send(AudioCommand::Pcm(vec![0.0; soll * 4])).unwrap();
+        tx.send(AudioCommand::Pcm(vec![0.0; soll * 4], None)).unwrap();
         tx.send(AudioCommand::Stop).unwrap();
         pump_commands(&rx, &shared, TEST_PER_MS, TEST_MAX_RING, 48_000, 2);
         let s = shared.lock().unwrap();
@@ -588,8 +691,8 @@ mod tests {
         let shared = shared_mit_soll(TEST_PER_MS);
         let soll = RING_SOLL_MS * TEST_PER_MS;
         let (tx, rx) = std::sync::mpsc::channel();
-        tx.send(AudioCommand::Pcm(vec![0.0; soll * 4])).unwrap();
-        tx.send(AudioCommand::Pcm(vec![0.0; soll * 4])).unwrap();
+        tx.send(AudioCommand::Pcm(vec![0.0; soll * 4], None)).unwrap();
+        tx.send(AudioCommand::Pcm(vec![0.0; soll * 4], None)).unwrap();
         tx.send(AudioCommand::Stop).unwrap();
         pump_commands(&rx, &shared, TEST_PER_MS, TEST_MAX_RING, 48_000, 2);
         let s = shared.lock().unwrap();
@@ -604,7 +707,7 @@ mod tests {
         let shared = shared_mit_soll(TEST_PER_MS);
         let soll = RING_SOLL_MS * TEST_PER_MS;
         let (tx, rx) = std::sync::mpsc::channel();
-        tx.send(AudioCommand::Pcm(vec![0.0; soll / 2])).unwrap();
+        tx.send(AudioCommand::Pcm(vec![0.0; soll / 2], None)).unwrap();
         tx.send(AudioCommand::Stop).unwrap();
         pump_commands(&rx, &shared, TEST_PER_MS, TEST_MAX_RING, 48_000, 2);
         let s = shared.lock().unwrap();
@@ -906,7 +1009,7 @@ mod tests {
         });
 
         // Ein einzelner Push, zehnmal groesser als der erlaubte Ring.
-        tx.send(AudioCommand::Pcm(vec![1.0; 1000])).unwrap();
+        tx.send(AudioCommand::Pcm(vec![1.0; 1000], None)).unwrap();
         tx.send(AudioCommand::Stop).unwrap();
         handle.join().unwrap();
 

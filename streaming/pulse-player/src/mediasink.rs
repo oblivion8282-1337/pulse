@@ -35,6 +35,11 @@ pub struct MediaStats {
     pub audio_abgleich_ppm: i32,
     /// Das Ausgabegeraet hat einen Fehler gemeldet (Kopfhoerer ab, USB-Ton weg).
     pub audio_geraetefehler: bool,
+    /// Zuletzt gemessener Lippenfehler in ms (positiv = Ton haengt hinterher,
+    /// s. `audio::lippen`). 0 ohne laufende Vermessung.
+    pub audio_lippen_ms: f32,
+    /// Regel-Eingriff der Lippen-Synchronisation auf den Ring-Sollwert in ms.
+    pub audio_sync_versatz_ms: i32,
     /// Ob ueberhaupt eine Tonausgabe zustande kam.
     pub audio_active: bool,
     pub recording: bool,
@@ -95,10 +100,14 @@ impl MediaSink {
     /// Einheit 60 Sekunden fest. Ueber ein Slice muesste er sie dafuer
     /// kopieren; referenzgezaehlt teilt er sich den Speicher mit dem
     /// Depacketizer, aus dem sie ohnehin schon als `Bytes` kommt.
-    pub fn handle_unit(&mut self, codec: Codec, data: Bytes, ts_ms: i64) {
+    ///
+    /// `rtp_ts` ist der RTP-Zeitstempel der Einheit — Ton braucht ihn fuer die
+    /// Lippen-Vermessung (`audio::lippen`), der Rekorder arbeitet weiter mit
+    /// der Ankunftszeit `ts_ms`.
+    pub fn handle_unit(&mut self, codec: Codec, data: Bytes, ts_ms: i64, rtp_ts: Option<u32>) {
         self.recorder.push(codec, data.clone(), ts_ms);
         if codec == Codec::Opus {
-            self.play_audio(&data);
+            self.play_audio(&data, rtp_ts);
         }
     }
 
@@ -110,12 +119,12 @@ impl MediaSink {
     /// mit Luecken bis 24 ms, waehrend derselbe Stream ohne Ton auf maximal
     /// 11 ms Abstand und NULL Aussetzer kam. Jetzt macht das der Ton-Thread
     /// (s. `AudioCommand::Packet`).
-    fn play_audio(&mut self, packet: &[u8]) {
+    fn play_audio(&mut self, packet: &[u8], rtp_ts: Option<u32>) {
         if !self.ensure_audio() {
             return;
         }
         if let Some(out) = self.audio.as_ref() {
-            out.push_packet(packet);
+            out.push_packet(packet, rtp_ts);
         }
     }
 
@@ -189,6 +198,8 @@ impl MediaSink {
             audio_buffered: ton.buffered as u64,
             audio_abgleich_ppm: ton.abgleich_ppm,
             audio_geraetefehler: ton.geraetefehler,
+            audio_lippen_ms: ton.lippen_ms,
+            audio_sync_versatz_ms: ton.sync_versatz_ms,
             audio_resyncs: ton.resyncs,
             // Nicht `is_some()`: der Griff bleibt bestehen, auch wenn der
             // Ausgabe-Thread laengst weg ist.
@@ -230,7 +241,7 @@ mod tests {
     fn nullgroesse_wird_nicht_als_bekannt_uebernommen() {
         let mut m = MediaSink::new();
         m.note_dimensions(0, 0);
-        m.handle_unit(Codec::H264, Bytes::from_static(&[0, 0, 1, 0x65, 0x11]), 0);
+        m.handle_unit(Codec::H264, Bytes::from_static(&[0, 0, 1, 0x65, 0x11]), 0, None);
         assert!(
             m.start_recording(&crate::ablage::temp_str("pulse-player-nullgroesse.mkv")).is_err(),
             "ohne echte Bildgroesse darf keine Aufnahme starten"
@@ -241,7 +252,7 @@ mod tests {
     fn video_einheiten_landen_im_ring_ohne_ton_anzufassen() {
         let mut m = MediaSink::new();
         m.note_dimensions(1280, 720);
-        m.handle_unit(Codec::H264, Bytes::from_static(&[0, 0, 1, 0x65, 0x11]), 0);
+        m.handle_unit(Codec::H264, Bytes::from_static(&[0, 0, 1, 0x65, 0x11]), 0, None);
         let s = m.stats();
         assert!(!s.audio_active, "Video darf keine Tonausgabe oeffnen");
         assert!(!s.recording);

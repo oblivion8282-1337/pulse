@@ -343,6 +343,12 @@ impl AudioPipeline {
         self.stream_origin_qpc = origin_qpc;
     }
 
+    /// Abtastrate der Tonspur. Der Sendeweg braucht sie als pts-Skala, um die
+    /// Paketdauer aus dem PTS-Sprung zu rechnen (s. `senke_writer`).
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
     /// WASAPI-Chunk in den FIFO werfen + so viele Opus-Frames rauspushen wie
     /// gehen. Liefert die fertig encodeten Packets (Stream-Index + Timestamps
     /// gesetzt) zurück — der Caller schreibt sie raus (direkt oder via

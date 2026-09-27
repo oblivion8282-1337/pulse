@@ -4,8 +4,8 @@
 //! ScreenCaptureKit delivers interleaved Float32 stereo @48kHz (see
 //! `capture::AudioFrame`), which is exactly libopus' input format
 //! (`AV_SAMPLE_FMT_FLT`). Accumulate into a FIFO, emit 960-sample (20ms) frames.
-//! Ported in spirit from `win-hq-sidecar/src/encode/audio.rs` (minus the QPC A/V
-//! anchoring — macOS A/V sync is a follow-up; pts starts at 0 alongside video).
+//! Ported in spirit from `win-hq-sidecar/src/encode/audio.rs`; die pts-Zeitlinie
+//! ist wanduhr-verankert wie der Linux-Zwilling (`PtsTimeline` dort).
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -45,18 +45,99 @@ pub struct AudioEncoder {
     stream_idx: usize,
     encoder_time_base: Rational,
     stream_time_base: Rational,
-    /// Output pts in samples (1/sample_rate units).
-    out_pts: i64,
-    /// Whether the first frame's pts has been anchored to the stream epoch.
-    anchored: bool,
+    /// Output-pts-Zeitlinie (Samples, 1/sample_rate-Einheiten) — wanduhr-
+    /// verankert pro Batch (s. [`PtsTimeline`]).
+    timeline: PtsTimeline,
+    /// Sample-Rate fuer die WHIP-Dauer-Rechnung (s. [`AudioEncoder::whip_dauer`]).
+    sample_rate: u32,
+    /// pts des letzten auf den WHIP-/Direktweg gesandten Pakets (Samples) —
+    /// Bezug fuer den Dauer-Sprung (s. [`AudioEncoder::whip_dauer`]).
+    letzte_ton_pts: Option<i64>,
 }
 
-/// Paketdauer der WHIP-Tonspur — konstant, weil der Encoder mit genau
-/// [`OPUS_FRAME_SAMPLES`] geoeffnet wird (s. `new`). Waere sie es nicht,
-/// verschoebe sich der Ton schleichend gegen das Bild, ohne dass irgendwo ein
-/// Fehler auftaucht (Zwilling zur Begruendung an `TonSenke::Whip` im
-/// Linux-Sidecar).
+/// Paketdauer der WHIP-Tonspur — die Laenge EINES Opus-Pakets. Sie gilt fuer
+/// das ERSTE Paket und als Rueckfall ohne pts; alle folgenden Pakete bekommen
+/// ihre Dauer aus dem PTS-SPRUNG (s. [`AudioEncoder::whip_dauer`]).
 const OPUS_FRAME_DURATION: Duration = Duration::from_millis(20);
+
+/// Ab dieser Abweichung zwischen Wanduhr-Anker und interner pts-Zeitlinie wird
+/// re-verankert (100 ms @48 kHz). Wortgleich zum Linux-Zwilling
+/// (`encode/audio.rs` dort, mit der Messgeschichte) — ScreenCaptureKit kann
+/// die Ton-Auslieferung ebenso aussetzen (Geraetewechsel, Stau), und zaehlte man
+/// danach stur weiter (`+960` pro Frame), liefe der Ton dem Video dauerhaft um
+/// exakt die Lueckenlaenge voraus.
+const RESYNC_THRESHOLD_SAMPLES: i64 = 4800;
+
+/// Ab dieser Abweichung gilt die Zeitlinie als ANHALTEND zurueckgefallen —
+/// aber erst, wenn sie es [`DRIFT_SUSTAINED_BATCHES`] Batches am Stueck ist
+/// (15 ms @48 kHz). Zwilling zum Linux-Sidecar (dort die Messgeschichte).
+const DRIFT_THRESHOLD_SAMPLES: i64 = 720;
+
+/// Wie viele Batches am Stueck der Rueckstand anliegen muss, bevor korrigiert
+/// wird. Wortgleich zum Linux-Zwilling.
+const DRIFT_SUSTAINED_BATCHES: u32 = 150;
+
+/// Audio-pts-Zeitlinie: verankert den ersten Frame an der Stream-Wanduhr und
+/// RE-ankert nach Capture-Luecken — der Zwilling von `PtsTimeline` im
+/// Linux-Sidecar (`encode/audio.rs` dort). Ohne sie waere `out_pts` ein reiner
+/// Paketzaehler, und der Ton-RTP-Stempel (der die Paketdauren SUMMIERT, s.
+/// [`AudioEncoder::whip_dauer`]) liese jede Luecke und jeden Geraetetaktschlupf
+/// dauerhaft gegen das wanduhr-echt gestempelte Bild weglaufen.
+struct PtsTimeline {
+    out_pts: i64,
+    anchored: bool,
+    /// Batches am Stueck, in denen die Zeitlinie zurueckliegt (s.
+    /// [`DRIFT_SUSTAINED_BATCHES`]).
+    drift_batches: u32,
+}
+
+impl PtsTimeline {
+    fn new() -> Self {
+        Self { out_pts: 0, anchored: false, drift_batches: 0 }
+    }
+
+    /// `anchor_samples` = Wanduhr-Position des aktuellen Batches (Samples seit
+    /// Stream-Epoche, mit dem Bild geteilt — SCK-CMTime). Liefert den pts fuer
+    /// den naechsten Opus-Frame; springt bei einer Luecke nach VORN, nie
+    /// zurueck (pts bleiben monoton).
+    fn align(&mut self, anchor_samples: i64) -> i64 {
+        let anchor = anchor_samples.max(0);
+        if !self.anchored {
+            self.out_pts = anchor;
+            self.anchored = true;
+        } else {
+            let behind = anchor - self.out_pts;
+            if behind > RESYNC_THRESHOLD_SAMPLES {
+                eprintln!(
+                    "[mac-hq-sidecar] Capture-Luecke — Audio-pts re-verankert ({behind} Samples)"
+                );
+                self.out_pts = anchor;
+                self.drift_batches = 0;
+            } else if behind > DRIFT_THRESHOLD_SAMPLES {
+                // Anhaltender Rueckstand statt einmaliger Aussetzer: aufholen,
+                // sonst bleibt er bis zum Streamende stehen (Geraetetakt vs.
+                // Wanduhr).
+                self.drift_batches += 1;
+                if self.drift_batches >= DRIFT_SUSTAINED_BATCHES {
+                    eprintln!(
+                        "[mac-hq-sidecar] Ton-Zeitlinie lag anhaltend zurueck — aufgeholt ({} ms)",
+                        behind * 1000 / 48_000
+                    );
+                    self.out_pts = anchor;
+                    self.drift_batches = 0;
+                }
+            } else {
+                self.drift_batches = 0;
+            }
+        }
+        self.out_pts
+    }
+
+    /// Nach einem emittierten Frame weiterzaehlen.
+    fn advance(&mut self, samples: i64) {
+        self.out_pts += samples;
+    }
+}
 
 impl AudioEncoder {
     /// Gemeinsamer Aufbau um einen bereits geoeffneten Encoder herum.
@@ -76,8 +157,9 @@ impl AudioEncoder {
             // Der Muxer-Weg ueberschreibt das nach `write_header`
             // (`set_stream_time_base`); auf dem WHIP-Weg wird nie umgerechnet.
             stream_time_base: tb,
-            out_pts: 0,
-            anchored: false,
+            timeline: PtsTimeline::new(),
+            sample_rate,
+            letzte_ton_pts: None,
         }
     }
 
@@ -162,14 +244,12 @@ impl AudioEncoder {
     }
 
     /// Accumulate interleaved stereo samples and emit full 20ms Opus frames.
-    /// `anchor_samples` anchors the FIRST frame's pts to the stream's wall-clock
-    /// epoch (shared with video) — so if audio capture starts later than video,
-    /// its timeline is offset to match instead of both starting at 0.
+    /// `anchor_samples` is the wall-clock position of THIS batch (in 48kHz
+    /// samples since the shared stream epoch) — it anchors the FIRST frame's
+    /// pts AND re-anchors after capture gaps / catches up sustained lag (s.
+    /// [`PtsTimeline`]), so audio stays on the video timeline.
     pub fn push(&mut self, samples: &[f32], senke: &TonSenke, anchor_samples: i64) -> Result<()> {
-        if !self.anchored {
-            self.out_pts = anchor_samples.max(0);
-            self.anchored = true;
-        }
+        let mut pts = self.timeline.align(anchor_samples);
         self.fifo.extend(samples.iter().copied());
         let chunk = OPUS_FRAME_SAMPLES * self.channels;
         while self.fifo.len() >= chunk {
@@ -181,8 +261,9 @@ impl AudioEncoder {
                     plane[i * 4..i * 4 + 4].copy_from_slice(&v.to_ne_bytes());
                 }
             }
-            self.frame.set_pts(Some(self.out_pts));
-            self.out_pts += OPUS_FRAME_SAMPLES as i64;
+            self.frame.set_pts(Some(pts));
+            self.timeline.advance(OPUS_FRAME_SAMPLES as i64);
+            pts = self.timeline.out_pts;
             self.encoder.send_frame(&self.frame).context("audio send_frame")?;
             self.drain(senke)?;
         }
@@ -201,7 +282,7 @@ impl AudioEncoder {
                     if let Some(d) = packet.data() {
                         let pts = packet
                             .pts()
-                            .unwrap_or(self.out_pts.saturating_sub(OPUS_FRAME_SAMPLES as i64));
+                            .unwrap_or(self.timeline.out_pts.saturating_sub(OPUS_FRAME_SAMPLES as i64));
                         if pts >= 0 {
                             crate::clip::push_audio(bytes::Bytes::copy_from_slice(d), pts / 48);
                         }
@@ -212,18 +293,23 @@ impl AudioEncoder {
                         packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
                         mux.send(packet)?;
                     }
-                    // Kein Umrechnen: die Spur bekommt die Bytes und die
-                    // PAKETDAUER (konstant, s. `OPUS_FRAME_DURATION`). Der
-                    // Direkt-Sender macht es genauso — derselbe Opus-Rahmen,
-                    // dieselbe Dauer-Konvention wie beim WHIP-Weg.
+                    // Kein Umrechnen: die Spur bekommt die Bytes und die Dauer.
+                    // Das ist der PTS-SPRUNG seit dem letzten Paket, nicht die
+                    // feste Opus-Paketlaenge: WebRTC (WHIP wie Direct) summiert
+                    // die Dauern zum Ton-RTP-Zeitstempel, und nur der Sprung
+                    // traegt Luecken und Re-Anker der Zeitlinie nach — die
+                    // gemeinsame Uhr mit dem Bild (Begruendung:
+                    // [`AudioEncoder::whip_dauer`]).
                     TonSenke::Whip(w) => {
                         if let Some(d) = packet.data() {
-                            w.send_audio(d, OPUS_FRAME_DURATION)?;
+                            let dauer = self.whip_dauer(packet.pts());
+                            w.send_audio(d, dauer)?;
                         }
                     }
                         TonSenke::Direct(sender) => {
                             if let Some(bytes) = packet.data() {
-                                sender.send_audio(bytes, OPUS_FRAME_DURATION)?;
+                                let dauer = self.whip_dauer(packet.pts());
+                                sender.send_audio(bytes, dauer)?;
                             }
                         }
                     }
@@ -241,7 +327,158 @@ impl AudioEncoder {
         self.drain(senke)
     }
 
+
     pub fn stream_idx(&self) -> usize {
         self.stream_idx
+    }
+
+    /// Dauer eines Opus-Pakets fuer die Tonspur des eigenen Sendewegs (WHIP
+    /// wie Direct): der PTS-SPRUNG seit dem letzten Paket, nicht die feste
+    /// Opus-Paketlaenge.
+    ///
+    /// WebRTC leitet den Ton-RTP-Zeitstempel aus der SUMME der Paketdauern
+    /// ab. Mit fester Paketlaenge lief die Ton-Zeitlinie als reiner
+    /// Paketzaehler: jede Capture-Luecke und jedes Nachfuehren der pts-Zeitlinie
+    /// (Re-Anker, Aufholen eines Rueckstands, s. [`PtsTimeline`]) fehlte ihr
+    /// DAUERHAFT, waehrend das Bild wanduhr-echte Zeitstempel traegt — Ton und
+    /// Bild drifteten unbegrenzt auseinander (47-Minuten-Stream 2026-09-23,
+    /// Nutzermeldungen zu Bild/Ton-Versatz). Der Sprung traegt beides: im
+    /// ruhigen Lauf ist er die Paketlaenge, bei einer Luecke springt er um die
+    /// Luecke — genau die gemeinsame Uhr mit dem Bild. Zwilling im Linux-
+    /// Sidecar (`whip_dauer` in `encode/audio.rs`, dort die ausfuehrliche
+    /// Diagnose) und im Windows-Sidecar (`ton_dauer_aus_pts`).
+    fn whip_dauer(&mut self, pts: Option<i64>) -> Duration {
+        let ms = match pts {
+            Some(p) => match self.letzte_ton_pts.replace(p) {
+                Some(letzte) => whip_dauer_ms(p - letzte, self.sample_rate),
+                None => OPUS_FRAME_DURATION.as_millis() as i64,
+            },
+            None => OPUS_FRAME_DURATION.as_millis() as i64,
+        };
+        Duration::from_millis(ms as u64)
+    }
+}
+
+/// Millisekunden-Anteil eines Sample-Sprungs, aufgerundet und beidseitig
+/// gedeckelt (s. [`AudioEncoder::whip_dauer`]). Frei gestellt fuer den Test.
+/// Zwilling zu `whip_dauer_ms` im Linux-Sidecar.
+fn whip_dauer_ms(sprung: i64, sample_rate: u32) -> i64 {
+    // ponytail: Deckel bei 1 s — ein groesserer Sprung ist kein Zeitstempel
+    // mehr, sondern ein kaputter Anker; dann 1 s senden und beim naechsten
+    // Paket weiterzaehlen. Untergrenze 1 ms haelt Stolperer (Null/Sprung
+    // rueckwaerts) davon ab, die Zeitlinie einfrieren zu lassen.
+    ((sprung.max(0) * 1000 + i64::from(sample_rate) - 1) / i64::from(sample_rate)).clamp(1, 1000)
+}
+
+#[cfg(test)]
+mod timeline_tests {
+    use super::{
+        DRIFT_SUSTAINED_BATCHES, DRIFT_THRESHOLD_SAMPLES, OPUS_FRAME_SAMPLES, PtsTimeline,
+        RESYNC_THRESHOLD_SAMPLES,
+    };
+
+    const FRAME: i64 = OPUS_FRAME_SAMPLES as i64;
+
+    #[test]
+    fn anchors_first_batch_and_ignores_jitter() {
+        let mut t = PtsTimeline::new();
+        assert_eq!(t.align(1000), 1000);
+        t.advance(FRAME);
+        // Kleiner Batch-Jitter (< Schwelle) darf NICHT springen.
+        assert_eq!(t.align(1000 + FRAME + 100), 1000 + FRAME);
+    }
+
+    /// Ein kleiner Rueckstand darf NICHT sofort korrigieren — sonst loest
+    /// normales Zappeln staendig Spruenge aus.
+    #[test]
+    fn kleiner_rueckstand_springt_nicht_sofort() {
+        let mut t = PtsTimeline::new();
+        t.align(0);
+        // Anker laeuft um mehr als die Drift-Schwelle voraus, aber nur kurz.
+        for i in 1..DRIFT_SUSTAINED_BATCHES {
+            let anchor = DRIFT_THRESHOLD_SAMPLES + 100 + i64::from(i);
+            assert_eq!(t.align(anchor), 0, "Batch {i} haette nicht springen duerfen");
+        }
+    }
+
+    /// Haelt der Rueckstand an, wird er aufgeholt — sonst bliebe er bis zum
+    /// Streamende stehen und liefe gegen das wanduhr-echt gestempelte Bild.
+    #[test]
+    fn anhaltender_rueckstand_wird_aufgeholt() {
+        let mut t = PtsTimeline::new();
+        t.align(0);
+        let anchor = DRIFT_THRESHOLD_SAMPLES + 100;
+        for _ in 1..DRIFT_SUSTAINED_BATCHES {
+            t.align(anchor);
+        }
+        assert_eq!(t.align(anchor), anchor, "nach anhaltendem Rueckstand aufholen");
+    }
+
+    /// Der Zaehler muss zuruecksetzen, sobald der Rueckstand weg ist — sonst
+    /// summieren sich weit auseinanderliegende Ausreisser zu einem Sprung.
+    #[test]
+    fn unterbrochener_rueckstand_setzt_zurueck() {
+        let mut t = PtsTimeline::new();
+        t.align(0);
+        let anchor = DRIFT_THRESHOLD_SAMPLES + 100;
+        for _ in 1..DRIFT_SUSTAINED_BATCHES {
+            t.align(anchor);
+        }
+        t.align(0); // dazwischen wieder in Ordnung -> Zaehler zurueck
+        for _ in 1..DRIFT_SUSTAINED_BATCHES {
+            assert_eq!(t.align(anchor), 0, "Zaehler haette zuruecksetzen muessen");
+        }
+    }
+
+    /// Capture-Luecke (keine Ton-Puffer): der Anker laeuft der Zeitlinie weit
+    /// voraus → re-ankern, sonst ist der Ton dauerhaft um die Luecke versetzt.
+    #[test]
+    fn reanchors_after_capture_gap() {
+        let mut t = PtsTimeline::new();
+        t.align(0);
+        t.advance(FRAME);
+        let gap_anchor = FRAME + RESYNC_THRESHOLD_SAMPLES + 48_000; // ~1s Luecke
+        assert_eq!(t.align(gap_anchor), gap_anchor);
+    }
+
+    /// pts bleiben monoton: ein rueckwaerts laufender Anker (Capture eilt der
+    /// Wanduhr voraus) darf die Zeitlinie nie zurueckdrehen.
+    #[test]
+    fn never_jumps_backwards() {
+        let mut t = PtsTimeline::new();
+        t.align(48_000);
+        t.advance(FRAME);
+        assert_eq!(t.align(0), 48_000 + FRAME);
+    }
+}
+
+#[cfg(test)]
+mod whip_dauer_tests {
+    use super::whip_dauer_ms;
+
+    /// Der Rueckgrat-Fall: 20-ms-Pakete sind 960 Samples — daraus muss
+    /// exakt 20 ms werden, sonst driftet der ruhige Lauf schon von selbst.
+    #[test]
+    fn ruhiger_lauf_trifft_die_paketlaenge() {
+        assert_eq!(whip_dauer_ms(960, 48_000), 20);
+        assert_eq!(whip_dauer_ms(480, 48_000), 10);
+    }
+
+    /// Eine Luecke muss IM GANZEN im Zeitstempel ankommen — der Sprung ist
+    /// die einzige Stelle, an der der Ton-Zeitstempel Luecken erfaehrt.
+    #[test]
+    fn luecke_traegt_die_ganze_luecke() {
+        assert_eq!(whip_dauer_ms(960 + 24_000, 48_000), 520);
+        assert_eq!(whip_dauer_ms(48_000, 48_000), 1000);
+    }
+
+    /// Stolperer duerfen die Zeitlinie nicht rueckwaerts drehen und nicht
+    /// auf Null einfrieren; ein kaputter Riese wird auf den Deckel gekappt.
+    #[test]
+    fn stolperer_bleiben_minimal_riesen_gedeckelt() {
+        assert_eq!(whip_dauer_ms(0, 48_000), 1);
+        assert_eq!(whip_dauer_ms(-960, 48_000), 1);
+        assert_eq!(whip_dauer_ms(72, 48_000), 2, "1,5 ms muessen aufrunden");
+        assert_eq!(whip_dauer_ms(480_000, 48_000), 1000);
     }
 }

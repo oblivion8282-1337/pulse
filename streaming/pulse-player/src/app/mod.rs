@@ -1150,13 +1150,16 @@ impl App {
             eprintln!(
                 concat!(
                     "pulse-player: Sitzung {}: Ton — Unterlaeufe {}, verworfen {}, ",
-                    "Puffer {} Samples, Uhrenabgleich {:+} ppm{}"
+                    "Puffer {} Samples, Uhrenabgleich {:+} ppm, Lippen {:+.0} ms ",
+                    "(Eingriff {:+} ms){}"
                 ),
                 id,
                 media.audio_underruns,
                 media.audio_dropped,
                 media.audio_buffered,
                 media.audio_abgleich_ppm,
+                media.audio_lippen_ms,
+                media.audio_sync_versatz_ms,
                 // Ein Geraetefehler heisst: es kommt nichts mehr heraus. Das
                 // gehoert in dieselbe Zeile und nicht in eine einmalige
                 // Meldung, die im Protokoll nach oben wegscrollt.
