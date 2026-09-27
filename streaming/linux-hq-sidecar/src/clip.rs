@@ -163,6 +163,7 @@ fn av1_codec_config(seq_header: &[u8], zehn_bit: bool) -> Vec<u8> {
 
 // ── Ring und Datei-Schreiber ────────────────────────────────────────────────
 
+#[derive(Clone)]
 struct Unit {
     ts_ms: i64,
     codec: Codec,
@@ -359,12 +360,10 @@ impl Ring {
         }
     }
 
-    fn clip_schreiben(&mut self, path: &Path, sekunden: f64) -> Result<usize> {
-        pruefe_ziel(path)?;
+    /// Schnappschuss der gewuenschten Spanne — NUR Zaehler hochziehen
+    /// (`Bytes` ist referenzgezaehlt), kein Kopieren der Nutzlast.
+    fn clip_schnappschuss(&self, sekunden: f64) -> Result<Schnappschuss> {
         let codec = self.codec.ok_or_else(|| anyhow!("noch kein Bild im Ring"))?;
-        let (breite, hoehe) = (self.breite, self.hoehe);
-        let rest = if codec == Codec::Av1 { "mkv" } else { "ts" };
-        let ziel = path.with_extension(rest);
         let letzte = self
             .einheiten
             .back()
@@ -377,20 +376,15 @@ impl Ring {
             .rposition(|u| u.codec.ist_video() && u.keyframe && u.ts_ms <= start)
             .or_else(|| self.einheiten.iter().position(|u| u.codec.ist_video() && u.keyframe))
             .ok_or_else(|| anyhow!("kein Vollbild im Ring"))?;
-        let mut writer = Writer::create(
-            &ziel,
-            Some((codec, breite, hoehe)),
-            self.fps,
-            self.zehn_bit,
-            self.av1_seq.as_deref(),
-        )?;
-        let mut anzahl = 0;
-        for u in self.einheiten.iter().skip(beginn) {
-            writer.schreibe(u)?;
-            anzahl += 1;
-        }
-        writer.abschluss()?;
-        Ok(anzahl)
+        Ok(Schnappschuss {
+            einheiten: self.einheiten.iter().skip(beginn).cloned().collect(),
+            codec,
+            breite: self.breite,
+            hoehe: self.hoehe,
+            fps: self.fps,
+            zehn_bit: self.zehn_bit,
+            av1_seq: self.av1_seq.clone(),
+        })
     }
 }
 
@@ -468,13 +462,46 @@ pub fn leeren() {
 }
 
 /// Clip der letzten `sekunden` schreiben; Antwort ist die Zahl der
-/// Einheiten. Blockiert fuer die Dauer des Schreibens (Rund 30 MB auf
-/// einer NVMe: unter einer Sekunde — bewusst synchron im Dispatch,
-/// `ponytail:` Ceiling: bei Netzplatten als Ziel kann das den RPC-Loop
-/// sekundenlang stellen; Upgrade-Pfad: Schreiben wie im Player auf einen
-/// Blocking-Faden und asynchron `clip_saved` melden).
+/// Einheiten. Der Schnappschuss laeuft unter der Ring-Sperre (billig), das
+/// Schreiben DARUEBER HINAUS ohne sie: die Sperre offenzuhalten wuerde den
+/// Encode-Tee fuer die ganze Schreibdauer blocken — bei vollem Puffer rund
+/// 70 MB, sichtbar als Aussetter im laufenden Stream (gleiche Lehre wie im
+/// Player-Recorder, dort 2026-09-27 vermessen). Das Schreiben selbst bleibt
+/// synchron im Dispatch (`ponytail:` Ceiling: eine Netzplatte als Ziel
+/// stellt den RPC-Loop; Upgrade-Pfad: Blocking-Faden + clip_saved-Ereignis).
 pub fn clip_speichern(path: &Path, sekunden: f64) -> Result<usize> {
-    ring().lock().map_err(|_| anyhow!("Ring vergesperrt"))?.clip_schreiben(path, sekunden)
+    let schnappschuss = {
+        let r = ring().lock().map_err(|_| anyhow!("Ring vergesperrt"))?;
+        r.clip_schnappschuss(sekunden)?
+    };
+    pruefe_ziel(path)?;
+    let rest = if schnappschuss.codec == Codec::Av1 { "mkv" } else { "ts" };
+    let ziel = path.with_extension(rest);
+    let mut writer = Writer::create(
+        &ziel,
+        Some((schnappschuss.codec, schnappschuss.breite, schnappschuss.hoehe)),
+        schnappschuss.fps,
+        schnappschuss.zehn_bit,
+        schnappschuss.av1_seq.as_deref(),
+    )?;
+    let mut anzahl = 0;
+    for u in &schnappschuss.einheiten {
+        writer.schreibe(u)?;
+        anzahl += 1;
+    }
+    writer.abschluss()?;
+    Ok(anzahl)
+}
+
+/// Eingefrorener Blick in den Ring, Sperre laengst wieder frei.
+struct Schnappschuss {
+    einheiten: Vec<Unit>,
+    codec: Codec,
+    breite: u32,
+    hoehe: u32,
+    fps: Option<(i32, i32)>,
+    zehn_bit: bool,
+    av1_seq: Option<Vec<u8>>,
 }
 
 #[cfg(test)]
