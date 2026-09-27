@@ -66,17 +66,24 @@ pub struct SenkenWriter {
 }
 
 impl SenkenWriter {
-    /// Übernimmt die Senke und startet den Faden. `ton_dauer` ist die Länge
-    /// eines Opus-Pakets — sie ist je Sitzung konstant und wird deshalb einmal
-    /// übergeben statt je Paket.
-    pub fn start(mut senke: Box<dyn PaketSenke>, ton_dauer: Duration) -> Result<Self> {
+    /// Übernimmt die Senke und startet den Faden. `ton_dauer` ist die
+    /// Rahmenlänge eines Opus-Pakets — sie gilt fuer das ERSTE Paket und als
+    /// Rueckfall ohne pts; alle folgenden Pakete bekommen ihre Dauer aus dem
+    /// PTS-SPRUNG (s. [`ton_dauer_aus_pts`]). `ton_rate` ist die Abtastrate
+    /// als Skala der Audio-pts.
+    pub fn start(
+        mut senke: Box<dyn PaketSenke>,
+        ton_dauer: Duration,
+        ton_rate: u32,
+    ) -> Result<Self> {
         let (tx, rx) = sync_channel::<Sendung>(QUEUE_CAPACITY);
         let fail_msg: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let fail_slot = Arc::clone(&fail_msg);
         let worker = thread::Builder::new()
             .name("senken-writer".into())
             .spawn(move || -> Result<()> {
-                let ergebnis = sende_schleife(rx, senke.as_mut(), ton_dauer, &fail_slot);
+                let ergebnis =
+                    sende_schleife(rx, senke.as_mut(), ton_dauer, ton_rate, &fail_slot);
                 // Abbauen, auch wenn die Schleife an einem Sendefehler endet —
                 // sonst bliebe die Sitzung beim Server stehen, bis ein
                 // Zeitablauf sie aufräumt.
@@ -135,8 +142,11 @@ fn sende_schleife(
     rx: Receiver<Sendung>,
     senke: &mut dyn PaketSenke,
     ton_dauer: Duration,
+    ton_rate: u32,
     fail_slot: &Mutex<Option<String>>,
 ) -> Result<()> {
+    // pts des letzten abgegebenen Tonpakets — Bezug fuer den Dauer-Sprung.
+    let mut letzte_ton_pts: Option<i64> = None;
     for s in rx {
         let ergebnis = match &s {
             // Der `pts` wird MIT durchgereicht, nicht neu erfunden: er steht
@@ -144,7 +154,11 @@ fn sende_schleife(
             // nicht, s. `encoder_hw::drain_video`), und genau die erwartet der
             // AV1-Paketierer.
             Sendung::Video(p) => p.data().map(|d| senke.video(d, p.pts())),
-            Sendung::Ton(p) => p.data().map(|d| senke.audio(d, ton_dauer)),
+            Sendung::Ton(p) => p.data().map(|d| {
+                let dauer =
+                    ton_dauer_aus_pts(p.pts(), &mut letzte_ton_pts, ton_dauer, ton_rate);
+                senke.audio(d, dauer)
+            }),
         };
         // Ein Paket ohne Nutzlast ist nichts zu senden, aber auch kein Fehler.
         let Some(Err(e)) = ergebnis else { continue };
@@ -156,6 +170,102 @@ fn sende_schleife(
         return Err(e);
     }
     Ok(())
+}
+
+/// Dauer eines Tonpakets fuer den Sendeweg: der PTS-SPRUNG seit dem letzten
+/// Paket, nicht die feste Opus-Rahmenlaenge.
+///
+/// WebRTC (WHIP wie Direct) leitet den Ton-RTP-Zeitstempel aus der SUMME der
+/// Paketdauern ab. Mit fester Rahmenlaenge lief die Ton-Zeitlinie als reiner
+/// Paketzaehler: jeder Sprung der pts-Zeitlinie — der QPC-Nachzug auf den
+/// ersten Geraete-Stempel (s. `audio::sync`), Stille-Einfuellungen des
+/// WASAPI-Budgets — fehlte ihr DAUERHAFT, waehrend das Bild wanduhr-echte
+/// Stempel traegt. Ton und Bild drifteten unbegrenzt auseinander
+/// (47-Minuten-Stream 2026-09-23, Nutzermeldungen zu Bild/Ton-Versatz).
+/// Zwilling im Linux-Sidecar: `whip_dauer` in `encode/audio.rs` — dort steht
+/// die Diagnose ausfuehrlich.
+///
+/// Ohne pts (oder beim ersten Paket) gilt die Rahmenlaenge — der Sprung
+/// waere sonst willkuerlich.
+fn ton_dauer_aus_pts(
+    pts: Option<i64>,
+    letzte: &mut Option<i64>,
+    rahmen: Duration,
+    rate: u32,
+) -> Duration {
+    // ponytail: Deckel bei 1 s — ein groesserer Sprung ist kein Zeitstempel
+    // mehr, sondern ein kaputter Anker; Untergrenze 1 ms haelt Stolperer
+    // (Null/Sprung rueckwaerts) davon ab, die Zeitlinie einfrieren zu lassen.
+    let ms = match pts {
+        Some(p) => match letzte.replace(p) {
+            Some(alte) => ((p - alte).max(0) * 1000 + i64::from(rate) - 1) / i64::from(rate),
+            None => rahmen.as_millis() as i64,
+        },
+        None => rahmen.as_millis() as i64,
+    };
+    Duration::from_millis(ms.clamp(1, 1000) as u64)
+}
+
+#[cfg(test)]
+mod dauer_tests {
+    use std::time::Duration;
+
+    use super::ton_dauer_aus_pts;
+
+    const RAHMEN: Duration = Duration::from_millis(10);
+
+    /// Der Rueckgrat-Fall: im ruhigen Lauf ist der PTS-Sprung die
+    /// Rahmenlaenge — genau sie muss herauskommen, sonst driftet der Lauf
+    /// schon von selbst. Das erste Paket hat keinen Bezug und faellt auf die
+    /// Rahmenlaenge zurueck.
+    #[test]
+    fn ruhiger_lauf_trifft_die_rahmenlaenge() {
+        let mut letzte = None;
+        assert_eq!(ton_dauer_aus_pts(Some(0), &mut letzte, RAHMEN, 48_000), RAHMEN);
+        assert_eq!(ton_dauer_aus_pts(Some(480), &mut letzte, RAHMEN, 48_000), RAHMEN);
+        assert_eq!(
+            ton_dauer_aus_pts(None, &mut letzte, RAHMEN, 48_000),
+            RAHMEN,
+            "ohne pts gilt die Rahmenlaenge"
+        );
+    }
+
+    /// Ein Sprung der pts-Zeitlinie (QPC-Nachzug, Stille-Budget) traegt die
+    /// Luecke IM GANZEN in den Zeitstempel — die feste Dauer liesse sie fuer
+    /// immer fehlen, und der Ton liefe dem Bild davon.
+    #[test]
+    fn pts_spruenge_traegt_die_luecke_ganz() {
+        let mut letzte = None;
+        ton_dauer_aus_pts(Some(0), &mut letzte, RAHMEN, 48_000);
+        assert_eq!(
+            ton_dauer_aus_pts(Some(480 + 24_000), &mut letzte, RAHMEN, 48_000),
+            Duration::from_millis(510)
+        );
+    }
+
+    /// Stolperer duerfen die Zeitlinie nicht einfrieren und Riesen nicht den
+    /// Deckel sprengen — QPC-Epochen-Differenzen sind real, kein Gedanken-
+    /// spiel.
+    #[test]
+    fn stolperer_bleiben_minimal_riesen_gedeckelt() {
+        let mut letzte = None;
+        ton_dauer_aus_pts(Some(1_000_000), &mut letzte, RAHMEN, 48_000);
+        assert_eq!(
+            ton_dauer_aus_pts(Some(1_000_000), &mut letzte, RAHMEN, 48_000),
+            Duration::from_millis(1),
+            "Null-Sprung"
+        );
+        assert_eq!(
+            ton_dauer_aus_pts(Some(999_000), &mut letzte, RAHMEN, 48_000),
+            Duration::from_millis(1),
+            "Ruecksprung"
+        );
+        assert_eq!(
+            ton_dauer_aus_pts(Some(1_000_000 + 480_000), &mut letzte, RAHMEN, 48_000),
+            Duration::from_millis(1000),
+            "Deckel"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -202,7 +312,7 @@ mod tests {
             geschlossen: Arc::clone(&c),
             scheitert_ab: 0,
         };
-        let mut w = SenkenWriter::start(Box::new(senke), Duration::from_millis(5)).unwrap();
+        let mut w = SenkenWriter::start(Box::new(senke), Duration::from_millis(5), 48_000).unwrap();
         w.video(paket()).unwrap();
         w.video(paket()).unwrap();
         w.audio(paket()).unwrap();
@@ -225,7 +335,7 @@ mod tests {
             geschlossen: Arc::clone(&c),
             scheitert_ab: 1,
         };
-        let w = SenkenWriter::start(Box::new(senke), Duration::from_millis(5)).unwrap();
+        let w = SenkenWriter::start(Box::new(senke), Duration::from_millis(5), 48_000).unwrap();
         // Der erste Aufruf kann noch gelingen (der Faden ist evtl. noch nicht
         // so weit); ab dem Moment, in dem er es nicht mehr tut, MUSS die
         // Meldung die Ursache tragen.
