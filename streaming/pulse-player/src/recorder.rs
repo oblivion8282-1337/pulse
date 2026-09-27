@@ -534,6 +534,17 @@ impl Recorder {
         self.active.is_some()
     }
 
+    /// Aufnahme laeuft, aber es wurde noch kein Video-Vollbild geschrieben.
+    /// Die Sitzung fragt das ab, um weiter Vollbilder ANZUFORDERN: Der Sender
+    /// fasst Anforderungen binnen zwei Sekunden nach dem letzten erzwungenen
+    /// Vollbild zusammen (Anti-Flut, encode::keyframe_mindestabstand_ms) —
+    /// eine einzige Anforderung beim Knopfdruck kann also verschluckt werden,
+    /// wenn gerade ein Beitretender eines erzwungen hat (gemessen 2026-09-27:
+    /// Aufnahme blieb 6 s bei 0 Bytes, obgleich der Weg funktioniert).
+    pub fn wartet_auf_keyframe(&self) -> bool {
+        self.active.is_some() && self.awaiting_keyframe
+    }
+
     pub fn buffered_seconds(&self) -> u64 {
         match (self.ring.front(), self.ring.back()) {
             (Some(a), Some(b)) => ((b.ts_ms - a.ts_ms).max(0) / 1000) as u64,

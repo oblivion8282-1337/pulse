@@ -514,6 +514,9 @@ pub async fn run(
     let mut letzte_rtp_ts: Option<u32> = None;
     let mut rtp_deltas: VecDeque<u64> = VecDeque::new();
     let mut fps_gemeldet = false;
+    // Nachholen fuer den Aufnahme-Start: Der Sender schluckt Anforderungen
+    // binnen seiner Zwei-Sekunden-Sperre; der Knopfdruck allein reicht nicht.
+    let mut aufnahme_pli_versuche: u32 = 0;
     // Diagnose der Verlust-Erholung, s. weiter unten beim Zusammensetzer.
     let erholung_log = std::env::var("PULSE_PLAYER_ERHOLUNG_LOG").as_deref() == Ok("1");
     let mut verworfene_einheiten: u64 = 0;
@@ -635,6 +638,7 @@ pub async fn run(
                     // ffmpeg-Testpusher) verhaelt sich wie vorher und liefert
                     // das naechste regulaere Vollbild.
                     if media.is_recording() {
+                        aufnahme_pli_versuche = 0;
                         if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
                             last_keyframe_request = Instant::now();
                             strom.request_keyframe(ssrc).await;
@@ -1053,6 +1057,21 @@ pub async fn run(
                     }
                 }
 
+                // Aufnahme-Start beschleunigen: solange der Rekorder noch
+                // auf sein erstes Vollbild wartet, alle 500 ms erneut anfordern
+                // (maximal 10x) — die erste Anforderung kann in der Zwei-
+                // Sekunden-Sperre des Senders verschluckt worden sein.
+                if media.is_recording()
+                    && media.wartet_auf_keyframe()
+                    && aufnahme_pli_versuche < 10
+                    && last_keyframe_request.elapsed() >= Duration::from_millis(500)
+                {
+                    if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
+                        aufnahme_pli_versuche += 1;
+                        last_keyframe_request = Instant::now();
+                        strom.request_keyframe(ssrc).await;
+                    }
+                }
                 // Jede Einheit geht an den Medien-Sink: Ton wird dort
                 // dekodiert und ausgegeben, und beide Spuren laufen in den
                 // Ringpuffer fuer Aufnahme und Clip.

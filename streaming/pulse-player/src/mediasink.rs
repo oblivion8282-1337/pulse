@@ -162,6 +162,11 @@ impl MediaSink {
             .map_err(|e| format!("{e:#}"))
     }
 
+    /// Aufnahme läuft, schreibt aber noch nicht (wartet aufs Vollbild).
+    pub fn wartet_auf_keyframe(&self) -> bool {
+        self.recorder.wartet_auf_keyframe()
+    }
+
     pub fn is_recording(&self) -> bool {
         self.recorder.is_recording()
     }
