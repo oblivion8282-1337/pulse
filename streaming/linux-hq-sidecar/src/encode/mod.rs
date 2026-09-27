@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
+use bytes::Bytes;
 use ffmpeg::{Dictionary, Packet, Rational, codec, format, ffi::*};
 
 use audio::AudioEncoder;
@@ -68,6 +69,10 @@ enum Ausgabe {
 pub struct VideoEncoder {
     mux: Ausgabe,
     encoder: codec::encoder::Video,
+    /// Codec-Art nur fuer den Clip-Ring (`crate::clip`) — dort entscheidet
+    /// sie Container (AV1 → Matroska, H.264/HEVC → MPEG-TS) und Vollbild-
+    /// Erkennung.
+    ring_codec: crate::clip::Codec,
     video_stream_idx: usize,
     encoder_time_base: Rational,
     stream_time_base: Rational,
@@ -310,11 +315,14 @@ impl VideoEncoder {
         }
 
         let mux = MuxWriter::start(output).context("start mux-writer")?;
+        let ring_codec = crate::clip::codec_aus_str(&cfg.codec)?;
+        crate::clip::note_video(cfg.width, cfg.height, (cfg.fps as i32, 1), cfg.ten_bit);
 
         Ok((
             Self {
                 mux: Ausgabe::Mux(mux),
                 encoder: opened,
+                ring_codec,
                 video_stream_idx: stream_idx,
                 encoder_time_base,
                 stream_time_base,
@@ -372,10 +380,14 @@ impl VideoEncoder {
             .with_context(|| format!("WHIP-Aufbau zu {}", redact_url(url)))?;
 
         let tb = Rational::new(1, crate::zeitbasis::VIDEO_HZ as i32);
+        let ring_codec = crate::clip::codec_aus_str(&cfg.codec)?;
+        crate::clip::note_video(cfg.width, cfg.height, (cfg.fps as i32, 1), cfg.ten_bit);
+        crate::clip::leeren(); // neuer Strom, neuer Ring
         Ok((
             Self {
                 mux: Ausgabe::Whip(Arc::new(sender)),
                 encoder: opened,
+                ring_codec,
                 video_stream_idx: 0,
                 encoder_time_base: tb,
                 // Gleich der Encoder-Zeitbasis: auf diesem Weg wird nicht
@@ -500,6 +512,16 @@ impl VideoEncoder {
                         self.enc_max_us = self.enc_max_us.max(us);
                         break;
                     }
+                }
+            }
+            // ShadowPlay-Tee: die fertigen Bytes gehen ZUSAETZLICH in den
+            // Clip-Ring (`crate::clip`) — kein zweites Enkodieren; eine Kopie
+            // ist noetig, der Puffer gehoert ffmpeg und wird beim naechsten
+            // receive_packet ueberschrieben. Muss hier stehen, VOR jedem
+            // rescale_ts: der Ring will die Encoder-Zeitbasis (1/90000).
+            if let Some(daten) = packet.data() {
+                if let Some(pts) = packet.pts() {
+                    crate::clip::push_video(self.ring_codec, Bytes::copy_from_slice(daten), pts);
                 }
             }
             match &mut self.mux {

@@ -195,7 +195,7 @@ export function recordingDir(): string {
 
 /** Zeitstempel-Dateiname, kollisionsfrei und sortierbar. Englisch, weil die
  *  Dateien ihren Weg in die Welt nehmen (Michaels Wunsch 2026-09-27). */
-function recordingPath(kind: 'recording' | 'clip'): string {
+function recordingPath(kind: 'recording' | 'clip' | 'shadow'): string {
   const now = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
   const stamp =
@@ -204,6 +204,12 @@ function recordingPath(kind: 'recording' | 'clip'): string {
   // Endung ist nur ein Vorschlag: der Player setzt sie passend zum Codec
   // (AV1 -> mkv, H.264 -> ts) und meldet den benutzten Pfad zurueck.
   return path.join(recordingDir(), `pulse-${kind}-${stamp}.ts`);
+}
+
+/** Ziel fuer den ShadowPlay-Clip des SENDENDEN Stroms (Sidecar). Gleiche
+ *  Konventionen wie oben — der Sidecar korrigiert die Endung je Codec. */
+export function shadowClipPath(): string {
+  return recordingPath('shadow');
 }
 
 class PlayerManager {

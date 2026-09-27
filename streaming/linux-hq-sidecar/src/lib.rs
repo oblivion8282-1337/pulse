@@ -14,6 +14,7 @@
 
 pub mod caps;
 pub mod capture;
+pub mod clip;
 pub mod dispatch;
 pub mod encode;
 pub mod events;

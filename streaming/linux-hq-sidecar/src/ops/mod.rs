@@ -17,6 +17,7 @@
 //! | state                  | real            | StreamController snapshot               |
 
 pub mod build_argv;
+pub mod clip_save;
 pub mod gpu_info;
 pub mod health;
 pub mod keyframe;

@@ -89,6 +89,9 @@ contextBridge.exposeInMainWorld('pulse', {
     // concurrent one (e.g. a second monitor). The read-only catalog ops above
     // stay on slot 0; they don't depend on which stream is running.
     start: (args: unknown, slot = 0) => sidecarCall('start', args, slot),
+    /** ShadowPlay: letzten `seconds` Sekunden des sendenden Stroms sichern
+     *  (Ring laeuft im Sidecar immer mit). Pfad baut der Hauptprozess. */
+    saveClip: (slot = 0, seconds = 30) => sidecarClip(slot, seconds),
     // `grund` ist reine Diagnose und reist im Befehl mit, damit er in DERSELBEN
     // Protokollzeile steht wie der Stopp selbst (`sidecar-log-befehle.ts`). Der
     // Umweg über eine eigene Meldung schiede aus: der Renderer hat keinen Zugang

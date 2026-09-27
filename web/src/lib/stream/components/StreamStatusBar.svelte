@@ -22,6 +22,8 @@
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import XIcon from '@lucide/svelte/icons/x';
   import { runningStreamSlots } from '../state.svelte';
+  import { toast } from 'svelte-sonner';
+  import HistoryIcon from '@lucide/svelte/icons/history';
   import { recordNotice } from '$lib/stream/recordNotice.svelte';
   import CircleIcon from '@lucide/svelte/icons/circle';
   import { stopSlot } from '../slotControl.svelte';
@@ -63,6 +65,21 @@
   function openConfig(slot: number): void {
     dialogSlot = slot;
     dialogOpen = true;
+  }
+
+  async function schattenClipSichern(slot: number): Promise<void> {
+    const r = (await window.pulse?.sidecar?.saveClip?.(slot, 30)) as
+      | { ok?: boolean; path?: unknown; error?: unknown }
+      | undefined;
+    if (r?.ok) {
+      toast.success(m.shadow_clip_saved(), {
+        description: typeof r.path === 'string' ? r.path : undefined,
+      });
+    } else {
+      toast.error(m.shadow_clip_failed(), {
+        description: typeof r?.error === 'string' ? r.error : undefined,
+      });
+    }
   }
 
   function startEditLabel(slot: number, currentLabel: string): void {
@@ -193,6 +210,18 @@
             <PencilIcon class={iconCls} />
           </button>
         {/if}
+        <!-- ShadowPlay: die letzten 30 s DIESES Slots sichern — der Ring
+             laeuft im Sidecar mit, ohne Neukodierung. -->
+        <button
+          type="button"
+          class="{chipIconBtn} hover:text-text-bright"
+          onclick={() => schattenClipSichern(slot)}
+          aria-label={m.shadow_clip_save()}
+          title={m.shadow_clip_save_tip()}
+          data-testid="stream-status-shadow-clip"
+        >
+          <HistoryIcon class="{iconCls} shrink-0" />
+        </button>
         <button
           type="button"
           class="{chipIconBtn} hover:bg-destructive/20 hover:text-destructive"

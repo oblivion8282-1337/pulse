@@ -469,7 +469,17 @@ impl AudioEncoder {
         loop {
             let mut packet = Packet::empty();
             match self.encoder.receive_packet(&mut packet) {
-                Ok(()) => match senke {
+                Ok(()) => {
+                    // ShadowPlay-Tee (s. encode/mod.rs beim Bild): die fertigen
+                    // Opus-Bytes zusaetzlich in den Clip-Ring, Zeitstempel aus
+                    // der Encoder-Zeitbasis in Millisekunden.
+                    if let (Some(d), Some(pts)) = (packet.data(), packet.pts()) {
+                        let tb = self.encoder_time_base;
+                        let ms = pts * i64::from(tb.numerator()) * 1000
+                            / i64::from(tb.denominator());
+                        crate::clip::push_audio(bytes::Bytes::copy_from_slice(d), ms);
+                    }
+                    match senke {
                     TonSenke::Mux(mux) => {
                         packet.set_stream(self.stream_idx);
                         packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
@@ -480,9 +490,10 @@ impl AudioEncoder {
                     // der Encoder mit `frame_duration` genau darauf festgelegt
                     // wurde — waere sie es nicht, verschoebe sich der Ton
                     // schleichend gegen das Bild, ohne dass ein Fehler auftaucht.
-                    TonSenke::Whip(w) => {
-                        if let Some(d) = packet.data() {
-                            w.send_audio(d, Duration::from_millis(opus_frame_ms() as u64))?;
+                        TonSenke::Whip(w) => {
+                            if let Some(d) = packet.data() {
+                                w.send_audio(d, Duration::from_millis(opus_frame_ms() as u64))?;
+                            }
                         }
                     }
                 },

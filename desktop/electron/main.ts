@@ -40,7 +40,7 @@ import {
   onSidecarCreated,
   sidecarRunning,
 } from './sidecar';
-import { playerManager, recordingDir } from './player';
+import { playerManager, recordingDir, shadowClipPath } from './player';
 import { auftragLesen, EingabeWeiche, erfassungSchalten } from './remoteInput';
 import { RemoteEingabe } from './remoteInputHost';
 import { zielFuerAblage, rolleLesen, endeAnstoss } from './ablageWeiche';
@@ -963,6 +963,23 @@ function wireSidecar(): void {
   // Generic handler — the renderer calls `sidecar:call` with an op name + params +
   // an optional slot. Catch everything so a bad op / dead sidecar surfaces as
   // `{ok:false}` in the renderer instead of an unhandled rejection.
+  // ShadowPlay: die letzten 30 Sekunden des SENDENDEN Stroms sichern.
+  // Eigener Kanal statt sidecar:call — der Zielpfad wird HIER gebaut (wie
+  // player:record; der Renderer haelt nie einen Pfad in der Hand), derselbe
+  // Speicherort wie die Player-Aufnahmen, inklusive der eingestellten
+  // Ordnerwahl.
+  ipcMain.handle('sidecar:clip', async (_e, slot: unknown, seconds?: unknown) => {
+    try {
+      const ziel = shadowClipPath();
+      return await getSidecar(normaliseSlot(slot)).call('clip_save', {
+        path: ziel,
+        seconds: Number(seconds) || 30,
+      });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
   ipcMain.handle('sidecar:call', async (_e, op: string, params: unknown, slot?: unknown) => {
     // Validate op against the allowlist (finding 156).
     if (!ALLOWED_SIDECAR_OPS.has(op)) {
