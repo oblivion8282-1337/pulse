@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyRegistryTokenStatus, checkCredsSupersede,
+  classifyDeletedList, checkInstanceDeleted,
 } from '../electron/serverSupersede.ts';
 import type { BootstrapCreds } from '../electron/localBackend/pairing.ts';
 
@@ -53,4 +54,39 @@ test('checkCredsSupersede: Basic-Auth-Header korrekt gebaut', async () => {
   }) as unknown as typeof fetch;
   await checkCredsSupersede(CREDS, fetchImpl);
   assert.equal(seenAuth, `Basic ${Buffer.from('cid:SECRET').toString('base64')}`);
+});
+
+// ── Gelöschte Instanz (öffentliche Suspend-/Delete-Liste) ────────────────────
+const DEL_CREDS = { cloudOrigin: 'https://howispulse.com', instanceId: '69047386697109504' };
+
+function jsonFetch(status: number, body: unknown): typeof fetch {
+  return (async () => ({ status, ok: status >= 200 && status < 300, json: async () => body })) as unknown as typeof fetch;
+}
+
+test('classifyDeletedList: Instanz in deleted_instance_ids → true', () => {
+  assert.equal(classifyDeletedList('69047386697109504', {
+    instance_ids: ['69047386697109504'], deleted_instance_ids: ['69047386697109504'],
+  }), true);
+});
+test('classifyDeletedList: nur suspendiert (nicht in deleted) → false', () => {
+  assert.equal(classifyDeletedList('123', {
+    instance_ids: ['123'], deleted_instance_ids: ['456'],
+  }), false);
+});
+test('classifyDeletedList: kaputter/leerer Body → false (fail-safe)', () => {
+  assert.equal(classifyDeletedList('123', null), false);
+  assert.equal(classifyDeletedList('123', 'garbage'), false);
+  assert.equal(classifyDeletedList('123', { deleted_instance_ids: 'nope' }), false);
+});
+
+test('checkInstanceDeleted: gelöschte Instanz → true', async () => {
+  const body = { deleted_instance_ids: ['69047386697109504'] };
+  assert.equal(await checkInstanceDeleted(DEL_CREDS, jsonFetch(200, body)), true);
+});
+test('checkInstanceDeleted: nicht gelistet → false', async () => {
+  assert.equal(await checkInstanceDeleted(DEL_CREDS, jsonFetch(200, { deleted_instance_ids: [] })), false);
+});
+test('checkInstanceDeleted: HTTP-Fehler/Netzfehler → false (fail-safe)', async () => {
+  assert.equal(await checkInstanceDeleted(DEL_CREDS, jsonFetch(503, null)), false);
+  assert.equal(await checkInstanceDeleted(DEL_CREDS, throwingFetch(new Error('offline'))), false);
 });

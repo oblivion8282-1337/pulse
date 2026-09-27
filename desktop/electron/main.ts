@@ -58,18 +58,23 @@ import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
 import { ContainerBackendManager, resolveImage } from './localBackend/containerBackendManager';
 import { wslReady, installWsl, inFlatpak } from './localBackend/containerRuntime';
-import { volumeSizeBytes, exportVolume } from './localBackend/dataTools';
+import { volumeSizeBytes, exportVolume, importVolume } from './localBackend/dataTools';
 import { applyAutostart } from './autostart';
 import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds,
   probeUrl, sanitize,
 } from './localBackend/pairing';
-import { provision, deleteInstanceRegistration, fetchCloudStatus } from './serverProvision';
+import { provision, deleteInstanceRegistration, fetchCloudStatus, fetchMe } from './serverProvision';
+import {
+  createTokenGetter, saveAuth, loadAuth, clearAuth, revokeRefresh,
+  WEB_ACCESS_KEY, WEB_REFRESH_KEY,
+} from './serverAuth';
 import { runGiveUp } from './serverGiveUp';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
 import { diagnostiziere } from './localBackend/netdiag';
 import { checkCredsSupersede } from './serverSupersede';
+import { checkCredsSupersede, checkInstanceDeleted } from './serverSupersede';
 
 /** Intervall für den periodischen Ablöse-Check (③c-Ergänzung) — 10 Min sind
  *  träge genug, um den Registry-Token-Realm nicht spürbar zu belasten, aber
@@ -453,12 +458,33 @@ function createWindow(): void {
  *  wie der Login-Erfolg. Der frühere 1,5-s-Cookie-Poll allein ließ die volle
  *  Chat-Oberfläche bis zum nächsten Tick aufblitzen; er bleibt nur als Netz
  *  für Wege ohne Navigation (z.B. Session war beim Start schon gültig). */
+/** Nach dem Login die Web-App-Tokens (localStorage der howispulse.com-Seite) in
+ *  den durablen Store der Server-App übernehmen — damit die Cloud-Calls
+ *  (me/cloudStatus/provision/giveUp) App-Neustarts überleben, statt am 30-Min-
+ *  Cookie zu hängen (serverAuth). Best effort: schlägt das Lesen fehl, bleibt
+ *  der Cookie-Fallback. */
+async function captureAuthTokens(win: BrowserWindow): Promise<void> {
+  try {
+    const t = await win.webContents.executeJavaScript(
+      `({ a: window.localStorage.getItem(${JSON.stringify(WEB_ACCESS_KEY)}), r: window.localStorage.getItem(${JSON.stringify(WEB_REFRESH_KEY)}) })`,
+      true,
+    );
+    if (t && typeof t.a === 'string' && typeof t.r === 'string') {
+      saveAuth({ get: storeGet, set: storeSet }, { accessToken: t.a, refreshToken: t.r });
+    }
+  } catch { /* localStorage nicht lesbar → Cookie-Fallback */ }
+}
+
 function startLoginWatch(win: BrowserWindow): void {
   let done = false;
-  const toServer = () => {
+  const toServer = async () => {
     if (done || win.isDestroyed()) return;
     done = true;
     clearInterval(timer);
+    // Tokens VOR dem Wechsel auf server.html greifen — danach ist die
+    // howispulse.com-Seite (mit dem localStorage) weg.
+    await captureAuthTokens(win);
+    if (win.isDestroyed()) return;
     void win.loadFile(path.join(__dirname, 'server.html'));
   };
   const onNav = (_e: unknown, url: string) => {
@@ -514,6 +540,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   const manager = new ContainerBackendManager();
   const hostStore = { get: storeGet, set: (k: string, v: unknown) => storeSet(k, v) };
   let creds = loadCreds(hostStore);
+  // Durabler Cloud-Login (serverAuth): liefert einen gültigen Bearer-Token für
+  // die Cloud-Calls und refresht bei Ablauf (überlebt App-Neustarts). null →
+  // keine/tote Tokens → die Calls fallen auf den 30-Min-Cookie zurück bzw.
+  // melden "nicht eingeloggt".
+  const getAccessToken = createTokenGetter(hostStore);
 
   const deps: HostDeps = {
     // Windows + Podman: podman machine braucht WSL2. Docker Desktop verwaltet
@@ -564,19 +595,33 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   const syncLifecycleFromContainer = async (): Promise<void> => {
     if (!SERVER_MODE) return;
     const running = await manager.isContainerRunning().catch(() => false);
-    if (running) hl.markLive(deps.relayUrl());
+    if (running) {
+      hl.markLive(deps.relayUrl());
+      // Container lief über den App-Neustart hinweg weiter → der Host-UDP-
+      // Relay (Win/Mac, Direktpfad-Port) muss trotzdem neu hoch (er lebt im
+      // Electron-Prozess, nicht im Container).
+      void manager.ensureRelay();
+    }
   };
 
   // Ablöse-Erkennung: periodischer Creds-Check gegen den Registry-Token-Realm
   // (serverSupersede.ts). Ein eindeutiges 401 heißt: ein Re-Bootstrap auf
   // einem ANDEREN Gerät hat clientSecret rotiert — dieses Gerät ist Zombie.
-  // Netzwerkfehler/403/5xx sind fail-safe: keine Aktion.
+  // Zusätzlich: steht die Instanz auf der öffentlichen Gelöscht-Liste, ist das
+  // Pairing wertlos (Registry gibt dann 403, nie 401) → 'deleted', die UI
+  // bietet "Neu einrichten" an. Netzwerkfehler/5xx sind fail-safe: keine Aktion.
   const checkSupersedeOnce = async (): Promise<void> => {
     if (!SERVER_MODE || !creds) return;
     const verdict = await checkCredsSupersede(creds);
-    if (verdict !== 'superseded') return;
-    await manager.stop().catch(() => {}); // Creds bleiben erhalten (Diagnose)
-    hl.markSuperseded();
+    if (verdict === 'superseded') {
+      await manager.stop().catch(() => {}); // Creds bleiben erhalten (Diagnose)
+      hl.markSuperseded('rotated');
+      return;
+    }
+    if (verdict === 'unknown' && (await checkInstanceDeleted(creds))) {
+      await manager.stop().catch(() => {});
+      hl.markSuperseded('deleted');
+    }
   };
 
   // Update-Check im Betrieb: Dauerläufer (Container überlebt App-Neustarts)
@@ -599,7 +644,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     cloudStatusPolling = true;
     try {
       while (hl.getStatus().phase === 'live') {
-        const registered = creds ? await fetchCloudStatus(creds.cloudOrigin, creds.instanceId) : null;
+        const c = creds;
+        const registered = c
+          ? await fetchCloudStatus(c.cloudOrigin, c.instanceId, () => getAccessToken(c.cloudOrigin))
+          : null;
         getWin()?.webContents.send('host:cloudStatus', { registered });
         if (registered === true) return; // registriert bleibt registriert
         await new Promise((r) => setTimeout(r, 60_000));
@@ -652,9 +700,13 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   const localSenderOnly = (e: { sender?: { getURL?: () => string } }): boolean =>
     !SERVER_MODE || (e.sender?.getURL?.().startsWith('file:') ?? false);
 
-  ipcMain.handle('host:start', (e) => {
+  ipcMain.handle('host:start', async (e) => {
     if (!localSenderOnly(e)) return;
-    return hl.start();
+    await hl.start();
+    // Start gescheitert → sofort die Ursache prüfen: eine gelöschte/abgelöste
+    // Instanz würde sonst als generisches "Pause — bitte erneut versuchen"
+    // enden und erst der 10-Min-Tick brächte die ehrliche Meldung.
+    if (hl.getStatus().phase === 'something-paused') void checkSupersedeOnce();
   });
   ipcMain.handle('host:stop', (e) => {
     if (!localSenderOnly(e)) return;
@@ -716,7 +768,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     const confirmTakeover =
       typeof opts === 'object' && opts !== null &&
       (opts as { confirmTakeover?: unknown }).confirmTakeover === true;
-    const result = await provision(PROD_URL, { confirmTakeover });
+    const result = await provision(PROD_URL, { confirmTakeover }, () => getAccessToken(PROD_URL));
     if (result.ok) {
       creds = result.creds;
       saveCreds(hostStore, result.creds);
@@ -736,7 +788,56 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // funktioniert und Freunde den Server finden. null bei jedem Fehler.
   ipcMain.handle('host:cloudStatus', async (e) => {
     if (!localSenderOnly(e) || !creds) return { registered: null };
-    return { registered: await fetchCloudStatus(creds.cloudOrigin, creds.instanceId) };
+    const c = creds;
+    return { registered: await fetchCloudStatus(c.cloudOrigin, c.instanceId, () => getAccessToken(c.cloudOrigin)) };
+  });
+  // "Angemeldet als …": der eingeloggte Cloud-User (serverProvision.fetchMe).
+  // Vor dem Pairing über PROD_URL (Login-Session), danach über die cloudOrigin
+  // der Creds. null bei fehlender Session → die UI blendet die Zeile aus.
+  ipcMain.handle('host:me', async (e) => {
+    if (!localSenderOnly(e)) return null;
+    const origin = creds?.cloudOrigin ?? PROD_URL;
+    return fetchMe(origin, () => getAccessToken(origin));
+  });
+  // "Abmelden": Session-Cookies der Cloud löschen und zurück zum Login
+  // navigieren — danach kann sich ein ANDERER User anmelden. Das Pairing
+  // (Geräte-Creds) bleibt bewusst unangetastet; wer den Server wechseln will,
+  // richtet ihn nach dem Neu-Login über "Server einrichten" neu ein (mit der
+  // Übernahme-Warnung). startLoginWatch lädt nach erfolgreichem Login wieder
+  // server.html.
+  // "Anmelden" (ohne Pairing anzufassen): zum Login navigieren, damit ein
+  // gepairter Server OHNE gültige Session (z.B. Erst-Migration auf den durablen
+  // Login) eine Cloud-Session etablieren kann. startLoginWatch übernimmt nach
+  // dem Login die Tokens (captureAuthTokens) und lädt server.html zurück.
+  ipcMain.handle('host:login', async (e) => {
+    if (!localSenderOnly(e)) return { ok: false };
+    const win = getWin();
+    if (win && !win.isDestroyed()) {
+      await win.loadURL(PROD_URL);
+      startLoginWatch(win);
+    }
+    return { ok: true };
+  });
+  ipcMain.handle('host:logout', async (e) => {
+    if (!localSenderOnly(e)) return { ok: false };
+    const origin = creds?.cloudOrigin ?? PROD_URL;
+    // Durablen Refresh-Token serverseitig entwerten (best effort) + lokal löschen.
+    const tokens = loadAuth(hostStore);
+    if (tokens) await revokeRefresh(origin, tokens.refreshToken);
+    clearAuth(hostStore);
+    // Cookies UND localStorage der Cloud-Origin wischen — Letzteres ist zwingend:
+    // die Web-App hält access_/refresh_token in localStorage und würde sich sonst
+    // beim Zurück-zum-Login automatisch wieder als der ALTE User anmelden
+    // (→ Logout wirkungslos). clearStorageData deckt beides ab.
+    try {
+      await session.defaultSession.clearStorageData({ origin, storages: ['cookies', 'localstorage'] });
+    } catch { /* best effort */ }
+    const win = getWin();
+    if (win && !win.isDestroyed()) {
+      await win.loadURL(PROD_URL);
+      startLoginWatch(win);
+    }
+    return { ok: true };
   });
   // Autostart-Schalter: Store ist die Wahrheit, OS-Zustand wird nachgezogen.
   ipcMain.handle('host:getAutostart', () => ({
@@ -762,6 +863,20 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // Export: Container stoppen (falls läuft) → Volume als tar in die vom User
   // gewählte Datei streamen → Container wieder starten (nur wenn er lief).
   // Schritte gehen als host:exportStep-Events an die Karte.
+  // Gemeinsamer Rahmen für Export/Import: Container stoppen (falls läuft),
+  // Operation ausführen, IMMER wieder hochfahren, wenn er vorher lief — auch
+  // nach einem Fehler. Schritte gehen als host:exportStep-Events an die Karte.
+  const step = (s: string): void => getWin()?.webContents.send('host:exportStep', s);
+  const withContainerStopped = async <T>(op: () => Promise<T>): Promise<T> => {
+    const wasRunning = await manager.isContainerRunning().catch(() => false);
+    try {
+      if (wasRunning) { step('stopping'); await manager.stop(); }
+      return await op();
+    } finally {
+      if (wasRunning) { step('restarting'); await hl.start().catch(() => {}); }
+    }
+  };
+
   ipcMain.handle('host:exportData', async (e) => {
     if (!localSenderOnly(e) || !creds) return { ok: false, error: 'forbidden' };
     const win = getWin();
@@ -773,18 +888,33 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (sel.canceled || !sel.filePath) return { ok: false, canceled: true };
     const rt = await manager.runtime().catch(() => null);
     if (!rt) return { ok: false, error: 'Keine Container-Runtime gefunden.' };
-    const step = (s: string): void => getWin()?.webContents.send('host:exportStep', s);
-    const wasRunning = await manager.isContainerRunning().catch(() => false);
-    try {
-      if (wasRunning) { step('stopping'); await manager.stop(); }
+    return withContainerStopped(async () => {
       step('exporting');
-      const result = await exportVolume(rt, resolveImage().image, sel.filePath);
+      const result = await exportVolume(rt, resolveImage().image, sel.filePath as string);
       if (result.ok) storeSet('pulse.host.lastBackupAt', Date.now());
       return result;
-    } finally {
-      // Immer wieder hochfahren, wenn er vorher lief — auch nach Export-Fehler.
-      if (wasRunning) { step('restarting'); await hl.start().catch(() => {}); }
-    }
+    });
+  });
+  // Import: Gegenstück zum Export — Backup-tar wählen, Container stoppen
+  // (falls läuft), /data ERSETZEN (importVolume leert vorher), Container
+  // wieder starten. Die Bestätigung ("ersetzt alle aktuellen Daten") holt die
+  // UI VOR diesem Aufruf ein; Schritte laufen über denselben
+  // host:exportStep-Kanal ('stopping'/'importing'/'restarting').
+  ipcMain.handle('host:importData', async (e) => {
+    if (!localSenderOnly(e) || !creds) return { ok: false, error: 'forbidden' };
+    const win = getWin();
+    if (!win) return { ok: false, error: 'kein Fenster' };
+    const sel = await dialog.showOpenDialog(win, {
+      filters: [{ name: 'TAR-Archiv', extensions: ['tar'] }],
+      properties: ['openFile'],
+    });
+    if (sel.canceled || !sel.filePaths[0]) return { ok: false, canceled: true };
+    const rt = await manager.runtime().catch(() => null);
+    if (!rt) return { ok: false, error: 'Keine Container-Runtime gefunden.' };
+    return withContainerStopped(async () => {
+      step('importing');
+      return importVolume(rt, resolveImage().image, sel.filePaths[0]);
+    });
   });
   // "Server aufgeben": vollständiger Aufgabe-Flow (Sequenz + Teil-Fehler-
   // Semantik in serverGiveUp.ts — hier nur die echten Ops). Im superseded-
@@ -797,7 +927,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     const { cloudOrigin, instanceId } = creds;
     return runGiveUp({ deleteData, skipCloud }, {
       removeContainer: () => manager.removeContainer(),
-      deleteCloudRegistration: () => deleteInstanceRegistration(cloudOrigin, instanceId),
+      deleteCloudRegistration: () => deleteInstanceRegistration(cloudOrigin, instanceId, () => getAccessToken(cloudOrigin)),
       removeAutostart: () => {
         storeSet('serverAutostart', false);
         osApplyAutostart(false);
@@ -1401,7 +1531,7 @@ const ALLOWED_STORE_KEYS = new Set([
  *  (get/getAll/getAllSync) MÜSSEN diesen Schlüssel ausblenden — sonst läge er
  *  über `window.pulse.store.get(...)` und passiv via `getAllSync()` (serversStore
  *  beim Boot) offen. (Schreibseitig ist der Key gar nicht erst in der Allowlist.) */
-const RENDERER_BLOCKED_STORE_KEYS = new Set(['pulse.host.creds']);
+const RENDERER_BLOCKED_STORE_KEYS = new Set(['pulse.host.creds', 'pulse.host.auth']);
 
 /** Kopie ohne die renderer-gesperrten Schlüssel — für die store:getAll(Sync)-Kanäle.
  *
@@ -1784,20 +1914,29 @@ async function bootClient(): Promise<void> {
   });
 }
 
-// Server-App-Boot: kein Update-Splash, kein Client-Sidecar/ScreenShare/Updater —
-// nur Host-IPC (Lochungs-Modus) + Fenster (server.html) + Tray + Basis-IPC.
+// Server-App-Boot: Update-Splash (eigener /updates/win-server/-Feed, Server-
+// Icon) + Host-IPC (Lochungs-Modus) + Fenster (server.html) + Tray + In-App-
+// Updater — aber kein Client-Sidecar/ScreenShare/DeepLink.
 async function bootServer(): Promise<void> {
   // initStore() ZUERST: wireHost() liest beim Verdrahten die Pairing-Creds
   // (loadCreds); ohne initStore() ist jeder storeGet/storeSet ein No-Op → die
   // App vergisst ihr Pairing bei jedem Neustart und landet wieder im Login.
   initStore();
   wireStore();
+
+  // Auto-Update im Hintergrund wie der Client (Entscheid auf main seit dem
+  // Splash-Rückbau): Fenster startet sofort, `startUpdater` lädt Updates still
+  // über den Server-Feed (electron-builder-server.yml) und installiert beim
+  // Neustart. Der allinone-Container läuft dank `--restart unless-stopped`
+  // weiter und wird nach dem App-Neustart per Zustands-Abgleich
+  // (syncLifecycleFromContainer) wieder aufgegriffen.
   wireHost(() => mainWindow);
   wireNotify(() => mainWindow);
   wirePower();
   wireClipboard();
   createWindow();
   createTray(() => mainWindow, quitApp, { variant: 'server' });
+  stopUpdater = startUpdater(() => mainWindow);
 }
 
 app.whenReady().then(() => void (SERVER_MODE ? bootServer() : bootClient()));

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { renderContainerEnv } from '../../electron/localBackend/containerBackendManager.ts';
+import { renderContainerEnv, hostLanIpv4s } from '../../electron/localBackend/containerBackendManager.ts';
 import { runtimeCandidates, inFlatpak, machineAction } from '../../electron/localBackend/containerRuntime.ts';
 import type { BootstrapCreds } from '../../electron/localBackend/pairing.ts';
 
@@ -51,6 +51,29 @@ test('renderContainerEnv: partielle Relay-Creds → KEINE Relay-Zeilen (nie leer
 test('renderContainerEnv: adminEmail-Override und Platzhalter', () => {
   assert.match(renderContainerEnv(CREDS, 'ich@example.org'), /^PULSE_ADMIN_EMAIL=ich@example\.org$/m);
   assert.match(renderContainerEnv(CREDS), /^PULSE_ADMIN_EMAIL=admin@brave-otter-4f2a\.relay\.howispulse\.com$/m);
+});
+
+test('renderContainerEnv: LAN-IPs → PULSE_DIRECT_EXTRA_HOST_IPS; ohne → Variable fehlt', () => {
+  const env = renderContainerEnv(CREDS, undefined, ['192.168.178.42', '10.0.0.9']);
+  assert.match(env, /^PULSE_DIRECT_EXTRA_HOST_IPS=192\.168\.178\.42,10\.0\.0\.9$/m);
+  // Leere Liste → Variable komplett weglassen (leerer String gälte im
+  // Adapter als "konfiguriert, aber kaputt").
+  assert.equal(renderContainerEnv(CREDS).includes('PULSE_DIRECT_EXTRA_HOST_IPS'), false);
+});
+
+test('hostLanIpv4s: filtert internal/IPv6/link-local/WSL-NAT, dedupliziert', () => {
+  const ips = hostLanIpv4s({
+    Ethernet: [
+      { family: 'IPv4', address: '192.168.178.42', internal: false },
+      { family: 'IPv6', address: 'fe80::1', internal: false },
+    ],
+    WLAN: [{ family: 'IPv4', address: '192.168.178.42', internal: false }], // Duplikat
+    'vEthernet (WSL)': [{ family: 'IPv4', address: '172.28.80.1', internal: false }],
+    APIPA: [{ family: 'IPv4', address: '169.254.10.5', internal: false }],
+    Loopback: [{ family: 'IPv4', address: '127.0.0.1', internal: true }],
+    Leer: undefined,
+  });
+  assert.deepEqual(ips, ['192.168.178.42']);
 });
 
 test('machineAction: inspect-Ergebnis → init/start/none', () => {

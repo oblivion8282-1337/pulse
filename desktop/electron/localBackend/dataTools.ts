@@ -23,7 +23,7 @@
 import { rmSync } from 'node:fs';
 
 import { CONTAINER_NAME, DATA_VOLUME } from './containerBackendManager.ts';
-import { rtExec, rtExecToFile, type ContainerRuntime } from './containerRuntime.ts';
+import { rtExec, rtExecFromFile, rtExecToFile, type ContainerRuntime } from './containerRuntime.ts';
 
 /** Erste Zahl aus `du -sk`-Ausgabe ("12345\t/data") → Bytes, sonst null. */
 export function parseDuKb(stdout: string): number | null {
@@ -47,6 +47,37 @@ export async function volumeSizeBytes(
 /** Exportiert das Volume als tar nach targetPath. Der Aufrufer (main.ts)
  *  stoppt/startet den Container drumherum — hier nur der reine Datenstrom.
  *  Fehlschlag räumt die halb geschriebene Zieldatei weg. */
+/** Importiert ein Export-tar zurück ins Volume (Gegenstück zu exportVolume):
+ *  tar streamt aus der Quelldatei in die stdin eines Wegwerf-Containers
+ *  (rtExecFromFile — gleicher Grund wie beim Export: Portal-/Sandbox-Pfade
+ *  sieht nur der Electron-Prozess, und `podman volume import` gäbe es unter
+ *  Docker ohnehin nicht). VOR dem Entpacken wird /data geleert — ein Restore
+ *  über einen Bestand hinweg würde sonst alte DB-Dateien mit importierten
+ *  mischen (Postgres-Datadir = Korruption). busybox-kompatibel: `find
+ *  -mindepth 1 -delete` räumt auch dotfiles. Der Aufrufer (main.ts) stoppt/
+ *  startet den Container drumherum. */
+export async function importVolume(
+  rt: ContainerRuntime,
+  image: string,
+  sourcePath: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const r = await rtExecFromFile(
+      rt,
+      [
+        'run', '--rm', '-i', '--entrypoint', 'sh', '-v', `${DATA_VOLUME}:/data`, image,
+        '-c', 'find /data -mindepth 1 -delete && tar -xf - -C /data',
+      ],
+      sourcePath,
+      { timeoutMs: 60 * 60_000 },
+    );
+    if (r.code === 0) return { ok: true };
+    return { ok: false, error: `Import fehlgeschlagen (exit ${r.code})` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function exportVolume(
   rt: ContainerRuntime,
   image: string,

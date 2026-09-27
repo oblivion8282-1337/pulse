@@ -44,3 +44,31 @@ export async function checkCredsSupersede(
     return 'unknown'; // Netzwerkfehler → fail-safe, keine Aktion
   }
 }
+
+/** Reine Entscheidung aus der öffentlichen Suspend-/Delete-Liste
+ *  (/.well-known/pulse-suspended-instances): steht die gepairte Instanz in
+ *  `deleted_instance_ids`, ist das Pairing wertlos — die Registry lehnt die
+ *  Creds mit 403 ab (KEIN 401, deshalb greift die Rotations-Erkennung nicht)
+ *  und der Container-Start endet sonst stumm in 'something-paused'.
+ *  Fail-safe: unlesbare/fehlende Antwort → false (keine Aktion). */
+export function classifyDeletedList(instanceId: string, body: unknown): boolean {
+  if (body == null || typeof body !== 'object') return false;
+  const list = (body as { deleted_instance_ids?: unknown }).deleted_instance_ids;
+  return Array.isArray(list) && list.includes(instanceId);
+}
+
+/** Ist die gepairte Instanz auf der Cloud gelöscht? Öffentlicher Endpoint —
+ *  keine Auth, keine Token-Rotation, keine Nebenwirkung. false bei jedem
+ *  Fehler (fail-safe). */
+export async function checkInstanceDeleted(
+  creds: Pick<BootstrapCreds, 'cloudOrigin' | 'instanceId'>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  try {
+    const resp = await fetchImpl(`${creds.cloudOrigin}/.well-known/pulse-suspended-instances`);
+    if (!resp.ok) return false;
+    return classifyDeletedList(creds.instanceId, await resp.json());
+  } catch {
+    return false;
+  }
+}
