@@ -318,6 +318,7 @@ impl Writer {
     fn create(
         path: &Path,
         video: Option<(Codec, u32, u32)>,
+        fps: Option<(i32, i32)>,
         extradata: Option<&[u8]>,
         audio: bool,
     ) -> Result<Self> {
@@ -352,6 +353,12 @@ impl Writer {
                 (*p).codec_type = ffmpeg::ffi::AVMediaType::AVMEDIA_TYPE_VIDEO;
                 (*p).width = width as i32;
                 (*p).height = height as i32;
+                // Bildrate an BEIDE Stellen: der Matroska-Muxer leitet seine
+                // Default-Duration bevorzugt aus der Codec-Beschreibung ab,
+                // ffprobe zeigt sonst „1000/1" (Michaels Fund 2026-09-27).
+                if let Some((num, den)) = fps {
+                    (*p).framerate = ffmpeg::ffi::AVRational { num, den };
+                }
                 // AV1 braucht den Konfigurationsdatensatz als `extradata`,
                 // sonst kann Matroska die Spur nicht beschreiben. Der Puffer
                 // muss von FFmpegs Allokator kommen — `avcodec` gibt ihn frei.
@@ -367,6 +374,13 @@ impl Writer {
                 }
             })
             .context("Videospur")?;
+            // Bildrate als Spur-Metadatum: ohne sie bleibt `avg_frame_rate`
+            // 0/0 und Spieler raten aus der Zeitbasis (gemessen: „1000 fps").
+            if let Some((num, den)) = fps {
+                if let Some(mut spur) = output.stream_mut(index) {
+                    spur.set_avg_frame_rate(ffmpeg::Rational::new(num, den));
+                }
+            }
             video_stream = Some(index);
         }
 
@@ -488,6 +502,11 @@ pub struct Recorder {
     av1_seq_header: Option<Vec<u8>>,
     /// Bittiefe des Bildes, fuer denselben Zweck.
     ten_bit: bool,
+    /// Bildrate als (zaehler, nenner), gemessen aus dem RTP-Takt der Sitzung.
+    /// Ohne sie bleibt `avg_frame_rate` in der Datei 0/0 und Spieler raten
+    /// aus der Millisekunden-Zeitbasis — gemessen 2026-09-27 stand da
+    /// „1000 fps" (Michaels Fund).
+    video_fps: Option<(i32, i32)>,
 }
 
 impl Recorder {
@@ -499,6 +518,16 @@ impl Recorder {
     /// Bittiefe aus dem dekodierten Bild — geht in die AV1-Konfiguration ein.
     pub fn note_ten_bit(&mut self, ten_bit: bool) {
         self.ten_bit = ten_bit;
+    }
+
+    /// Bildrate aus dem RTP-Takt der Sitzung — geht als `avg_frame_rate`
+    /// in die Spur. Muss VOR dem ersten Paket stehen, der Dateikopf wird
+    /// mit ihm geschrieben; spaetere Messungen wirken erst auf die naechste
+    /// Aufnahme.
+    pub fn note_framerate(&mut self, num: i32, den: i32) {
+        if num > 0 && den > 0 {
+            self.video_fps = Some((num, den));
+        }
     }
 
     pub fn is_recording(&self) -> bool {
@@ -627,6 +656,7 @@ impl Recorder {
         Ok(ClipData {
             units: self.ring.iter().skip(begin).cloned().collect(),
             video,
+            fps: self.video_fps,
             extradata: self.extradata(),
         })
     }
@@ -639,7 +669,13 @@ impl Recorder {
     }
 
     fn make_writer(&self, path: &Path) -> Result<Writer> {
-        Writer::create(path, Some(self.video_info()?), self.extradata().as_deref(), true)
+        Writer::create(
+            path,
+            Some(self.video_info()?),
+            self.video_fps,
+            self.extradata().as_deref(),
+            true,
+        )
     }
 
     /// Konfigurationsdatensatz fuer den Muxer, falls der Codec einen braucht.
@@ -659,6 +695,7 @@ impl Recorder {
 pub struct ClipData {
     units: Vec<Unit>,
     video: (Codec, u32, u32),
+    fps: Option<(i32, i32)>,
     extradata: Option<Vec<u8>>,
 }
 
@@ -669,7 +706,7 @@ pub fn write_clip(path: &Path, data: &ClipData) -> Result<(u64, std::path::PathB
     pruefe_ziel(path)?;
     let target = with_container(path, data.video.0);
     let mut writer =
-        Writer::create(&target, Some(data.video), data.extradata.as_deref(), true)?;
+        Writer::create(&target, Some(data.video), data.fps, data.extradata.as_deref(), true)?;
     let mut count = 0u64;
     for unit in &data.units {
         writer.write(unit)?;
@@ -1107,6 +1144,44 @@ mod tests {
         r.push(Codec::H264, puffer(&[0, 0, 1, 0x41, 0x9A]), 10); // Inter-Frame
         assert!(r.stop().is_err(), "ohne Keyframe darf nichts aufgenommen werden");
         assert!(!benutzt.exists(), "leere Datei {benutzt:?} ist liegengeblieben");
+    }
+
+    /// Regression (2026-09-27, Michaels Fund „fps stimmen nicht"): die Spur
+    /// bekam nie eine Bildrate, Spieler lasen „1000 fps" aus der
+    /// Millisekunden-Zeitbasis. `note_framerate` muss in der fertigen Datei
+    /// ankommen — Matroska ist der Fall, der zaehlt (AV1 ist der Standard-
+    /// Codec); MPEG-TS traegt keine Bildrate im Container, dort rechnen
+    /// Spieler sie ohnehin aus den Zeitstempeln.
+    #[test]
+    fn bildrate_steht_in_der_datei() {
+        ffmpeg::init().ok();
+        let ziel = crate::ablage::temp("pulse-player-fps-mkv");
+        let mut r = Recorder::default();
+        r.note_dimensions(320, 180);
+        r.note_framerate(60000, 1001); // 59,94 — der haeussliche Fall
+        // Sequence-Header + Vollbild: macht den Codec bekannt und liefert die
+        // Matroska-Extradata (Vorlage: av1_aufnahme_muxt_ohne_encoder).
+        let mut key = obu(1, 0xAA).to_vec();
+        key.extend(obu(6, VOLLBILD));
+        r.push(Codec::Av1, puffer(&key), 0);
+        let benutzt = r.start(&ziel).expect("startet");
+        assert_eq!(
+            benutzt.extension().and_then(|e| e.to_str()),
+            Some("mkv"),
+            "AV1 gehoert nach Matroska"
+        );
+        for i in 1..30 {
+            r.push(Codec::Av1, puffer(&key), i * 16);
+        }
+        r.stop().expect("stoppt");
+        let datei = ffmpeg::format::input(&benutzt).expect("lesbar");
+        let spur = datei.streams().best(ffmpeg::media::Type::Video).expect("Videospur");
+        let fps = spur.avg_frame_rate();
+        let wert = fps.numerator() as f64 / fps.denominator() as f64;
+        assert!(
+            (wert - 60000.0 / 1001.0).abs() < 0.01,
+            "avg_frame_rate fehlt/falsch: {wert}"
+        );
     }
 
     #[test]

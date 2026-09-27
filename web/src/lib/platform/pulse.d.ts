@@ -566,6 +566,11 @@ export interface PulsePlayerApi {
   stopRecord(session: number): Promise<PulsePlayerResult>;
   /** Letzte `seconds` Sekunden aus dem Ringpuffer sichern (1-60). */
   clip(session: number, seconds?: number): Promise<PulsePlayerResult>;
+  /** System-Ordnerdialog für den Mitschnitt-Speicherort (nur Hauptprozess
+   *  setzt den Pfad). Abbruch: `ok:false, canceled:true`. */
+  chooseRecordingDir?(): Promise<PulsePlayerResult & { canceled?: boolean }>;
+  /** Effektives Speicherverzeichnis (inkl. Fallback) zur Anzeige. */
+  recordingDir?(): Promise<PulsePlayerResult>;
   onEvent(cb: (ev: unknown) => void): () => void;
   /** Fernsteuerung — Eingabe-Erfassung im Player-Fenster. Fehlt in aelteren
    *  Shells, deshalb optional. */

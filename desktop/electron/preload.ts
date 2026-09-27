@@ -254,6 +254,12 @@ contextBridge.exposeInMainWorld('pulse', {
     /** Die letzten `seconds` Sekunden aus dem Ringpuffer sichern (1-60). */
     clip: (session: number, seconds = 30): Promise<unknown> =>
       ipcRenderer.invoke('player:clip', session, seconds),
+    /** System-Ordnerdialog fuer den Mitschnitt-Speicherort. Der Pfad wird
+     *  nur hier gesetzt — der Renderer selbst kann `recordingDir` nicht
+     *  schreiben (bewusst nicht in der store-Allowlist). */
+    chooseRecordingDir: (): Promise<unknown> => ipcRenderer.invoke('player:chooseRecordingDir'),
+    /** Effektives Speicherverzeichnis (inkl. Fallback) fuer die Anzeige. */
+    recordingDir: (): Promise<unknown> => ipcRenderer.invoke('player:recordingDir'),
 
     /** Zustandsereignisse (`player:state`). Liefert eine Abmelde-Funktion. */
     onEvent: (cb: (ev: unknown) => void): (() => void) => {

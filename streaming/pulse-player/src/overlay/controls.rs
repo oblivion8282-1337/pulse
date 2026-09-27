@@ -139,11 +139,23 @@ impl Overlay {
         tooltip: &str,
         aktiv: bool,
     ) -> egui::Response {
+        Self::icon_button_farbe(ui, src, tooltip, aktiv, theme::PRIMARY)
+    }
+
+    /// Wie [`Self::icon_button`], aber mit eigener Farbe fuer den aktiven
+    /// Zustand — der laufende Mitschnitt ist rot statt akzentblau.
+    pub(super) fn icon_button_farbe(
+        ui: &mut egui::Ui,
+        src: egui::ImageSource<'static>,
+        tooltip: &str,
+        aktiv: bool,
+        aktiv_farbe: egui::Color32,
+    ) -> egui::Response {
         let bild = egui::Image::new(src)
             .fit_to_exact_size(egui::vec2(theme::ICON, theme::ICON))
             // Die Symbole liegen weiss vor; eingefaerbt wird hier, damit ein
             // aktiver Zustand dieselbe Farbe traegt wie in der App.
-            .tint(if aktiv { theme::PRIMARY } else { theme::TEXT });
+            .tint(if aktiv { aktiv_farbe } else { theme::TEXT });
         ui.add(egui::Button::image(bild).corner_radius(theme::RADIUS_MD))
             .on_hover_text(tooltip)
     }
@@ -211,16 +223,21 @@ impl Overlay {
 
         // Mitschnitt und Clip neben der Lautstaerke — beide gehoeren zum reinen
         // Zuschauen, nicht zur Diagnose. Der Zustand kommt je Durchgang frisch
-        // aus der Sitzung (`stats.recording`): schlägt der Start fehl, springt
+        // aus der Sitzung (`stats.recording`): schlaegt der Start fehl, springt
         // der Knopf von selbst zurueck, statt einen Zustand zu behaupten.
-        Self::action_button(
+        // Laeuft die Aufnahme, ist das Stopp-Quadrat ROT — nicht akzentblau
+        // wie jeder aktive Knopf (Michaels Wunsch 2026-09-27).
+        if Self::icon_button_farbe(
             ui,
-            actions,
             if recording { theme::icon::record_stop() } else { theme::icon::record() },
             if recording { "Aufnahme beenden" } else { "Aufnahme starten" },
             recording,
-            OverlayAction::Record(!recording),
-        );
+            theme::REKORD,
+        )
+        .clicked()
+        {
+            actions.push(OverlayAction::Record(!recording));
+        }
         Self::action_button(
             ui,
             actions,

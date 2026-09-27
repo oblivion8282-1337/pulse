@@ -28,6 +28,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
+import { storeGet } from './store';
 import { app } from 'electron';
 
 import { diagnoseEingeschaltet } from './experimental-log-upload';
@@ -164,11 +165,22 @@ export function resolvePlayerBinary(): string | null {
 
 
 /**
- * Zielverzeichnis fuer Mitschnitte. Bewusst **nicht** vom Renderer gewaehlt:
- * ein frei uebergebener Pfad waere ein Schreibzugriff an beliebige Stelle.
- * Der Renderer loest nur aus, der Hauptprozess bestimmt wohin.
+ * Zielverzeichnis fuer Mitschnitte. Der Renderer uebertraegt weiterhin keinen
+ * Pfad — gewaehlt wird im SYSTEM-Ordnerdialog des Hauptprozesses
+ * (`player:chooseRecordingDir`, Einstellungen → Screen Share), gespeichert im
+ * Store, gelesen hier. Ein nicht les-/anlegbaeres Verzeichnis faellt laut auf
+ * den Standard zurueck, statt Aufnahmen ins Leere laufen zu lassen.
  */
-function recordingDir(): string {
+export function recordingDir(): string {
+  const gewaehlt = storeGet('recordingDir');
+  if (typeof gewaehlt === 'string' && gewaehlt.length > 0 && path.isAbsolute(gewaehlt)) {
+    try {
+      fs.mkdirSync(gewaehlt, { recursive: true });
+      return gewaehlt;
+    } catch {
+      // fallthrough: unlesbares Verzeichnis → Standard
+    }
+  }
   const base = (() => {
     try {
       return app.getPath('videos');

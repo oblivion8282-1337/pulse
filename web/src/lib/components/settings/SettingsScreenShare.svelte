@@ -51,6 +51,21 @@
     const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
     if (!isNaN(val)) settings.setScreenShareFps(Math.min(fMax, Math.max(fMin, val)));
   }
+
+  // Speicherort der Stream-Aufnahmen: die Anzeige kommt aus dem Hauptprozess
+  // (er kennt den Fallback), das Waehlen oeffnet den SYSTEM-Ordnerdialog dort
+  // — der Renderer setzt nie selbst einen Pfad. Der Reiter ist desktopOnly,
+  // ein alter Fensterstand ohne die Methoden zeigt einfach nichts an.
+  let aufnahmeOrdner = $state<string | null>(null);
+  $effect(() => {
+    void window.pulse?.player?.recordingDir?.().then((r) => {
+      if (r?.ok && typeof r.path === 'string') aufnahmeOrdner = r.path;
+    });
+  });
+  async function aufnahmeOrdnerWaehlen(): Promise<void> {
+    const r = await window.pulse?.player?.chooseRecordingDir?.();
+    if (r?.ok && typeof r.path === 'string') aufnahmeOrdner = r.path;
+  }
 </script>
 
 <div class="flex flex-col gap-5" data-testid="settings-screen-share-panel">
@@ -162,4 +177,28 @@
       </label>
     </div>
   </section>
+
+  {#if window.pulse?.player?.recordingDir}
+    <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
+      <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_recordings()}</span>
+      <p class="text-text-muted text-xs">{m.settings_screenshare_recordings_hint()}</p>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span
+          class="text-text-base bg-bg-hover/50 truncate rounded-lg px-3 py-1.5 font-mono text-xs"
+          title={aufnahmeOrdner ?? m.settings_screenshare_recordings_default()}
+          data-testid="screenshare-recordings-dir"
+        >
+          {aufnahmeOrdner ?? m.settings_screenshare_recordings_default()}
+        </span>
+        <button
+          type="button"
+          class="border-border bg-bg-input text-text-bright hover:bg-bg-hover shrink-0 rounded-xl border px-3 py-1.5 text-sm transition-colors"
+          onclick={aufnahmeOrdnerWaehlen}
+          data-testid="screenshare-recordings-choose"
+        >
+          {m.settings_screenshare_recordings_choose()}
+        </button>
+      </div>
+    </section>
+  {/if}
 </div>

@@ -29,6 +29,11 @@ pub const TEXT: Color32 = Color32::from_rgb(0xf0, 0xf1, 0xf3);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(0x9c, 0xa3, 0xaf);
 /// `--primary` — aktiver Zustand (z.B. Chat offen).
 pub const PRIMARY: Color32 = Color32::from_rgb(0x3b, 0x82, 0xf6);
+/// Laufender Mitschnitt — ROT, nicht Akzentblau (Michaels Wunsch 2026-09-27):
+/// „es wird aufgezeichnet" ist ein Zustand mit Folgen, kein Knopf-Zustand wie
+/// jeder andere; das Quadrat soll auf den ersten Blick als Aufnahme-Stopp
+/// lesbar sein.
+pub const REKORD: Color32 = Color32::from_rgb(0xef, 0x44, 0x44);
 
 /// Untergrund der Leiste und des Fernsteuerungs-Menues. In der App liegt sie
 /// ueber dem Bild als `bg-black/40` MIT Weichzeichnung — die kann egui nicht,

@@ -40,7 +40,7 @@ import {
   onSidecarCreated,
   sidecarRunning,
 } from './sidecar';
-import { playerManager } from './player';
+import { playerManager, recordingDir } from './player';
 import { auftragLesen, EingabeWeiche, erfassungSchalten } from './remoteInput';
 import { RemoteEingabe } from './remoteInputHost';
 import { zielFuerAblage, rolleLesen, endeAnstoss } from './ablageWeiche';
@@ -1166,6 +1166,26 @@ function wirePlayer(): void {
   handleRecording('player:clip', (session, seconds) =>
     playerManager.saveClip(session, Number(seconds) || 30),
   );
+
+  // Speicherort der Mitschnitte: der Nutzer waehlt im SYSTEM-Ordnerdialog.
+  // Der Dialog laeuft bewusst HIER — der Renderer haelt nie einen Pfad in der
+  // Hand, den er setzen koennte; `recordingDir` steht deshalb BEWUSST NICHT
+  // in der store:set-Allowlist. Abbrechen veraendert nichts.
+  ipcMain.handle('player:chooseRecordingDir', async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'kein Fenster' };
+    const sel = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Aufnahmen speichern unter',
+    });
+    if (sel.canceled || !sel.filePaths[0]) return { ok: false, canceled: true };
+    storeSet('recordingDir', sel.filePaths[0]);
+    return { ok: true, path: sel.filePaths[0] };
+  });
+  // Effektives Verzeichnis fuer die Anzeige — berechnet der Hauptprozess
+  // (player.ts faellt auf den Standard zurueck, wenn der gewaehlte Ordner
+  // unbrauchbar wurde). store:get('recordingDir') wuerde nur den ROHEN Wert
+  // zeigen, ohne Fallback und Validierung.
+  ipcMain.handle('player:recordingDir', () => ({ ok: true, path: recordingDir() }));
 
   // Fernsteuerung: Eingabe-Erfassung im Player-Fenster schalten und zugleich
   // die Zuordnung zur Fernsteuerungs-Sitzung anlegen. Ohne Zuordnung verwirft
