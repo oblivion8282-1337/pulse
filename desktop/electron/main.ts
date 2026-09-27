@@ -1194,7 +1194,8 @@ function wirePlayer(): void {
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'kein Fenster' };
     const sel = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory', 'createDirectory'],
-      title: 'Aufnahmen speichern unter',
+      // Bewusst ohne Titel: das Betriebssystem liefert die lokalisierte
+      // Standard-Überschrift — ein fester Text hier wäre je Sprache falsch.
     });
     if (sel.canceled || !sel.filePaths[0]) return { ok: false, canceled: true };
     storeSet('recordingDir', sel.filePaths[0]);
