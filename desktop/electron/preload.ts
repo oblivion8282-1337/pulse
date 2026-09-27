@@ -38,6 +38,11 @@ declare const __APP_MODE__: 'client' | 'server';
 const sidecarCall = (op: string, params: unknown = {}, slot = 0): Promise<unknown> =>
   ipcRenderer.invoke('sidecar:call', op, params, slot);
 
+/** ShadowPlay: die letzten Sekunden des SENDENDEN Stroms sichern. Eigener
+ *  Kanal — der Zielpfad wird im Hauptprozess gebaut (wie player:record). */
+const sidecarClip = (slot = 0, seconds = 90): Promise<unknown> =>
+  ipcRenderer.invoke('sidecar:clip', slot, seconds);
+
 const playerCall = (op: string, params?: unknown): Promise<unknown> =>
   ipcRenderer.invoke('player:call', op, params);
 

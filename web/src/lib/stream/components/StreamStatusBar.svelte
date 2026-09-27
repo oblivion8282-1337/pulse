@@ -68,16 +68,25 @@
   }
 
   async function schattenClipSichern(slot: number): Promise<void> {
-    const r = (await window.pulse?.sidecar?.saveClip?.(slot, 90)) as
-      | { ok?: boolean; path?: unknown; error?: unknown }
-      | undefined;
-    if (r?.ok) {
-      toast.success(m.shadow_clip_saved(), {
-        description: typeof r.path === 'string' ? r.path : undefined,
-      });
-    } else {
+    // try/catch: eine geworfene Ausnahme (z. B. fehlende Bruecke in einer
+    // aelteren App-Shell) darf den Knopf nicht STUMM machen — der Nutzer
+    // soll immer eine Meldung sehen, sonst heisst es „passiert nichts".
+    try {
+      const r = (await window.pulse?.sidecar?.saveClip?.(slot, 90)) as
+        | { ok?: boolean; path?: unknown; error?: unknown }
+        | undefined;
+      if (r?.ok) {
+        toast.success(m.shadow_clip_saved(), {
+          description: typeof r.path === 'string' ? r.path : undefined,
+        });
+      } else {
+        toast.error(m.shadow_clip_failed(), {
+          description: typeof r?.error === 'string' ? r.error : undefined,
+        });
+      }
+    } catch (e) {
       toast.error(m.shadow_clip_failed(), {
-        description: typeof r?.error === 'string' ? r.error : undefined,
+        description: e instanceof Error ? e.message : String(e),
       });
     }
   }
