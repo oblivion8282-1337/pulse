@@ -88,7 +88,8 @@ async def direct_offer(
     instance_id: str, body: DirectOfferIn, request: Request, db: SessionDep
 ) -> DirectOfferOut:
     """WebRTC-Offer an die Server-App durchreichen, Answer zurückgeben
-    (owner-only wie der Telefonbuch-Lookup — Bughunt 2026-09-23)."""
+    (Owner UND gemerkte Mitglieder — wie der Telefonbuch-Lookup seit dem
+    Heim-Server-V1-Entscheid 2026-09-27, kein Relay-Rückfall mehr)."""
     settings = get_settings()
     await _check_rate(request, "directory_offer", settings.rate_limit_directory_offer)
     user = await _require_user(request, db)
@@ -100,8 +101,13 @@ async def direct_offer(
     # Nachweis („beitreten" braucht keinen Beleg), und die Route gibt die
     # Heim-IP des Betreibers her bzw. spannt einen Draht auf seine interne
     # HTTP-Fläche — docs/2026-09-07-direktweg-berechtigung.md, Weg 1.
+    # Heim-Server V1 (2026-09-27): ohne Relay ist der Direktweg der EINZIGE
+    # Weg für Mitglieder — geöffnet für Owner und gemerkte Mitgliedschaft
+    # (Weg 1 aus docs/2026-09-07-direktweg-berechtigung.md, Produktentscheid).
+    # Die echte Schranke bleibt das Sitzungs-Ticket + Beitritts-Gate (Invite-
+    # Codes) auf dem Server dahinter; Suspend-versiegelt bleibt beides.
     membership = await db.get(UserInstanceMembership, (user.id, iid))
-    if membership is None or membership.role != "owner":
+    if membership is None or membership.role not in ("owner", "member"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
     # Suspendierte Instanz: Kill-Switch darf nicht nur den Container stoppen,
     # sondern muss auch die letzte bekannte Heimadresse versiegen.

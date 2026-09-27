@@ -129,9 +129,11 @@ async def directory_heartbeat(
 async def get_direct_endpoint(
     instance_id: str, request: Request, db: SessionDep
 ) -> DirectEndpointOut:
-    """Telefonbuch-Lookup für den OWNER der Instanz (404 sonst — kein Leak).
-    Owner-Gate bewusst statt „Mitglied": das Beitreten braucht keinen Nachweis
-    (Merkhilfe), die Heim-IP aber ist sensibel — Bughunt 2026-09-23."""
+    """Telefonbuch-Lookup für Owner UND gemerkte Mitglieder der Instanz
+    (404 sonst — kein Leak). Bis 2026-09-23 owner-only (IP-Schutz); mit dem
+    Heim-Server-V1-Entscheid (2026-09-27, kein Relay) ist der Direktweg der
+    einzige Zugang für Mitglieder — Weg 1 aus
+    docs/2026-09-07-direktweg-berechtigung.md."""
     settings = get_settings()
     await _check_rate(request, "directory_lookup", settings.rate_limit_directory_lookup)
     user = await _require_user(request, db)
@@ -144,8 +146,13 @@ async def get_direct_endpoint(
     # Heim-IP des Betreibers her — docs/2026-09-07-direktweg-berechtigung.md,
     # Weg 1. Suspendierte Instanz: Kill-Switch versiegelt auch die letzte
     # bekannte Heimadresse.
+    # Heim-Server V1 (2026-09-27): ohne Relay ist der Direktweg der EINZIGE
+    # Weg für Mitglieder — geöffnet für Owner und gemerkte Mitgliedschaft
+    # (Weg 1 aus docs/2026-09-07-direktweg-berechtigung.md, Produktentscheid).
+    # Die echte Schranke bleibt das Sitzungs-Ticket + Beitritts-Gate (Invite-
+    # Codes) auf dem Server dahinter; Suspend-versiegelt bleibt beides.
     membership = await db.get(UserInstanceMembership, (user.id, iid))
-    if membership is None or membership.role != "owner":
+    if membership is None or membership.role not in ("owner", "member"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
     inst = await db.get(RegisteredInstance, iid)
     if inst is None or inst.status != "active":
