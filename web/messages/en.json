@@ -2317,7 +2317,7 @@
   "selfhost_diagnose_ohne_instanz": "This server has no instance ID — the package cannot be attributed.",
   "selfhost_diagnose_server_offline": "Also, this server is currently unreachable — that is why there is no package to save. Check whether the container is running.",
   "selfhost_diagnose_titel": "Send diagnostics package to Pulse",
-  "server_app_download_intro": "Your account is approved. Download the Pulse Server app and start your server in it — your computer becomes the server, no cloud and no VPS needed.",
+  "server_app_download_intro": "Install the Pulse Server app and sign in with your Pulse account — your computer becomes the server. No application, no VPS.",
   "server_app_download_linux_btn": "Download Server app for Linux",
   "server_app_download_linux_hint": "Installs as a Flatpak. Launch it from your application menu afterwards.",
   "server_app_download_soon": "The Server app is not ready for your system yet. Windows and macOS are coming. On Linux you can already install it.",
@@ -3082,5 +3082,7 @@
   "wiederherstellung_toast_verlauf_sicherung": "Your messages come back via the backup — connect your drive and enter the backup password (Settings → Backup).",
   "wiederherstellung_wahrheit_endgueltig": "Without this code, the archive is lost for good once every device is gone — even we can't recover it.",
   "wiederherstellung_wahrheit_oauth": "Cloud logins (Dropbox, Google Drive) age: an old package brings back the key, not the access — that has to be granted again.",
-  "wiederherstellung_wahrheit_ordner": "A sync folder can't be restored fully automatically — it has to be chosen again on the new device."
+  "wiederherstellung_wahrheit_ordner": "A sync folder can't be restored fully automatically — it has to be chosen again on the new device.",
+  "server_app_download_windows_btn": "Download Server app for Windows",
+  "server_app_download_mac_btn": "Download Server app for macOS"
 }

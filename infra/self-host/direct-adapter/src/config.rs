@@ -35,12 +35,25 @@ impl Config {
     pub fn from_env() -> Result<Self> {
         let instance_id = std::env::var("PULSE_INSTANCE_ID")
             .map_err(|_| anyhow::anyhow!("PULSE_INSTANCE_ID fehlt"))?;
-        let relay_token = match std::env::var("PULSE_RELAY_TUNNEL_TOKEN") {
-            Ok(t) if !t.is_empty() => t,
-            // Ohne Relay-Token (VPS-Self-Host ohne Relay) gibt es keine
-            // Heartbeat-Auth → Adapter beendet sich sauber (s6: down).
-            _ => bail!("PULSE_RELAY_TUNNEL_TOKEN fehlt — Direktpfad-Adapter deaktiviert"),
-        };
+        // Zwei Auth-Wege: Relay-Instanzen nutzen das Tunnel-Token; Heim-Server
+        // ohne Relay (Entscheid 2026-09-27) weisen sich mit den Pairing-Creds
+        // aus (client_id + client_secret als Heartbeat-Token). Ohne BEIDES
+        // gibt es keine Heartbeat-Auth → Adapter beendet sich sauber (s6: down).
+        let relay_token = std::env::var("PULSE_RELAY_TUNNEL_TOKEN")
+            .ok()
+            .filter(|t| !t.is_empty())
+            .or_else(|| {
+                let cid = std::env::var("PULSE_CLOUD_CLIENT_ID").ok()?;
+                let secret = std::env::var("PULSE_CLOUD_CLIENT_SECRET").ok()?;
+                (!cid.is_empty() && !secret.is_empty())
+                    .then_some(format!("{cid}\u{1f}:{secret}"))
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "weder PULSE_RELAY_TUNNEL_TOKEN noch PULSE_CLOUD_CLIENT_ID/SECRET — \
+                     Direktpfad-Adapter deaktiviert"
+                )
+            })?;
         let stun_servers = env_or(
             "PULSE_DIRECT_STUN_SERVERS",
             "stun.l.google.com:19302,stun.cloudflare.com:3478",

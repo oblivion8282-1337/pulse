@@ -16,6 +16,8 @@ Kein Inhalt läuft hier durch — nur Erreichbarkeitsdaten (wenige Bytes).
 
 from __future__ import annotations
 
+import asyncio
+
 import hmac
 import ipaddress
 from datetime import UTC, datetime
@@ -35,6 +37,7 @@ from dcc_auth.models_instances import (
     UserInstanceMembership,
 )
 from dcc_auth.relay import hash_relay_token
+from dcc_auth.security import verify_password
 from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
 from dcc_auth.routes_instance_applications import _require_user
@@ -53,6 +56,12 @@ class HeartbeatIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     instance_id: Annotated[str, Field(min_length=1, max_length=32)]
     token: Annotated[str, Field(min_length=1, max_length=128)]
+    # Heim-Server ohne Relay (Entscheid 2026-09-27): der Adapter hat kein
+    # Tunnel-Token und weist sich stattdessen mit den Pairing-Creds aus
+    # (client_id + client_secret als ``token``). ``client_id`` muss dann
+    # mitkommen, damit die Cloud das Secret gezielt gegen DIESE Instanz
+    # prüfen kann (ohne Would-be-Scanning über alle Instanzen).
+    client_id: Annotated[str, Field(max_length=128)] | None = None
     candidates: Annotated[list[DirectCandidate], Field(min_length=1, max_length=8)]
     # Format wie die SDP-Fingerprint-Zeile, z.B. "sha-256 AB:CD:…".
     fingerprint: Annotated[str, Field(min_length=8, max_length=128)]
@@ -78,20 +87,29 @@ def _public_ip_or_400(raw: str) -> str:
 
 
 async def _authed_instance(
-    db: SessionDep, instance_id: str, token: str
+    db: SessionDep,
+    instance_id: str,
+    token: str,
+    client_id: str | None = None,
 ) -> RegisteredInstance:
     iid = kennung_aus_text(instance_id)
     if iid is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
     inst = await db.get(RegisteredInstance, iid)
-    if (
-        inst is None
-        or inst.status != "active"
-        or inst.relay_tunnel_token_hash is None
-        or not hmac.compare_digest(hash_relay_token(token), inst.relay_tunnel_token_hash)
-    ):
+    if inst is None or inst.status != "active":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
-    return inst
+    # Weg A (Relay-Instanzen): Tunnel-Token. Weg B (Heim-Server ohne Relay,
+    # 2026-09-27): Pairing-Creds — client_id benennt die Instanz, ``token``
+    # trägt das client_secret (argon2-Verify, asynchron).
+    if (
+        inst.relay_tunnel_token_hash is not None
+        and hmac.compare_digest(hash_relay_token(token), inst.relay_tunnel_token_hash)
+    ):
+        return inst
+    if client_id is not None and client_id == inst.client_id:
+        if await asyncio.to_thread(verify_password, token, inst.client_secret):
+            return inst
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
 
 @router.post("/selfhost/directory/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
@@ -101,7 +119,7 @@ async def directory_heartbeat(
     """Upsert des Telefonbuch-Eintrags der Instanz (ein Eintrag, überschreibend)."""
     settings = get_settings()
     await _check_rate(request, "directory_heartbeat", settings.rate_limit_directory_heartbeat)
-    inst = await _authed_instance(db, body.instance_id, body.token)
+    inst = await _authed_instance(db, body.instance_id, body.token, body.client_id)
     for cand in body.candidates:
         _public_ip_or_400(cand.ip)
 

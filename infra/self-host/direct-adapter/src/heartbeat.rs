@@ -21,8 +21,21 @@ struct Candidate {
 struct HeartbeatBody<'a> {
     instance_id: &'a str,
     token: &'a str,
+    // Nur im Pairing-Creds-Fall gesetzt (Heim-Server ohne Relay): die Cloud
+    // prüft ``token`` dann als client_secret gegen DIESE Instanz.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_id: Option<&'a str>,
     candidates: Vec<Candidate>,
     fingerprint: &'a str,
+}
+
+/// Relay-Fall: (tunnel_token, keine client_id). Pairing-Fall: das am
+/// U+001F hängende Paar aus config.rs wird zerlegt.
+fn split_creds(relay_token: &str) -> (String, Option<String>) {
+    match relay_token.split_once('\u{1f}') {
+        Some((cid, secret)) => (secret.to_string(), Some(cid.to_string())),
+        None => (relay_token.to_string(), None),
+    }
 }
 
 pub struct HeartbeatClient {
@@ -58,9 +71,11 @@ impl HeartbeatClient {
         public_addr: SocketAddr,
         fingerprint: &str,
     ) -> Result<()> {
+        let (token, client_id) = split_creds(token);
         let body = HeartbeatBody {
             instance_id,
-            token,
+            token: &token,
+            client_id: client_id.as_deref(),
             candidates: vec![Candidate {
                 ip: public_addr.ip().to_string(),
                 port: public_addr.port(),
@@ -87,6 +102,7 @@ mod tests {
         let body = HeartbeatBody {
             instance_id: "123",
             token: "t",
+            client_id: None,
             candidates: vec![Candidate { ip: "1.2.3.4".into(), port: 7900, protocol: "udp" }],
             fingerprint: "sha-256 AB",
         };
