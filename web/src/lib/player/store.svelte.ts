@@ -391,7 +391,8 @@ export class NativePlayerSession {
   /** Clip-Wunsch aus der Leiste — derselbe Weg, Vorgabe 30 Sekunden. */
   async #clip(): Promise<void> {
     if (this.#session === null) return;
-    const clip = await saveClip(this.#session, 30);
+    // Voller Puffer wie beim Sender (Michaels Angleichung 2026-09-27).
+    const clip = await saveClip(this.#session, 90);
     if (this.#disposed) return;
     if (!clip.ok) {
       toast.error(m.player_clip_failed(), { description: clip.error });

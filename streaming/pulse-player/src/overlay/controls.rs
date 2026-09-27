@@ -242,7 +242,7 @@ impl Overlay {
             ui,
             actions,
             theme::icon::clip(),
-            "Clip der letzten 30 Sekunden sichern",
+            "Clip der letzten 90 Sekunden sichern",
             false,
             OverlayAction::Clip,
         );

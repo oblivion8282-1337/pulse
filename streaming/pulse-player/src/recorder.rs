@@ -35,10 +35,10 @@ use ffmpeg_next as ffmpeg;
 use crate::depacket::av1::read_leb128;
 use crate::whep::Codec;
 
-/// Wie viel Vergangenheit der Ring vorhaelt. Deckt die uebliche
-/// "das haette ich gern gespeichert"-Spanne ab, ohne viel Speicher zu binden
-/// (bei 4000 kbps sind 60 s rund 30 MB).
-const RING_SECONDS: u64 = 60;
+/// Wie viel Vergangenheit der Ring vorhaelt — wie beim ShadowPlay-Ring des
+/// Senders (90 s, Michaels Angleichung 2026-09-27): der Zuschauer-Knopf
+/// sichert denselben vollen Puffer. Speicher: bei 4000 kbit/s rund 45 MB.
+const RING_SECONDS: u64 = 90;
 
 /// Container je Codec — gemessen, nicht gewaehlt.
 ///

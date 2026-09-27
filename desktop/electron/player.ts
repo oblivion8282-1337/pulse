@@ -539,7 +539,7 @@ class PlayerManager {
   async saveClip(session: number, seconds: number): Promise<PlayerMessage> {
     const target = recordingPath('clip');
     // Grenzen hier UND im Player — der Renderer ist nicht vertrauenswuerdig.
-    const bounded = Math.min(Math.max(Number(seconds) || 30, 1), 60);
+    const bounded = Math.min(Math.max(Number(seconds) || 90, 1), 90);
     const res = await this.call('clip', { session, path: target, seconds: bounded });
     if (res.ok === false) return res;
     return { ...res, path: typeof res.path === 'string' ? res.path : target };
