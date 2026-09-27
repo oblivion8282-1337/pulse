@@ -28,7 +28,6 @@
  * Aufrufer packt das Ergebnis in sein `$derived` — dasselbe Muster wie
  * `reiterAuswahl.svelte.ts`.
  */
-import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
 import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
 
 /** Zeigt dieser Client den Self-Host-Einstieg überhaupt?
@@ -45,6 +44,6 @@ export function selfHostEinstiegSichtbar(): boolean {
 export function selfHostHinweisOffen(): boolean {
   return (
     selfHostEinstiegSichtbar() &&
-    (myInstanceApplications.pendingSetup > 0 || myAppHostApplications.pendingSetup > 0)
+    myInstanceApplications.pendingSetup > 0
   );
 }

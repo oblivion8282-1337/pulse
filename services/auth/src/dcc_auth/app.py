@@ -19,13 +19,10 @@ from dcc_auth.routes import router
 from dcc_auth.routes_account import router as account_router
 from dcc_auth.routes_account_security import router as account_security_router
 from dcc_auth.routes_admin import router as admin_router
-from dcc_auth.routes_admin_app_host_revoke import router as admin_app_host_revoke_router
 from dcc_auth.routes_admin_applications import router as admin_applications_router
 from dcc_auth.routes_admin_backup import router as admin_backup_router
 from dcc_auth.routes_admin_instances import router as admin_instances_router
 from dcc_auth.routes_admin_smtp import router as admin_smtp_router
-from dcc_auth.routes_app_host_compat import admin_router as app_host_compat_admin_router
-from dcc_auth.routes_app_host_compat import router as app_host_compat_router
 from dcc_auth.routes_applications import router as applications_router
 from dcc_auth.routes_avatar import router as avatar_router
 from dcc_auth.routes_complaints import router as complaints_router
@@ -262,8 +259,6 @@ def create_app() -> FastAPI:
     app.include_router(avatar_router)
     app.include_router(admin_router)
     app.include_router(admin_applications_router)
-    app.include_router(app_host_compat_admin_router)
-    app.include_router(admin_app_host_revoke_router)
     app.include_router(admin_instances_router)
     app.include_router(admin_smtp_router)
     app.include_router(admin_backup_router)
@@ -280,7 +275,6 @@ def create_app() -> FastAPI:
     app.include_router(version_policy_router)
     app.include_router(profile_router)
     app.include_router(applications_router)
-    app.include_router(app_host_compat_router)
     app.include_router(instance_applications_router)
     app.include_router(instance_delete_router)
     app.include_router(instance_membership_router)

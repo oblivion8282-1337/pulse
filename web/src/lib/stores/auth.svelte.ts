@@ -306,9 +306,6 @@ class AuthStore {
       // App-Host-Antrags-Beobachter + „Beigetreten"-Marker des Vorgängers —
       // konsistent zu signOut, sonst erbt der neue User die App-Host-Liste bzw.
       // ausgegraute Beitreten-Buttons.
-      void import('$lib/stores/myAppHostApplications.svelte').then((mod) =>
-        mod.myAppHostApplications.reset(),
-      );
       void import('$lib/stores/joinedInvites.svelte').then((mod) =>
         mod.joinedInvites.clear(),
       );
@@ -415,9 +412,6 @@ class AuthStore {
     // App-Host-Antrags-Beobachter desselben Vorgängers (Liste + localStorage-
     // Watch-Map) — analog myInstanceApplications, sonst bleibt die App-Host-
     // Antragsliste des alten Users stehen.
-    void import('$lib/stores/myAppHostApplications.svelte').then((mod) =>
-      mod.myAppHostApplications.reset(),
-    );
     // „Beigetreten"-Marker (gerätelokal) leeren — sonst graut die Invite-Karte
     // dem nächsten User Beitreten-Buttons für Communitys des Vorgängers aus.
     void import('$lib/stores/joinedInvites.svelte').then((mod) =>

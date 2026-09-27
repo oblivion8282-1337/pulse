@@ -12,7 +12,6 @@
  */
 import { pendingAppHostApplications } from '$lib/stores/pendingAppHostApplications.svelte';
 import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
-import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
 import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
 import { registerWsHandler } from '../handler-registry';
 
@@ -22,8 +21,9 @@ export function register(): void {
     else pendingInstanceApps.refresh();
   });
 
-  registerWsHandler('application_decided', (evt) => {
-    if (evt.data.kind === 'app_host') myAppHostApplications.refresh();
-    else myInstanceApplications.refresh();
+  registerWsHandler('application_decided', () => {
+    // app_host-Anträge sind seit dem Heim-Server-Entscheid (2026-09-27) tot —
+    // über application_decided läuft nur noch der VPS-Weg.
+    myInstanceApplications.refresh();
   });
 }
