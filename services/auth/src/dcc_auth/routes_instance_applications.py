@@ -32,6 +32,10 @@ from dcc_auth.browser_sessions import user_and_session_from_cookie
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.instance_env_file import render_instance_env
+from dcc_auth.instance_provisioning import (
+    provision_app_host_instance,
+    user_has_active_owner_instance,
+)
 from dcc_auth.models import User
 from dcc_auth.models_instances import (
     InstanceBootstrapToken,
@@ -233,6 +237,60 @@ async def _versorgte_instanzen(db, instanz_ids: list[int]) -> set[int]:
         )
     ).scalars().all()
     return set(eingeloest) | set(geladen)
+
+
+class InstanceSelfServiceCreated(BaseModel):
+    """Antwort der Selbstbedienungs-Registrierung. ``client_secret`` wird
+    EINMAL im Klartext geliefert (in der DB liegt nur der Hash) — die
+    Server-App stopft es in die Container-Env-Datei, danach ist es weg."""
+
+    instance: InstanceOut
+    client_secret: str
+
+
+@router.post(
+    "/me/instances",
+    response_model=InstanceSelfServiceCreated,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_my_instance(request: Request, db: SessionDep) -> InstanceSelfServiceCreated:
+    """Selbstbedienung: den eigenen Heim-Server registrieren (Heim-Server-
+    Entscheidung 2026-09-27). Ersetzt die alte Antrags+Freischalt-Strecke:
+    wer eingeloggt ist, bekommt sofort seine Instanz — kein Admin-Blick.
+
+    Hart limitiert auf EINE aktive Owner-Instanz pro Konto (409 sonst);
+    ``self_host_enabled`` setzt der Endpoint selbst. ``client_secret`` kommt
+    einmalig im Klartext zurück, danach nur noch Rotations-Wege (Pairing/
+    Bootstrap-Reset)."""
+    user = await _require_user(request, db)
+    settings = get_settings()
+    await _check_rate(request, "instance_create", settings.rate_limit_instance_create)
+
+    if await user_has_active_owner_instance(db, user.id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="diesem Konto ist bereits ein eigener Server zugeordnet",
+        )
+
+    secret = secrets.token_urlsafe(32)
+    user.self_host_enabled = True
+    instance_id = await provision_app_host_instance(db, user.id, plain_secret=secret)
+    await db.commit()
+
+    inst = await db.get(RegisteredInstance, instance_id)
+    assert inst is not None  # soeben geschrieben
+    membership = (
+        await db.execute(
+            select(UserInstanceMembership).where(
+                UserInstanceMembership.instance_id == instance_id,
+                UserInstanceMembership.user_id == user.id,
+            )
+        )
+    ).scalars().first()
+    return InstanceSelfServiceCreated(
+        instance=_instance_to_out(inst, user.id, membership),
+        client_secret=secret,
+    )
 
 
 @router.get(
