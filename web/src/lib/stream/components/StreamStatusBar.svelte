@@ -68,7 +68,7 @@
   }
 
   async function schattenClipSichern(slot: number): Promise<void> {
-    const r = (await window.pulse?.sidecar?.saveClip?.(slot, 30)) as
+    const r = (await window.pulse?.sidecar?.saveClip?.(slot, 90)) as
       | { ok?: boolean; path?: unknown; error?: unknown }
       | undefined;
     if (r?.ok) {

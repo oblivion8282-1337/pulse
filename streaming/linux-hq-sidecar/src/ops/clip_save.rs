@@ -22,7 +22,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     };
     let einheiten = clip::clip_speichern(
         std::path::Path::new(path),
-        sekunden.clamp(1.0, 60.0),
+        sekunden.clamp(1.0, clip::RING_SECONDS as f64),
     )?;
     Ok(Map::from_iter([
         ("path".into(), Value::String(path.clone())),

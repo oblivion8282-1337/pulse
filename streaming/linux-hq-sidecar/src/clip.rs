@@ -27,7 +27,9 @@ use ffmpeg_next as ffmpeg;
 /// Vollbild VOR dem gewuenschten Start (sonst waere der Anfang Muell) — bei
 /// einem Vollbild-Abstand von bis zu 60 s muss der Ring also laenger als die
 /// Clip-Laenge halten, sonst ist das Vollbild schon hinausgeschnitten.
-const RING_SECONDS: u64 = 90;
+/// Oeffentlich, weil der clip_save-Op seine Obergrenze daran festmacht: mehr
+/// als der Ring halten kann, kann kein Clip hergeben.
+pub const RING_SECONDS: u64 = 90;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Codec {

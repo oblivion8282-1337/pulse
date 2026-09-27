@@ -91,7 +91,7 @@ contextBridge.exposeInMainWorld('pulse', {
     start: (args: unknown, slot = 0) => sidecarCall('start', args, slot),
     /** ShadowPlay: letzten `seconds` Sekunden des sendenden Stroms sichern
      *  (Ring laeuft im Sidecar immer mit). Pfad baut der Hauptprozess. */
-    saveClip: (slot = 0, seconds = 30) => sidecarClip(slot, seconds),
+    saveClip: (slot = 0, seconds = 90) => sidecarClip(slot, seconds),
     // `grund` ist reine Diagnose und reist im Befehl mit, damit er in DERSELBEN
     // Protokollzeile steht wie der Stopp selbst (`sidecar-log-befehle.ts`). Der
     // Umweg über eine eigene Meldung schiede aus: der Renderer hat keinen Zugang

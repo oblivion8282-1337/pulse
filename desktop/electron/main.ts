@@ -973,7 +973,9 @@ function wireSidecar(): void {
       const ziel = shadowClipPath();
       return await getSidecar(normaliseSlot(slot)).call('clip_save', {
         path: ziel,
-        seconds: Number(seconds) || 30,
+        // Der ganze Puffer, nicht ein Bruchteil (Michaels Wunsch 2026-09-27):
+        // der Ring haelt 90 s, der Knopf sichert den aktuellen Stand.
+        seconds: Number(seconds) || 90,
       });
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
