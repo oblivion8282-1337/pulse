@@ -392,14 +392,11 @@ impl VideoEncoder {
 
     /// Encode interleaved-stereo-F32 audio samples (no-op if audio disabled).
     /// `anchor_samples` is the wall-clock position (in 48kHz samples since the
-    /// shared stream epoch) used to anchor the FIRST audio frame's pts, so audio
-    /// lines up with video instead of both independently starting at 0.
-    ///
-    /// **Nur auf dem Muxer-Weg.** Auf dem WHIP-Weg wirkt der Anker nicht: der
-    /// Paket-`pts` wird dort verworfen (`audio::TonSenke::Whip` in `drain`,
-    /// s. `audio.rs`), WebRTC leitet den Ton-Zeitstempel stattdessen aus den
-    /// Paketdauern ab (`WhipSender::send_audio`). Derselbe Rand gilt am
-    /// Linux-Zwilling.
+    /// shared stream epoch) of THIS batch — it anchors the FIRST audio frame's
+    /// pts and re-anchors after gaps (s. `audio::PtsTimeline`), so audio lines
+    /// up with video on the mux path. On the WHIP/Direct paths the packet pts
+    /// drives the packet DURATION (`AudioEncoder::whip_dauer` in `audio.rs`),
+    /// and through it the RTP timestamp — the anchor matters on every path.
     pub fn push_audio(&mut self, samples: &[f32], anchor_samples: i64) -> Result<()> {
         if let Some(a) = self.audio.as_mut() {
             let senke = match &self.ausgabe {
