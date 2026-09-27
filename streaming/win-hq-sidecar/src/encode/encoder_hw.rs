@@ -95,6 +95,9 @@ pub struct FfmpegHwEncoder {
     /// einem eigenen Thread und der Encoder reiht nur ein (s. `mux_writer.rs`).
     ausgabe: Ausgabe,
     encoder: codec::encoder::Video,
+    /// Codec-Art nur fuer den Clip-Ring (`crate::clip`): dort entscheidet sie
+    /// Container (AV1 → Matroska, H.264/HEVC → MPEG-TS) und Vollbild-Erkennung.
+    ring_codec: crate::clip::Codec,
     encoder_time_base: Rational,
     audio: Option<AudioPipeline>,
     /// Diagnose-Timings des letzten `send_hw`-Calls (µs) — gespeist in den
@@ -302,7 +305,17 @@ impl FfmpegHwEncoder {
             }
         };
 
+        crate::clip::leeren(); // neuer Strom, neuer Ring
+        crate::clip::note_video(
+            cfg.dst_w,
+            cfg.dst_h,
+            (cfg.fps as i32, 1),
+            cfg.ten_bit,
+        );
+        let ring_codec = crate::clip::codec_aus_str(cfg.codec.slug())?;
+
         Ok(Self {
+            ring_codec,
             ausgabe,
             encoder: opened,
             encoder_time_base,
@@ -516,6 +529,20 @@ impl FfmpegHwEncoder {
             // Zuordnen VOR `rescale_ts` — danach steht der pts in der
             // Muxer-Zeitbasis und passt nicht mehr zum vermerkten.
             self.enc_latency.packet(packet.pts());
+            // ShadowPlay-Tee: die fertigen Bytes gehen ZUSAETZLICH in den
+            // Clip-Ring (`crate::clip`) — kein zweites Enkodieren; eine Kopie
+            // ist noetig, der Puffer gehoert ffmpeg. Muss hier stehen, VOR dem
+            // rescale_ts des Mux-Arms: der Ring will Millisekunden aus der
+            // Encoder-Uhr.
+            if let (Some(daten), Some(pts)) = (packet.data(), packet.pts()) {
+                let tb = self.encoder_time_base;
+                let ms = pts * i64::from(tb.numerator()) * 1000 / i64::from(tb.denominator());
+                crate::clip::push_video(
+                    self.ring_codec,
+                    bytes::Bytes::copy_from_slice(daten),
+                    ms,
+                );
+            }
             // Einreihen/Absenden messen — beim Muxer normal ~0; ein Ausschlag
             // heißt die Queue ist voll = der Writer-Thread hängt am Socket.
             let t_mux = std::time::Instant::now();

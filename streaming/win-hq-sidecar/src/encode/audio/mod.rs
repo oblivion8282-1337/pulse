@@ -436,6 +436,12 @@ impl AudioPipeline {
             packet.set_pts(Some(this_pts));
             packet.set_dts(Some(this_pts));
             packet.set_duration(self.frame_samples as i64);
+            // ShadowPlay-Tee (s. encoder_hw.rs beim Bild): die fertigen Opus-
+            // Bytes in den Clip-Ring, Millisekunden aus der Sample-Uhr (48 kHz).
+            // Vor dem rescale_ts — danach traege der pts die Muxer-Basis.
+            if let Some(d) = packet.data() {
+                crate::clip::push_audio(bytes::Bytes::copy_from_slice(d), this_pts / 48);
+            }
             packet.set_stream(self.stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
             out.push(packet);

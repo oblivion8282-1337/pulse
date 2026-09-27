@@ -9,6 +9,7 @@ pub mod berechtigung;
 pub mod caps;
 pub mod capture;
 pub mod dispatch;
+pub mod clip;
 pub mod direct;
 pub mod encode;
 pub mod events;

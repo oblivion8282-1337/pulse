@@ -518,11 +518,11 @@ impl VideoEncoder {
             // Clip-Ring (`crate::clip`) — kein zweites Enkodieren; eine Kopie
             // ist noetig, der Puffer gehoert ffmpeg und wird beim naechsten
             // receive_packet ueberschrieben. Muss hier stehen, VOR jedem
-            // rescale_ts: der Ring will die Encoder-Zeitbasis (1/90000).
-            if let Some(daten) = packet.data() {
-                if let Some(pts) = packet.pts() {
-                    crate::clip::push_video(self.ring_codec, Bytes::copy_from_slice(daten), pts);
-                }
+            // rescale_ts: der Ring will Millisekunden aus der Encoder-Uhr.
+            if let (Some(daten), Some(pts)) = (packet.data(), packet.pts()) {
+                let tb = self.encoder_time_base;
+                let ms = pts * i64::from(tb.numerator()) * 1000 / i64::from(tb.denominator());
+                crate::clip::push_video(self.ring_codec, Bytes::copy_from_slice(daten), ms);
             }
             match &mut self.mux {
                 Ausgabe::Mux(m) => {

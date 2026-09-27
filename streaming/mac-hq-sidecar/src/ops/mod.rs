@@ -30,6 +30,7 @@
 
 pub mod ablage;
 pub mod build_argv;
+pub mod clip_save;
 pub mod direct_offer;
 pub mod direct_stop;
 pub mod gpu_info;
