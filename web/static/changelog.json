@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-27.1",
+      "date": "2026-09-27",
+      "style": "Sachlich",
+      "title": "Streams aufnehmen: Mitschnitt, Clips und ShadowPlay",
+      "intro": "Zuschauer können einen Stream jetzt direkt im Player-Fenster aufnehmen oder die letzten Sekunden als Clip sichern — und wer selbst streamt, bekommt mit ShadowPlay einen Rollring, der im Hintergrund mitläuft und auf Knopfdruck (oder per Tastenkürzel) die letzten 90 Sekunden speichert. Der Streamer sieht am eigenen Stream, wenn jemand aufzeichnet.",
+      "items": [
+        "Aufnahme im Player-Fenster: Aufnahme-Knopf (rot, solange sie läuft), Clip-Knopf für die letzten 90 Sekunden. Die Datei landet auf dem eigenen Rechner, ohne Neu-Kodierung.",
+        "ShadowPlay für Streamer: Ein Rollring im Hintergrund hält durchgehend 90 Sekunden bereit — Knopf an der Stream-Leiste oder frei belegbares Tastenkürzel (Einstellungen → Tastatur). Auf Windows, Linux und macOS.",
+        "Streamer werden informiert: Ein Hinweis am eigenen Stream zeigt an, wenn jemand aufzeichnet (Chip „Aufnahme läuft\"), plus Systemmeldungen bei Start und Clip. Vor der ersten eigenen Aufnahme erscheint ein einmaliger Hinweis.",
+        "Speicherort frei wählbar: Einstellungen → Bildschirm teilen → Aufnahmen. Standard ist der Video-Ordner.",
+        "Stabilität und Ehrlichkeit: Aufnahmen mit Ton brechen nicht mehr ab, Dateien tragen die korrekte Bildrate, die Aufnahme startet sofort statt auf das nächste Schlüsselbild zu warten, und fehlgeschlagene Versuche melden den Grund."
+      ]
+    },
+    {
       "id": "2026-09-16.1",
       "date": "2026-09-16",
       "style": "Sachlich",
