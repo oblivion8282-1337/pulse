@@ -81,6 +81,12 @@ finish-args:
   # modify or delete them. Pasted *images* are inline clipboard bytes and need
   # no file access — they work without this.
   - --filesystem=host:ro
+  # Stream-Aufnahmen schreiben in den Video-Ordner (Standard-Ziel von
+  # Player-Mitschnitt, Clip und ShadowPlay; ein in den Einstellungen gewählter
+  # Ordner bekommt seinen Zugriff ueber den Dateiauswahl-Dialog des Portals).
+  # Ohne diese Zeile ist xdg-videos nur ueber host:ro sichtbar — jede Aufnahme
+  # stirbt mit „Read-only file system" (gemessen 2026-09-27 im Flatpak 0.1.88).
+  - --filesystem=xdg-videos
   # GPU for NVENC / VAAPI. NVIDIA's /dev/nvidia* sit outside /dev/dri → need --device=all.
   - --device=all
   # Wayland screencast portal — Bildschirmaufnahme des Sidecars + Chromiums getDisplayMedia (Browser-Bildschirmfreigabe)
