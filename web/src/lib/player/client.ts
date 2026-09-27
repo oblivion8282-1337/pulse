@@ -14,7 +14,7 @@ import { isElectron } from '$lib/platform/runtime';
 import type { PulsePlayerOptions, PulsePlayerResult } from '$lib/platform/pulse.d';
 
 /** Zustand einer Wiedergabe-Sitzung, wie ihn der Player meldet. */
-export type PlayerState = 'connecting' | 'playing' | 'stalled' | 'closed' | 'failed';
+export type PlayerState = 'connecting' | 'playing' | 'closed' | 'failed';
 
 export interface PlayerStateEvent {
   ev: 'player:state';
@@ -127,15 +127,6 @@ export async function focusPlayer(session: number): Promise<void> {
   }
 }
 
-export async function playerStats(session: number): Promise<PulsePlayerResult | null> {
-  try {
-    const res = await api()?.stats(session);
-    return res?.ok ? res : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Abonniert Zustandsereignisse. Liefert eine Abmelde-Funktion (im Browser eine
  * leere, damit Aufrufer nicht unterscheiden muessen).
@@ -152,7 +143,7 @@ export function onPlayerEvent(cb: (ev: PlayerStateEvent) => void): () => void {
 }
 
 /** Der Zustand der Direktverbindung, wie der Player ihn meldet. */
-export type DirectZustand = 'wartend' | 'connecting' | 'live' | 'failed' | 'closed';
+type DirectZustand = 'wartend' | 'connecting' | 'live' | 'failed' | 'closed';
 
 /**
  * Abonniert die Direktverbindungs-Ereignisse des Players (`direct_state` —

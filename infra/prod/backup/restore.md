@@ -41,17 +41,26 @@ expected.
 Most common case — a user reports a deleted attachment, a guild icon was
 overwritten. No need to nuke the whole bucket.
 
+> **Bughunt 2026-09-20 (Runde 2):** MinIO-Snapshots enthalten ihre Dateien
+> seit dem Wechsel auf das flüchtige Staging (`snapshot_minio` spiegelt nach
+> `mktemp -d /tmp/pulse-minio-stage.XXXXXX`) unter EINEM JE-RUN-ANDEREN
+> Pfad — NICHT mehr unter `/var/cache/pulse-backup/minio`. Ein restic
+> `--include`, das nichts trifft, ist KEIN Fehler: es stellt still nichts
+> wieder. Erst den Staging-Pfad im Snapshot suchen, dann restaurieren.
+
 ```bash
-# List paths inside a snapshot.
-docker compose exec backup restic ls <snapid>
+# Find the staging path inside the snapshot (differs per backup run!).
+docker compose exec backup restic ls <snapid> | grep pulse-minio-stage
+#   → e.g. /tmp/pulse-minio-stage.aB3xY9/pulse/attachments/...
 
 # Restore one file. --target / would overwrite live state; use /tmp first.
 docker compose exec backup restic restore <snapid> \
-    --include /var/cache/pulse-backup/minio/<bucket-path> \
+    --include /tmp/pulse-minio-stage.XXXXXX/<bucket-path> \
     --target /tmp/restore
 
-# Pull it out of the container.
-docker cp pulse_backup:/tmp/restore/var/cache/pulse-backup/minio/<bucket-path> ./
+# Pull it out of the container (the staging path is recreated BELOW the
+# --target directory).
+docker cp pulse_backup:/tmp/restore/tmp/pulse-minio-stage.XXXXXX/<bucket-path> ./
 ```
 
 Then re-upload via `mc cp` (MinIO bucket) or `docker cp` (avatars/icons
@@ -95,27 +104,31 @@ rm /tmp/pg-restore.dump
 If `pg_restore` complains about pre-existing objects you can re-run with
 `--clean --if-exists`; with a fresh-created DB it shouldn't be needed.
 
-## 3. Full MinIO bucket restore (`pulse-attachments`)
+## 3. Full object-store bucket restore (`pulse-attachments`, Garage)
 
 ```bash
 # 1) Stop the only producer of attachments.
 docker compose stop chat-gateway
 
-# 2) Wipe + recreate the bucket from inside MinIO itself.
-docker compose exec -T minio sh -c '
-    mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" &&
+# 2) Wipe + recreate the bucket — von BACKUP-Container aus (Bughunt Runde
+#    41: der `minio`-Service heisst seit der Garage-Umstellung `garage`, und
+#    in GAR KEINEM der beiden laeuft `mc`; Garage ist reiner S3-Endpoint).
+docker compose exec -T backup sh -c '
+    mc alias set local "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" &&
     mc rb --force --dangerous local/pulse-attachments &&
     mc mb local/pulse-attachments
 '
 
-# 3) Restore the snapshot to its original path inside the backup container,
-#    then mirror it back into MinIO over the network.
+# 3) Restore the snapshot, then mirror it back into MinIO over the network.
+#    The staging path inside the snapshot differs per backup run — resolve
+#    it first (a non-matching --include would restore NOTHING and exit 0).
 docker compose exec backup sh -c '
-    rm -rf /var/cache/pulse-backup/minio &&
-    restic restore <snapid> --target / \
-        --include /var/cache/pulse-backup/minio &&
+    stage=$(restic ls <snapid> | grep -o "/tmp/pulse-minio-stage\.[A-Za-z0-9]*" | head -n 1) &&
+    test -n "$stage" &&
+    rm -rf /tmp/minio-restore &&
+    restic restore <snapid> --target /tmp/minio-restore &&
     mc alias set local "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" &&
-    mc mirror --overwrite /var/cache/pulse-backup/minio/ \
+    mc mirror --overwrite "/tmp/minio-restore$stage/" \
         local/pulse-attachments
 '
 
@@ -172,7 +185,7 @@ dead disk's `/var/lib/docker/volumes/pulse_pulse_backups/`).
    ```
 5. Bring up the data layer only:
    ```bash
-   docker compose up -d postgres redis minio minio-init backup
+   docker compose up -d postgres redis garage backup
    ```
 6. Verify the repo opens: `docker compose exec backup restic snapshots`.
 7. Follow §2 (Postgres), §3 (MinIO), §4 (avatars + icons) in that order.

@@ -46,7 +46,7 @@ async def test_get_without_package_is_404(client):
 @pytest.mark.asyncio
 async def test_put_then_get_roundtrip(client):
     login_r = await _register_and_login(client)
-    payload = {"ciphertext": _blob()}
+    payload = {"ciphertext": _blob(), "password": REG["password"]}
 
     put_r = await client.put(
         "/me/recovery-package", json=payload, headers=_bearer(login_r)
@@ -64,11 +64,11 @@ async def test_put_then_get_roundtrip(client):
 async def test_put_replaces_existing_package(client):
     login_r = await _register_and_login(client)
     await client.put(
-        "/me/recovery-package", json={"ciphertext": _blob(32)}, headers=_bearer(login_r)
+        "/me/recovery-package", json={"ciphertext": _blob(32), "password": REG["password"]}, headers=_bearer(login_r)
     )
     second = _blob(96)
     put_r = await client.put(
-        "/me/recovery-package", json={"ciphertext": second}, headers=_bearer(login_r)
+        "/me/recovery-package", json={"ciphertext": second, "password": REG["password"]}, headers=_bearer(login_r)
     )
     assert put_r.status_code == 200
 
@@ -80,9 +80,14 @@ async def test_put_replaces_existing_package(client):
 async def test_delete_then_get_is_404_again(client):
     login_r = await _register_and_login(client)
     await client.put(
-        "/me/recovery-package", json={"ciphertext": _blob()}, headers=_bearer(login_r)
+        "/me/recovery-package", json={"ciphertext": _blob(), "password": REG["password"]}, headers=_bearer(login_r)
     )
-    del_r = await client.delete("/me/recovery-package", headers=_bearer(login_r))
+    del_r = await client.request(
+        "DELETE",
+        "/me/recovery-package",
+        json={"password": REG["password"]},
+        headers=_bearer(login_r),
+    )
     assert del_r.status_code == 204
 
     get_r = await client.get("/me/recovery-package", headers=_bearer(login_r))
@@ -92,7 +97,12 @@ async def test_delete_then_get_is_404_again(client):
 @pytest.mark.asyncio
 async def test_delete_without_package_is_idempotent(client):
     login_r = await _register_and_login(client)
-    del_r = await client.delete("/me/recovery-package", headers=_bearer(login_r))
+    del_r = await client.request(
+        "DELETE",
+        "/me/recovery-package",
+        json={"password": REG["password"]},
+        headers=_bearer(login_r),
+    )
     assert del_r.status_code == 204
 
 
@@ -113,9 +123,44 @@ async def test_oversized_package_rejected(client):
 
     too_big = "a" * (RECOVERY_PACKAGE_MAX_B64 + 1)
     r = await client.put(
-        "/me/recovery-package", json={"ciphertext": too_big}, headers=_bearer(login_r)
+        "/me/recovery-package", json={"ciphertext": too_big, "password": REG["password"]}, headers=_bearer(login_r)
     )
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_put_delete_ohne_passwort_wird_abgewiesen(client):
+    """Bughunt-Entscheidung 4.2: gestohlener Bearer allein reicht nicht —
+    das Päckchen ist die einzige serverseitige Kopie der Archiv-Schlüssel,
+    ein Überschreiben/Widerruf ist dauerhafter Datenverlust."""
+    login_r = await _register_and_login(client)
+    falsch = {"password": "falsch-falsch-falsch"}
+
+    # PUT ohne und mit FALSchem Passwort.
+    r = await client.put(
+        "/me/recovery-package", json={"ciphertext": _blob()}, headers=_bearer(login_r)
+    )
+    assert r.status_code == 422
+    r = await client.put(
+        "/me/recovery-package",
+        json={"ciphertext": _blob(), "password": "falsch-falsch-falsch"},
+        headers=_bearer(login_r),
+    )
+    assert r.status_code == 401
+
+    # Bestehendes Päckchen anlegen, dann DELETE mit falschem Passwort: Zeile
+    # bleibt.
+    put_r = await client.put(
+        "/me/recovery-package",
+        json={"ciphertext": _blob(), "password": REG["password"]},
+        headers=_bearer(login_r),
+    )
+    assert put_r.status_code == 200
+    del_r = await client.request(
+        "DELETE", "/me/recovery-package", json=falsch, headers=_bearer(login_r)
+    )
+    assert del_r.status_code == 401
+    assert (await client.get("/me/recovery-package", headers=_bearer(login_r))).status_code == 200
 
 
 @pytest.mark.asyncio
@@ -123,7 +168,7 @@ async def test_second_user_cannot_see_first_users_package(client):
     """Nur der Konto-Eigentümer — kein anderes Konto sieht dasselbe Päckchen."""
     login_r = await _register_and_login(client)
     await client.put(
-        "/me/recovery-package", json={"ciphertext": _blob()}, headers=_bearer(login_r)
+        "/me/recovery-package", json={"ciphertext": _blob(), "password": REG["password"]}, headers=_bearer(login_r)
     )
 
     other_reg = {**REG, "username": "recovery_pkg_user_2", "email": "other@dcc-test.example.com"}
@@ -172,7 +217,7 @@ async def test_account_delete_cascades_recovery_package(
     dem Päckchen selbst nichts zu tun haben; die Kaskade ist DB-Mechanik."""
     login_r = await _register_and_login(client)
     await client.put(
-        "/me/recovery-package", json={"ciphertext": _blob()}, headers=_bearer(login_r)
+        "/me/recovery-package", json={"ciphertext": _blob(), "password": REG["password"]}, headers=_bearer(login_r)
     )
 
     from dcc_auth.models import User

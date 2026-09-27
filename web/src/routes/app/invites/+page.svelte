@@ -23,10 +23,6 @@
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { selectGuild, selectDM } from '$lib/navigation/railNavi';
   import { viewport } from '$lib/stores/viewport.svelte';
-
-
-
-
 </script>
 
 <GuildRail

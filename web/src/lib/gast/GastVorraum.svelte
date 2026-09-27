@@ -30,6 +30,7 @@
   function fehlerText(schluessel: string): string {
     if (schluessel === 'abgelaufen') return m.gast_fehler_abgelaufen();
     if (schluessel === 'entfernt') return m.gast_fehler_entfernt();
+    if (schluessel === 'besprechung_vorbei') return m.gast_besprechung_vorbei();
     if (schluessel === 'voll') return m.gast_fehler_voll();
     if (schluessel === 'zufrueh') return m.gast_fehler_zufrueh();
     if (schluessel === 'zuviel') return m.gast_fehler_zuviel();

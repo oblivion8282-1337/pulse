@@ -27,8 +27,6 @@
   // Räume-Liste, am Desktop die Startseite (dort ist die Server-Leiste selbst
   // der Ort des Knopfes). Klasse statt Fensterbreite — s. `viewport.svelte.ts`.
   let zurueckZiel = $derived(viewport.isDesktop ? '/app' : '/app/rooms');
-
-
 </script>
 
 <GuildRail

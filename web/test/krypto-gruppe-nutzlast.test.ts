@@ -11,6 +11,7 @@ import {
 } from '../src/lib/krypto/gruppe/gruppenNutzlast.ts';
 import {
   baueNachrichtNutzlast,
+  baueLoeschNutzlast,
   leseNachrichtNutzlast
 } from '../src/lib/krypto/nachrichtNutzlast.ts';
 
@@ -162,4 +163,52 @@ test('Sitzungskennungen sind eindeutig und hexadezimal', () => {
   assert.match(eine, /^[0-9a-f]{32}$/);
   const menge = new Set(Array.from({ length: 200 }, () => neueSitzungId()));
   assert.equal(menge.size, 200);
+});
+
+test('die Absender-Angabe der Verteilnutzlast ueberlebt Hin- und Rueckweg (Bughunt 2026-09-23)', () => {
+  // Genau das Feld, an dem der Empfaenger eine vertauschte Sitzung
+  // erkennen soll: Nutzlast sagt das wahre Geraet, die Postfach-Metadaten
+  // setzt der Server frei.
+  const bytes = baueVerteilNutzlast('99', 'sitz-1', 'AAAAschluessel', undefined, 'geraet-von-mallory');
+  assert.equal(leseVerteilNutzlast(bytes)?.absenderGeraet, 'geraet-von-mallory');
+});
+
+test('ohne Absender-Angabe bleibt die Verteilnutzlast byteidentisch zum Altstand', () => {
+  // Sender vor der Aenderung — der Empfaenger behandelt das wie bisher
+  // (Metadaten-Wert), der Test haelt die Byteidentitaet fest.
+  const alt = baueVerteilNutzlast('99', 'sitz-1', 'AAAAschluessel');
+  assert.equal(new TextDecoder().decode(alt).includes('absenderGeraet'), false);
+  assert.equal(leseVerteilNutzlast(alt)?.absenderGeraet, undefined);
+});
+
+test('die Absender-Angabe der Nachrichtennutzlast ueberlebt Hin- und Rueckweg', () => {
+  const bytes = baueNachrichtNutzlast('hallo', '123', null, [], {
+    nutzer: 'user-9',
+    geraet: 'geraet-7'
+  });
+  const gelesen = leseNachrichtNutzlast(bytes);
+  assert.equal(gelesen.absenderNutzer, 'user-9');
+  assert.equal(gelesen.absenderGeraet, 'geraet-7');
+  assert.equal(gelesen.text, 'hallo');
+});
+
+test('eine Nachrichtennutzlast ohne Absender-Angabe liest als null, nicht als Fehler', () => {
+  // Legacy-Sender: der Empfaenger faellt auf die Metadaten-Zuschreibung
+  // zurueck — `null` (nicht `undefined`!) ist das vereinbarte Signal dafuer.
+  const bytes = baueNachrichtNutzlast('alt', '123', null);
+  const gelesen = leseNachrichtNutzlast(bytes);
+  assert.equal(gelesen.absenderNutzer, null);
+  assert.equal(gelesen.absenderGeraet, null);
+});
+
+test('auch der Loesch-Frame traegt die Absender-Angabe', () => {
+  // Loesch-Frames laufen ueber denselben Empfangsweg mit derselben
+  // Zuschreibung — ohne Bindung wuerde der Server sie frei umetikettieren
+  // koennen (wer "loeschte" hier eigentlich was?).
+  const gelesen = leseNachrichtNutzlast(
+    baueLoeschNutzlast('123', { nutzer: 'user-9', geraet: 'geraet-7' })
+  );
+  assert.equal(gelesen.geloescht, true);
+  assert.equal(gelesen.absenderNutzer, 'user-9');
+  assert.equal(gelesen.absenderGeraet, 'geraet-7');
 });

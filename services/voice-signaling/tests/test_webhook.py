@@ -608,3 +608,36 @@ async def test_webhook_gesperrter_gast_kommt_nicht_in_die_praesenz(webhook_clien
         assert await redis.scard(room_key(room)) == 0
     finally:
         await redis.delete(room_key(room), gaeste.GAST_SPERRE_KEY.format(gast_id="gast-900"))
+
+
+@pytest.mark.asyncio
+async def test_webhook_gesperrter_gast_bekommt_keinen_streaming_eintrag(
+    webhook_client, redis
+):
+    """Bughunt 2026-09-20: dasselbe Sperr-Gate wie bei participant_joined
+    gilt auch für track_published — ein gesperrter Gast, der einen
+    Screenshare-Track published, darf nicht in ``streaming_user_ids``
+    auftauchen, ohne in der Präsenz zu stehen (sonst rendert der Zuschauer
+    eine Kachel für jemanden, der nicht im Raum ist)."""
+    from dcc_shared import gaeste
+    from dcc_voice_signaling.webhook import room_key, streaming_key
+    from livekit.protocol.models import TrackSource
+
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    await gaeste.sperren(redis, "gast-901", ttl_s=600)
+    try:
+        body = _event_body(
+            "track_published", room, "gast-901", track_source=TrackSource.SCREEN_SHARE
+        )
+        r = await webhook_client.post(
+            "/webhook", content=body, headers={"Authorization": _sign(body)}
+        )
+        assert r.status_code == 204
+        assert await redis.exists(streaming_key(room)) == 0
+    finally:
+        await redis.delete(
+            room_key(room),
+            streaming_key(room),
+            gaeste.GAST_SPERRE_KEY.format(gast_id="gast-901"),
+        )

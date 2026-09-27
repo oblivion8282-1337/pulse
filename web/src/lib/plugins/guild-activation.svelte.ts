@@ -55,17 +55,27 @@ const state = $state<GuildPluginsState>({
 
 /** Lade die Plugin-Aktivierungen für eine Guild vom Backend.
  *
+ *  `serverId` richtet den Aufruf an den Server, dem die Community GEHÖRT —
+ *  ohne ihn läuft er auf den aktiven Server und scheitert dort mit 403,
+ *  wenn die Route (Mitteilungs-Klick/Deep-Link) in eine Community eines
+ *  anderen Servers führte (Käfer-Log 2026-09-23). Der Aufruf im
+ *  ChannelList-Effect löst ihn reaktiv auf und retriet, sobald der
+ *  Multi-Server-Cache steht.
+ *
  *  Idempotent: wenn schon geladen, no-op. Wenn ein Fetch läuft, hängt
  *  sich der Aufruf an die gemeinsame Promise. Bei Fehler wird der
  *  Cache-Slot NICHT gesetzt, damit ein späterer Retry möglich bleibt. */
-export async function ensureGuildPluginsLoaded(guildId: string): Promise<void> {
+export async function ensureGuildPluginsLoaded(
+  guildId: string,
+  serverId?: string
+): Promise<void> {
   if (!guildId) return;
   if (state.enabledByGuild[guildId]) return;
   const existing = state.loadingByGuild.get(guildId);
   if (existing) return existing;
   const p = (async () => {
     try {
-      const rows = await guildPluginsApi.list(guildId);
+      const rows = await guildPluginsApi.list(guildId, { serverId });
       const enabled = new Set<string>();
       for (const r of rows) if (r.enabled) enabled.add(r.plugin_name);
       state.enabledByGuild = { ...state.enabledByGuild, [guildId]: enabled };
@@ -81,7 +91,10 @@ export async function ensureGuildPluginsLoaded(guildId: string): Promise<void> {
 
 /** Force-refresh — nach einem Toggle ruft die UI das auf, damit die
  *  Server-Antwort den lokalen Cache aktualisiert. */
-export async function refreshGuildPlugins(guildId: string): Promise<void> {
+export async function refreshGuildPlugins(
+  guildId: string,
+  serverId?: string
+): Promise<void> {
   if (!guildId) return;
   // Slot zurücksetzen, damit `ensureGuildPluginsLoaded` neu lädt.
   const copy = { ...state.enabledByGuild };
@@ -91,7 +104,7 @@ export async function refreshGuildPlugins(guildId: string): Promise<void> {
   // die alte (noch laufende) Promise zurück und der frische Fetch wird nie
   // gestartet — der Cache würde mit dem Stand von VOR dem Toggle befüllt.
   state.loadingByGuild.delete(guildId);
-  await ensureGuildPluginsLoaded(guildId);
+  await ensureGuildPluginsLoaded(guildId, serverId);
 }
 
 /** Lokaler Patch nach erfolgreichem Toggle (UI-seitig direkt nach dem

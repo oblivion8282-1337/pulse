@@ -1363,3 +1363,104 @@ async def test_purge_raeumt_kopplung(
         assert (await s.get(UmzugStueck, stueck_a)) is None
         # Konto B ist nicht betroffen.
         assert (await s.get(Kopplung, kopplung_b)) is not None
+
+
+# ---------------------------------------------------------------------------
+# Bughunt 2026-09-20 — S3-Deferral + Einladungs-Karten
+
+
+@pytest.mark.asyncio
+async def test_purge_s3_delete_erfolgt_nach_commit(
+    client, session_factory, _auth_signer, _internal_secret_set, monkeypatch
+):
+    """Der Purge darf die MinIO-Objekte nicht INNERHALB der offenen Transaktion
+    löschen: schlägt ein späterer Schritt fehl, rollt der Purge zurück und es
+    blieben lebende Anhangszeilen ohne Bytes übrig (s.
+    ``hard_delete_attachments(..., defer_s3=…)``). Geprüft wird die Ordnung:
+    wenn ``purge_s3_keys`` läuft, ist der Tombstone bereits durable."""
+    from dcc_chat_gateway.models import MessageAttachment
+    from dcc_chat_gateway.snowflake import next_id
+    import dcc_chat_gateway.user_purge as user_purge_mod
+
+    t_owner, uid_owner = await _register(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "g"}, headers=_auth(t_owner))
+    ).json()
+    chan = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "c", "type": 0},
+            headers=_auth(t_owner),
+        )
+    ).json()
+    msg = await _post_message(client, t_owner, chan["id"], "mit anhang")
+
+    att_id = next_id()
+    async with session_factory() as s:
+        s.add(MessageAttachment(
+            id=att_id, message_id=int(msg["id"]), channel_id=int(chan["id"]),
+            uploader_id=uid_owner, filename="x.png",
+            storage_key=f"att/{att_id}", size=1,
+        ))
+        await s.commit()
+
+    geplant: list[list[str]] = []
+
+    async def _capture_purge_s3(keys):
+        geplant.append(list(keys))
+        # Ordnungs-Check: der Tombstone ist zu diesem Zeitpunkt committet.
+        async with session_factory() as sf:
+            zeile = await sf.get(MessageAttachment, att_id)
+            assert zeile is None or zeile.deleted_at is not None, (
+                "S3-Delete vor dem Commit — Rollback würde Zeilen ohne Bytes lassen"
+            )
+
+    monkeypatch.setattr(user_purge_mod, "purge_s3_keys", _capture_purge_s3)
+
+    r = await client.post(
+        f"/internal/users/{uid_owner}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+    assert geplant and f"att/{att_id}" in geplant[0], geplant
+
+
+@pytest.mark.asyncio
+async def test_purge_drops_member_invite_notifications(
+    client, session_factory, _auth_signer, _internal_secret_set
+):
+    """Offene Community-Einladungs-Karten mit dem Gelöschten als Absender oder
+    Empfänger müssen weg (kein FK auf User — dasselbe handgestempelte Aufräumen
+    wie ``delete_guild``). Sonst zeigt die Inbox des Empfängers eine Karte
+    eines toten Kontos, und das Annehmen legte eine Mitgliedschaft an, die
+    niemand mehr autorisieren kann."""
+    from dcc_chat_gateway.models import CommunityInviteNotification
+    from dcc_chat_gateway.snowflake import next_id
+
+    _, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    _, uid_c = await _register(_auth_signer)
+
+    karte_gesendet = next_id()   # A lädt B ein → mit A's Purge weg
+    karte_empfangen = next_id()  # C lädt A ein → mit A's Purge weg
+    karte_fremd = next_id()      # C lädt B ein → bleibt
+    async with session_factory() as s:
+        for cid, inviter, invitee in (
+            (karte_gesendet, uid_a, uid_b),
+            (karte_empfangen, uid_c, uid_a),
+            (karte_fremd, uid_c, uid_b),
+        ):
+            s.add(CommunityInviteNotification(
+                id=cid, guild_id=1, inviter_user_id=inviter,
+                invitee_user_id=invitee,
+            ))
+        await s.commit()
+
+    r = await client.post(
+        f"/internal/users/{uid_a}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        assert (await s.get(CommunityInviteNotification, karte_gesendet)) is None
+        assert (await s.get(CommunityInviteNotification, karte_empfangen)) is None
+        assert (await s.get(CommunityInviteNotification, karte_fremd)) is not None

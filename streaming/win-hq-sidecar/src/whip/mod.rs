@@ -518,7 +518,18 @@ impl WhipSender {
             }
         });
 
-        let (resource_url, http) = Self::negotiate(&pc, url).await?;
+        // Bughunt Runde 4: scheitert die Aushandlung (Server down, WHIP-POST
+        // abgelehnt), würde das `?` die PeerConnection offen liegen lassen —
+        // webrtc-rs räumt beim Drop nichts ab, pro Fehlversuch bliebe ein
+        // voller PC-Zustand samt ICE-Agent und Lesetasks im Prozess (Spiegel
+        // zu pulse-player/src/whep.rs, wo derselbe Fall explizit abbaut).
+        let (resource_url, http) = match Self::negotiate(&pc, url).await {
+            Ok(ergebnis) => ergebnis,
+            Err(e) => {
+                let _ = pc.close().await;
+                return Err(e);
+            }
+        };
 
         // Die Nummer, unter der die Bildmarke ausgehandelt wurde. Nach
         // `set_remote_description` liefert webrtc-rs hier genau die

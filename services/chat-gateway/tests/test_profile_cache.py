@@ -342,3 +342,79 @@ async def test_second_newer_statement_updates_profile(session: AsyncSession):
 
     assert profile.username == "alice_updated"
     assert not profile.stale
+
+
+# ─── WS handler: rejection frame ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ws_invalid_statement_gets_rejection_frame(ws_app, _auth_signer, monkeypatch):
+    """Der Gateway meldet eine abgelehnte Statement-Signatur jetzt an den
+    Client (``profile_statement_rejected``). Bis 2026-09-18 war die Ablehnung
+    stumm — derselbe Klient reichte bei jeder (Re-)Verbindung dasselbe alte
+    Statement erneut an (Live-Befund: Nutzer mit vor einer Schlüssel-
+    erneuerung signiertem Statement, ~1 stumme Ablehnung je Reconnect).
+    Der Client invalidiert daraufhin und holt ein frisches Statement."""
+
+    import asyncio
+    import os
+
+    import os
+
+    import redis as sync_redis
+    from starlette.testclient import TestClient
+
+    import dcc_chat_gateway.app as chat_app
+    from dcc_chat_gateway.config import Settings as ChatSettings
+    from dcc_chat_gateway.credential_validator import REDIS_CLOUD_JWKS_KEY
+
+    # Self-Host-Modus (wie die übrigen WS-Tests, Instance-ID aus dem conftest):
+    # der Handler liest in diesem Modus den CLOUD-JWKS-Cache, den der Test
+    # unten mit einem prüfbaren Schlüssel seedet.
+    monkeypatch.setattr(
+        chat_app,
+        "get_settings",
+        lambda: ChatSettings(
+            database_url="sqlite+aiosqlite:///:memory:",
+            pulse_instance_mode="self-host",
+            pulse_instance_id=100,
+            redis_url=os.environ.get("REDIS_URL", "redis://localhost:6380/0").replace(
+                "localhost", "127.0.0.1"
+            ),
+        ),
+    )
+
+    def _run():
+        r = sync_redis.from_url(
+            os.environ.get("REDIS_URL", "redis://localhost:6380/0").replace(
+                "localhost", "127.0.0.1"
+            )
+        )
+        # Prüfbarer CLOUD-JWKS-Cache: das Statement wird mit dem ANDEREN
+        # Schlüssel signiert → kid löst auf, Signatur schlägt fehl.
+        test_jwks = json.dumps(_cloud_jwks()).encode()
+        vorher = r.get(REDIS_CLOUD_JWKS_KEY)
+        r.set(REDIS_CLOUD_JWKS_KEY, test_jwks)
+        try:
+            with TestClient(ws_app) as tc:
+                token = _auth_signer.issue_access(4242, "u4242")
+                with tc.websocket_connect(f"/ws?token={token}") as ws:
+                    hello = ws.receive_json()
+                    assert hello["op"] == "hello"
+                    ws.receive_json()  # ready
+
+                    # Mit dem FALSCHEN Schlüssel signiert (kid passt, Signatur
+                    # nicht) → Ablehnungs-Rahmen statt stummer Verwerfung.
+                    bad = _make_statement(sub="4242", sign_key=_ALT_RSA_KEY)
+                    ws.send_text(json.dumps({"op": "profile_statement", "jwt": bad}))
+                    frame = ws.receive_json()
+                    assert frame["op"] == "profile_statement_rejected"
+                    assert frame["reason"] == "invalid_statement"
+        finally:
+            if vorher is None:
+                r.delete(REDIS_CLOUD_JWKS_KEY)
+            else:
+                r.set(REDIS_CLOUD_JWKS_KEY, vorher)
+            r.close()
+
+    await asyncio.to_thread(_run)

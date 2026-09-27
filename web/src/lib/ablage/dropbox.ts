@@ -108,22 +108,35 @@ function vollerPfad(ordner: string, datei?: string): string {
 
 export function dropboxAdapter(verbindung: DropboxVerbindung): AblageAdapter {
 	const basisHolen = verbindung.holen ?? fetch;
+	// Bughunt Runde 38: nach einer Auffrischung den Verbindungsstand DIESES
+	// closures mitpflegen. Das Store-Objekt wird ersetzt, aber der Adapter
+	// liest weiter aus `verbindung` — ohne Mitpflegen löste jeder weitere
+	// 401 den ALTEN Nachspiel-Token ein (bei rotierenden Anbietern: frisches
+	// Token im Store, Verbindung trotzdem tot) und der feste `kopf`
+	// verschickte für immer den abgelaufenen Zugang.
+	const weiterreichen = verbindung.zugangAufgefrischt;
 	const holen =
 		verbindung.nachspieleToken !== undefined && verbindung.kundenId !== undefined
 			? erzeugeAuffrischendesHolen(
 					basisHolen,
 					() => ({ zugangsToken: verbindung.zugangsToken, nachspieleToken: verbindung.nachspieleToken }),
 					(nachspieleToken) => spieleNach(basisHolen, TOKEN_ENDPUNKT, nachspieleToken, { client_id: verbindung.kundenId! }),
-					verbindung.zugangAufgefrischt,
+					(neu) => {
+						verbindung.zugangsToken = neu.zugangsToken;
+						verbindung.nachspieleToken = neu.nachspieleToken;
+						weiterreichen?.(neu);
+					},
 				)
 			: basisHolen;
-	const kopf = { Authorization: `Bearer ${verbindung.zugangsToken}` };
+	// Je Aufruf frisch (s. Kommentar oben) — nach einer Auffrischung geht der
+	// NÄCHSTE Aufruf direkt mit dem neuen Token raus, ohne 401-Umweg.
+	const kopf = () => ({ Authorization: `Bearer ${verbindung.zugangsToken}` });
 
 	return {
 		async schreibe(datei, inhalt) {
 			const antwort = await holen(`${INHALT}/2/files/upload`, {
 				method: 'POST',
-				headers: { ...kopf, 'Dropbox-API-Arg': apiArg(vollerPfad(verbindung.ordner, datei)), 'Content-Type': 'application/octet-stream' },
+				headers: { ...kopf(), 'Dropbox-API-Arg': apiArg(vollerPfad(verbindung.ordner, datei)), 'Content-Type': 'application/octet-stream' },
 				body: inhalt as unknown as BodyInit,
 			});
 			if (!antwort.ok) {
@@ -134,7 +147,7 @@ export function dropboxAdapter(verbindung: DropboxVerbindung): AblageAdapter {
 		async lese(datei) {
 			const antwort = await holen(`${INHALT}/2/files/download`, {
 				method: 'POST',
-				headers: { ...kopf, 'Dropbox-API-Arg': JSON.stringify({ path: vollerPfad(verbindung.ordner, datei) }) },
+				headers: { ...kopf(), 'Dropbox-API-Arg': JSON.stringify({ path: vollerPfad(verbindung.ordner, datei) }) },
 			});
 			if (antwort.status === 404) {
 				return null;
@@ -156,7 +169,7 @@ export function dropboxAdapter(verbindung: DropboxVerbindung): AblageAdapter {
 			const namen: string[] = [];
 			const ersteAntwort = await holen(`${API}/2/files/list_folder`, {
 				method: 'POST',
-				headers: { ...kopf, 'Content-Type': 'application/json' },
+				headers: { ...kopf(), 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path: vollerPfad(verbindung.ordner), limit: 500 }),
 			});
 			if (ersteAntwort.status === 409 && (await fehlermeldung(ersteAntwort)).includes('not_found')) {
@@ -179,7 +192,7 @@ export function dropboxAdapter(verbindung: DropboxVerbindung): AblageAdapter {
 				schwellen = (await (
 					await holen(`${API}/2/files/list_folder/continue`, {
 						method: 'POST',
-						headers: { ...kopf, 'Content-Type': 'application/json' },
+						headers: { ...kopf(), 'Content-Type': 'application/json' },
 						body: JSON.stringify({ cursor: schwellen.cursor }),
 					})
 				).json()) as Listenseite;
@@ -198,7 +211,7 @@ export function dropboxAdapter(verbindung: DropboxVerbindung): AblageAdapter {
 		async lösche(datei) {
 			const antwort = await holen(`${API}/2/files/delete_v2`, {
 				method: 'POST',
-				headers: { ...kopf, 'Content-Type': 'application/json' },
+				headers: { ...kopf(), 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path: vollerPfad(verbindung.ordner, datei) }),
 			});
 			if (antwort.status === 409) {

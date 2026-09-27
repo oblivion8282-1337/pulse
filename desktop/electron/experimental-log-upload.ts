@@ -27,7 +27,8 @@
  * Datei hoch; der Server-Endpoint (`POST /experimental-logs`, auth-Service)
  * begrenzt zusätzlich und ist rate-limited.
  *
- * Endpoint überschreibbar via `$PULSE_EXPERIMENTAL_LOG_URL` (Dev/Test).
+ * Endpoint überschreibbar via `$PULSE_EXPERIMENTAL_LOG_URL` (Dev/Test — nur in
+ * ungepackten Builds; siehe `ENDPOINT` unten, Security-Scan 2026-09-18).
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -40,21 +41,33 @@ import { getSidecar } from './sidecar';
 import { logSidecar } from './sidecar-log';
 import { storeGet, storeSet } from './store';
 
-const ENDPOINT =
-  process.env.PULSE_EXPERIMENTAL_LOG_URL ?? 'https://howispulse.com/api/experimental-logs';
+// Security-Scan 2026-09-18: Der Env-Override ist wie PULSE_URL/PULSE_DEV_URL
+// (main.ts) auf ungepackte Builds begrenzt — sonst lenkt eine bösartige
+// .desktop-Datei/wrapper mit `Env=` die Diagnose-Uploads (sidecar.log-Schwanz
+// inkl. Rechnernamen, GPU-Infos) an einen Angreifer-Server.
+const ENDPOINT = (() => {
+  const override = process.env.PULSE_EXPERIMENTAL_LOG_URL;
+  if (override && !app.isPackaged) return override;
+  if (override) {
+    console.warn(
+      '[diagnostics] PULSE_EXPERIMENTAL_LOG_URL ignored in packaged build (developer-only override).',
+    );
+  }
+  return 'https://howispulse.com/api/experimental-logs';
+})();
 
 /** Muss zum Server-`MAX_LOG_CHARS` (routes_experimental_logs.py) passen. */
 const MAX_LOG_BYTES = 512 * 1024;
 
 /**
- * Die Felder aus `health.gsr`, die in den Bericht wandern.
+ * Die Felder aus `health.sidecar`, die in den Bericht wandern.
  *
  * Es sind die Fähigkeiten, an denen ein Encoder-Fehler hängt: ob 10 bit und
  * HDR überhaupt zur Verfügung standen, und welche Codecs die Karte anbot. Ohne
  * sie liest sich „AV1 ging nicht" wie ein Fehler, obwohl es womöglich schlicht
  * nicht angeboten war.
  */
-const GSR_FELDER = ['vendor', 'display_server', 'video_codecs', 'ten_bit', 'hdr'];
+const SIDECAR_FELDER = ['vendor', 'display_server', 'video_codecs', 'ten_bit', 'hdr'];
 
 /** Pro Slot: kam seit dem letzten Start ein `error`-Event? → bestimmt `reason`. */
 const sawError = new Set<number>();
@@ -108,7 +121,7 @@ export function diagnoseEingeschaltet(): boolean {
 }
 
 /**
- * Im `gsr:event`-Handler aufrufen. Sammelt `error`-Zustand und triggert beim
+ * Im `sidecar:event`-Handler aufrufen. Sammelt `error`-Zustand und triggert beim
  * `stopped`-Event den Upload — no-op, wenn ausdrücklich abgewählt.
  */
 export function onSidecarEventForUpload(ev: { ev?: string }, slot: number): void {
@@ -156,15 +169,24 @@ async function sidecarAngaben(
   let version: string | null = null;
   const sidecar = getSidecar(slot);
 
+  // Bughunt Runde 7: der Funktionskommentar verspricht, den Sidecar NICHT
+  // neu zu starten — nach `call('stop')`/Crash ist `child` aber null, und
+  // der erste `call` hier spawnte lautlos einen neuen Waisen-Prozess. Ohne
+  // lebenden Sidecar gibt es nichts zu fragen (der Bericht ist trotzdem
+  // wertvoll, s. Kommentar unten).
+  if (!sidecar.istGestartet()) {
+    return { version, gpu };
+  }
+
   try {
     const health = (await sidecar.call('health')) as {
       version?: string;
-      gsr?: Record<string, unknown>;
+      sidecar?: Record<string, unknown>;
     };
     if (typeof health.version === 'string') version = health.version;
-    const faehigkeiten = health.gsr;
+    const faehigkeiten = health.sidecar;
     if (faehigkeiten && typeof faehigkeiten === 'object') {
-      for (const feld of GSR_FELDER) {
+      for (const feld of SIDECAR_FELDER) {
         if (faehigkeiten[feld] !== undefined) gpu[feld] = faehigkeiten[feld];
       }
     }

@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { Button } from '$lib/components/ui/button/index.js';
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -125,7 +126,7 @@
             <Avatar.Image src={avatar} alt="" />
           {/if}
           <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-            {(u?.display_name ?? u?.username ?? '?').slice(0, 1).toUpperCase()}
+            {anfangsBuchstabe(u?.display_name ?? u?.username ?? '?')}
           </Avatar.Fallback>
         </Avatar.Root>
         <div class="min-w-0 flex-1">

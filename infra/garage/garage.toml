@@ -1,0 +1,33 @@
+# Garage — S3-kompatibler Objektspeicher für die DEV-Stacks (Root-Compose +
+# infra/dev-remote), Ersatz für MinIO (Bughunt-Entscheidung 4.1, 2026-09-21;
+# Prod: infra/prod/garage/garage.toml, Self-Host: s6-rc.d/garage/run).
+#
+# Dev-Besonderheiten (bewusst, NICHT für Prod übernehmen):
+#   * rpc_secret ist ein FESTER Platzhalter-Wert und git-tracked — Dev-Creds
+#     sind hier ohnehin public (minioadmin/minioadmin, wie bei MinIO vorher).
+#   * Der Bucket + Key werden von scripts/dev-garage-init.sh idempotent
+#     angelegt (docker compose exec; das dxflrs-Image hat keine Shell, ein
+#     Init-Container geht deshalb nicht).
+# Port-Konvention: S3-API auf 9000 (im Container UND am Host) — chat-gateway
+# signiert per Default gegen http://localhost:9000 (config.py s3_internal_
+# endpoint), daran hat sich gegenüber MinIO nichts geändert.
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "lmdb"
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_secret = "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3"
+
+[s3_api]
+s3_region = "us-east-1"
+api_bind_addr = "[::]:9000"
+
+[s3_web]
+bind_addr = "[::]:3902"
+root_domain = ".invalid"
+index = "index.html"
+
+[admin]
+api_bind_addr = "[::]:3909"

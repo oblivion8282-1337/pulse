@@ -27,6 +27,12 @@ export type GeraeteBuendelEintrag = {
   curve25519: string;
   einmalschluessel: string | null;
   rueckfallschluessel: string | null;
+  /** Ed25519-Identitaet + Signatur des Buendels (Bughunt 2026-09-23).
+   *  `null`/fehlend bei Bestandsbuendeln: solche Geraete erhalten keine neuen
+   *  verschluesselten DM-Sitzungen mehr (`senden.ts` prueft und wirft), bis
+   *  ihr naechster Start das Buendel signiert veroeffentlicht. */
+  ed25519?: string | null;
+  bundel_signatur?: string | null;
   /** Ob DIESES Geraet dauerhaft ist (Electron- oder Android-App, s.
    *  `veroeffentlichen.ts`). Nur noch Anzeige/Etikett, kein Sendekriterium. */
   dauerhaft?: boolean;

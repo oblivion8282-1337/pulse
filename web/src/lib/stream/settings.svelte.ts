@@ -4,7 +4,7 @@ import { errText } from '$lib/utils/errText';
  *
  * Was der Nutzer eingestellt hat, und was daraus für den Sidecar folgt — im
  * Unterschied zu `state.svelte.ts`, das den LAUFENDEN Sidecar spiegelt
- * (running/fps/uptime/log über `gsr://event`).
+ * (running/fps/uptime/log über `sidecar:event`).
  *
  * - GPU-Erkennung: sobald die `gpu_info`-Antwort da ist, wird der Codec aus der
  *   Karte vorbelegt (AV1, wenn sie es kann, sonst H.264) — aber nur, wo noch
@@ -15,8 +15,8 @@ import { errText } from '$lib/utils/errText';
  * current voice channel (per-(channel,user) MediaMTX path, token + push URL
  * from chat-gateway/media-svc), capturing via the Wayland portal.
  *
- * Field shapes mirror what the sidecar's `gsr_start` body expects (see
- * `gsr.ts::GsrStartArgs` and `streaming/gsr-sidecar/control.py::op_start`).
+ * Field shapes mirror what the sidecar's `start` body expects (see
+ * `sidecar.ts::SidecarStartArgs` and `streaming/gsr-sidecar/control.py::op_start`).
  *
  * **Diese Datei ist zugleich die Sammelstelle.** Der Werte-Katalog, der
  * `$state`-Kern samt Persistenz und die Quellenwahl je Slot stehen in eigenen
@@ -25,13 +25,14 @@ import { errText } from '$lib/utils/errText';
  * `stream/settings.svelte` weiter stimmt.
  */
 
-import { gsr, type GsrStartArgs } from './gsr';
+import { sidecar, type SidecarStartArgs } from './sidecar';
 import { stream } from './state.svelte';
 import { isWindows, isMac } from '$lib/platform/runtime';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { effectiveHqLimits } from '$lib/stream/guildLimits';
 import {
   applyVideoMode,
+  codecAnpassungFuerGpu,
   gpuHasAv1,
   gpuHasHevc,
   clampResolution,
@@ -54,7 +55,7 @@ export * from './captureSource';
  * Erfüllbarkeit?
  *
  * Drei Bedingungen, alle nötig: der Nutzer hat es eingeschaltet, die Karte kann
- * es (`health.gsr.ten_bit` — der Linux- und seit 2026-08-04 der
+ * es (`health.sidecar.ten_bit` — der Linux- und seit 2026-08-04 der
  * Windows-Sidecar melden das; macOS nicht, dort bleibt es `undefined`), und der
  * Codec ist AV1. Letzteres ist keine Bequemlichkeit: 10-bit-H.264 wäre
  * `High 10`, und das dekodiert kein Browser — Zuschauer ohne den nativen Player
@@ -155,13 +156,13 @@ export async function loadCatalogs(): Promise<void> {
     // sidecars keep a single baseline (h264/opus/flv, 4000 kbps, 60 fps) that
     // unset override fields fall back to.
     const [audioApps, gpuInfo, monitors, windows] = await Promise.all([
-      gsr.listApplicationAudio(),
-      gsr.gpuInfo(),
-      isWindows() || isMac() ? gsr.listMonitors() : Promise.resolve(null),
+      sidecar.listApplicationAudio(),
+      sidecar.gpuInfo(),
+      isWindows() || isMac() ? sidecar.listMonitors() : Promise.resolve(null),
       // Window picking on Windows (WGC) + macOS (SCK): both enumerate windows so
       // the user can stream a single app instead of the whole monitor. Linux
       // delegates that choice to the Wayland portal dialog at stream start.
-      isWindows() || isMac() ? gsr.listWindows() : Promise.resolve(null),
+      isWindows() || isMac() ? sidecar.listWindows() : Promise.resolve(null),
     ]);
 
     if (audioApps?.ok) {
@@ -180,7 +181,9 @@ export async function loadCatalogs(): Promise<void> {
     // The HQ-stream panel is channel-mode only (push into the current voice
     // channel, explicit codec/res/bitrate/fps). Force the profile; the capture
     // source is platform-dependent — Linux always uses the Wayland portal,
-    // Windows + macOS pick a concrete monitor (persisted choice wins if valid).
+    // Windows + macOS a concrete monitor. Quelle und Ton sind nicht mehr
+    // persistiert; `platzZuruecksetzen` (vom Panel, vor und nach diesem
+    // Laden aufgerufen) setzt die Vorgabe je Platz.
     if (isWindows() || isMac()) {
       verfalleneWahlenErsetzen();
     } else {
@@ -191,18 +194,28 @@ export async function loadCatalogs(): Promise<void> {
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     // Default codec/bitrate — only if the user hasn't already saved a value.
+    // Der Codec folgt der GPU-Staffel (AV1 vor HEVC vor H.264, 8 bit): wer
+    // nie gewählt hat, startet auf dem Besten, das seine Karte encodieren
+    // kann. NUR bei DEFINITIVER Fähigkeitsliste: Hat die Sidecar-Probe noch
+    // kein Ergebnis (Feld fehlt — Sidecar frisch gestartet, GPU-Reset), wird
+    // nichts vorgegeben und nichts herabgestuft, statt die gespeicherte Wahl
+    // still auf H.264 zu zerstören (`codecAnpassungFuerGpu`).
     // Für die Bildrate steht seither kein Default mehr hier: „Standard" im
     // FPS-Feld heißt gerade, dass die Oberfläche nichts mitgibt und der
     // Sidecar seine Vorgabe nimmt (`FPS_STANDARD`) — eine Vorbelegung auf 60
     // hätte den Eintrag nie sichtbar werden lassen.
-    const hasAv1 = av1Nutzbar(streamSettings.gpu_info?.video_codecs);
-    const hasHevc = gpuHasHevc(streamSettings.gpu_info?.video_codecs);
+    const codecListe = streamSettings.gpu_info?.video_codecs;
+    const codecsBekannt = Array.isArray(codecListe);
+    const hasAv1 = av1Nutzbar(codecListe);
+    const hasHevc = gpuHasHevc(codecListe);
     const defaults: OverrideSet = {};
-    if (!streamSettings.overrides.codec) defaults.codec = hasAv1 ? 'av1' : 'h264';
-    // Coerce a previously-saved codec this GPU can't encode (e.g. 'av1' carried
-    // over to an H.264-only machine) back to the baseline.
-    else if (streamSettings.overrides.codec === 'av1' && !hasAv1) defaults.codec = 'h264';
-    else if (streamSettings.overrides.codec === 'hevc' && !hasHevc) defaults.codec = 'h264';
+    const codecEntschluss = codecAnpassungFuerGpu(
+      codecsBekannt,
+      hasAv1,
+      hasHevc,
+      streamSettings.overrides.codec,
+    );
+    if (codecEntschluss) defaults.codec = codecEntschluss;
     if (streamSettings.overrides.bitrate_kbps === undefined) defaults.bitrate_kbps = 4000;
     if (Object.keys(defaults).length > 0) {
       streamSettings.overrides = { ...streamSettings.overrides, ...defaults };
@@ -210,8 +223,13 @@ export async function loadCatalogs(): Promise<void> {
     // 10 bit hängt an AV1 UND an der Hardware. Fällt eines von beidem weg (der
     // Codec ist gerade auf H.264 zurückgenommen worden, oder die Maschine kann
     // es nicht), muss die Bittiefe mitfallen — sonst zeigt das Feld eine Wahl,
-    // die der Sidecar beim Start still auf 8 bit zurücknimmt.
-    if (streamSettings.overrides.bit_depth === 10 && !tenBitPossible()) {
+    // die der Sidecar beim Start still auf 8 bit zurücknimmt. Gleiches Gate wie
+    // der Codec: bei unbekannter Fähigkeitsliste wird nichts gelöscht.
+    if (
+      codecsBekannt &&
+      streamSettings.overrides.bit_depth === 10 &&
+      !tenBitPossible()
+    ) {
       streamSettings.overrides = applyVideoMode(
         streamSettings.overrides,
         streamSettings.overrides.codec ?? 'h264',
@@ -219,7 +237,8 @@ export async function loadCatalogs(): Promise<void> {
     }
     // Und dasselbe für HDR — hier sogar dringender: ein mitgereister Wunsch
     // bricht den Start ab, statt still auf etwas Kleineres zurückzufallen.
-    if (streamSettings.overrides.hdr === true && !hdrPossible()) {
+    // Auch hier: ohne definitive Antwort bleibt der Wunsch stehen.
+    if (codecsBekannt && streamSettings.overrides.hdr === true && !hdrPossible()) {
       const { hdr: _hdrWeg, ...rest } = streamSettings.overrides;
       streamSettings.overrides = rest;
     }
@@ -234,7 +253,7 @@ export async function loadCatalogs(): Promise<void> {
 /** Refresh just the audio-app list (cheap, called from the audio picker). */
 export async function refreshAudioApps(): Promise<void> {
   try {
-    const r = await gsr.listApplicationAudio();
+    const r = await sidecar.listApplicationAudio();
     if (r?.ok) streamSettings.available_audio_apps = r.applications ?? [];
   } catch {
     // tolerate — keep the previous list
@@ -332,7 +351,7 @@ export function pushProtokoll(_uebersteuerung?: OverrideSet): 'rtmp' | 'whip' {
 
 /**
  * Translate the in-memory `streamSettings` into the body shape that
- * `gsr.start()` / `gsr.buildArgv()` expect. Overrides are only included when
+ * `sidecar.start()` / `sidecar.buildArgv()` expect. Overrides are only included when
  * `use_overrides` is set (or the user picked the synthetic "Custom" profile) —
  * which, in channel mode, is always.
  *
@@ -346,13 +365,13 @@ export function buildStartArgs(
   slot = 0,
   standplatz?: { quelle: string; uebersteuerung: OverrideSet; ton: AudioMode },
   p2p = false,
-): GsrStartArgs {
+): SidecarStartArgs {
   // Ein geweckter Standplatz-Rechner übersteuert IMMER — das Profil ist ja
   // gerade dafür da, dass nicht gilt, was zuletzt von Hand eingestellt war
   // (`$lib/devices/profil.svelte.ts`).
   const apply = !!standplatz || streamSettings.use_overrides || streamSettings.profile_name === 'Custom';
 
-  const args: GsrStartArgs = {
+  const args: SidecarStartArgs = {
     profile: streamSettings.profile_name,
     // **P2P: kein Kanal-Block.** Ohne Token und Push-URL hat der Sidecar
     // keinen Serverkontakt — er startet im Wartezustand und verhandelt die
@@ -394,7 +413,7 @@ export function buildStartArgs(
     // before the sidecar call. Effective = this community's per-guild override
     // (Boost) ?? the admin-set instance default. Best-effort (the server never
     // sees these params) but covers every normal user. Only explicit values
-    // are clamped; a blank field falls through to the GSR profile default.
+    // are clamped; a blank field falls through to the sidecar profile default.
     const hq = effectiveHqLimits(channelArg.channelId);
     if (o.codec) cleaned.codec = o.codec;
     if (typeof o.bitrate_kbps === 'number' && o.bitrate_kbps > 0)

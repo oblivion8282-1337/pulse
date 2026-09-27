@@ -31,6 +31,27 @@ def _bearer(login_r) -> dict[str, str]:
     return {"Authorization": f"Bearer {login_r.json()['access_token']}"}
 
 
+@pytest.fixture(autouse=True)
+def _smtp_konfiguriert(monkeypatch):
+    """Bughunt Runde 24: der E-Mail-Wechsel antwortet jetzt 503, wenn keine
+    SMTP-Konfiguration existiert (fail-loud statt stiller 204-Erfolgs-
+    Meldung). Die Tests hier prüfen den Fluss UNTER konfiguriertem SMTP —
+    das Gate selbst hat einen eigenen Test unten."""
+
+    async def _cfg(session=None):
+        class _C:
+            host = "smtp.test"
+            port = 25
+            username = None
+            password = None
+            sender = "pulse@test"
+            use_tls = False
+
+        return _C()
+
+    monkeypatch.setattr(ras, "resolve_smtp_config", _cfg)
+
+
 def _spy_capture(monkeypatch) -> dict[str, str]:
     """Spy on the verification-mail composer to grab the link's plaintext token."""
     captured: dict[str, str] = {}
@@ -180,3 +201,24 @@ async def test_email_change_confirm_conflict_answers_409_not_500(client, monkeyp
     assert r_second.status_code == 200, r_second.text
     me = await client.get("/me", headers=_bearer(login_r))
     assert me.json()["email"] == _NEW
+
+
+@pytest.mark.asyncio
+async def test_email_change_ohne_smtp_503(client, monkeypatch):
+    """Bughunt Runde 24: ohne SMTP-Konfiguration antwortet der Wechsel
+    503 (fail-loud) statt 204 + Erfolgs-Toast ohne je eine Mail."""
+
+    async def _keine(session=None):
+        return None
+
+    monkeypatch.setattr(ras, "resolve_smtp_config", _keine)
+    r_reg = await client.post("/register", json={
+        "username": "nosmtp_user", "email": "nosmtp@dcc-test.example.com", "password": "nosmtppassword1",
+    })
+    access = r_reg.json()["access_token"]
+    r = await client.post(
+        "/me/email/change",
+        json={"new_email": "neu@dcc-test.example.com", "current_password": "nosmtppassword1"},
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert r.status_code == 503

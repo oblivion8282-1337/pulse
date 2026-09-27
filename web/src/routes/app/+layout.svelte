@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { dev } from '$app/environment';
   import { onMount, onDestroy } from 'svelte';
+  import { istInAppZiel } from '$lib/notifications/pushZiel';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
@@ -101,6 +102,32 @@
     });
   });
 
+  // Richtet den aktiven Server auf die Community der aktuellen Route aus —
+  // einmalig je BETRETEN einer Community (Mitteilungs-Klick, Deep-Link,
+  // Reload, Mitgliederliste), nicht dauerhaft: Ein absichtlicher Server-
+  // Wechsel per Server-Kopf-Klick (``activeServer.set`` OHNE Navigation,
+  // s. GuildRail) soll auf derselben Seite Bestand haben und darf nicht
+  // sofort wieder zurückgerungen werden. Der GuildRail-Klick auf eine
+  // Community macht dasselbe schon selbst (``selectGuildFromServer``);
+  // jeder direkte Sprung umgeht ihn aber — und Gilden-API-Aufrufe routen
+  // defaultmäßig auf ``activeServer``: 403 „not a member" / 404, leere
+  // Kanäle (Käfer-Log 2026-09-23, beide Richtungen). Ist die Community
+  // beim Boot noch keinem Server zugeordnet (Multi-Server-Cache füllt
+  // sich erst), bleibt die Route unversiegelt und der Effect feuert mit
+  // dem gefüllten Cache erneut — ``byServer`` wird hier gelesen.
+  let ausgerichteteGilde = $state('');
+  $effect(() => {
+    const gid = page.params.guildId;
+    if (!gid || !hydrated) return;
+    if (gid === ausgerichteteGilde) return;
+    const serverId = serverGuilds.serverIdForGuild(gid);
+    if (!serverId) return;
+    ausgerichteteGilde = gid;
+    if (serverId !== activeServer.serverId) {
+      activeServer.set(serverId);
+    }
+  });
+
   /** Single source of truth for notification-click navigation: SW postMessage
    *  → `navigateTo` event, and Electron `pulse.notify.onClick` → same path.
    *  Kept inline (instead of in `$lib/notifications/`) because it owns the
@@ -111,8 +138,10 @@
     targetUrl?: string | null
   ): void {
     // Friend events carry an explicit in-app target (/app/friends); chat
-    // events build the channel URL from the ids.
-    if (targetUrl) {
+    // events build the channel URL from the ids. target_url comes from the
+    // push payload — validated as a same-origin in-app path before goto()
+    // (Security-Scan 2026-09-18, s. $lib/notifications/pushZiel.ts).
+    if (targetUrl && istInAppZiel(targetUrl)) {
       void goto(targetUrl);
       return;
     }
@@ -276,9 +305,25 @@
         // Dev sessions / Electron without SW — fine, push falls back to no-op.
       }
       _swMessageHandler = (ev: MessageEvent) => {
-        const data = ev.data as { type?: string; channel_id?: string; guild_id?: string | null };
-        if (data?.type === 'navigateTo' && data.channel_id) {
-          navigateToFromNotification(data.channel_id, data.guild_id ?? null);
+        // Security-Audit 2026-09-16: nur Botschaften vom EIGENEN Origin
+        // befolgen (Defense in depth — ein fremder Frame/Worker soll über
+        // diesen Kanal keine Navigation anstoßen können).
+        if (ev.origin !== location.origin) return;
+        const data = ev.data as {
+          type?: string;
+          channel_id?: string;
+          guild_id?: string | null;
+          url?: string | null;
+        };
+        // Bughunt 2026-09-20: auch das reine `url`-Ziel durchreichen —
+        // Freund-Events tragen keine channel_id, nur target_url. Vorher
+        // fokussierte der Klick nur den Tab, ohne zu /app/friends zu gehen.
+        if (data?.type === 'navigateTo') {
+          navigateToFromNotification(
+            data.channel_id ?? '',
+            data.guild_id ?? null,
+            data.url ?? null
+          );
         }
       };
       navigator.serviceWorker.addEventListener('message', _swMessageHandler);

@@ -19,11 +19,12 @@ still appear exactly once per guild they belong to.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
+from dcc_shared.events import ReportClosedEvent
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.complaint_escalate import (
@@ -226,6 +227,7 @@ async def list_mod_queue(
     ),
     limit: int = Query(default=50, ge=1, le=200),
     before: datetime | None = Query(default=None),
+    before_id: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
 ) -> list[ReportItem]:
     """Return reports scoped to this guild, filtered by status.
 
@@ -234,8 +236,13 @@ async def list_mod_queue(
       - target_message_id → message's channel's guild_id matches
       - target_user_id only → user is a member of this guild
 
-    Paginated by ``before`` timestamp (exclusive upper bound on ``created_at``);
-    oldest entries first within the window. Use ``limit`` to control page size.
+    Paginated by ``before`` timestamp (exclusive upper bound on ``created_at``),
+    NEWEST first within the window — derselbe desc+``before``-Cursor wie jede
+    andere Paginierung hier. Bughunt Runde 5: die Sortierung lief ASC, Seite 1
+    enthielt damit bereits das ÄLTESTE Ende — der ``before``-Cursor konnte nie
+    vorrücken (jede Folgeseite war eine schrumpfende Präfix-Menge der ersten),
+    bei >limit offenen Meldungen blieben die neueren unsichtbar. Der Klient
+    sortiert für die Anzeige ohnehin selbst.
     """
     await _has_any_mod_perm(session, current, guild_id)
 
@@ -244,8 +251,21 @@ async def list_mod_queue(
         _guild_scope_predicate(guild_id),
     )
     if before is not None:
-        stmt = stmt.where(Report.created_at < before)
-    stmt = stmt.order_by(Report.created_at.asc()).limit(limit)
+        # Bughunt Runde 23: Komposit-Cursor (created_at + id) — strict `<`
+        # auf dem alleinigen created_at übersprang den Rest einer
+        # Gleichzeitkeits-Gruppe (funk.now() ist Transaktionszeit; im selben
+        # Transaction-Resolve landen mehrere Meldungen auf derselben
+        # Mikrosekunde), sobald die Gruppe eine Seitengrenze riss.
+        if before_id is not None:
+            stmt = stmt.where(
+                or_(
+                    Report.created_at < before,
+                    and_(Report.created_at == before, Report.id < before_id),
+                )
+            )
+        else:
+            stmt = stmt.where(Report.created_at < before)
+    stmt = stmt.order_by(Report.created_at.desc(), Report.id.desc()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
     return [_report_to_out(r) for r in rows]
 
@@ -381,6 +401,14 @@ async def resolve_report(
     )
     await session.commit()
     await session.refresh(report)
+    # Entscheidung 2d (2026-09-21): −1 live an alle Mods — vorher zählte
+    # ihr Badge die geschlossene Meldung bis zum Reconnect weiter.
+    manager = getattr(request.app.state, "connection_manager", None)
+    if manager is not None:
+        for gid in await guilds_for_report(session, report):
+            await manager.publish_guild_event(
+                ReportClosedEvent(guild_id=str(gid), report_id=str(report.id))
+            )
     return _report_to_out(report)
 
 
@@ -514,11 +542,15 @@ async def list_audit_log(
     current: CurrentUser,
     limit: int = Query(default=50, ge=1, le=200),
     before: datetime | None = Query(default=None),
+    before_id: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
 ) -> list[AuditLogItem]:
     """Return audit-log entries for this guild (MANAGE_GUILD only).
 
     Paginated by ``before`` timestamp (exclusive upper bound on
-    ``created_at``); newest entries first within the window.
+    ``created_at``), mit ``before_id`` als Komposit-Tiebreak — dieselbe
+    Begründung wie im Meldungs-Queue (Bughunt Runde 39): ``func.now()`` ist
+    Transaktionszeit, eine Seitengrenze mitten in einer
+    Gleichzeitigkeits-Gruppe übersprang sonst deren Rest.
     """
     from dcc_chat_gateway.models import ModAuditLog
 
@@ -526,8 +558,16 @@ async def list_audit_log(
 
     stmt = select(ModAuditLog).where(ModAuditLog.guild_id == guild_id)
     if before is not None:
-        stmt = stmt.where(ModAuditLog.created_at < before)
-    stmt = stmt.order_by(ModAuditLog.created_at.desc()).limit(limit)
+        if before_id is not None:
+            stmt = stmt.where(
+                or_(
+                    ModAuditLog.created_at < before,
+                    and_(ModAuditLog.created_at == before, ModAuditLog.id < before_id),
+                )
+            )
+        else:
+            stmt = stmt.where(ModAuditLog.created_at < before)
+    stmt = stmt.order_by(ModAuditLog.created_at.desc(), ModAuditLog.id.desc()).limit(limit)
 
     rows = (await session.execute(stmt)).scalars().all()
     return [

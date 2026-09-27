@@ -1,6 +1,6 @@
 <!--
   StreamLog — ausklappbares Log-Pane, gefüttert aus `session.lastLog`
-  (GSR-stderr-Tail, gepushed via `gsr://event` "log"-Events).
+  (Sidecar-Log-Tail, gepushed via `sidecar:event` "log"-Events).
 
   Auto-scroll-to-bottom wenn der User nicht hochgescrollt hat — Pattern:
   Wir merken uns mit `stickToBottom` ob das Viewport "nahe am Ende" ist.

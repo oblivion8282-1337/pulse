@@ -29,6 +29,9 @@ export type AdminPluginPutResult = {
   plugin_name: string;
   in_allowlist: boolean;
   requires_restart: boolean;
+  /** false = Eintrag steht in der Allowlist, aber die Aktivierung schlug fehl
+   *  (Importfehler/Strict-Gate) — die Ops laufen weiter auf 4040. */
+  activated: boolean;
 };
 
 export const adminPluginsApi = {

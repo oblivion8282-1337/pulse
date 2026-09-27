@@ -47,6 +47,8 @@ from dcc_chat_gateway.models import (
 from dcc_chat_gateway.permissions import (
     Permissions,
     check_permission,
+    has_permission,
+    resolve_permissions,
 )
 from dcc_chat_gateway.routes._deps import guild_or_404, resolve_channel_or_raise
 from dcc_chat_gateway.schemas import (
@@ -327,13 +329,17 @@ async def refresh_download_url(
         if row.uploader_id != current.id:
             raise HTTPException(404, detail="attachment not found")
     else:
-        # Bound to a message: caller must be able to view that channel.
+        # Bound to a message: caller must be able to view that channel —
+        # und genau denselben READ_HISTORY-Gate wie list_messages fahren:
+        # sonst ließe sich über alte Anhänge lesen, was der Verlaufssperre
+        # (VIEW_CHANNEL erlaubt, READ_HISTORY entzogen) entzogen ist.
         kind, ch = await resolve_channel_or_raise(session, row.channel_id, current.id)
         if kind == "guild":
-            await check_permission(
-                session, current, ch.guild_id, Permissions.VIEW_CHANNEL,
-                channel_id=row.channel_id,
+            perms = await resolve_permissions(
+                session, current, ch.guild_id, channel_id=row.channel_id
             )
+            if not has_permission(perms, Permissions.READ_HISTORY):
+                raise HTTPException(403, detail="missing permission: READ_HISTORY")
 
     inline = _is_inline_mime(row.mime)
     url = await s3.presigned_get_url(
@@ -376,6 +382,10 @@ async def bind_attachments(
     """
     if not attachment_ids:
         return
+    # Duplikate raus (Bughunt Runde 37, Spiegel zu ``binde_anhaenge``):
+    # ``rowcount != len(set(...))`` oben tolerierte ``[5, 5]`` als voll-
+    # staendig gebunden — die Nachricht trug dieselbe Kennung doppelt.
+    attachment_ids = list(dict.fromkeys(attachment_ids))
     rows = (
         await session.execute(
             select(MessageAttachment).where(MessageAttachment.id.in_(attachment_ids))
@@ -401,7 +411,25 @@ async def bind_attachments(
         # oben, weil sie zutrifft: gebunden, nur eben an einen Umschlag.
         if r.postfach_gebunden_am is not None:
             raise HTTPException(400, detail=f"attachment {aid} already bound")
-        r.message_id = message_id
+    # Bedingtes UPDATE statt ORM-Zuweisung (Bughunt Runde 6): die
+    # message_id-Spalte hat keinen Unique-Index, der Check-then-act oben
+    # ließ bei doppeltem Absenden beide Requests durchlaufen — der letzte
+    # Commit gewann und der ersten Nachricht wurde der Anhang still
+    # abgezogen. rowcount != len heißt: ein paralleler Request war
+    # schneller → 409, der Klient wiederholt mit frischem Stand.
+    result = await session.execute(
+        update(MessageAttachment)
+        .where(
+            MessageAttachment.id.in_(attachment_ids),
+            MessageAttachment.message_id.is_(None),
+        )
+        .values(message_id=message_id)
+    )
+    if result.rowcount != len(set(attachment_ids)):
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="attachment already bound"
+        )
     # caller commits
 
 
@@ -602,21 +630,43 @@ async def _reap_once() -> int:
             except Exception:  # noqa: BLE001
                 log.exception("reaper s3 delete failed", key=key)
 
-        keys: list[str] = []
-        for r in rows:
-            keys.append(r.storage_key)
-            if r.thumb_storage_key:
-                keys.append(r.thumb_storage_key)
-        await asyncio.gather(*[_drop(k) for k in keys])
-
-        await session.execute(
-            sa_delete(MessageAttachment).where(
-                MessageAttachment.id.in_([r.id for r in rows])
+        # Bughunt Runde 7: MinIO-Objekte erst NACH dem eigenen Commit
+        # löschen — schlug der Commit fehl, verwiesen die Zeilen weiter auf
+        # bereits gelöschte Bytes (dieselbe Invariante wie in
+        # hard_delete_attachments/purge_s3_keys; der Reaper war der eine
+        # Aufrufer, der sie nicht einhielt). Ein späterer Pass holt nach.
+        #
+        # Bughunt Runde 37: die SELECT-Bedingungen wiederholen sich im DELETE
+        # — zwischen Snapshot und hier kann `bind_attachments` (Klartext) die
+        # Nachricht binden oder `binde_anhaenge` (Postfach) das
+        # postfach_gebunden_am setzen. Ohne Wiederholung löschte der Reaper
+        # dann gebundene Zeilen UND deren Blob weg (dauerhafter
+        # Datenverlust); mit `.returning()` stammen die zu löschenden Keys
+        # nur aus tatsächlich gelöschten Zeilen.
+        geloescht = (
+            await session.execute(
+                sa_delete(MessageAttachment)
+                .where(
+                    MessageAttachment.id.in_([r.id for r in rows]),
+                    MessageAttachment.message_id.is_(None),
+                    MessageAttachment.postfach_gebunden_am.is_(None),
+                )
+                .returning(
+                    MessageAttachment.storage_key,
+                    MessageAttachment.thumb_storage_key,
+                )
             )
-        )
+        ).all()
         await session.commit()
-        log.info("reaped orphan attachments", count=len(rows))
-        return len(rows)
+        await asyncio.gather(
+            *[
+                _drop(k)
+                for k in [row.storage_key for row in geloescht]
+                + [row.thumb_storage_key for row in geloescht if row.thumb_storage_key]
+            ]
+        )
+        log.info("reaped orphan attachments", count=len(geloescht))
+        return len(geloescht)
 
 
 __all__ = [

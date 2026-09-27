@@ -24,6 +24,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.ablage_schreiben import MAX_SCHREIB_BYTES
@@ -31,7 +32,7 @@ from dcc_chat_gateway.ablage_schreiben import liste as liste_vom_laufwerk
 from dcc_chat_gateway.ablage_schreiben import schreibe as schreibe_aufs_laufwerk
 from dcc_chat_gateway.ablage_ssrf import AblageAbrufFehler
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import AblageKanalLaufwerk, Channel
+from dcc_chat_gateway.models import AblageKanalLaufwerk, Channel, Guild
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._ablage_abruf import ablage_abruf_antwort
 from dcc_chat_gateway.routes._deps import channel_membership
@@ -85,7 +86,11 @@ async def setze_freigabe_adresse(
     """Hinterlegt die Freigabe-Adresse. Erstes erfolgreiches PUT legt die
     Zeile an und macht den Aufrufer zum ``ersteller_id`` (Design §4.0 —
     ``Channel`` kennt sonst keinen Ersteller, s. ``models/ablage_laufwerk.py``);
-    jedes weitere PUT darf nur noch von genau diesem Konto kommen."""
+    jedes weitere PUT darf nur noch von genau diesem Konto kommen — oder vom
+    Guild-Owner als Recovery-Pfad (Security-Scan 2026-09-18: ohne ihn könnte
+    ein Mitglied, das zuerst PUTet, den Kanal dauerhaft „squat-ten“ und die
+    Chiffrat-Weiterreichung auf eigene Infrastruktur lenken, ohne dass es
+    jemand lösen könnte). Der Owner übernimmt dabei die Ersteller-Rolle."""
     channel = await _kanal_fuer_mitglied(session, channel_id, current)
     if not ratelimit.check("ablage_laufwerk_setzen", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
@@ -103,15 +108,47 @@ async def setze_freigabe_adresse(
                 freigabe_adresse=payload.freigabe_adresse,
             )
         )
-    elif bestehend.ersteller_id != current.id:
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Zwei gleichzeitige Erst-PUTs: der PK auf channel_id hat den
+            # Schnelleren gewonnen (models/ablage_laufwerk.py — „atomar zur
+            # Festlegung“). Dessen Regeln gegen die jetzt existierende Zeile
+            # anwenden statt mit 500 zu enden.
+            await session.rollback()
+            bestehend = await session.get(AblageKanalLaufwerk, channel.id)
+            if bestehend is None:  # pragma: no cover — Zeile kann nicht fehlen
+                raise
+            await _ersetze_oder_403(session, bestehend, channel, current, payload)
+            await session.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    await _ersetze_oder_403(session, bestehend, channel, current, payload)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _ersetze_oder_403(
+    session: SessionDep,
+    bestehend: AblageKanalLaufwerk,
+    channel: Channel,
+    current: CurrentUser,
+    payload: FreigabeAdresseIn,
+) -> None:
+    """Ersetzen nur durch den Ersteller — oder den Guild-Owner (Parität zum
+    Community-Laufwerk, das von Anfang an an ``Guild.owner_id`` gebunden ist,
+    ``routes/ablage_guild_laufwerk.py``)."""
+    if bestehend.ersteller_id == current.id:
+        bestehend.freigabe_adresse = payload.freigabe_adresse
+        return
+    guild = await session.get(Guild, channel.guild_id)
+    if guild is None or guild.owner_id != current.id:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="only the member who first set this drive may replace it",
         )
-    else:
-        bestehend.freigabe_adresse = payload.freigabe_adresse
-    await session.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    bestehend.ersteller_id = current.id  # Owner übernimmt das Laufwerk
+    bestehend.freigabe_adresse = payload.freigabe_adresse
 
 
 @router.get("/channels/{channel_id}/ablage/abruf")

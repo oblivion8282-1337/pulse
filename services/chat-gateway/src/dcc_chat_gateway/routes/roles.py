@@ -35,6 +35,7 @@ from dcc_chat_gateway.role_hierarchy import (
     highest_role_position,
 )
 from dcc_chat_gateway.role_wire import role_wire_dict
+from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.routes._deps import (
     guild_or_404,
     publish_guild_event,
@@ -106,11 +107,44 @@ async def create_role(
         select(func.max(Role.position)).where(Role.guild_id == guild_id)
     )
     next_pos = (max_pos if max_pos is not None else 0) + 1
+    # Bughunt Runde 9: create war der EINZIGE Rollen-Pfad ohne Rangschranke —
+    # ein MANAGE_ROLES-Halter erzeugte eine Rolle über seinem eigenen Rang
+    # und konnte sie danach weder zuweisen, bearbeiten, löschen noch
+    # umsortieren (jede Folge-Anfrage 403, nur der Owner konnte sie wieder
+    # entfernen). Klemmen unter die eigene Obergrenze; wer keine halten
+    # darf (aktor_top <= 1, also direkt über @everyone), geht leer aus.
+    guild = await session.get(Guild, guild_id)
+    if not (current.is_admin or (guild is not None and guild.owner_id == current.id)):
+        actor_top = await highest_role_position(session, guild_id, current.id)
+        if next_pos >= actor_top:
+            next_pos = actor_top - 1
+            # Position 0 (Gleichstand mit @everyone, sortiert im Resolver
+            # stabil DANACH) ist zulässig und zuweisbar — erst unter 0 wird
+            # es unmöglich, eine Rolle unter der eigenen zu schaffen
+            # (nur @everyone-only MANAGE_ROLES-Halter ohne eigene Rolle).
+            if next_pos < 0:
+                raise HTTPException(
+                    403,
+                    detail="cannot create a role at or above your highest role",
+                )
+
+    # Display-string sink: dieselbe Härtung wie Kanal-/Gruppennamen
+    # (Bughunt Runde 14) — Zero-Width/Bidi-Homoglyphe ("Adm\u200bin") und
+    # Whitespace-only-Namen fielen sonst roh in Audit-Log und Memberliste.
+    try:
+        clean_name = validate_name(payload.name, max_len=64)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    # Reservierter Systemname (Bughunt Runde 14): eine zweite, zuweisbare
+    # "@everyone"-Rolle wäre reines Trust-/Display-Spoofing — das System-
+    # selbst unterscheidet nur über das is_everyone-Flag.
+    if clean_name == "@everyone":
+        raise HTTPException(422, detail="name is reserved")
 
     role = Role(
         id=next_id(),
         guild_id=guild_id,
-        name=payload.name,
+        name=clean_name,
         permissions=payload.permissions,
         color=payload.color,
         position=next_pos,
@@ -173,7 +207,17 @@ async def patch_role(
     if payload.name is not None:
         if role.is_everyone:
             raise HTTPException(400, detail="@everyone cannot be renamed")
-        role.name = payload.name
+        # Dasselbe Display-Härtung wie beim Anlegen (Bughunt Runde 14).
+        try:
+            clean_name = validate_name(payload.name, max_len=64)
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
+        # Reservierter Systemname (Regression aus Runde 14, Adversarial-
+        # Review Runde 22: der Check saß nur im create — ein Rename
+        # konnte eine gewöhnliche Rolle in "@everyone" taufen).
+        if clean_name == "@everyone":
+            raise HTTPException(422, detail="name is reserved")
+        role.name = clean_name
     if payload.permissions is not None:
         # Editor must already have every bit they're adding (anti-
         # escalation). Removing bits is always fine. Single-pass mask:
@@ -340,6 +384,13 @@ async def update_role_positions(
             publish_guild_event(request, RoleUpdatedEvent(role=role_wire_dict(role)))
             for role in rows.values()
         ]
+    )
+    # Bughunt Runde 9: der Reorder ändert die Overwrite-Layering-Reihenfolge
+    # (niedrig→hoch, deny-wins) und kann damit VIEW_CHANNEL/CONNECT entziehen
+    # — derselbe Trigger wie patch_role/delete_role, nur dass genau hier der
+    # Evict fehlte. Nach dem Commit, best-effort.
+    await evict_ineligible_from_voice_channels(
+        session, getattr(request.app.state, "redis", None), guild_id
     )
     return list(rows.values())
 

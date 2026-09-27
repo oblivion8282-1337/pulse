@@ -30,8 +30,8 @@ test('rolleLesen ist fail-closed gegen alles andere', () => {
 });
 
 test('der Ende-Anstoss traegt die Anstoss-Huelle, nicht die Rahmen-Form', () => {
-  // Er geht durch dieselbe Tuer wie fremde Nutzlast (`gsr:ablage` bzw.
-  // `gsr:ablageEnde`), und `pulse_ablage::lage::deuten` entscheidet an der
+  // Er geht durch dieselbe Tuer wie fremde Nutzlast (`sidecar:ablage` bzw.
+  // `sidecar:ablageEnde`), und `pulse_ablage::lage::deuten` entscheidet an der
   // HUELLE: unter `anstoss` steht Eigenes, unter `rahmen` Fremdes. Eine
   // Rahmen-Form hier bedeutete, dass die Gegenseite dasselbe schicken und die
   // Ablage abschalten koennte.

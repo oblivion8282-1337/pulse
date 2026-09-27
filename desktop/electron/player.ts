@@ -583,6 +583,14 @@ class PlayerManager {
     this.rl = null;
     this.child = null;
   }
+
+  /** Bughunt Runde 44: SIGKILL ohne Leiter — für den Quit-Backstop in
+   *  main.ts (s. SidecarManager.killHard). */
+  killHard(): void {
+    const child = this.child;
+    if (!child || child.killed) return;
+    try { child.kill('SIGKILL'); } catch { /* schon tot */ }
+  }
 }
 
 export const playerManager = new PlayerManager();

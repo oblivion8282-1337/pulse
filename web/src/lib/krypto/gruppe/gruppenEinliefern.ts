@@ -16,9 +16,18 @@
 import { postfachApi, type PostfachNutzlast } from '../../api/postfach';
 import { serversStore } from '../../api/servers.svelte';
 import { kryptoAccountLaden } from '../account.svelte';
-import { sitzungLaden, sitzungSichern, mitSitzungssperre } from '../sitzungen';
+import {
+  sitzungLaden,
+  sitzungSichern,
+  mitSitzungssperre,
+  partnerSchluesselLesen,
+  partnerSchluesselMerken
+} from '../sitzungen';
 import { baueVerteilNutzlast, type AblageVerteilzugabe } from './gruppenNutzlast';
 import type { Gruppenzielgeraet } from './gruppengeraete';
+import { geraetebuendelAuthentifizieren } from '../geraetePinnung';
+import { BuendelUnsigniertFehler } from '../buendelSignatur';
+import { melde } from '../../diagnose/app-diagnose';
 
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
@@ -33,26 +42,72 @@ function cloudRoute(): { serverId?: string } {
  *  `ablage` ist nur bei Ablage-Kanaelen gesetzt: der Aufrufer gibt ihn
  *  weiter, wenn DIESES Geraet den Ablage-Hauptschluessel und die
  *  Freigabe-Adresse des Kanals kennt (Design §3.1) — jedes Ziel-Geraet
- *  dieses Aufrufs bekommt dann alle drei Dinge in einem Umschlag. */
+ *  dieses Aufrufs bekommt dann alle drei Dinge in einem Umschlag.
+ *
+ *  `absenderGeraet` ist die eigene Geraetekennung des Aufrufers und faehrt
+ *  in der authentisierten Verteilnutzlast mit (Bughunt 2026-09-23): der
+ *  Empfaenger registriert die eingehende Sitzung unter IHM, nicht unter dem
+ *  Metadaten-Wert der Zustellung — sonst liesse sich der Sitzung ein
+ *  falscher Inhaber unterschieben und jeder spaeteren Gruppennachricht ein
+ *  falscher Absender. */
 export async function verteilUmschlaege(
   kanalId: string,
   sitzungId: string,
   verteilschluessel: string,
   ziel: Gruppenzielgeraet[],
-  ablage?: AblageVerteilzugabe
+  ablage?: AblageVerteilzugabe,
+  absenderGeraet?: string
 ): Promise<PostfachNutzlast[]> {
   const ident = await kryptoAccountLaden();
-  const klartext = baueVerteilNutzlast(kanalId, sitzungId, verteilschluessel, ablage);
+  const klartext = baueVerteilNutzlast(kanalId, sitzungId, verteilschluessel, ablage, absenderGeraet);
   const nutzlasten: PostfachNutzlast[] = [];
+  // Vorzeichenlose Alt-Bündel je Gerät überspringen statt die ganze Verteilung
+  // zu töten (Vorfall 2026-09-24 im DM-Weg: totes Altgerät blockierte jede
+  // Zustellung an die lebenden Geräte). Nicht still — der Sprung geht in den
+  // Käfer-Ring; bleibt kein signiertes Gerät übrig, wirft die Schleife
+  // denselben Fehler wie vorher. Ein Mitglied VERLIERT den Verteilschluessel
+  // dadurch nicht, das es gar nicht bekam: das alte Gerät hätte ihn nie
+  // entpacken können.
+  const unsignierteAltgeraete: string[] = [];
   for (const { geraet } of ziel) {
+    // **Signatur + TOFU (Bughunt 2026-09-23)** — dieselbe geteilte
+    // Authentifizierung wie im DM-Weg (`../geraetePinnung.ts`); hier ist sie
+    // sogar der groesste Hebel: der Verteilschluessel der Gruppe geht durch
+    // diese Umschlaege. Ungueltige Signatur und Pinnungs-Abweichung werfen
+    // weiterhin hart; nur ein Bündel OHNE Signatur wird uebersprungen
+    // (s. unsignierteAltgeraete oben).
+    try {
+      await geraetebuendelAuthentifizieren(geraet);
+    } catch (err) {
+      if (!(err instanceof BuendelUnsigniertFehler)) throw err;
+      unsignierteAltgeraete.push(geraet.device_pubkey);
+      continue;
+    }
+
     const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
       let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
+      if (sitzung) {
+        // Bughunt Runde 10: derselbe Partner-Schluessel-Vergleich wie im
+        // DM-Weg (senden.ts, Fix 2026-09-03) — trägt das Bundle einen
+        // ANDEREN Identitätsschlüssel als den, für den die Sitzung gebaut
+        // wurde (Frischstart desselben Geräts), war sie dort weg. Ohne den
+        // Vergleich ging der Verteilschlüssel in eine tote Sitzung und
+        // wurde als „beliefert" gebucht: nie wieder nachgeliefert.
+        const gemerkt = await partnerSchluesselLesen(kanalId, geraet.device_pubkey);
+        if (gemerkt !== geraet.curve25519) {
+          console.warn('[gruppe] Gegenseite hat neuen Schlüsselbund — Sitzung wird neu aufgebaut');
+          sitzung = null;
+        }
+      }
       if (!sitzung) {
         const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
         if (!einmal) return null;
         sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
       }
       const gebaut = sitzung.verschluesseln(klartext);
+      // Sichern VOR dem Einliefern — s. `../sitzungen.ts`-Modulkopf. Der
+      // gemerkte Partner-Schlüssel wandert mit (Spiegel zum DM-Weg).
+      await partnerSchluesselMerken(kanalId, geraet.device_pubkey, geraet.curve25519);
       // Sichern VOR dem Einliefern — s. `../sitzungen.ts`-Modulkopf.
       await sitzungSichern(kanalId, geraet.device_pubkey, sitzung);
       return gebaut;
@@ -63,6 +118,18 @@ export async function verteilUmschlaege(
       daten: umschlag.daten(),
       empfaenger: [geraet.device_pubkey]
     });
+  }
+  if (unsignierteAltgeraete.length > 0) {
+    melde(
+      'gruppe',
+      'buendel_unsigniert_uebersprungen',
+      `Geräte ohne signiertes Bündel übersprungen: ${unsignierteAltgeraete.join(', ')}`
+    );
+  }
+  if (nutzlasten.length === 0 && unsignierteAltgeraete.length > 0) {
+    // Alles übersprungen, niemand bekommt den Verteilschluessel — derselbe
+    // laute Fehler wie vor der Skip-Regel. Fail-closed.
+    throw new BuendelUnsigniertFehler(unsignierteAltgeraete[0]);
   }
   return nutzlasten;
 }

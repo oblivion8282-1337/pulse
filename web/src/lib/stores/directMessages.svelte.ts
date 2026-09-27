@@ -23,6 +23,10 @@ import {
 class DirectMessageStore {
   byId = $state<Record<string, DMChannel>>({});
   loaded = $state(false);
+  // Zählt clear()-Aufrufe. Ein hydrate(), dessen Antwort NACH einem clear()
+  // eintrudelt (Sign-Out/Account-Wechsel während des Flugs), darf den
+  // geleerten Store nicht mit dem Vorgänger-Konto wiederauffüllen.
+  #generation = 0;
 
   // Most-recently-active first. DMs mit letzter Nachricht oben (neueste
   // zuerst); DMs ohne Nachricht (last_message_id null) darunter, nach
@@ -40,12 +44,28 @@ class DirectMessageStore {
   );
 
   async hydrate(): Promise<void> {
+    const generation = this.#generation;
     const dms = await chatApi.listDMChannels();
+    if (generation !== this.#generation) return;
     const next: Record<string, DMChannel> = {};
     for (const d of dms) next[d.id] = d;
+    // Bughunt Runde 6: der Server-Snapshot kann älter sein als Live-Events,
+    // die während des Flugs eintrafen (dm_bump/upsertFromEncrypted). Deren
+    // Stand (neuere last_message_id, ganze neue Kanäle) nicht wegwerfen —
+    // sonst regrediert die Sortierung und neue DMs fallen aus der Liste.
+    // Kanäle, die der Server NICHT mehr liefert, fliegen (authoritativ).
+    for (const [id, aktuell] of Object.entries(this.byId)) {
+      const snapshot = next[id];
+      if (snapshot === undefined) continue;
+      const neuId = snapshot.last_message_id;
+      const altId = aktuell.last_message_id;
+      if (altId && (!neuId || compareSnowflakeId(altId, neuId) > 0)) {
+        next[id] = aktuell;
+      }
+    }
     this.byId = next;
     this.loaded = true;
-    void this.mergeLokaleVorschauen(dms.map((d) => d.id));
+    void this.mergeLokaleVorschauen(Object.keys(next));
   }
 
   /** Replace the whole map — used when WS `ready` re-seeds the list. */
@@ -216,6 +236,7 @@ class DirectMessageStore {
   }
 
   clear(): void {
+    this.#generation++;
     this.byId = {};
     this.loaded = false;
   }

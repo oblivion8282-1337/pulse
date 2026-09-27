@@ -80,10 +80,45 @@ impl Identitaet {
         Ok(self.account.pickle().encrypt(schluessel))
     }
 
+    /// Signiert `nachricht` mit dem Ed25519-Identitaetsschluessel des Accounts.
+    /// Rueckgabe: Base64-Signatur.
+    ///
+    /// Damit bindet ein Geraet sein veroeffentlichtes Buendel (curve25519 +
+    /// Rueckfallschluessel) an seine Identitaet: der Verzeichnis-Server kann
+    /// beides nicht mehr stumm austauschen, denn er kann nicht signieren
+    /// (Bughunt 2026-09-23 — bislang wurde `ed25519()` nie publiziert und
+    /// signierte nichts; siehe auch ``signatur_pruefen``).
+    pub fn signieren(&self, nachricht: impl AsRef<[u8]>) -> String {
+        self.account.sign(nachricht).to_base64()
+    }
+
     pub fn auftauen(gefroren: &str, schluessel: &[u8; 32]) -> Result<Self, KryptoFehler> {
         let pickle = vodozemac::olm::AccountPickle::from_encrypted(gefroren, schluessel)
             .map_err(|_| KryptoFehler::AuftauenFehlgeschlagen)?;
         Ok(Self { account: Account::from_pickle(pickle) })
+    }
+
+    /// Prueft eine Base64-Signatur gegen einen Base64-Ed25519-Oeffentlichten
+    /// Schluessel. True NUR bei exakter Uebereinstimmung.
+    ///
+    /// Freistehende Funktion statt Methode, weil der Pruefende die Signatur
+    /// nie selbst erzeugt hat: er hat keinen Account der Gegenstelle, sondern
+    /// nur den publizierten Schluessel aus dem Verzeichnis. vodozemac
+    /// verifiziert hier mit ``verify_strict`` — krumme Kurvenpunkte und
+    /// nicht-kanonische Signaturen fliegen raus.
+    pub fn signatur_pruefen(
+        ed25519: &str,
+        nachricht: impl AsRef<[u8]>,
+        signatur: &str,
+    ) -> bool {
+        use vodozemac::{Ed25519PublicKey, Ed25519Signature};
+        let (Ok(schluessel), Ok(sig)) = (
+            Ed25519PublicKey::from_base64(ed25519),
+            Ed25519Signature::from_base64(signatur),
+        ) else {
+            return false; // unparsbar -> fail closed
+        };
+        schluessel.verify(nachricht.as_ref(), &sig).is_ok()
     }
 
     /// Baut die Sitzung auf, wenn WIR zuerst schreiben. Braucht die
@@ -209,5 +244,53 @@ mod tests {
         let wieder_key =
             wieder.account.fallback_key().into_values().next().map(|k| k.to_base64());
         assert_eq!(wieder_key, Some(erzeugt));
+    }
+
+    #[test]
+    fn signatur_bindet_buendel_an_identitaet() {
+        // Der Kern des Buendel-Signierens: die Signatur passt zu dem
+        // publizierten ed25519-Schluessel DESSELBEN Accounts und zu genau
+        // dem Buendel-Inhalt, der veroeffentlicht wurde.
+        let ident = Identitaet::neu();
+        let schluessel = ident.schluessel();
+        let nachricht = r#"{"curve25519":"abc","device_pubkey":"dev1","rueckfallschluessel":null}"#;
+        let signatur = ident.signieren(nachricht);
+        assert!(Identitaet::signatur_pruefen(&schluessel.ed25519, nachricht, &signatur));
+    }
+
+    #[test]
+    fn veraenderter_inhalt_faellt_durch_signaturpruefung() {
+        // Genau der Angriff, gegen den das signiert: der Server tauscht den
+        // curve25519-Schluessel im Buendel aus — die mitgelieferte Signatur
+        // des echten Geraets passt dann nicht mehr.
+        let ident = Identitaet::neu();
+        let schluessel = ident.schluessel();
+        let signatur = ident.signieren(r#"{"curve25519":"echt"}"#);
+        assert!(!Identitaet::signatur_pruefen(
+            &schluessel.ed25519,
+            r#"{"curve25519":"ausgetauscht"}"#,
+            &signatur
+        ));
+    }
+
+    #[test]
+    fn fremder_schluessel_und_unparsbares_werden_abgewiesen() {
+        let a = Identitaet::neu();
+        let b = Identitaet::neu();
+        let signatur = a.signieren("nachricht");
+        // Signatur eines anderen Accounts passt nicht zum publizierten Schluessel.
+        assert!(!Identitaet::signatur_pruefen(
+            &b.schluessel().ed25519,
+            "nachricht",
+            &signatur
+        ));
+        // Unparsbare Schluessel/Signaturen scheitern gescheit (fail closed),
+        // statt einen Fehler zu werfen, der den Rufpfad sprengt.
+        assert!(!Identitaet::signatur_pruefen("kein-schluessel", "nachricht", &signatur));
+        assert!(!Identitaet::signatur_pruefen(
+            &a.schluessel().ed25519,
+            "nachricht",
+            "keine-signatur"
+        ));
     }
 }

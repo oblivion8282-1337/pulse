@@ -38,7 +38,7 @@ pushd streaming/server >/dev/null
 docker compose stop mediamtx >/dev/null 2>&1
 popd >/dev/null
 
-_info "Container stoppen (Postgres / Redis / MinIO / LiveKit)"
+_info "Container stoppen (Postgres / Redis / Garage / LiveKit)"
 docker compose --profile voice stop >/dev/null 2>&1
 _ok "Container gestoppt (Volumes bleiben)"
 

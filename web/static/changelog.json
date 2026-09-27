@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-16.1",
+      "date": "2026-09-16",
+      "style": "Sachlich",
+      "title": "Communitys: Einstellungen-Zugang für Sound-Verwalter",
+      "intro": "Wer in einer Community das Recht „Community verwalten“ hatte, konnte die Community-Einstellungen bisher gar nicht öffnen — der Punkt fehlte im Rechtsklick-Menü. Damit ließen sich auch keine eigenen Sounds hochladen, obwohl die Berechtigung dafür vorhanden war.",
+      "items": [
+        "„Einstellungen“ erscheint im Rechtsklick-Menü jetzt für jeden, der mindestens einen Einstellungs-Bereich sehen darf — Community verwalten, Mitglieder & Rollen oder die Mod-Queue.",
+        "Mit „Community verwalten“ öffnet der Dialog direkt den Sounds-Reiter: Sounds hochladen, ersetzen und löschen funktioniert damit über die Oberfläche.",
+        "Moderatoren mit nur Melde-Rechten erreichen ihre Meldungen jetzt ebenfalls über die Einstellungen."
+      ]
+    },
+    {
       "id": "2026-09-15.1",
       "date": "2026-09-15",
       "style": "Kurz",

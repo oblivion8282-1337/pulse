@@ -57,7 +57,7 @@ async def _enforce_user_limit(
 class TokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    channel_id: Annotated[str, Field(min_length=1, max_length=64)]
+    channel_id: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]
     # 1 = voice. The frontend may send `kind: 'voice' | 'screen'` later;
     # for the skeleton we only emit voice grants.
     kind: Annotated[str, Field(default="voice", pattern=r"^(voice|screen)$")] = "voice"

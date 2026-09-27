@@ -261,7 +261,28 @@ export class AblageVerbindungsStore {
    * dagegen wird dort, wo der Server es braucht, über `archivUeberPulse`
    * angebaut (`sicherung/ziele.ts`, DM-Anhänge) — nicht hier.
    */
-  async dateiSpeicherFür(verbindungId: string): Promise<DateiSpeicher | null> {
+  // Bughunt Runde 10: EIN Speicher je Verbindung, kein Neu-Bau je Aufruf.
+  // Die Verzeichnis-Queue in DateiSpeicher serialisiert LESEN/SCHREIBEN nur
+  // INNERHALB einer Instanz — zwei Instanzen (Festigung + UI-Upload) lasen
+  // denselben Stand parallel und überschrieben sich gegenseitig: Datei-
+  // Einträge verswanden still, die Quittierung war längst erfolgt, kein
+  // Retry holte sie zurück.
+  #speicherCache = new Map<string, Promise<DateiSpeicher | null>>();
+
+  dateiSpeicherFür(verbindungId: string): Promise<DateiSpeicher | null> {
+    const vorhanden = this.#speicherCache.get(verbindungId);
+    if (vorhanden) return vorhanden;
+    const p = this.#baueSpeicher(verbindungId).catch((err) => {
+      // Fehlgeschlagene Baue-Versuche nicht cachen — ein späterer Aufruf
+      // (nach Reparatur der Verbindung) soll es erneut versuchen.
+      this.#speicherCache.delete(verbindungId);
+      throw err;
+    });
+    this.#speicherCache.set(verbindungId, p);
+    return p;
+  }
+
+  async #baueSpeicher(verbindungId: string): Promise<DateiSpeicher | null> {
     const v = this.verbindung(verbindungId);
     if (!v) return null;
     const hauptschlüssel = base64ZuBytes(v.hauptschlüsselB64);

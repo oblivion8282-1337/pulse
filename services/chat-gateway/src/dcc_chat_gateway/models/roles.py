@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    ForeignKeyConstraint,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -83,6 +84,11 @@ class MemberRole(Base):
 
     __tablename__ = "member_roles"
 
+    # Bughunt Runde 15: der Composite-FK auf guild_members stand bisher nur
+    # in Migration 0009 — create_all-Datenbanken (pytest/dev SQLite) hatten
+    # IHN nie, und der Kick/Leave-Pfad verlässt sich auf dessen CASCADE:
+    # dort überlebten member_roles-Zeilen und belebten sich beim Wiedereintritt.
+    # Spiegel der Migration, ondelete="CASCADE".
     guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     role_id: Mapped[int] = mapped_column(
@@ -91,6 +97,11 @@ class MemberRole(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("guild_id", "user_id", "role_id"),
+        ForeignKeyConstraint(
+            ["guild_id", "user_id"],
+            ["guild_members.guild_id", "guild_members.user_id"],
+            ondelete="CASCADE",
+        ),
         Index("ix_member_roles_user", "guild_id", "user_id"),
         # Backs the large-guild VIEW_CHANNEL path, which resolves
         # ``WHERE guild_id = :g AND role_id IN (:overwrite_roles)`` — the

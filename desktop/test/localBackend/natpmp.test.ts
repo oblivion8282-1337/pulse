@@ -56,10 +56,11 @@ test('parsePcpMapResponse: success + external port/ip', () => {
   b.writeUInt8(2, 0); b.writeUInt8(0x81, 1); b.writeUInt8(0, 3); // result 0
   b.writeUInt32BE(3600, 4);
   b.writeUInt8(17, 24);                        // protocol
-  b.writeUInt16BE(7882, 28); b.writeUInt16BE(7882, 30);          // internal + external port
-  // assigned external IP als IPv4-mapped ::ffff:203.0.113.7
-  b.writeUInt16BE(0xffff, 32 + 10);
-  b.writeUInt8(203, 44); b.writeUInt8(0, 45); b.writeUInt8(113, 46); b.writeUInt8(7, 47);
+  b.writeUInt16BE(7882, 40); b.writeUInt16BE(7882, 42);          // internal + external port (RFC 6887)
+  // assigned external IP als IPv4-mapped ::ffff:203.0.113.7 @44..59:
+  // 10 Null-Bytes, 0xffff @54..55, IPv4 @56..59.
+  b.writeUInt16BE(0xffff, 54);
+  b.writeUInt8(203, 56); b.writeUInt8(0, 57); b.writeUInt8(113, 58); b.writeUInt8(7, 59);
   const r = parsePcpMapResponse(b);
   assert.equal(r?.resultCode, 0);
   assert.equal(r?.externalPort, 7882);

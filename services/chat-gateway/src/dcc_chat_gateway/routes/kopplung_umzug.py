@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import base64
 
+from sqlalchemy.exc import IntegrityError
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import delete, select
 
@@ -164,7 +165,30 @@ async def kopplung_stueck_ablegen(
         vorhanden.groesse = groesse
         vorhanden.kennung = body.kennung
 
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Zwei gleichzeitig schwebende PUTs für dieselbe Folge sahen beide
+        # "vorhanden is None" (UniqueConstraint auf kopplung_id+folge). Die
+        # Route verspricht blinde Wiederholbarkeit — der Verlierer behandelt
+        # den Konflikt als Update-Case statt 500. (Runde 10 hatte diesen
+        # legitimen Handler versehentlich mit entfernt, weil dieselbe
+        # Vorlage auch in zwei Routen OHNE die passenden Felder landete —
+        # Adversarial-Review Runde 12 hat das aufgedeckt.)
+        await session.rollback()
+        stueck = (
+            await session.execute(
+                select(UmzugStueck).where(
+                    UmzugStueck.kopplung_id == kid, UmzugStueck.folge == body.folge
+                )
+            )
+        ).scalar_one_or_none()
+        if stueck is None:
+            raise
+        stueck.daten = body.daten
+        stueck.groesse = groesse
+        stueck.kennung = body.kennung
+        await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -219,6 +243,12 @@ async def kopplung_fertig(
     kopplung = await kopplung_laden(session, kid, user.id, geraet, "alt")
 
     kopplung.gesamt_stuecke = body.gesamt_stuecke
+    # Bughunt Runde 10: hier stand der Runde-7-Handler aus
+    # kopplung_stueck_ablegen kopiert drin — referenzierte body.folge/
+    # daten/kennung + groesse, die es in diesem Request-Model nicht gibt,
+    # und wäre im Fehlerfall selbst mit AttributeError/NameError
+    # explodiert. Diese Route berührt keinen Unique-Constraint; ein
+    # blinder Commit genügt.
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -269,5 +299,10 @@ async def kopplung_abschliessen(
     if treffer:
         await session.execute(delete(UmzugStueck).where(UmzugStueck.kopplung_id == kid))
 
+    # Bughunt Runde 12: hier stand der Runde-7-Handler aus
+    # kopplung_stueck_ablegen kopiert — Referenzen auf body.folge/daten/
+    # kennung + groesse existieren in diesem Request-Model nicht, der
+    # Fehlerpfad wäre selbst als AttributeError/NameError explodiert.
+    # Diese DELETEs berühren keinen Unique-Constraint; blinder Commit.
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

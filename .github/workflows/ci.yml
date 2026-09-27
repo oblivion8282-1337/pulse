@@ -69,7 +69,7 @@ jobs:
       REDIS_URL: redis://localhost:6380/0
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
       - name: Set up Python
@@ -162,8 +162,8 @@ jobs:
       - name: Zwillinge prüfen
         run: cargo test --manifest-path streaming/zwillinge/Cargo.toml
       # Dieselbe Begründung wie oben: die gemeinsamen Kisten (streaming/pulse-*,
-      # ausgenommen pulse-player UND pulse-whip) sind abhängigkeitsfrei und
-      # bauen in Sekunden. Sie liefen bis 2026-08-22 in KEINEM Gate — weder
+      # ausgenommen pulse-player UND pulse-whip) sind leichtgewichtig (serde_json
+      # max.) und bauen in Sekunden. Sie liefen bis 2026-08-22 in KEINEM Gate — weder
       # hier noch in scripts/ship.sh —, und `cargo test` in einem Programm
       # führt die Tests seiner Pfad-Abhängigkeiten nicht mit.
       #
@@ -213,7 +213,7 @@ jobs:
           AFTER_SHA: ${{ github.sha }}
         run: bash scripts/check-changelog.sh "$BEFORE_SHA" "$AFTER_SHA"
 
-  # Build & push the 6 production images. The cron updater on the VPS follows `:latest`.
+  # Build & push the 7 production images. The cron updater on the VPS follows `:latest`.
   #
   # DEPLOY IST BEWUSST VOM TEST-GATE ENTKOPPELT: needs ist nur `changelog`,
   # NICHT backend/frontend. Grund: die backend-Tests haben seltene pub/sub-

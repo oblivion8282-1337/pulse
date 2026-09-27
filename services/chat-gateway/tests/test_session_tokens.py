@@ -144,3 +144,49 @@ def test_ttl_ist_ueberschreibbar_und_bleibt_sonst_bei_fuenf_minuten(tmp_path):
     lg = validate_session_token(lang, key_path=pfad)
     assert k.exp - k.iat == SESSION_TTL_SECONDS
     assert lg.exp - lg.iat == 3600
+
+
+# ---------------------------------------------------------------------------
+# Bughunt 2026-09-20: Erststart-Rennen um den Signing-Key
+
+
+def test_erststart_rennen_nimmt_gewinner_schluessel(_tmp_key, monkeypatch):
+    """Zwei Services starten gleichzeitig ohne Schlüssel auf der Platte: der
+    eine legt ihn an (O_EXCL gewinnt), der andere muss NACHladen — sonst
+    signiert jeder Prozess mit seinem eigenen Schlüssel und jede Validierung
+    läuft in 401. Hier gewinnt der "andere Prozess": er schreibt den
+    gemeinsamen Schlüssel, während der lokale Pfad schon generiert hat."""
+    from pathlib import Path
+
+    from cryptography.hazmat.primitives import serialization
+
+    import dcc_shared.session_tokens as st
+
+    winner_pem = st._generate_ed25519_pem()
+    original_generate = st._generate_ed25519_pem
+
+    def generate_and_simulate_winner():
+        # Der "andere Prozess" legt den gemeinsamen Schlüssel ab, bevor der
+        # lokale Pfad sein eigenes O_EXCL-Create versucht → FileExistsError.
+        Path(_tmp_key).write_bytes(winner_pem)
+        return original_generate()
+
+    monkeypatch.setattr(st, "_generate_ed25519_pem", generate_and_simulate_winner)
+    reset_session_signer()
+    try:
+        key = st._load_or_generate_key(_tmp_key)
+    finally:
+        reset_session_signer()
+    winner = serialization.load_pem_private_key(winner_pem, password=None)
+    assert (
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        == winner.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )

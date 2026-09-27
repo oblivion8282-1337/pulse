@@ -96,9 +96,7 @@
             class="justify-center gap-2"
             onclick={() => (type = 0)}
             disabled={nurAblage}
-            title={nurAblage
-              ? 'Diese Instanz erlaubt nur verschlüsselte Ablage-Kanäle'
-              : undefined}
+            title={nurAblage ? m.create_channel_ablage_nur_ablage_title() : undefined}
             data-testid="create-channel-type-text"
           >
             <HashIcon class="size-4" />
@@ -130,9 +128,7 @@
       </div>
       {#if nurAblage}
         <p class="text-muted-foreground text-xs leading-relaxed">
-          Diese Instanz erlaubt nur verschlüsselte Ablage-Kanäle — zum Erstellen
-          ist eine verbundene Cloud-Ablage nötig. Der Verbindungs-Assistent
-          kommt mit der Krypto-Etappe.
+          {m.create_channel_ablage_banner()}
         </p>
       {/if}
       <div class="space-y-1.5">

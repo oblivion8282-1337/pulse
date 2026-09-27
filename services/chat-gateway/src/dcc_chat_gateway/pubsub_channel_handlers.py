@@ -24,6 +24,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+# Side-effect: registers ``guild:events`` — kept in its own module so this
+# file stays under the 350-line policy.
+from dcc_chat_gateway import pubsub_channel_guild  # noqa: F401
 from dcc_chat_gateway.pubsub_channel_registry import register_channel_handler
 from dcc_chat_gateway.pubsub_channels import (
     ADMIN_EVENTS_CHANNEL,
@@ -33,10 +36,6 @@ from dcc_chat_gateway.pubsub_channels import (
 )
 from dcc_chat_gateway.pubsub_event_validation import maybe_drop
 from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL, now_ms
-
-# Side-effect: registers ``guild:events`` — kept in its own module so this
-# file stays under the 350-line policy.
-from dcc_chat_gateway import pubsub_channel_guild  # noqa: F401
 
 if TYPE_CHECKING:
     from dcc_chat_gateway.pubsub import ConnectionManager
@@ -60,13 +59,23 @@ def _payload_or_skip(
     return payload
 
 
+def _form(v: object) -> object:
+    """Entscheidung 2f (2026-09-21): Struktur statt Inhalt — Warnungen über
+    fehlerhafte Pub/Sub-Payloads durften vorher den GESAMTEN Payload per
+    %r ins Log schreiben (voice/watch/stream-Präsenz, user-Zuordnungen:
+    privates Beziehungswissen). Jetzt nur noch Keys bzw. Typname."""
+    if isinstance(v, dict):
+        return sorted(v.keys())
+    return type(v).__name__
+
+
 @register_channel_handler(VOICE_EVENTS_CHANNEL)
 async def handle_voice_events(
     manager: "ConnectionManager", channel: str, msg: dict[str, Any]
 ) -> None:
     payload = _payload_or_skip(manager, msg, VOICE_EVENTS_CHANNEL)
     if payload is None or "channel_id" not in payload:
-        log.warning("voice:events malformed or missing channel_id: %r", payload)
+        log.warning("voice:events malformed or missing channel_id: keys=%s", _form(payload))
         return
     # voice-signaling also publishes admin-override events on this channel
     # (force-mute / unmute). Recognise them by the explicit ``op`` field
@@ -185,7 +194,7 @@ async def handle_watch_events(
 ) -> None:
     payload = _payload_or_skip(manager, msg, WATCH_EVENTS_CHANNEL)
     if payload is None or "channel_id" not in payload:
-        log.warning("watch:events malformed or missing channel_id: %r", payload)
+        log.warning("watch:events malformed or missing channel_id: keys=%s", _form(payload))
         return
     watch_cid = str(payload.get("channel_id"))
     envelope = {
@@ -217,7 +226,7 @@ async def handle_stream_events(
 ) -> None:
     payload = _payload_or_skip(manager, msg, STREAM_EVENTS_CHANNEL)
     if payload is None or "channel_id" not in payload:
-        log.warning("stream:events malformed or missing channel_id: %r", payload)
+        log.warning("stream:events malformed or missing channel_id: keys=%s", _form(payload))
         return
     stream_cid = str(payload.get("channel_id"))
     envelope: dict[str, Any] = {
@@ -250,16 +259,23 @@ async def handle_user_events(
 ) -> None:
     payload = _payload_or_skip(manager, msg, USER_EVENTS_CHANNEL)
     if payload is None:
-        log.warning("user:events malformed: %r", payload)
+        # Bughunt Runde 33: vorher loggte die Zeile garantiert None (der
+        # Wert IST None, wenn hier nicht zurueckgesprungen wurde) — tote
+        # Diagnose. Jetzt: Form des Roh-Botschafts sichtbar machen.
+        log.warning(
+            "user:events malformed: keys=%s type=%s",
+            sorted(msg.keys()) if isinstance(msg, dict) else type(msg).__name__,
+            type(msg).__name__,
+        )
         return
     target_uid_raw = payload.pop("_target_user_id", None)
     if target_uid_raw is None:
-        log.warning("user:events missing _target_user_id: %r", payload)
+        log.warning("user:events missing _target_user_id: keys=%s", _form(payload))
         return
     try:
         target_uid = int(target_uid_raw)
     except (TypeError, ValueError):
-        log.warning("user:events bad _target_user_id: %r", target_uid_raw)
+        log.warning("user:events bad _target_user_id: type=%s", type(target_uid_raw).__name__)
         return
     # Schema validation runs AFTER stripping the routing-only
     # ``_target_user_id`` field — the event models don't know about it
@@ -333,7 +349,7 @@ async def handle_admin_events(
     """
     payload = _payload_or_skip(manager, msg, ADMIN_EVENTS_CHANNEL)
     if payload is None or "op" not in payload:
-        log.warning("admin:events malformed or missing op: %r", payload)
+        log.warning("admin:events malformed or missing op: keys=%s", _form(payload))
         return
     async with manager._lock:
         targets = [ws for ws, u in manager._ws_user.items() if u.is_admin]

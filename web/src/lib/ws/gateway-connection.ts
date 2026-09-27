@@ -27,6 +27,7 @@ import {
 } from '$lib/api/constants';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { auth } from '$lib/stores/auth.svelte';
+import { melde } from '$lib/diagnose/app-diagnose';
 import { sounds } from '$lib/sounds/engine';
 import { dispatch } from './handler-registry';
 import { bootstrapHandlersOnce } from './gateway-handlers-bootstrap';
@@ -171,6 +172,8 @@ export class GatewayConnection {
   private forceRefreshNext = false;
   private _readyDone = false;
   private _preReadyBuffer: ServerEvent[] = [];
+  /** Ein `profile_statement_rejected`-Retry je Socket (s. profilStatementErneuern). */
+  private _profilRetryVersucht = false;
   private _readyPromise: Promise<void> | null = null;
   private _readyResolve: (() => void) | null = null;
   /** Letzter empfangener (roher) `ready`-Frame dieser Connection. Gecached für
@@ -290,6 +293,38 @@ export class GatewayConnection {
    */
   requestResync(): void {
     if (this._readyDone) this._sendRaw({ op: 'resync' });
+  }
+
+  /** Nach `profile_statement_rejected` (Server hat das mitgeschickte
+   *  Profil-Statement abgelehnt — typischerweise Signatur eines vor einer
+   *  Cloud-Schluesselerneuerung ausgestellten Statements, beobachtet
+   *  2026-09-18): frisches Statement von der Cloud holen, den Store ersetzen
+   *  und EINMAL auf DIESEM Socket nachschieben.
+   *
+   *  Schleifen-Schutz: ein Retry je Socket (`_profilRetryVersucht`, wird im
+   *  open-Pfad zurückgesetzt). Schlägt auch das neue Statement fehl, ist die
+   *  lokale Identität das Problem — der nächste Cert-Rotationszyklus bzw.
+   *  eine Neu-Anmeldung ist der Weg, nicht ein Retry-Sturm. */
+  async profilStatementErneuern(): Promise<void> {
+    if (this._profilRetryVersucht || this.state !== 'open') return;
+    this._profilRetryVersucht = true;
+    try {
+      const [{ getProfileStatement }, { profileStatementStore, parseStatementClaims }] =
+        await Promise.all([
+          import('$lib/api/credentials'),
+          import('$lib/identity/profile-statement.svelte'),
+        ]);
+      const resp = await getProfileStatement();
+      const claims = parseStatementClaims(resp.token);
+      if (!claims) return;
+      await profileStatementStore.setStatement({ raw: resp.token, claims });
+      if (this.state === 'open') {
+        this._sendRaw({ op: 'profile_statement', jwt: resp.token });
+      }
+    } catch {
+      // Best-effort — ohne frisches Statement bleibt der Profil-Cache
+      // des Servers halt alt; der naechste Connect versucht es erneut.
+    }
   }
 
   on(listener: WsListener): () => void {
@@ -423,6 +458,18 @@ export class GatewayConnection {
     const token = await this._resolveToken();
     if (!token) {
       this.state = 'closed';
+      // Bughunt Runde 7: eine EINMALIG fehlgeschlagene Token-Erneuerung
+      // (Netz noch nicht wieder da, wenn der Backoff-Timer feuert) darf den
+      // Reconnect nicht für immer begraben — vorher blieb Chat/Presence bis
+      // zum Reload tot, obwohl das Netz längst zurück war. wantConnected
+      // steht noch → Backoff-Retry planen; Sign-Out hat wantConnected
+      // bereits auf false gezogen und landet hier gar nicht erst.
+      if (this.wantConnected) this._scheduleReconnect();
+      return;
+    }
+    // Sign-Out kann während der Token-Auflösung dazwischengekommen sein.
+    if (!this.wantConnected) {
+      this.state = 'idle';
       return;
     }
     let ws: SocketLike;
@@ -436,6 +483,16 @@ export class GatewayConnection {
       if (this.wantConnected) this._scheduleReconnect();
       throw e;
     }
+    if (!this.wantConnected) {
+      // disconnect()/closeAll() liefen während der Socket-Anbahnung (der
+      // Direct-Weg handelt Sekunden lang aus) — this.ws war da noch null,
+      // disconnect() konnte den Socket also nicht schließen. Hier nachziehen,
+      // sonst überlebt ein Zombie-Socket den Sign-Out und sein ready-Frame
+      // füllt die geleerten Stores mit dem alten Konto wieder auf.
+      try { ws.close(); } catch { /* noop */ }
+      this.state = 'idle';
+      return;
+    }
     this.ws = ws;
 
     return new Promise((resolve, reject) => {
@@ -444,16 +501,24 @@ export class GatewayConnection {
       ws.addEventListener('open', () => {
         opened = true;
         this.state = 'open';
-        this.attempt = 0;
         this._readyDone = false;
         this._preReadyBuffer = [];
+        // Bughunt Runde 13: Instanz-Capabilities nach JEDEM Dial auffrischen —
+        // der ready-Rahmen trägt sie nicht, und ein Operator, der offline die
+        // Limits änderte (HQ-Caps sind klientenseitig erzwungen), wurde sonst
+        // bis zum Server-Wechsel/Reload ignoriert.
+        void import('$lib/stores/capabilities.svelte').then(({ capabilities }) => {
+          void capabilities.hydrate().catch(() => undefined);
+        });
         for (const cid of this.subs) {
           this._sendRaw({ op: 'subscribe', channel_id: cid });
         }
-        // F19: Cloud-signiertes Profile-Statement pushen, damit der Server (v.a.
+        // F19: Cloud-signiertes Profile-Statement pushen damit der Server (v.a.
         // Self-Hosts) unseren Anzeige-Namen cachen kann (CachedUserProfile) —
         // sonst zeigt die Member-Liste/Voice-Kachel nur die rohe user-<id>.
-        // Best-effort; dyn. Import vermeidet einen Import-Zyklus.
+        // Best-effort; dyn. Import vermeidet einen Import-Zyklus. Der Retry-
+        // Guard für `profile_statement_rejected` wird je Socket zurückgesetzt.
+        this._profilRetryVersucht = false;
         void import('$lib/identity/profile-statement.svelte').then(({ profileStatementStore }) => {
           const raw = profileStatementStore.statement?.raw;
           if (raw && this.ws === ws) this._sendRaw({ op: 'profile_statement', jwt: raw });
@@ -529,6 +594,15 @@ export class GatewayConnection {
               try { ws.close(WS_CLOSE.SERVER_TOO_OLD, 'server too old'); } catch { /* noop */ }
               return;
             }
+            // Backoff erst hier auf 0 — NACH bestätigtem hello (Bughunt
+            // Runde 43). Im `open`-Handler stand der Reset zu früh: der
+            // Server accept()t die Verbindung und schliesst sie erst dann
+            // mit 4044/4045/4070 (zu alt/Update/gesperrt) — der Browser
+            // feuert also open (Reset auf 0) und DANACH close, und der
+            // Reconnect lief dauerhaft mit BACKOFF[0] = 1 s gegen einen
+            // Server, der uns explizit abweist, statt wie dokumentiert bis
+            // 300 s auseinanderzugehen.
+            this.attempt = 0;
             // Erst hier bekannt, ob der Server den Token-Austausch kennt —
             // deshalb wird die Erneuerung im hello geplant und nicht im
             // `open`-Zweig (der läuft, bevor das erste Frame da ist).
@@ -564,6 +638,14 @@ export class GatewayConnection {
         this.ws = null;
         this._stopHeartbeat();
         this._stopTokenErneuerung();
+        // Bughunt Runde 43: auch den Gapfill-Fallback-Timer killen — er war
+        // der eine Lifecycle-Timer, der weder im close noch in disconnect()
+        // aufgeräumt wurde und nach einem open-ohne-hello gegen die
+        // bekannte-tote Verbindung einen REST-Burst losschickte.
+        if (this._gapfillTimer) {
+          clearTimeout(this._gapfillTimer);
+          this._gapfillTimer = null;
+        }
         // Vor jeder Zustands-Abbildung und vor dem Reconnect: die Hörer sollen
         // den Abriss erfahren, egal ob danach neu gewählt wird oder nicht.
         // Kopie, weil ein Hörer sich im Ruf abmelden darf.
@@ -586,6 +668,12 @@ export class GatewayConnection {
   }
 
   private _mapCloseCode(code: number): void {
+    // Diagnose-Gedächtnis: NUR unbeabsichtigte Closes laufen hier herein
+    // (wantConnected-Weiche in onclose) — ein bewusstes disconnect() erzeugt
+    // kein Ereignis. Der Code wird zur Kategorie, der Server in den Kontext.
+    melde('verbindung', `ws_closed_${code}`, `WebSocket geschlossen (${code})`, {
+      server_id: this.serverId
+    });
     switch (code) {
       case WS_CLOSE.TOKEN_EXPIRED: this.forceRefreshNext = true; this.state = 'closed'; return;
       case WS_CLOSE.SERVER_TOO_OLD: this.state = 'incompatible'; return;
@@ -872,6 +960,10 @@ export class GatewayConnection {
     this.wantConnected = false;
     this._stopHeartbeat();
     this._stopTokenErneuerung();
+    if (this._gapfillTimer) {
+      clearTimeout(this._gapfillTimer);
+      this._gapfillTimer = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

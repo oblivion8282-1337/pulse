@@ -19,6 +19,7 @@
    * löscht seinen lokalen Verlauf, und ohne teilnahmefähiges Gerät nimmt das
    * Konto keine verschlüsselten Nachrichten mehr an.
    */
+  import { currentLocale } from '$lib/i18n';
   import { onMount } from 'svelte';
 
   import { keysApi, type EigenesGeraet } from '$lib/api/keys';
@@ -77,7 +78,7 @@
   }
 
   function datum(iso: string): string {
-    return new Date(iso).toLocaleDateString('de-DE', {
+    return new Date(iso).toLocaleDateString(currentLocale(), {
       day: 'numeric',
       month: 'long',
       year: 'numeric'

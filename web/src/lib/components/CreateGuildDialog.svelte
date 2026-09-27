@@ -47,6 +47,11 @@
   let wasOpen = false;
   $effect(() => {
     if (open && !wasOpen) mode = !canCreate ? 'join' : initialMode;
+    // Bughunt Runde 18: programmatisches Schließen (Eltern setzt open=false
+    // nach erfolgreicher Erstellung) feuert KEIN handleOpenChange — ohne
+    // Reset hier blieb busy=true + alter Name im Dialog und der Knopf
+    // hing dauerhaft auf "Erstellen…".
+    if (!open && wasOpen) reset();
     wasOpen = open;
   });
   let name = $state('');
@@ -94,7 +99,9 @@
 
 <Dialog.Root {open} onOpenChange={handleOpenChange}>
   <Dialog.Content data-testid="create-guild-dialog">
-    {#if mode === 'choose'}
+    {#if !open}
+      <!-- geschlossen: nichts rendern (Reset passiert im open-Effekt) -->
+    {:else if mode === 'choose'}
       <Dialog.Header>
         <Dialog.Title>{m.create_guild_dialog_add_title()}</Dialog.Title>
         <Dialog.Description>
@@ -160,7 +167,9 @@
           </Button>
         </Dialog.Footer>
       </form>
-    {:else}
+    {:else if open}
+      <!-- {#if open}-Schlüssel (Bughunt Runde 18): Joins nebst Dialog-Reset —
+           dasselbe busy-Stuck-Problem wie im Create-Step. -->
       <JoinGuildStep {onJoin} onBack={back} />
     {/if}
   </Dialog.Content>

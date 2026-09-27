@@ -58,7 +58,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { isMobile } from '$lib/platform/runtime';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
-import { gsr } from '$lib/stream/gsr';
+import { sidecar } from '$lib/stream/sidecar';
 import { runningStreamSlots } from '$lib/stream/state.svelte';
 
 export type { ScreenShareTrack, CameraTrack };
@@ -504,6 +504,15 @@ class VoiceRoom {
     // wir machen hier nur das LiveKit-API + applyNoiseFilter/#attachLocalAnalyser
     // und rollbacken `micEnabled` im Fehlerfall.
     if (this.micEnabled) {
+      // Entscheidung 2e: ein Server-Force-Mute (Override) lehnt den Publish
+      // serverseitig ab — der Connect meldete dann "Mikrofon-Zugriff
+      // fehlgeschlagen", dabei ist der Browser-Zugriff gar nicht das Problem.
+      // Bekannter Override → klare Ansage statt generischem Geräte-Fehler.
+      if (this.#selfOverride().muted) {
+        this.micEnabled = false;
+        this.error = m.voice_admin_mute_aktiv();
+        return;
+      }
       try {
         await room.localParticipant.setMicrophoneEnabled(true, this.#audioCaptureDefaults());
         // Der teuerste Abbruchpunkt: hier existiert die Mikrofonspur bereits.
@@ -521,7 +530,10 @@ class VoiceRoom {
           return;
         }
         this.micEnabled = false;
-        this.error = micErrorMessage(e);
+        // Auch hier: Override-Abweisung (LiveKit-Grant ohne Mic) klar benennen.
+        this.error = this.#selfOverride().muted
+          ? m.voice_admin_mute_aktiv()
+          : micErrorMessage(e);
       }
     }
     // Re-check again after setMicEnabled() — same risk of a concurrent connect
@@ -600,7 +612,7 @@ class VoiceRoom {
     // No-op im Browser (keine Sidecar-Bridge) und wenn nichts läuft. ALLE
     // laufenden Slots stoppen — jeder zusätzliche Stream hängt am selben Channel.
     for (const slot of runningStreamSlots()) {
-      void gsr.stop(slot).catch(() => undefined);
+      void sidecar.stop(slot).catch(() => undefined);
     }
     if (opts.reason === 'user') {
       // Explizites Verlassen (Auflegen / Channel-Wechsel) → kein Auto-Rejoin
@@ -775,6 +787,18 @@ class VoiceRoom {
     // keyboard-shortcut bypass (voice.toggleDeafen → here, ungated before).
     if (this.#selfOverride().deafened) return;
     this.setDeafened(!this.deafened);
+  }
+
+  /** Bughunt Runde 25: Nach dem (Re-)Connect den geseedeten Override-Zustand
+   *  mit dem lokalen Mikrofon abgleichen. Ein in einer WS-Lücke erteiltes
+   *  Force-Mute ging sonst für immer verloren: das live-WS-Event traf tote
+   *  Sockets, der Ready-Seed disabled nur die Buttons, der Track blieb
+   *  unmuted — und applyForceMute(false) des späteren Unmute early-returnte,
+   *  weil #forceMuted nie true geworden war. */
+  applyOverrideReconciliation(muted: boolean, deafened: boolean): void {
+    if (muted && !this.#forceMuted) this.applyForceMute(true);
+    if (!muted && this.#forceMuted) this.applyForceMute(false);
+    if (deafened !== this.deafened) this.setDeafened(deafened);
   }
 
   /** React to an admin force-mute / force-unmute for the local user.

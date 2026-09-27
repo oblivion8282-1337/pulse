@@ -35,7 +35,12 @@ from dcc_auth.models import (
     User,
 )
 from dcc_auth.recovery import generate_token, verify_token
-from dcc_auth.routes import _check_account_rate, _check_rate, _get_current_user
+from dcc_auth.routes import (
+    _check_account_rate,
+    _check_rate,
+    _get_current_user,
+    verify_dummy_password,
+)
 from dcc_auth.schemas import (
     EmailVerifyConfirmIn,
     MessageOut,
@@ -105,6 +110,12 @@ async def password_forgot(
 
     if user is None or user.disabled or user.is_suspended:
         # Enumeration guard: same 204 either way + don't issue a token.
+        # Bughunt-Entscheidung 4.4 (2026-09-21): der Treffer-Pfad kostet
+        # UPDATE+INSERT+Commit (fsync) plus SMTP-Auflösung — das ~ms-Delta
+        # gegen diesen sonst leeren Miss-Pfad war messbar. Ein Dummy-Argon2
+        # (Muster aus /login, ~150 ms) frisst das Delta; passender Fehl-
+        # Argon2 kostet in etwa einen echten Hash-Verify.
+        await asyncio.to_thread(verify_dummy_password, "equalizer")
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     now = datetime.now(UTC)
@@ -261,6 +272,7 @@ async def email_verification_send(
 @router.post("/email/verification/confirm", response_model=MessageOut)
 async def email_verification_confirm(
     payload: EmailVerifyConfirmIn,
+    request: Request,
     session: SessionDep,
 ):
     """Anonymous endpoint — the token in the URL IS the auth.
@@ -269,9 +281,16 @@ async def email_verification_confirm(
     the address-owner. Requiring a bearer in addition would be cumbersome
     (the user may not be logged in on the device they click the link from).
     """
+    # Bughunt Runde 24: Brake nachreichen (Spiegel zu /password/reset) —
+    # der Endpoint war das einzige anonyme Token-Gate ganz ohne Drossel.
     from fastapi import HTTPException
 
     from dcc_auth.recovery import hash_token
+
+    settings = get_settings()
+    await _check_rate(
+        request, "token_confirm", settings.rate_limit_token_confirm
+    )
 
     digest = hash_token(payload.token)
     # with_for_update: atomares Single-Use-Consume (gleiche Race wie beim

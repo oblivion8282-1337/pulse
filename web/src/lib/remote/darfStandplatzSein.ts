@@ -23,7 +23,7 @@
  * erweitern die falsche Reparatur gewesen: es bliebe eine Abfrage nach der
  * Plattform, keine nach dem tatsächlichen Können. Gefragt wird jetzt die
  * Fähigkeit selbst — `stream.fernsteuerbar` (`stream/state.svelte.ts`),
- * gespeist aus `health.gsr.remote_input`, das der jeweils laufende Sidecar
+ * gespeist aus `health.sidecar.remote_input`, das der jeweils laufende Sidecar
  * live meldet.
  *
  * Auf dem Mac ist das mehr als Kosmetik: die Fähigkeit ist dort

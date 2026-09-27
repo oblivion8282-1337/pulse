@@ -88,8 +88,13 @@ export type PostfachAbruf = (deviceKennung: string) => Promise<PostfachZustellun
 /** Öffnet eine Gruppennachricht oder liefert `null`, wenn sie liegen bleiben
  *  muss (s. Modulkopf). Produktiv `oeffneGruppennachricht` aus
  *  `krypto/gruppe/empfangen.ts`, unter derselben Sperre wie der normale
- *  Empfang. */
-export type ZustellungOeffner = (zustellung: PostfachZustellung) => Promise<Message | null>;
+ *  Empfang. `'verworfen'` = erfolgreich behandelt, aber bewusst nichts
+ *  anzuzeigen (Wiedereinspiel, fremde Absender-Angabe) — die Ablage nimmt
+ *  solche Zustellungen nicht auf (sie sind es nie wert, auch nicht später),
+ *  hält an ihnen aber auch nicht an, denn sie heilen nie. */
+export type ZustellungOeffner = (
+  zustellung: PostfachZustellung
+) => Promise<Message | 'verworfen' | null>;
 
 /**
  * Baut eine `NachzieherQuelle` für einen einzelnen Ablage-Kanal.
@@ -126,6 +131,12 @@ export function postfachQuelle(
 			for (const { zustellung, id } of kandidaten) {
 				if (eintraege.length >= limit) break;
 				const nachricht = await oeffnen(zustellung);
+				if (nachricht === 'verworfen') {
+					// Wird nie eine Nachricht werden — überspringen statt anhalten
+					// (ein `null`-Halteplatz hier würde den Nachzug für immer
+					// an einer verworfenen Zustellung festnageln).
+					continue;
+				}
 				if (nachricht === null) {
 					// Anhalten statt überspringen — Begründung im Modulkopf.
 					break;

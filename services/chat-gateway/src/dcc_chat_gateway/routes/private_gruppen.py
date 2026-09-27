@@ -189,7 +189,7 @@ async def gruppe_erstellen(
     # wie ein Kanalname (``routes/channels.py``), also derselbe Filter gegen
     # Pfad-Traversal/Bidi-Override/Homoglyphen.
     try:
-        clean_name = validate_name(body.name)
+        clean_name = validate_name(body.name, max_len=64)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 

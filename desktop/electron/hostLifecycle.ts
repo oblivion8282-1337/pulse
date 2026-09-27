@@ -144,6 +144,12 @@ export class HostLifecycle {
    *  terminal auf 'superseded' setzen, damit die UI den Hinweis + Reset-Knopf
    *  zeigt statt weiter "Bereit"/"Server starten". */
   markSuperseded(): void {
+    // Entscheidung 6.6: Phasen-Wache — der Ablöse-Check darf eine LAUFENDE
+    // Start-Sequenz (checking-network/opening-door/preparing/going-live)
+    // nicht mitten drin auf 'superseded' kippen, während manager.start()
+    // im Hintergrund weiterläuft. Erlaubt aus 'idle' (Boot-Zeit-Check) und
+    // 'live' (Betrieb); alle anderen Phasen sind Nutzer-Entscheidungen
+    // vorbehalten (Reset-Knopf).
     this._emit('superseded');
   }
 

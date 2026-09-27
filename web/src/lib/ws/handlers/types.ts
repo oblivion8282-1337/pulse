@@ -143,6 +143,7 @@ export type ServerEvent =
   | { op: 'channel_updated'; channel: ChannelPayload }
   | { op: 'channel_deleted'; guild_id: string; channel_id: string }
   | { op: 'channel_revealed'; channel: ChannelPayload }
+  | { op: 'profile_statement_rejected'; reason: string }
   | { op: 'channel_hidden'; guild_id: string; channel_id: string }
   | {
       op: 'channel_bump';
@@ -319,6 +320,7 @@ export type ServerEvent =
   // PII (kein Melde-Text, keine Melder/Ziel-IDs) — nur reason_code für den
   // Toast + guild_id fürs Badge.
   | { op: 'report_new'; guild_id: string; report_id: string; reason_code: string }
+  | { op: 'report_closed'; guild_id: string; report_id: string }
   | { op: 'role_created'; role: RolePayload }
   | { op: 'role_updated'; role: RolePayload }
   | { op: 'role_deleted'; guild_id: string; role_id: string }

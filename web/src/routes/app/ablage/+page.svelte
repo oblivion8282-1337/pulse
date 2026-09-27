@@ -65,31 +65,59 @@
   // --- Dropbox OAuth ---
 
   function zufallsState(): string {
-    return `ablage-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Kryptografisch (nicht Date.now/Math.random): der State ist der CSRF-
+    // Nachweis des OAuth-Flows — ratbar wäre er wertlos.
+    return `ablage-${crypto.randomUUID()}`;
   }
 
   // Wird nach dem OAuth-Redirect aufgerufen: Dropbox schickt ?code=...&state=...
   $effect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
-    const error = params.get('error');
-    const anbieter = params.get('anbieter');
-    if (!code) return;
-    if (error) {
-      fehler = `Verbindung abgelehnt: ${error}`;
+    const oauthFehler = params.get('error');
+    // Bughunt Runde 37: Ein Dropbox-Fehler-Redirect (Zustimmung verweigert /
+    // OAuth-Fehler) kommt OHNE code — der frühe `if (!code) return` hat
+    // genau diesen Fall still geschluckt: keine Meldung, und die Einmal-
+    // Values (state + PKCE-Verifier) blieben im sessionStorage liegen.
+    if (oauthFehler) {
+      fehler = `Verbindung abgelehnt: ${oauthFehler}`;
+      sessionStorage.removeItem('ablage_pkce_verifier');
+      sessionStorage.removeItem('ablage_oauth_state');
       return;
     }
-    if (anbieter !== 'dropbox') return;
+    if (!code) return;
+
+    // State-Abgleich (Bughunt 2026-09-16, Runde 2): der state wurde beim
+    // Redirect-Start erzeugt und gespeichert, aber nie gegengeprüft. PKCE
+    // fängt Code-Injection bereits ab — der Check hier ist die zweite Schicht
+    // und verhindert, dass ein untergeschobener code dieser Session überhaupt
+    // zum Tausch vorgelegt wird.
+    const erwartet = sessionStorage.getItem('ablage_oauth_state');
+    const bekommen = params.get('state');
+    if (!erwartet || bekommen !== erwartet) {
+      fehler = 'Verbindung abgelehnt: Ungültiger OAuth-Status — bitte erneut verbinden.';
+      // Derselbe Hygiene-Schnitt wie im Fehler-Zweig darüber (Bughunt Runde
+      // 38): ein abgelehnter Callback darf die Einmal-Values nicht im Tab
+      // zurücklassen, sonst bliebe der echte Callback danach noch tauschbar.
+      sessionStorage.removeItem('ablage_pkce_verifier');
+      sessionStorage.removeItem('ablage_oauth_state');
+      return;
+    }
 
     const verifier = sessionStorage.getItem('ablage_pkce_verifier') ?? '';
     const anbindung: DropboxAnbindung = { kundenId: DROPBOX_KEY };
     tauscheCodeAus(anbindung, code, { pruefer: verifier, herausforderung: '' })
       .then((zugang) => {
-        sessionStorage.setItem('ablage_dropbox_token', zugang.zugangsToken);
         dropboxVerbinden(zugang.zugangsToken);
       })
       .catch((e) => {
         fehler = `Token-Tausch fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`;
+      })
+      // Einmal-Values raus: Verifier und State dürfen nach dem Tauschversuch
+      // nicht im sessionStorage liegen (Replay/Reuse über offene Tabs).
+      .finally(() => {
+        sessionStorage.removeItem('ablage_pkce_verifier');
+        sessionStorage.removeItem('ablage_oauth_state');
       });
   });
 
@@ -111,6 +139,22 @@
     });
     speicher = new DateiSpeicher(adapter, 'ablage', holeSchlüssel());
     quelle = 'Dropbox (App-Ordner)';
+    // Gleich listen — vorher zeigte die Kopfzeile nach dem OAuth-Rückkehr
+    // "0 Dateien" mit leerer Liste, und "Neu laden" half nicht (s. dort).
+    await neuLaden();
+  }
+
+  /** Verzeichnis neu lesen UND die angezeigte Liste ersetzen. Der alte
+   *  "Neu laden"-Knopf rief nur speicher.laden() auf — der interne Bestand
+   *  drehte sich, die Tabelle blieb unverändert. */
+  async function neuLaden(): Promise<void> {
+    if (!speicher) return;
+    try {
+      await speicher.laden();
+      dateien = await speicher.liste();
+    } catch (e) {
+      fehler = e instanceof Error ? e.message : String(e);
+    }
   }
 
   // --- Sync-Ordner ---
@@ -199,10 +243,13 @@
 
   async function löschen(datei: DateiInfo): Promise<void> {
     if (!speicher) return;
+    // Unwiederbringlich für alle, die die Verbindung teilen — der Ausrufe-
+    // Haken sitzt klein neben dem Download-Haken, ein Verhauer zahlt sonst
+    // die ganze Community (dieselbe Regel wie in CommunityDateiablage).
+    if (!window.confirm(`„${datei.name}“ endgültig löschen?`)) return;
     try {
       await speicher.löschen(datei.id);
-      await speicher.laden();
-      dateien = await speicher.liste();
+      await neuLaden();
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
     }
@@ -337,7 +384,7 @@
           Hochladen
         </span>
       </label>
-      <Button variant="secondary" size="sm" onclick={() => speicher?.laden()} disabled={laeuft}>
+      <Button variant="secondary" size="sm" onclick={neuLaden} disabled={laeuft}>
         Neu laden
       </Button>
     </div>

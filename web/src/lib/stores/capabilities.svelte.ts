@@ -49,9 +49,17 @@ class CapabilitiesStore {
   voiceBitrateMaxKbps = $state(128);
   loaded = $state(false);
 
+  // Bughunt Runde 51: Generation-Wache — zwei schnelle Serverwechsel
+  // feuern zwei Hydrates; ohne Wache gewann die LANGSAMERE Antwort
+  // (A's Caps auf B aktiv, falsche Encoder-Klemmen bis zum nächsten
+  // Wechsel). Gleiches Muster wie directMessages.#generation.
+  #generation = 0;
+
   async hydrate(): Promise<void> {
+    const lauf = ++this.#generation;
     try {
       const c = await chatApi.getCapabilities();
+      if (lauf !== this.#generation) return; // überholt — verwerfen
       this.allowGuildCreation = c.allow_guild_creation;
       this.allowMemberInvites = c.allow_member_invites;
       this.guildSoundMaxSizeBytes = c.guild_sound_max_size_bytes;

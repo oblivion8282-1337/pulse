@@ -24,7 +24,8 @@ The Postfach sweep (``postfach_pflege.py::sweep_verfallene_zustellungen`` +
 Kopplungs-Lauf (``kopplung_pflege.py``) und der Geraete-Verfall
 (``schluessel_verfall.py::sweep_verfallene_geraete``) reiten auf DERSELBEN
 Schleife und demselben Takt — keine zweite Hintergrundaufgabe, s. ``_run_once``
-unten.
+unten. Dasselbe gilt für ``sweep_abgelaufene_einladungen`` (Inbox abgelaufener
+Community-Einladungen).
 """
 
 from __future__ import annotations
@@ -35,12 +36,14 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import or_
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from dcc_chat_gateway import s3
 from dcc_chat_gateway.ablage_zwischenlager_pflege import sweep_alte_zwischenlager_dateien
 from dcc_chat_gateway.config import Settings
-from dcc_chat_gateway.models import WebPushSubscription
+from dcc_chat_gateway.models import CommunityInviteNotification, WebPushSubscription
 from dcc_chat_gateway.kopplung_pflege import sweep_verfallene_kopplungen
+from dcc_chat_gateway.routes.ablage_pulse import sweep_stehengebliebene_ankuendigungen
 from dcc_chat_gateway.postfach_pflege import (
     sweep_abgelaufene_anhaenge,
     sweep_verfallene_zustellungen,
@@ -50,6 +53,27 @@ from dcc_chat_gateway.postfach_pflege import (
 from dcc_chat_gateway.schluessel_verfall import sweep_verfallene_geraete
 
 log = logging.getLogger(__name__)
+
+
+async def sweep_abgelaufene_einladungen(session: AsyncSession) -> int:
+    """Löscht Einladungs-Benachrichtigungen mit ``expires_at`` in der Vergangenheit.
+
+    ``expires_at IS NULL`` heisst „verfällt nie" (Cloud-Ziel) und wird deshalb
+    **ausdrücklich** ausgeschlossen — SQLs Drei-Werte-Logik würde einen
+    ``< now()``-Vergleich mit NULL ohnehin als unbekannt (nicht wahr) werten,
+    aber das soll hier keine implizite Nebenwirkung sein, sondern lesbar im
+    Code stehen. Die Annahme-Route prüft die Spalte separat gegen die Host-
+    Einladung (``membership.py``); hier geht es nur um die tote Inbox-Karte.
+    Committet nicht selbst (Aufrufer entscheidet).
+    """
+    now = datetime.now(UTC)
+    res = await session.execute(
+        sa_delete(CommunityInviteNotification).where(
+            CommunityInviteNotification.expires_at.is_not(None),
+            CommunityInviteNotification.expires_at < now,
+        )
+    )
+    return res.rowcount or 0
 
 
 async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
@@ -115,6 +139,24 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
         )
     log.info("postfach_anhang_vorhalte_done abgelaufen=%d", abgelaufen)
 
+    # Abgelaufene Einladungs-Benachrichtigungen (Inbox des Empfängers) —
+    # dieselbe Schleife, derselbe Takt.
+    async with session_factory() as session:
+        einladungen = await sweep_abgelaufene_einladungen(session)
+    log.info("einladungen_verfall_done abgelaufen=%d", einladungen)
+
+    # Steckengebliebene Pulse-Laufwerk-Ankündigungen (Bughunt Runde 37) —
+    # sie blockieren in der Reservierungsbilanz der Quota, also müssen sie
+    # zeitig weg. Bytes erst nach dem Commit (selbe Invariante wie oben).
+    async with session_factory() as session:
+        ankuendigungen, s3_keys = await sweep_stehengebliebene_ankuendigungen(session)
+    for key in s3_keys:
+        try:
+            await s3.delete_object(key)
+        except Exception:  # noqa: BLE001 — best effort, s. Reaper-Vorbild
+            log.warning("ablage_pulse_ankuendigung_purge_fehlgeschlagen")
+    log.info("ablage_pulse_pflege_done ankuendigungen=%d", ankuendigungen)
+
     return deleted
 
 
@@ -143,4 +185,4 @@ async def cleanup_loop(settings: Settings, engine: AsyncEngine) -> None:
             log.exception("push_subscription_cleanup_failed")
 
 
-__all__ = ["cleanup_loop", "_run_once"]
+__all__ = ["cleanup_loop", "_run_once", "sweep_abgelaufene_einladungen"]

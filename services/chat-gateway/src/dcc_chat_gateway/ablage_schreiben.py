@@ -62,6 +62,41 @@ from .ablage_ssrf import (
 MAX_SCHREIB_BYTES = 8 * 1024 * 1024
 
 
+#: Bughunt-Entscheidung 6.2 (2026-09-21): die Antworten der FREI gewählten
+#: Gegenstelle werden gedeckelt — vorher pufferte httpx den kompletten
+#: Körper (PROPFIND-Listing, PUT/DELETE-Fehlertexte) ungeachtet der Größe
+#: in den RAM; nur der Abruf-Pfad hatte eine Kappe.
+MAX_ANTWORT_BYTES = 4 * 1024 * 1024
+
+
+async def _antwort_mit_cap(
+    client: httpx.AsyncClient,
+    methode: str,
+    verankert: str,
+    host: str,
+    *,
+    headers: dict[str, str] | None = None,
+    content: bytes | None = None,
+    max_bytes: int = MAX_ANTWORT_BYTES,
+) -> tuple[int, bytes]:
+    """Request mit gestreamtem, groessengeklemmtem Antwortkörper — liefert
+    ``(Status, Body-Bytes)``. Umleitungen werden hier NICHT behandelt, das
+    bleibt beim Aufrufer (gleiche Codes wie vorher)."""
+    async with client.stream(
+        methode,
+        verankert,
+        headers=headers or {},
+        extensions={"sni_hostname": host},
+        content=content,
+    ) as antwort:
+        stueck = bytearray()
+        async for teil in antwort.aiter_bytes():
+            stueck.extend(teil)
+            if len(stueck) > max_bytes:
+                raise AblageAbrufFehler("antwort_zu_gross")
+        return antwort.status_code, bytes(stueck)
+
+
 async def schreibe(
     *,
     basis: str,
@@ -104,18 +139,14 @@ async def schreibe(
         async with asyncio.timeout(timeout_s):
             adresse = await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
             verankert, host = _url_auf_adresse_verankern(url, adresse)
-            antwort = await client.request(
-                "PUT",
-                verankert,
-                headers={"Host": host},
-                extensions={"sni_hostname": host},
-                content=inhalt,
+            status, _koerper = await _antwort_mit_cap(
+                client, "PUT", verankert, host, headers={"Host": host}, content=inhalt
             )
-            if antwort.status_code in (301, 302, 303, 307, 308):
+            if status in (301, 302, 303, 307, 308):
                 raise AblageAbrufFehler("umleitung_beim_schreiben")
             # 200/201/204 decken die Antworten ab, die WebDAV-Aufstellungen
             # auf ein erfolgreiches PUT geben (neu angelegt bzw. ersetzt).
-            if antwort.status_code not in (200, 201, 204):
+            if status not in (200, 201, 204):
                 raise AblageAbrufFehler("upstream_fehler")
     except TimeoutError as exc:
         raise AblageAbrufFehler("zeit_ueberschritten") from exc
@@ -160,17 +191,14 @@ async def liste(
         async with asyncio.timeout(timeout_s):
             adresse = await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
             verankert, host = _url_auf_adresse_verankern(url, adresse)
-            antwort = await client.request(
-                "PROPFIND",
-                verankert,
-                headers={"Host": host, "Depth": "1"},
-                extensions={"sni_hostname": host},
+            status, koerper = await _antwort_mit_cap(
+                client, "PROPFIND", verankert, host, headers={"Host": host, "Depth": "1"}
             )
-            if antwort.status_code == 404:
+            if status == 404:
                 return []
-            if antwort.status_code not in (200, 207):
+            if status not in (200, 207):
                 raise AblageAbrufFehler("upstream_fehler")
-            return _namen_aus_propfind(antwort.text, url)
+            return _namen_aus_propfind(koerper.decode("utf-8", "replace"), url)
     except TimeoutError as exc:
         raise AblageAbrufFehler("zeit_ueberschritten") from exc
     except httpx.HTTPError as exc:
@@ -215,15 +243,12 @@ async def loesche(
         async with asyncio.timeout(timeout_s):
             adresse = await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
             verankert, host = _url_auf_adresse_verankern(url, adresse)
-            antwort = await client.request(
-                "DELETE",
-                verankert,
-                headers={"Host": host},
-                extensions={"sni_hostname": host},
+            status, _koerper = await _antwort_mit_cap(
+                client, "DELETE", verankert, host, headers={"Host": host}
             )
-            if antwort.status_code in (301, 302, 303, 307, 308):
+            if status in (301, 302, 303, 307, 308):
                 raise AblageAbrufFehler("umleitung_beim_loeschen")
-            if antwort.status_code not in (200, 204, 404):
+            if status not in (200, 204, 404):
                 raise AblageAbrufFehler("upstream_fehler")
     except TimeoutError as exc:
         raise AblageAbrufFehler("zeit_ueberschritten") from exc

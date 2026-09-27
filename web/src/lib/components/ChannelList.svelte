@@ -20,9 +20,11 @@ import { errText } from '$lib/utils/errText';
   import { roles } from '$lib/stores/roles.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
   import { chatApi } from '$lib/api/chat';
+  import { ensureGuildPluginsLoaded } from '$lib/plugins';
   import { Perm } from '$lib/permissions/bitfield';
   import type { ZiehKontext } from '$lib/channels/ziehen.svelte';
   import type { Channel, Guild } from '$lib/api/types';
@@ -76,6 +78,22 @@ import { errText } from '$lib/utils/errText';
   let deleteTarget = $state<Channel | null>(null);
   let deleteConfirmOpen = $state(false);
   let deleteBusy = $state(false);
+
+  // Guild-Mount-Fetch laut Vertrag (docs/PLUGIN_MANIFEST.md): der pro-Guild-
+  // Aktivierungs-Cache wurde nie befüllt — `ensureGuildPluginsLoaded` hatte
+  // keinen einzigen Aufrufer, `isPluginEnabledForGuild` lief dadurch immer
+  // `false` und das Tamagotchi-Widget war für niemanden sichtbar (auch nicht
+  // für den Admin nach Reload). Idempotent je Guild; Fehler lässt den Slot
+  // ungesetzt (Retry beim nächsten Mount, s. Store-Docstring).
+  // Der Server wird hier MIT gelesen (reaktiv): füllt sich der Multi-Server-
+  // Cache erst nach dem Mount (Boot-Rennen), feuert der Effect erneut und
+  // korrigiert einen ersten, noch unrouted abgeschossenen Fehlversuch.
+  $effect(() => {
+    const gid = guild?.id;
+    if (!gid) return;
+    const sid = serverGuilds.serverIdForGuild(gid);
+    void ensureGuildPluginsLoaded(gid, sid);
+  });
 
   let myId = $derived(currentServerUserId());
 

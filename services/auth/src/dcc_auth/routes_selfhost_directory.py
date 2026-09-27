@@ -129,7 +129,9 @@ async def directory_heartbeat(
 async def get_direct_endpoint(
     instance_id: str, request: Request, db: SessionDep
 ) -> DirectEndpointOut:
-    """Telefonbuch-Lookup für Mitglieder der Instanz (404 sonst — kein Leak)."""
+    """Telefonbuch-Lookup für den OWNER der Instanz (404 sonst — kein Leak).
+    Owner-Gate bewusst statt „Mitglied": das Beitreten braucht keinen Nachweis
+    (Merkhilfe), die Heim-IP aber ist sensibel — Bughunt 2026-09-23."""
     settings = get_settings()
     await _check_rate(request, "directory_lookup", settings.rate_limit_directory_lookup)
     user = await _require_user(request, db)
@@ -137,8 +139,16 @@ async def get_direct_endpoint(
     iid = kennung_aus_text(instance_id)
     if iid is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+    # Direktpfad ist Owner-Sache: der Mitglied-Eintrag ist eine Merkhilfe ohne
+    # Nachweis („beitreten" braucht keinen Beleg), und der Lookup gibt die
+    # Heim-IP des Betreibers her — docs/2026-09-07-direktweg-berechtigung.md,
+    # Weg 1. Suspendierte Instanz: Kill-Switch versiegelt auch die letzte
+    # bekannte Heimadresse.
     membership = await db.get(UserInstanceMembership, (user.id, iid))
-    if membership is None:
+    if membership is None or membership.role != "owner":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+    inst = await db.get(RegisteredInstance, iid)
+    if inst is None or inst.status != "active":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
     row = await db.get(InstanceDirectEndpoint, iid)
     if row is None:

@@ -33,12 +33,14 @@ from dcc_chat_gateway.friend_events import publish_friend_event
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
 from dcc_chat_gateway.invite_host import fremder_host
 from dcc_chat_gateway.models import (
+    ChatSettings,
     CommunityInviteNotification,
     Guild,
     GuildMember,
 )
 from dcc_chat_gateway.models.moderation import CachedUserProfile
 from dcc_chat_gateway.permissions import check_permission
+from dcc_chat_gateway.push import fan_out_community_invite_push
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import CloudOnly
 from dcc_chat_gateway.routes.invites import _join_guild
@@ -158,6 +160,16 @@ async def create_member_invite(
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild_not_found")
+    # Bughunt Runde 13: derselbe instanzweite Schalter wie in invites.py
+    # (Invite-Code-Mint) — vorher umging jedes normale Mitglied mit
+    # CREATE_INVITES den Operator-Schalter auf dem Nutzername-Weg.
+    settings_row = await session.get(ChatSettings, 1)
+    if settings_row is not None and not settings_row.allow_member_invites:
+        if guild.owner_id != current.id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="invite creation is restricted to the server owner",
+            )
 
     invitee_id = await _resolve_username(session, payload.username)
     if invitee_id == current.id:
@@ -174,11 +186,23 @@ async def create_member_invite(
     # (kein Spam-Stapel durch mehrere Absender). Guard-Query statt partiellem
     # Unique-Index (SQLite-Tests); das Race-Fenster ist akzeptiert, wie bei
     # der Friend-Request-Forward-Prüfung.
+    # Bughunt Runde 29: der Dedupe-Guard berücksichtigt die Ziel-Instanz —
+    # Snowflakes werden je Instanz unabhängig geprägt, eine Cloud-Guild kann
+    # dieselbe ID tragen wie eine Self-Host-Guild. Ohne target_instance_id
+    # im Schlüssel blockierte eine Self-Host-Einladung die Cloud-Einladung
+    # zur "gleichen" Guild-ID (409) bzw. überschrieb sie.
     dup = (
         await session.execute(
             select(CommunityInviteNotification.id).where(
                 CommunityInviteNotification.guild_id == guild_id,
                 CommunityInviteNotification.invitee_user_id == invitee_id,
+                # Bughunt Runde 29: nur CLOUD-Ziel-Karten deduplizieren
+                # (target_host/instance_id NULL — genau die, die diese Route
+                # anlegt). Self-Host-Karten tragen fremde Instanz-IDs; deren
+                # Guild-Snowflakes können kollidieren und blockierten sonst
+                # die Cloud-Einladung zur "gleichen" Guild-ID.
+                CommunityInviteNotification.target_host.is_(None),
+                CommunityInviteNotification.target_instance_id.is_(None),
             )
         )
     ).first()
@@ -195,6 +219,16 @@ async def create_member_invite(
     session.add(row)
     await session.commit()
     await session.refresh(row)
+
+    # Entscheidung 2d (2026-09-21): Push zur Einladung — dieselbe Postur
+    # wie die Freundschaftsanfrage (geschlossener Browser bekommt eine
+    # Systemmeldung, online reicht das WS-Ereignis).
+    await fan_out_community_invite_push(
+        recipient_id=invitee_id,
+        inviter_name=current.username,
+        guild_name=guild.name,
+        guild_id=guild_id,
+    )
 
     out = _to_out(row, guild.name)
     # Direct-Delivery an den Empfänger — gleiche Schiene wie

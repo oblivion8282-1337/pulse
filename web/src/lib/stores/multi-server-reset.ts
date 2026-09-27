@@ -49,6 +49,7 @@ import { memberRoles } from './memberRoles.svelte';
 import { messages } from './messages.svelte';
 import { modQueueCounts } from './modQueueCounts.svelte';
 import { presence } from './presence.svelte';
+import { privateGruppen } from './privateGruppen.svelte';
 import { readState } from './readState.svelte';
 import { roles } from './roles.svelte';
 import { streamChat } from './streamChat.svelte';
@@ -128,6 +129,11 @@ export function resetSocialStores(): void {
   directStatus.clearAll();
   blocks.clear();
   directMessages.clear();
+  // Private Gruppen sind konto-gebunden wie die DMs, standen hier aber nicht
+  // in der Liste (Bughunt 2026-09-20): der Store ist ein Abbild von
+  // `GET /gruppen` und sein `clear()` hatte keinen einzigen Aufrufer —
+  // Account A's Gruppen erschienen bei B's Anmeldung in derselben Sitzung.
+  privateGruppen.clear();
   presence.clear();
   // Nachrichten-Entwürfe sind Texte des Vorgängers — nur hier (Sign-Out/
   // Account-Wechsel) leeren, NICHT beim Server-Switch (resetServerScopedStores):

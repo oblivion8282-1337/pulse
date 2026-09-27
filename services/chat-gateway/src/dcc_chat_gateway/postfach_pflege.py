@@ -117,17 +117,35 @@ async def loesche_anhaenge_ohne_umschlag(session: AsyncSession) -> tuple[int, li
     ).all()
     if not zeilen:
         return 0, []
+    # Bughunt Runde 37: die Anti-Join-Bedingung wiederholt sich im DELETE —
+    # zwischen Snapshot und hier kann `binde_anhaenge` (neues Einliefern)
+    # wieder Bezugszeilen angelegt haben. Ohne die Wiederholung loeschte der
+    # Sweep Zeilen weg, auf die frische Umschlaege zeigen (Empfaenger laufe
+    # in 404, der Pflege-Lauf loeschte den Blob). `.returning()` liefert die
+    # Keys nur aus wirklich geloeschten Zeilen.
+    geloescht = (
+        await session.execute(
+            delete(MessageAttachment)
+            .where(
+                MessageAttachment.id.in_([zeile.id for zeile in zeilen]),
+                ~exists(
+                    select(DmAnhangBezug.anhang_id).where(
+                        DmAnhangBezug.anhang_id == MessageAttachment.id
+                    )
+                ),
+            )
+            .returning(
+                MessageAttachment.storage_key,
+                MessageAttachment.thumb_storage_key,
+            )
+        )
+    ).all()
     schluessel: list[str] = []
-    for zeile in zeilen:
+    for zeile in geloescht:
         schluessel.append(zeile.storage_key)
         if zeile.thumb_storage_key:
             schluessel.append(zeile.thumb_storage_key)
-    await session.execute(
-        delete(MessageAttachment).where(
-            MessageAttachment.id.in_([zeile.id for zeile in zeilen])
-        )
-    )
-    return len(zeilen), schluessel
+    return len(geloescht), schluessel
 
 
 async def loesche_abgelaufene_anhaenge(

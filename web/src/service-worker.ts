@@ -136,6 +136,17 @@ function buildTargetUrl(channelId: string | null, guildId: string | null | undef
   return `/app/@me/${channelId}`;
 }
 
+// Security-Scan 2026-09-18: target_url kommt aus der Push-Payload — nur
+// Same-Origin-In-App-Pfade erlauben (führender '/', kein '//', kein
+// Backslash), sonst Phishing via clients.openWindow aus der Notification.
+// Spiegel-Inline-Kopie von $lib/notifications/pushZiel.ts (dort + Tests) —
+// synchron halten; das SW-Bundle importiert bewusst nur $service-worker.
+function istInAppZiel(u: string | null | undefined): u is string {
+  return (
+    typeof u === 'string' && u.startsWith('/') && !u.startsWith('//') && !u.includes('\\')
+  );
+}
+
 sw.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = (event.notification.data ?? {}) as {
@@ -145,7 +156,7 @@ sw.addEventListener('notificationclick', (event) => {
   };
   const channelId = data.channel_id ?? null;
   const guildId = data.guild_id ?? null;
-  const url = data.target_url ?? buildTargetUrl(channelId, guildId);
+  const url = istInAppZiel(data.target_url) ? data.target_url : buildTargetUrl(channelId, guildId);
 
   event.waitUntil(
     (async () => {

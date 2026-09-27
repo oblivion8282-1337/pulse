@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
@@ -13,9 +14,11 @@
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import SettingsDialog from './SettingsDialog.svelte';
+  import KaeferDialog from './diagnose/KaeferDialog.svelte';
   import StatusPicker from './StatusPicker.svelte';
   import SettingsIcon from '@lucide/svelte/icons/settings';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
+  import BugIcon from '@lucide/svelte/icons/bug';
 
   // `compact`: nur das Avatar-Symbol, kein Name + kein Chip-Hintergrund — für
   // die mobile GuildRail, wo der eigene User unten in der Server-Spalte sitzt.
@@ -26,7 +29,7 @@
     auth.user ? (auth.user.display_name ?? auth.user.username) : ''
   );
   let username = $derived(auth.user?.username ?? '');
-  let initial = $derived(displayName.slice(0, 1).toUpperCase());
+  let initial = $derived(anfangsBuchstabe(displayName));
 
   let avatarUrl = $derived(safeAvatarUrl(auth.user?.avatar_url));
 
@@ -51,6 +54,7 @@
 </script>
 
 <SettingsDialog bind:open={uiOverlays.settingsOpen} initialTab={uiOverlays.settingsInitialTab} />
+<KaeferDialog />
 
 {#snippet avatarBlock(sizeClass: string)}
   {#key avatarUrl}
@@ -74,6 +78,10 @@
   <DropdownMenu.Item onclick={() => uiOverlays.openSettings()} data-testid="open-settings">
     <SettingsIcon class="size-4" />
     {m.user_footer_settings()}
+  </DropdownMenu.Item>
+  <DropdownMenu.Item onclick={() => (uiOverlays.diagnoseOpen = true)} data-testid="open-diagnose">
+    <BugIcon class="size-4" />
+    {m.diagnose_melden()}
   </DropdownMenu.Item>
   <DropdownMenu.Separator />
   <DropdownMenu.Item onclick={onSignOut} data-testid="sign-out">
@@ -133,6 +141,11 @@
         {@render menuItems()}
       </DropdownMenu.Content>
     </DropdownMenu.Root>
+    <!-- Der sichtbare Käfer ist am 2026-09-22 in die GuildRail gewandert
+         (direkt über dem Server-Symbol, Wunsch nach der Erst-Version hier im
+         Footer). Dieser Footer-Button ist seither weg — der Menü-Eintrag
+         unten bleibt als Einstieg (auch der einzige auf Mobil, wo die Rail
+         versteckt ist), und der Dialog selbst bleibt hier gemountet. -->
     <StatusPicker />
   </div>
 {/if}

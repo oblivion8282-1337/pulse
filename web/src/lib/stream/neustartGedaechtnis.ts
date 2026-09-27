@@ -37,7 +37,7 @@ export interface Neustartbar {
 
 const gemerkt: Record<number, Neustartbar> = {};
 
-/** Vom gemeinsamen Startweg nach erfolgreichem `gsr.start` gerufen. */
+/** Vom gemeinsamen Startweg nach erfolgreichem `sidecar.start` gerufen. */
 export function startMerken(slot: number, eintrag: Neustartbar): void {
   gemerkt[slot] = eintrag;
 }

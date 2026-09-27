@@ -349,6 +349,65 @@ async def test_nur_ersteller_darf_die_adresse_ersetzen(client, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_owner_darf_besetzte_adresse_uebernehmen(client, _auth_signer):
+    """Security-Scan 2026-09-18: Das erste PUT gehoert design-gemaess dem,
+    der zuerst kommt — aber ein besetztes Laufwerk muss LOESBAR bleiben. Ein
+    Mitglieds-PUT „squat-tet“ den Kanal, der Guild-Owner darf uebersteuern
+    (und uebernimmt die Ersteller-Rolle); andere Mitglieder bleiben draussen."""
+    t_owner, _ = await _register_user(_auth_signer)
+    t_mitglied, uid_mitglied = await _register_user(_auth_signer)
+    t_dritter, uid_dritter = await _register_user(_auth_signer)
+
+    g = (await client.post("/guilds", json={"name": "g"}, headers=auth(t_owner))).json()
+    for uid in (uid_mitglied, uid_dritter):
+        r = await client.post(
+            f"/guilds/{g['id']}/members",
+            json={"user_id": str(uid)},
+            headers=auth(t_owner),
+        )
+        assert r.status_code in (200, 201), r.text
+    c = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "ablage-raum", "ablage": True},
+            headers=auth(t_owner),
+        )
+    ).json()
+
+    # Mitglied squat-t das Laufwerk (design-gemaess: erstes PUT gewinnt)
+    r = await client.put(
+        f"/channels/{c['id']}/ablage/laufwerk",
+        json={"freigabe_adresse": BASIS},
+        headers=auth(t_mitglied),
+    )
+    assert r.status_code == 204, r.text
+
+    # Ein anderes Mitglied darf nicht ersetzen
+    r = await client.put(
+        f"/channels/{c['id']}/ablage/laufwerk",
+        json={"freigabe_adresse": "https://andere.example/pub"},
+        headers=auth(t_dritter),
+    )
+    assert r.status_code == 403
+
+    # Der Owner uebersteuert und uebernimmt die Ersteller-Rolle …
+    r = await client.put(
+        f"/channels/{c['id']}/ablage/laufwerk",
+        json={"freigabe_adresse": "https://cloud.example/pub2"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 204, r.text
+
+    # … damit ist der Squatter raus
+    r = await client.put(
+        f"/channels/{c['id']}/ablage/laufwerk",
+        json={"freigabe_adresse": "https://andere.example/pub"},
+        headers=auth(t_mitglied),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_laufwerk_route_lehnt_nicht_ablage_kanal_ab(client, _auth_signer):
     t_owner, _ = await _register_user(_auth_signer)
     g = (await client.post("/guilds", json={"name": "g"}, headers=auth(t_owner))).json()
@@ -364,3 +423,33 @@ async def test_laufwerk_route_lehnt_nicht_ablage_kanal_ab(client, _auth_signer):
         headers=auth(t_owner),
     )
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_upstream_content_type_wird_nicht_durchgereicht(
+    client, _auth_signer, kein_dns, upstream
+):
+    """Bughunt Runde 16: der Content-Type kommt vom externen Laufwerk (dessen
+    Adresse der Owner frei wählt) — text/html durfte als Dokument auf der
+    Pulse-Origin landen (Same-Origin-XSS). Ablage-Inhalte sind opake
+    Chiffrate: immer octet-stream + nosniff + attachment."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b"<script>alert(1)</script>",
+            headers={"content-type": "text/html; charset=utf-8"},
+        )
+
+    upstream(handler)
+    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer)
+
+    r = await client.get(
+        f"/channels/{cid}/ablage/abruf",
+        params={"pfad": "boese.html"},
+        headers=auth(t_mitglied),
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "application/octet-stream"
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert "attachment" in r.headers.get("content-disposition", "")

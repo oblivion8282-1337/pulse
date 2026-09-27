@@ -275,6 +275,12 @@ def test_bit_constants_match_shared():
     assert voice_routes._PERM_SPEAK == int(Permissions.SPEAK)
     assert voice_routes._PERM_STREAM == int(Permissions.STREAM)
     assert voice_routes._PERM_USE_VIDEO == int(Permissions.USE_VIDEO)
+    # Bughunt Runde 46: die Admin-Bits hingen ohne Pin — ein Umbau in
+    # dcc_sharedPermissions liess die Gates der Admin-Endpunkte stumm
+    # kippen (Override liess dann jeden durch oder niemanden).
+    assert voice_routes._PERM_MUTE_MEMBERS == int(Permissions.MUTE_MEMBERS)
+    assert voice_routes._PERM_DEAFEN_MEMBERS == int(Permissions.DEAFEN_MEMBERS)
+    assert voice_routes._PERM_MOVE_MEMBERS == int(Permissions.MOVE_MEMBERS)
 
 
 # ---------------------------------------------------------------------------

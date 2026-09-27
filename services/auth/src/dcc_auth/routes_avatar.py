@@ -10,9 +10,9 @@ import secrets
 from pathlib import Path
 
 import dcc_auth.config as _config
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 # Guard against decompression-bomb DoS: a highly compressed 5 MB PNG can
 # expand to >1 GB in RAM. 16 MP is more than enough for profile pictures.
@@ -21,6 +21,7 @@ Image.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.routes import _get_current_user
+from dcc_auth.routes_profile import _invalidate_statement_cache
 from dcc_auth.schemas import UserPublic
 
 router = APIRouter()
@@ -34,10 +35,19 @@ _HASH_FILENAME_RE = re.compile(r"^[0-9a-f]{64}\.webp$")
 
 
 def _process_image(raw: bytes) -> bytes:
-    """Validate + resize, return the processed WEBP bytes — runs in a thread pool."""
+    """Validate + resize, return the processed WEBP bytes — runs in a thread pool.
+
+    Bughunt Runde 36: exif_transpose wendet die EXIF-Orientierung von
+    Handy-JPEGs physisch an (sonst liegen Hochkant-Fotos seitlich, weil der
+    WEBP-Re-Encode das Orientation-Tag verwirft), und Paletten-PNGs mit
+    Transparenz werden nach RGBA gehoben — sonst opacity-färbt die
+    Palette den Hintergrund opak (oft schwarz)."""
     img = Image.open(io.BytesIO(raw))
     img.verify()
     img = Image.open(io.BytesIO(raw))  # re-open after verify() (it exhausts the stream)
+    img = ImageOps.exif_transpose(img)
+    if img.mode in ("P", "LA"):
+        img = img.convert("RGBA")
     img.thumbnail((_MAX_DIM, _MAX_DIM), Image.LANCZOS)
     out = io.BytesIO()
     img.save(out, "WEBP", quality=85)
@@ -69,6 +79,7 @@ def _by_hash_dir() -> Path:
 @router.post("/me/avatar", response_model=UserPublic)
 async def upload_avatar(
     file: UploadFile,
+    request: Request,
     session: SessionDep,
     current: User = Depends(_get_current_user),
 ):
@@ -90,23 +101,38 @@ async def upload_avatar(
     avatar_hash = hashlib.sha256(processed).hexdigest()
     dest = _avatar_path(current.id)
     by_hash = _by_hash_dir() / f"{avatar_hash}.webp"
-    dest.write_bytes(processed)
+    # Temp-Datei + Umbenennen NACH dem Commit (Bughunt Runde 7): vorher
+    # überschrieb der Upload die Datei VOR der DB-Transaktion — ein Commit-
+    # Fehler ließ die DB beim alten Hash, während die Bytes schon die neuen
+    # waren (das alte Bild unwiederbringlich weg).
+    dest_tmp = dest.with_suffix(".webp.tmp")
+    dest_tmp.write_bytes(processed)
+    by_hash_tmp = by_hash.with_suffix(".webp.tmp")
     if not by_hash.exists():
-        by_hash.write_bytes(processed)
+        by_hash_tmp.write_bytes(processed)
 
     # Cache-Buster: der Dateiname bleibt gleich (<user_id>.webp), also würde der
     # Browser das alte Bild aus dem Cache nehmen. Ein neuer ?v=-Token bei jedem
     # Upload macht die URL eindeutig — der GET-Endpoint ignoriert Query-Params.
     current.avatar_url = f"/api/auth/avatars/{current.id}.webp?v={secrets.token_urlsafe(6)}"
     current.avatar_hash = avatar_hash
+    # Bughunt Runde 4: das signierte Profil-Statement trägt den avatar_hash —
+    # ohne Invalidierung spielten die Caches (bis zu 24 h) das ALTE Bild auf
+    # jedem Self-Host weiter aus. Derselbe Ruf wie bei update_profile/
+    # change_username.
+    await _invalidate_statement_cache(request, current.id)
     session.add(current)
     await session.commit()
+    dest_tmp.replace(dest)
+    if by_hash_tmp.exists():
+        by_hash_tmp.replace(by_hash)
     await session.refresh(current)
     return current
 
 
 @router.delete("/me/avatar", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_avatar(
+    request: Request,
     session: SessionDep,
     current: User = Depends(_get_current_user),
 ):
@@ -120,6 +146,9 @@ async def delete_avatar(
     # the user is what stops self-hosts from resolving the (now-deleted) avatar.
     current.avatar_url = None
     current.avatar_hash = None
+    # Siehe upload_avatar: Statement-Cache fällt lassen, sonst hängt das
+    # gelöschte Bild bis zu 24 h in den Mitgliederlisten.
+    await _invalidate_statement_cache(request, current.id)
     session.add(current)
     await session.commit()
 

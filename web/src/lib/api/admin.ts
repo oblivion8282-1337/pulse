@@ -441,6 +441,14 @@ export const adminApi = {
     return request<SelfHostBackupStatus>('/admin/self-host/backups', { endpoint: 'chat' });
   },
 
+  /** Self-Host-Diagnose-Paket (Spec 2026-09-21 §7) — gegen die aktive
+   *  Instanz; der Versand in die Cloud macht der Käufer (Kurier-Modell). */
+  selfHostDiagnosePaket(): Promise<Record<string, unknown>> {
+    return request<Record<string, unknown>>('/admin/self-host/diagnose-paket', {
+      endpoint: 'chat'
+    });
+  },
+
   /** Instanzweite Member-Verwaltung (F11c) — gegen die aktive Instanz. */
   listMembers(): Promise<InstanceMember[]> {
     return request<InstanceMember[]>('/admin/members', { endpoint: 'chat' });

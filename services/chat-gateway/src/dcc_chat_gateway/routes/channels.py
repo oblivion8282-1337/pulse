@@ -12,8 +12,8 @@ from dcc_shared.events import (
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 
-from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway import config as chat_config
+from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.guild_caps import enforce_channel_cap
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_DROPBOX,
@@ -33,18 +33,20 @@ from dcc_chat_gateway.permissions import (
     resolve_permissions,
     restricted_channel_ids,
 )
+from dcc_chat_gateway.remote_guard import (
+    collect_devices_for_cascade,
+    forget_devices_after_cascade,
+)
+from dcc_chat_gateway.routes._deps import guild_or_404, require_member
+
 # ponytail: validate_name lives in dropbox-helpers for now (only dropbox
 # routes used it). If a second non-dropbox consumer appears, lift it
 # into shared/dcc_shared/text.py. Importing across route modules is
 # intentional here — same package, no cycle.
 from dcc_chat_gateway.routes._dropbox_helpers import validate_name
-from dcc_chat_gateway.routes._deps import guild_or_404, require_member
-from dcc_chat_gateway.routes.guilds import _publish_guild_event
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
-from dcc_chat_gateway.remote_guard import (
-    collect_devices_for_cascade,
-    forget_devices_after_cascade,
-)
+from dcc_chat_gateway.routes.guest_links import entwerte_link
+from dcc_chat_gateway.routes.guilds import _publish_guild_event
 from dcc_chat_gateway.schemas import (
     ChannelIn,
     ChannelOut,
@@ -53,8 +55,9 @@ from dcc_chat_gateway.schemas import (
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
-from dcc_chat_gateway.routes.guest_links import entwerte_link
+from dcc_chat_gateway.stream_evict import end_active_streams_for_channels
 from dcc_chat_gateway.voice_evict import evict_all_from_voice_channels
+from dcc_chat_gateway.watch_evict import end_watch_parties_for_channels
 
 router = APIRouter()
 
@@ -110,7 +113,7 @@ async def create_channel(
     # Display-string sink: must go through validate_name to harden
     # against path-traversal / bidi-spoofing / homograph phishing.
     try:
-        clean_name = validate_name(payload.name)
+        clean_name = validate_name(payload.name, max_len=64)
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
     channel = Channel(
@@ -231,8 +234,13 @@ async def delete_channel(
     channel = await session.get(Channel, channel_id)
     if channel is None:
         raise HTTPException(404, detail="channel not found")
+    # Bughunt Runde 49: kanalskopiert — ohne channel_id zählte nur der
+    # Guild-Scope, ein kanalweiser User-Deny (legal setzbar) war dekorativ,
+    # und ein reiner Kanal-Allow verfehlte die Route. Gleiches Bit, gleicher
+    # Scope wie im ws_watch/guest_links-Pfad.
     await check_permission(
-        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS
+        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS,
+        channel_id=channel_id,
     )
     guild_id = channel.guild_id
     channel_is_voice = channel.type == CHANNEL_TYPE_VOICE
@@ -312,7 +320,14 @@ async def delete_channel(
     # LiveKit-Session werfen, sonst hängen sie in einem Ghost-Channel (nichts
     # heilt das innerhalb der Session). Best-effort, nach dem Commit.
     if channel_is_voice:
-        await evict_all_from_voice_channels(getattr(mgr, "_redis", None), [channel_id])
+        redis = getattr(mgr, "_redis", None)
+        # Watch-Party beenden + laufende HQ-Streams unterdrücken (Bughunt
+        # Runde 4): der Host heartbeatete sonst im gelöschten Kanal unbegrenzt
+        # weiter (die Watch-Ops prüfen nie die Kanal-Existenz), und der
+        # media-svc-Poller führte den Stream als live.
+        await end_watch_parties_for_channels(redis, mgr, [channel_id])
+        await end_active_streams_for_channels(redis, [channel_id], grund="kanal_geloescht")
+        await evict_all_from_voice_channels(redis, [channel_id])
     # Und das Geräte-Register vergisst, was die Kaskade gerade geräumt hat.
     await forget_devices_after_cascade(mgr, guild_id, devices_removed)
 
@@ -332,8 +347,10 @@ async def patch_channel(
     channel = await session.get(Channel, channel_id)
     if channel is None:
         raise HTTPException(404, detail="channel not found")
+    # Kanalskopiert, s. delete_channel (Bughunt Runde 49).
     await check_permission(
-        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS
+        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS,
+        channel_id=channel_id,
     )
     if payload.name is not None:
         # Display-string sink: validate_name is the same hardening
@@ -341,7 +358,7 @@ async def patch_channel(
         # mitigation advertised by the dropbox POST endpoint only
         # defends against name-spoofing if this PATCH is also hardened.
         try:
-            channel.name = validate_name(payload.name)
+            channel.name = validate_name(payload.name, max_len=64)
         except ValueError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
     if payload.topic is not None:
@@ -391,9 +408,14 @@ async def update_channel_positions(
     ``channel_updated`` per channel so every connected member re-sorts — the
     frontend already handles that op, so no new event type is introduced.
     """
-    await check_permission(session, current, guild_id, Permissions.MANAGE_CHANNELS)
-
+    # Bughunt Runde 49: kanalskopiert je betroffenem Kanal (ein Reorder
+    # fasst mehrere Kanäle an; ein kanalweiser Deny auf EINEM von ihnen
+    # muss die Ordnungsänderung für ihn verweigern).
     channel_ids = [p.id for p in payload.positions]
+    for cid in channel_ids:
+        await check_permission(
+            session, current, guild_id, Permissions.MANAGE_CHANNELS, channel_id=cid
+        )
     stmt = select(Channel).where(
         Channel.guild_id == guild_id, Channel.id.in_(channel_ids)
     )

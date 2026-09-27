@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Bughunt Runde 45: usesCleartextTraffic=false bewusst EXPLIZIT —
+         das generierte Manifest capacitor-cordova-android-plugins setzt
+         "true" und gewinnt sonst den Merge gegen capacitor.config.json
+         ("cleartext": false) fuer einen E2EE-Client. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        tools:replace="android:usesCleartextTraffic"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -47,6 +54,13 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Bughunt Runde 45: ohne CAMERA-Eintrag ist die Runtime-Permission
+         automatische verweigert — Capacitors onPermissionRequest startet
+         fuer VIDEO_CAPTURE den Laufzeit-Dialog, der ohne Manifest-Eintrag
+         ohne Dialog ablehnt. Jede getUserMedia({video}) im APK starb mit
+         NotAllowedError (Mikrofon ging, Kamera nie). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Ohne MODIFY_AUDIO_SETTINGS gibt Android das Mic nicht an den WebView. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

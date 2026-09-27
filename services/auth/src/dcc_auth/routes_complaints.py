@@ -11,7 +11,6 @@ Schemas + lookup/enrichment helpers live in ``complaints_support.py``.
 
 from __future__ import annotations
 
-import hmac
 import logging
 import smtplib
 from datetime import UTC, datetime
@@ -23,7 +22,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from dcc_auth.security import JwtSigner, get_signer
+from dcc_auth.security import JwtSigner, constant_time_eq, get_signer
 
 from dcc_auth import config as _config
 from dcc_auth.complaints_support import (
@@ -63,7 +62,7 @@ _REPORTER_RESOLVED_DM = (
 
 
 def _check_internal_secret(provided: str | None) -> None:
-    """Mirror of ``routes_search.py::_check_internal_secret``. Fail-closed when
+    """Mirror of ``routes_gast_ticket.py::_check_internal_secret``. Fail-closed when
     the server-side secret is unset."""
     expected = _config.get_settings().internal_service_secret
     if not expected:
@@ -71,7 +70,7 @@ def _check_internal_secret(provided: str | None) -> None:
             status.HTTP_401_UNAUTHORIZED,
             detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
         )
-    if not provided or not hmac.compare_digest(provided, expected):
+    if not provided or not constant_time_eq(provided, expected):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret"
         )
@@ -228,7 +227,7 @@ async def list_complaints(
     session: SessionDep,
     _actor: Annotated[User, Depends(_require_admin)],
     complaint_status: Annotated[str, Query(alias="status")] = "new",
-    before: Annotated[int | None, Query(ge=0)] = None,
+    before: Annotated[int | None, Query(ge=0, le=2**63 - 1)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[ComplaintOut]:
     """List complaints filtered by status. Newest-first, snowflake-cursor.

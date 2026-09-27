@@ -30,7 +30,7 @@
 //!
 //! **Sie tragen deshalb eine eigene Huelle** (`{"anstoss":…}`), waehrend ein
 //! Rahmen der Gegenseite unter `{"rahmen":…}` ankommt. Das ist keine Kosmetik:
-//! beide Wege gehen durch dieselbe Tuer (`gsr:ablage`), und der Leitungsweg
+//! beide Wege gehen durch dieselbe Tuer (`sidecar:ablage`), und der Leitungsweg
 //! reicht die rohe Nutzlast der Gegenstelle durch. Haetten die Anstoesse
 //! dieselbe Form wie ein Rahmen, koennte die Gegenseite sie senden. Die
 //! Zuordnung steht als reine Funktion in [`lage::deuten`] und ist genau deshalb

@@ -32,6 +32,12 @@ class ModQueueCounts {
     this.openCountByGuild[guildId] = this.get(guildId) + 1;
   }
 
+  /** Entscheidung 2d: report_closed senkt live — vorher zählte das Badge
+   *  die geschlossene Meldung bis zum Reconnect weiter. */
+  decrement(guildId: string): void {
+    this.openCountByGuild[guildId] = Math.max(0, this.get(guildId) - 1);
+  }
+
   clear(): void {
     this.openCountByGuild = {};
   }

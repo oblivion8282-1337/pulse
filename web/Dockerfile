@@ -50,12 +50,21 @@ COPY plugins/ plugins/
 COPY --from=wasm-builder /build/krypto/pulse-krypto/pkg krypto/pulse-krypto/pkg
 RUN pnpm --filter @dcc/web build
 
+# CSP-Härtung (Security-Scan 2026-09-18): 'unsafe-inline' aus script-src
+# rausschmieden — das Header-Snippet bekommt stattdessen die sha256-Hashes der
+# Inline-Scripts (FOUC-Guard + SvelteKit-Bootstrap) aus dem frisch gebauten
+# index.html. Bricht den Build ab, wenn app.html/Template dagegen driften.
+COPY infra/prod/security-headers.inc /tmp/security-headers.inc
+RUN node web/scripts/csp-hash.mjs web/build/index.html /tmp/security-headers.inc
+
 # ── runtime ──────────────────────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runtime
 COPY infra/prod/web-nginx.conf /etc/nginx/conf.d/default.conf
 # Security-Header-Snippet — bewusst NICHT nach conf.d/ (würde dort als
 # http-Level-Config doppelt greifen); web-nginx.conf includet es explizit.
-COPY infra/prod/security-headers.inc /etc/nginx/security-headers.inc
+# Gehashte Fassung aus dem Builder — im Image ist script-src ohne
+# 'unsafe-inline' (nur noch die Bootstrap-Hashes des aktuellen Builds).
+COPY --from=builder /tmp/security-headers.inc /etc/nginx/security-headers.inc
 COPY --from=builder /app/web/build /usr/share/nginx/html
 # Self-Host-Compose-Dateien für den manuellen Installationspfad — Source of
 # Truth bleibt infra/self-host/, serviert unter /self-host/* (web-nginx.conf).

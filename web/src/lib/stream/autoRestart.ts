@@ -33,7 +33,7 @@ import { streamForSlot, markStarting } from './state.svelte';
 const RESTART_WINDOW_MS = 60_000;
 const MAX_RESTARTS_PER_WINDOW = 2;
 /** Kurze Pause vor dem Neustart: der alte Sidecar-Prozess beendet sich nach
- *  dem error-Event selbst; ein sofortiger `gsr.start` könnte noch den
+ *  dem error-Event selbst; ein sofortiger `sidecar.start` könnte noch den
  *  sterbenden Prozess treffen und in dessen Exit-Aufräumen laufen. */
 const RESTART_DELAY_MS = 500;
 

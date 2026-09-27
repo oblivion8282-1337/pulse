@@ -8,7 +8,7 @@
  * Scope:
  *   E1a — a window that loads the SvelteKit app (the Vite dev server at `:5173`
  *         in dev, the static build in prod) + a single-instance lock.
- *   E1b — the GSR sidecar bridge (`sidecar.ts` + the `gsr:*` IPC channels).
+ *   E1b — the sidecar bridge (`sidecar.ts` + the `sidecar:*` IPC channels).
  *   E1c — settings persistence: a tiny hand-rolled key-value store in `store.ts`
  *         (`<userData>/pulse-stream.json`, chmod 600 on Linux) exposed over the
  *         `store:*` IPC channels (renderer side: `window.pulse.store.*`).
@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, shell, nativeImage, systemPreferences } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -53,7 +53,7 @@ import { wirePower } from './power';
 import { wireClipboard } from './clipboard';
 import { startUpdater } from './updater';
 import { wireGlobalShortcuts } from './shortcuts';
-import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
+import { handleDeepLink, extractPulseUrl, takePendingInvite, isValidFqdn } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
 import { ContainerBackendManager, resolveImage } from './localBackend/containerBackendManager';
@@ -70,7 +70,6 @@ import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
 import { diagnostiziere } from './localBackend/netdiag';
 import { checkCredsSupersede } from './serverSupersede';
-import { startAdresse } from './startAdresse';
 
 /** Intervall für den periodischen Ablöse-Check (③c-Ergänzung) — 10 Min sind
  *  träge genug, um den Registry-Token-Realm nicht spürbar zu belasten, aber
@@ -187,7 +186,7 @@ if (process.platform === 'linux') {
 
 // Which web app to load: the local Vite dev server only when PULSE_DEV_URL is
 // explicitly set (frontend development) — otherwise the live deployed app, so a
-// web-side fix is visible immediately, no Electron re-release needed (the GSR
+// web-side fix is visible immediately, no Electron re-release needed (the sidecar
 // streaming bridge stays local via the preload's `window.pulse`).
 //
 // Security (finding 163): PULSE_URL is a developer-only override, not a
@@ -235,13 +234,18 @@ const TARGET_ORIGIN = new URL(TARGET_URL).origin;
 // DevTools no longer pop open on launch. Set PULSE_DEVTOOLS=1 to auto-open them
 // (detached); otherwise Ctrl+Shift+I / F12 toggle them via the before-input-event
 // handler in createWindow (the default-menu accelerator is gone — menu removed).
-const OPEN_DEVTOOLS = process.env.PULSE_DEVTOOLS === '1';
+const OPEN_DEVTOOLS = process.env.PULSE_DEVTOOLS === '1' && !app.isPackaged;
 
 let mainWindow: BrowserWindow | null = null;
 // Discord-style: closing the window hides it (the tray stays). The only path
 // that actually quits is the tray's "Beenden" entry, which sets this flag
 // before calling `app.quit()`. The window's `close` handler honours it.
 let isQuitting = false;
+// Der Tray-"Beenden"-Callback — Client- und Server-Boot teilen ihn.
+const quitApp = (): void => {
+  isQuitting = true;
+  app.quit();
+};
 
 // ── Deep-Link / Invite-Handler ───────────────────────────────────────────────
 // Validation + buffering lives in `deeplink.ts` (kept out of this file for the
@@ -310,7 +314,7 @@ function createWindow(): void {
   // Lock navigation + popups to the configured target origin. Without these
   // guards a (hypothetical) XSS on howispulse.com — or a manipulated
   // PULSE_URL env override — could navigate the BrowserWindow to a third-party
-  // page that inherits the contextBridge (`window.pulse.gsr.start()` etc.).
+  // page that inherits the contextBridge (`window.pulse.sidecar.start()` etc.).
   mainWindow.webContents.on('will-navigate', (e, url) => {
     if (!_isAllowedOrigin(url)) {
       e.preventDefault();
@@ -324,21 +328,31 @@ function createWindow(): void {
     }
     // Allow — no preload (browser-like popup, see did-create-window), but lift
     // the autoplay gate so a detached watch-party plays immediately, like the
-    // main window.
+    // main window. `preload: null` ERZWINGT „browser-like" ab sofort: Electron-
+    // Popups erben die webPreferences inklusive contextBridge-Preload — der
+    // frühere Kommentar nahm das Gegenteil an. Explicit null strips the bridge,
+    // damit ein Kind-Fenster nie `window.pulse` bekommt (Security-Scan
+    // 2026-09-18). Typing sagt `preload?: string` — die Runtime nimmt null als
+    // „kein Preload", der Cast umgeht nur die lückenhafte Typing.
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
-        webPreferences: { autoplayPolicy: 'no-user-gesture-required' },
+        webPreferences: {
+          autoplayPolicy: 'no-user-gesture-required',
+          preload: null as unknown as string,
+        },
       },
     };
   });
   // Electron creates the allowed popup at about:blank and — in this
   // Electron/Chromium build — does NOT auto-navigate it to the requested URL,
   // so detached stream/watch windows stayed blank (white). Force the load here.
-  // We deliberately do NOT give the child the contextBridge preload: the
-  // detached viewer needs nothing from `window.pulse`, and running it as a
-  // plain (browser-like, `isElectron()===false`) window matches the path that
-  // already works in a real browser. Re-apply the off-origin nav guard though.
+  // The child deliberately runs WITHOUT the contextBridge preload (stripped
+  // via `preload: null` in the window-open override above — Security-Scan
+  // 2026-09-18): the detached viewer needs nothing from `window.pulse`, and
+  // running it as a plain (browser-like, `isElectron()===false`) window
+  // matches the path that already works in a real browser. Re-apply the
+  // off-origin nav guard though.
   mainWindow.webContents.on('did-create-window', (child, { url }) => {
     if (url) void child.loadURL(url);
     child.webContents.on('will-navigate', (e, navUrl) => {
@@ -381,7 +395,10 @@ function createWindow(): void {
   // Reload + DevTools accelerators used to come from Electron's default menu,
   // which we remove (setApplicationMenu(null)) to hide the menu bar. Re-add just
   // those shortcuts via before-input-event so the bar stays gone but F5 / reload
-  // and the DevTools toggle work again.
+  // and the DevTools toggle work again. DevTools-Shortcuts NUR in ungepackten
+  // Builds (Security-Scan 2026-09-18): im Produktiv-Build gibt es kein F12/
+  // Ctrl+Shift+I — sonst inspiziert jeder lokale Nutzer (oder Renderer-
+  // Social Engineering) die `window.pulse`-Bridge per Tastendruck.
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     const wc = mainWindow?.webContents;
@@ -400,9 +417,10 @@ function createWindow(): void {
       event.preventDefault();
       wc.reloadIgnoringCache();
     } else if (
-      key === 'f12' ||
-      (mod && input.shift && key === 'i') || // Ctrl/Cmd+Shift+I (win/linux)
-      (input.meta && input.alt && key === 'i') // Cmd+Alt+I (macOS)
+      !app.isPackaged &&
+      (key === 'f12' ||
+        (mod && input.shift && key === 'i') || // Ctrl/Cmd+Shift+I (win/linux)
+        (input.meta && input.alt && key === 'i')) // Cmd+Alt+I (macOS)
     ) {
       event.preventDefault();
       wc.toggleDevTools();
@@ -415,11 +433,15 @@ function createWindow(): void {
     if (loadCreds({ get: storeGet, set: storeSet })) {
       mainWindow.loadFile(path.join(__dirname, 'server.html'));
     } else {
-      mainWindow.loadURL(startAdresse(PROD_URL, true));
+      // Startadresse NIE die Wurzel: `/` ist seit 2026-09-09 die Cloud-
+      // Landingpage. Server-App-Login → `/login` (NICHT `/app`: jede
+      // Navigation dorthin gilt startLoginWatch als Login-Erfolg);
+      // Normal-App → `/app` (die Hülle schickt Ohne-Sitzung nach /login).
+      mainWindow.loadURL(new URL('/login', PROD_URL).href);
       startLoginWatch(mainWindow);
     }
   } else {
-    void mainWindow.loadURL(startAdresse(TARGET_URL, false));
+    void mainWindow.loadURL(new URL('/app', TARGET_URL).href);
     if (OPEN_DEVTOOLS) mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 }
@@ -641,7 +663,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:status', () => hl.getStatus());
   // server.html ruft das bei jedem UI-Refresh — Zustands-Abgleich ist ein
   // No-Op außerhalb 'idle', also billig genug für jeden Aufruf.
-  ipcMain.handle('host:refresh', async () => {
+  ipcMain.handle('host:refresh', async (e) => {
+    // Entscheidung 6.6: dasselbe Gate wie start/stop — der Aufruf führt
+    // einen podman/docker-inspect aus; eine fern geladene howispulse.com-
+    // Seite soll ihn nicht in Dauerschleife treten können.
+    if (!localSenderOnly(e)) return hl.getStatus();
     await syncLifecycleFromContainer();
     return hl.getStatus();
   });
@@ -789,16 +815,22 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   app.on('before-quit', () => { void manager.stop(); });
 }
 
-// ── GSR sidecar bridge (E1b) ────────────────────────────────────────────────
-// `sidecar.ts` owns the Python child process + the newline-JSON protocol; here
-// we only wire it to IPC. The sidecar is still spawned lazily on the first
-// `gsr:call` — registering the event callback below does NOT start Python.
+// ── Sidecar bridge (E1b) ────────────────────────────────────────────────
+// `sidecar.ts` owns the platform sidecar child process + the newline-JSON
+// protocol; here we only wire it to IPC. The sidecar is still spawned lazily
+// on the first `sidecar:call` — registering the event callback below does NOT
+// start it.
 
-/** Allowed GSR ops (finding 156) — any op not in this set is silently rejected
+/** Allowed sidecar ops (finding 156) — any op not in this set is silently rejected
  *  with {ok: false} to prevent a compromised renderer from invoking unexpected
  *  sidecar operations. The set contains exactly the ops declared in pulse.d.ts
  *  and exposed via the preload. */
-const ALLOWED_GSR_OPS = new Set([
+const ALLOWED_SIDECAR_OPS = new Set([
+  // Bughunt Pass 4 REGRESSION FIX: 'health' wurde im Ponytail-Durchlauf
+  // versehentlich mit dem toten player.health together entfernt — der
+  // Sidecar health probe ist aber der EINZIGE Weg, stream.sidecarAvailable
+  // zu setzen. Ohne diesen Op startet der Sidecar nie und der Raketen-
+  // Knopf bleibt für immer unsichtbar.
   'health',
   'gpu_info',
   'list_monitors',
@@ -923,17 +955,17 @@ function wireSidecar(): void {
       // (no-op, wenn die Rust-Version aus ist — prüft den Store selbst).
       onSidecarEventForUpload(ev, slot);
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
-        mainWindow.webContents.send('gsr:event', { ...ev, slot });
+        mainWindow.webContents.send('sidecar:event', { ...ev, slot });
       }
     });
   });
 
-  // Generic handler — the renderer calls `gsr:call` with an op name + params +
+  // Generic handler — the renderer calls `sidecar:call` with an op name + params +
   // an optional slot. Catch everything so a bad op / dead sidecar surfaces as
   // `{ok:false}` in the renderer instead of an unhandled rejection.
-  ipcMain.handle('gsr:call', async (_e, op: string, params: unknown, slot?: unknown) => {
+  ipcMain.handle('sidecar:call', async (_e, op: string, params: unknown, slot?: unknown) => {
     // Validate op against the allowlist (finding 156).
-    if (!ALLOWED_GSR_OPS.has(op)) {
+    if (!ALLOWED_SIDECAR_OPS.has(op)) {
       return { ok: false, error: 'unknown op' };
     }
     try {
@@ -944,16 +976,16 @@ function wireSidecar(): void {
   });
 
   // Fernsteuerung, Host-Seite: die im Renderer empfangenen `remote_input`-Frames
-  // in den Sidecar des gemeinten Stream-Platzes. Eigene Kanäle statt `gsr:call`
+  // in den Sidecar des gemeinten Stream-Platzes. Eigene Kanäle statt `sidecar:call`
   // — der Hauptprozess führt Buch darüber, welche Plätze eine Eingabe-Sitzung
   // haben, damit „alles loslassen" beim Ende genau die erreicht und keinen
   // Sidecar startet, der nichts zu tun hat (s. `remoteInputHost.ts`).
   ipcMain.handle(
-    'gsr:remoteInput',
+    'sidecar:remoteInput',
     (_e, slot: unknown, sessionId: unknown, frames: unknown, hostAktiv: unknown) =>
       remoteEingabe.frames(slot, sessionId, frames, hostAktiv === true),
   );
-  ipcMain.handle('gsr:remoteInputEnd', () => remoteEingabe.beenden());
+  ipcMain.handle('sidecar:remoteInputEnd', () => remoteEingabe.beenden());
 
   // Fernsteuerung, Host-Seite: dem Sidecar eines Platzes sagen, dass seine
   // Ablage-Sitzung vorbei ist. Der Renderer ruft das beim TRAEGERWECHSEL
@@ -969,7 +1001,7 @@ function wireSidecar(): void {
   // src/dispatch.rs`: kein `exit_after`) — er lebt, bekommt sein `ende` und
   // gibt die Zwischenablage des Nutzers frei, statt sie bis zum App-Ende
   // belegt zu halten.
-  ipcMain.handle('gsr:ablageEnde', async (_e, slot: unknown) => {
+  ipcMain.handle('sidecar:ablageEnde', async (_e, slot: unknown) => {
     const platz = normaliseSlot(slot);
     if (!sidecarRunning(platz)) return { ok: true, note: 'kein laufender Sidecar' };
     try {
@@ -999,7 +1031,7 @@ function wireSidecar(): void {
   // entscheidet der Renderer (`$lib/remote/ablageTraeger.ts`): je Platz laeuft
   // ein eigener Sidecar-Prozess, die Zwischenablage ist aber maschinenweit —
   // beanspruchten alle, ueberschrieben sie sich gegenseitig. Hier wird der
-  // Platz nur auf den gueltigen Bereich geklemmt, wie bei `gsr:call`.
+  // Platz nur auf den gueltigen Bereich geklemmt, wie bei `sidecar:call`.
   //
   // **Kein `sidecarRunning`-Riegel wie bei `remoteInput`**, und das ist der
   // Unterschied: dort nennt die GEGENSEITE den Platz, und ein erfundener
@@ -1007,7 +1039,7 @@ function wireSidecar(): void {
   // ihn der eigene Renderer, und er nennt genau den, dessen Stream er selbst
   // laufen sieht.
   ipcMain.handle(
-    'gsr:ablage',
+    'sidecar:ablage',
     async (_e, rolleRoh: unknown, session: unknown, data: unknown, slot?: unknown) => {
       const rolle = rolleLesen(rolleRoh);
       if (!rolle) return { ok: false, error: 'unbekannte Rolle' };
@@ -1030,7 +1062,7 @@ function wireSidecar(): void {
  * Binary, meldet `player:available` schlicht `false` und der Renderer bleibt
  * auf dem bestehenden WHEP-Weg im `<video>`-Element.
  *
- * Op-Allowlist analog zu `ALLOWED_GSR_OPS` — der Renderer darf nicht beliebige
+ * Op-Allowlist analog zu `ALLOWED_SIDECAR_OPS` — der Renderer darf nicht beliebige
  * Operationen in den Kindprozess schieben.
  */
 // `record`/`clip` fehlen hier bewusst: die tragen einen Dateipfad und laufen
@@ -1169,7 +1201,7 @@ function wirePlayer(): void {
 
 // ── Accessibility-Anstoss (macOS, Fernsteuerung Host-Seite) ─────────────────
 // Windows braucht keine Freigabe -- das Op gehoert dort zum Programm
-// (`win-hq-sidecar`, `health.gsr.remote_input` steht fest). Auf dem Mac haengt
+// (`win-hq-sidecar`, `health.sidecar.remote_input` steht fest). Auf dem Mac haengt
 // jede Eingabe-Injektion des Sidecars an der Bedienungshilfen-Freigabe, und
 // TCC ordnet sie dem VERANTWORTLICHEN Prozess zu, nicht dem Kindprozess: der
 // vom Hauptprozess gestartete Sidecar erbt Pulses Freigabe (gemessen,
@@ -1184,6 +1216,23 @@ function wirePlayer(): void {
 // Fehlschlag als denselben `TypeError: Failed to fetch` — Node kann die Kette
 // einzeln abgehen (netdiag.ts). Rein lesend: der Aufruf öffnet keinen Datenweg
 // und trifft keine Vertrauensentscheidung, er beschreibt nur, was er vorfindet.
+// Security-Audit 2026-09-16 — Schranken für den netdiag-IPC-Kanal.
+// Interne Ziele nach Konvention (keine hart garantierte Grenze — PTR/Split-
+// Horizon kann intern trotzdem aufgelöst werden; Decke dokumentiert am Aufruf).
+const INTERNE_SUFFIXE = [
+  'localhost',
+  '.local',
+  '.lan',
+  '.internal',
+  '.localdomain',
+  '.home',
+  '.corp',
+  '.intranet',
+];
+function _istInternesZiel(host: string): boolean {
+  return INTERNE_SUFFIXE.some((s) => host === s || host.endsWith(s));
+}
+
 function wireNetdiag(): void {
   ipcMain.handle('netdiag:check', async (_e, hostname: unknown) => {
     if (typeof hostname !== 'string' || hostname.length > 255) return null;
@@ -1191,6 +1240,21 @@ function wireNetdiag(): void {
     // Ohne die Schranke wäre der Kanal ein Werkzeug, mit dem der Renderer den
     // Hauptprozess zu beliebigen Verbindungen bewegt.
     if (!/^https?:\/\//i.test(hostname)) return null;
+    // Security-Audit 2026-09-16: der Hostname muss einem FQDN/IP-Literal
+    // entsprechen (denselben Regeln wie Deep-Links) und KEIN internes Ziel
+    // nennen — sonst wäre der Kanal eine Portscan-/SSRF-Primitive gegen das
+    // eigene Netz (Docker-Bridge, Router, Cloud-Metadaten). Security-Scan
+    // 2026-09-18: auch das DNS-Rebinding-Loch ist zu — netdiag.ts prüft nach
+    // der Auflösung jede Adresse auf private Ranges (Resolve-then-check) und
+    // pinnt TLS/HTTP danach auf genau die geprüfte IP.
+    let host: string;
+    try {
+      host = new URL(hostname).hostname.toLowerCase();
+    } catch {
+      return null;
+    }
+    if (!isValidFqdn(host)) return null;
+    if (_istInternesZiel(host)) return null;
     try {
       return await diagnostiziere(hostname);
     } catch {
@@ -1199,37 +1263,6 @@ function wireNetdiag(): void {
   });
 }
 
-function wireAccessibility(): void {
-  ipcMain.handle('accessibility:isTrusted', (_e, prompt: unknown) => {
-    if (process.platform !== 'darwin') {
-      // Keine Bedienungshilfen-Huerde ausserhalb von macOS -- die Frage
-      // stellt sich dort nicht, also gibt es auch nichts zu verweigern.
-      return { trusted: true };
-    }
-    // `prompt=true` wirft bei fehlender Freigabe EINMALIG den Systemdialog auf
-    // (macOS merkt sich pro Prozess-Lebensdauer, dass schon gefragt wurde) --
-    // deshalb geht dieser Aufruf NIE automatisch los, sondern nur auf eine
-    // Nutzerhandlung hin (Knopf in den Einstellungen).
-    const trusted = systemPreferences.isTrustedAccessibilityClient(prompt === true);
-    if (trusted) return { trusted: true };
-    return {
-      trusted: false,
-      // Der Haken in den Systemeinstellungen bleibt nach einem App-Update
-      // sichtbar STEHEN, obwohl er nicht mehr gilt -- die Freigabe haengt an
-      // der Code-Signatur, und das mac-DMG ist nur ad-hoc signiert. Wer nur
-      // "Freigabe erteilen" liest, klickt den bestehenden Haken an und
-      // wundert sich, warum die Fernsteuerung trotzdem nicht geht. Dieser
-      // Hinweistext ist deshalb die einzige Quelle fuer den ganzen Weg --
-      // jede kuenftige Anzeige soll ihn woertlich zeigen, nicht neu erfinden.
-      hint:
-        'Pulse braucht die Bedienungshilfen-Freigabe, um diesen Rechner fernsteuerbar ' +
-        'zu machen. Steht Pulse schon in Systemeinstellungen -> Datenschutz & ' +
-        'Sicherheit -> Bedienungshilfen, wirkt der Haken aber nicht (z. B. nach einem ' +
-        'Update): den Eintrag ENTFERNEN und NEU HINZUFUEGEN -- der Haken bleibt nach ' +
-        'jedem Update sichtbar stehen, auch wenn er nicht mehr gilt.',
-    };
-  });
-}
 
 // ── Settings persistence (E1c) ──────────────────────────────────────────────
 // A tiny key-value store backed by `<userData>/pulse-stream.json` (see store.ts).
@@ -1244,18 +1277,15 @@ function wireAccessibility(): void {
 const ALLOWED_STORE_KEYS = new Set([
   'profile_name',
   'server_name',
+  // Quelle (`capture_source`/`capture_source_1`/`capture_sources`) und Ton
+  // (`audio_mode`/`audio_app`): der Renderer schreibt sie seit dem 2026-09-20
+  // nicht mehr (Dialog-Öffnen resettet auf die Vorgabe). Die Schlüssel
+  // bleiben erlaubt, damit bestehende Store-Dateien lesbar bleiben — gelesen
+  // wird nichts davon.
   'capture_source',
-  // Capture source for the second HQ stream (slot 1). Superseded by
-  // `capture_sources` below and no longer written — kept allowed so an existing
-  // store file stays readable (the renderer migrates the value on load).
   'capture_source_1',
-  // Capture sources for every HQ stream slot ≥ 1, as `{ "<slot>": "<source>" }`.
-  // One field per slot would mean one allowlist entry per slot, and the slot
-  // ceiling is a sanity bound (99), not an expected stream count.
   'capture_sources',
   'audio_mode',
-  // Persisted stream-settings that were missing from the allowlist (they are
-  // in the renderer's PERSIST_KEYS, so without these the store rejected them).
   'audio_app',
   'excluded_apps',
   'overrides',
@@ -1277,6 +1307,11 @@ const ALLOWED_STORE_KEYS = new Set([
   // Nativer HQ-Player (`streaming/pulse-player/`) statt des <video>-WHEP-Wegs.
   // Default aus — experimentell, noch ohne Tonausgabe (siehe player.ts).
   'useNativePlayer',
+  // Bughunt Runde 8: der Renderer persistiert den Zweit-Schalter daneben —
+  // ohne Allowlist-Eintrag wurde der Schreib still verworfen und der Schalter
+  // stand nach jedem Neustart wieder auf false (nur Electron betroffen,
+  // der Browser-Fallback nutzt localStorage).
+  'nativePlayerOnlyTenBit',
   // Standplatz-Geräte. Alle vier liegen im selben chmod-600-Tresor wie die
   // Stream-Einstellungen, und alle vier MÜSSEN hier stehen: die Allowlist
   // verwirft unbekannte Schlüssel still (nur `console.warn`), der Renderer
@@ -1328,11 +1363,20 @@ const ALLOWED_STORE_KEYS = new Set([
  *  beim Boot) offen. (Schreibseitig ist der Key gar nicht erst in der Allowlist.) */
 const RENDERER_BLOCKED_STORE_KEYS = new Set(['pulse.host.creds']);
 
-/** Kopie ohne die renderer-gesperrten Schlüssel — für die store:getAll(Sync)-Kanäle. */
+/** Kopie ohne die renderer-gesperrten Schlüssel — für die store:getAll(Sync)-Kanäle.
+ *
+ * Security-Audit 2026-09-16: zusätzlich auf die Renderer-eigenen Schlüssel
+ * (ALLOWED_STORE_KEYS, sonst nur die Schreibseite) begrenzt. Zuvor sah getAll
+ * den GESAMTEN Tresor — ein kompromittierter Renderer-Origin erhielt damit
+ * jede Main-Prozess-Einstellung gratis mit. get(key) bleibt bewusst
+ * unverändert (expliziter Schlüssel = Absicht), der Bulk-Weg ist der
+ * Angriffspfad, den dieser Deckel schließt. */
 function stripBlockedKeys(all: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(all)) {
-    if (!RENDERER_BLOCKED_STORE_KEYS.has(k)) out[k] = v;
+    if (RENDERER_BLOCKED_STORE_KEYS.has(k)) continue;
+    if (!ALLOWED_STORE_KEYS.has(k)) continue;
+    out[k] = v;
   }
   return out;
 }
@@ -1352,7 +1396,11 @@ function wireStore(): void {
   });
   ipcMain.handle('store:getAll', () => {
     try {
-      return stripBlockedKeys(storeGetAll());
+      // Geheimnisse gar nicht erst entschlüsseln — die werden hier danach
+      // gefiltert weggeworfen (zweiter Bughunt-Lauf 2026-09-23: libsecret ist
+      // ein synchroner DBus-Aufruf; der Renderer soll einen hängenden Keyring
+      // nicht blockieren können, und der Klartext braucht hier niemand).
+      return stripBlockedKeys(storeGetAll(RENDERER_BLOCKED_STORE_KEYS));
     } catch (e) {
       console.error('[store] store:getAll failed:', e);
       return {};
@@ -1366,7 +1414,7 @@ function wireStore(): void {
   // sync IPC form; fired exactly once per launch.
   ipcMain.on('store:getAllSync', (e) => {
     try {
-      e.returnValue = stripBlockedKeys(storeGetAll());
+      e.returnValue = stripBlockedKeys(storeGetAll(RENDERER_BLOCKED_STORE_KEYS));
     } catch (err) {
       console.error('[store] store:getAllSync failed:', err);
       e.returnValue = {};
@@ -1423,6 +1471,58 @@ function wireInvitePull(): void {
   ipcMain.handle('invite:getPending', () => takePendingInvite());
 }
 
+// ── Permission-Gate (deny-by-default) ───────────────────────────────────────
+// Ohne Handler genehmigt Electron JEDE Permission-Anfrage still (Bughunt
+// 2026-09-23): Kamera/Mikro/Notifications/Fullscreen/PointerLock/Clipboard-
+// Schreiben braucht die App-UI, alles andere (Geolocation, MIDI, …) wird
+// verweigert — auch für den erlaubten Origin. Ein fremder Origin bekommt
+// ohnehin nichts: er kann durch die Navigations-Guards gar nicht erst laden.
+const _ALLOWED_PERMISSIONS = new Set([
+  'media',
+  'notifications',
+  'fullscreen',
+  'pointerLock',
+  'clipboard-sanitized-write',
+]);
+function wirePermissionGate(): void {
+  // Zweiter Bughunt-Lauf (2026-09-23): die Prüfung muss FRAME-EBENIG sein —
+  // `webContents.getURL()` liefert die Top-Page, ein Cross-Origin-iframe
+  // (Watch-Party-Embeds) hätte die App-Origin geerbt. Electron liefert dafür
+  // `details.requestingUrl` (Request) bzw. `requestingOrigin` (Check); nur wo
+  // beides fehlt, fällt der Gate auf die Top-URL zurück.
+  const erlaubt = (permission: string, quelle: string | null | undefined): boolean => {
+    if (!_ALLOWED_PERMISSIONS.has(permission)) return false;
+    return quelle != null && _isAllowedOrigin(quelle);
+  };
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback, details) => {
+      // Fullscreen ist nutzerinitiiert und unkritisch — Watch-Party-Embeds
+      // (YouTube/Twitch-iframe) brauchen ihn, deren Origin durchfällt sonst.
+      if (permission === 'fullscreen') {
+        callback(true);
+        return;
+      }
+      if (
+        erlaubt(permission, details?.requestingUrl ?? webContents?.getURL() ?? null)
+      ) {
+        callback(true);
+        return;
+      }
+      callback(false);
+    }
+  );
+  // Elektron verlangt BEIDE Handler für vollständige Permissions-Abdeckung
+  // (electron.d.ts): `navigator.permissions.query` und die synchronen Checks
+  // (pointerLock, clipboard-sanitized-write) laufen über DIESEN Handler — ohne
+  // ihn galt dort weiterhin Electron-Default statt der Allowlist.
+  session.defaultSession.setPermissionCheckHandler(
+    (_webContents, permission, requestingOrigin) => {
+      if (permission === 'fullscreen') return true;
+      return erlaubt(permission, requestingOrigin);
+    }
+  );
+}
+
 // ── Screen capture (browser screen-share via LiveKit/WebRTC) ────────────────
 // Electron has no built-in screen picker — without a display-media request
 // handler, navigator.mediaDevices.getDisplayMedia() in the renderer throws
@@ -1436,10 +1536,25 @@ function wireInvitePull(): void {
 // the user pick which monitor/window regardless of the synthetic id).
 // On Windows/macOS `useSystemPicker: true` makes Electron use the OS picker and
 // our handler isn't invoked. (A proper in-app source picker is a follow-up —
-// the GSR HQ-stream path covers richer capture.)
+// the sidecar HQ-stream path covers richer capture.)
+// Bughunt 2026-09-20: das stimmt nur für macOS 15+ (s. electron.d.ts —
+// "currently available for MacOS 15+ only"). Auf Windows (und macOS < 15) läuft
+// der Handler DOCH an und nahm blind sources[0] — egal ob Bildschirm oder
+// Fenster, "was auch immer zuerst kommt", ohne jede Nutzerwahl. Der Fallback
+// teilt deshalb bewusst den PRIMÄRBILDSCHIRM: vorhersagbar, nie ein Fenster.
+// ponytail: eine echte Quellwahl gibt es auf Windows so nicht — Ausbaupfad ist
+// ein In-App-Picker; bis dahin ist "Hauptmonitor" der ehrlichste Zustand.
 function wireScreenShare(): void {
   session.defaultSession.setDisplayMediaRequestHandler(
     (_request, callback) => {
+      // Bughunt 2026-09-23: nur der erlaubte Origin (unsere App-UI) darf den
+      // Bildschirm bekommen — ein kompromittierter Renderer-Inhalt bekäme
+      // sonst auf Plattformen ohne System-Picker kommentarlos den
+      // Primärbildschirm gestreamt, ohne jeden Dialog.
+      if (!_isAllowedOrigin(_request.securityOrigin)) {
+        callback({});
+        return;
+      }
       if (process.platform === 'linux') {
         // Synthetic "whole screen" stream id — Chromium maps this to its portal
         // ScreenCast flow on Wayland (the portal picker still lets the user
@@ -1447,10 +1562,21 @@ function wireScreenShare(): void {
         callback({ video: { id: 'screen:0:0', name: 'Bildschirm' } });
         return;
       }
-      // Non-Linux without a system picker: fall back to enumerating sources.
+      // Non-Linux without a system picker: share the primary display.
       desktopCapturer
-        .getSources({ types: ['screen', 'window'] })
-        .then((sources) => callback(sources[0] ? { video: sources[0] } : {}))
+        .getSources({ types: ['screen'] })
+        .then((sources) => {
+          if (!sources.length) {
+            callback({});
+            return;
+          }
+          const primary = screen.getPrimaryDisplay();
+          const chosen =
+            sources.find(
+              (s) => s.display_id && s.display_id === String(primary.id)
+            ) ?? sources[0];
+          callback({ video: chosen });
+        })
         .catch(() => callback({}));
     },
     { useSystemPicker: true }
@@ -1572,9 +1698,9 @@ async function bootClient(): Promise<void> {
   migriereAufStandardAn();
   wireSidecar();
   wirePlayer();
-  wireAccessibility();
   wireNetdiag();
   wireScreenShare();
+  wirePermissionGate();
   wireNotify(() => mainWindow);
   wireSicherungRuecklauf();
   wirePower();
@@ -1582,13 +1708,7 @@ async function bootClient(): Promise<void> {
   wireGlobalShortcuts(() => mainWindow);
 
   createWindow();
-  createTray(
-    () => mainWindow,
-    () => {
-      isQuitting = true;
-      app.quit();
-    }
-  );
+  createTray(() => mainWindow, quitApp);
 
   // Auto-Update: registriert die Renderer-Events + IPC-Handler und startet den
   // Boot- + periodischen Hintergrund-Check in EINEM Aufruf. Inert (Cleanup =
@@ -1637,11 +1757,7 @@ async function bootServer(): Promise<void> {
   wirePower();
   wireClipboard();
   createWindow();
-  createTray(
-    () => mainWindow,
-    () => { isQuitting = true; app.quit(); },
-    { variant: 'server' },
-  );
+  createTray(() => mainWindow, quitApp, { variant: 'server' });
 }
 
 app.whenReady().then(() => void (SERVER_MODE ? bootServer() : bootClient()));
@@ -1681,6 +1797,18 @@ app.on('before-quit', (event) => {
     // eigenen before-quit-Listener — sonst koennte die Bound-Race oben schon
     // abgelaufen sein, bevor der Player-Prozess sein SIGTERM verarbeitet hat.
     Promise.all([...allSidecars().map((s) => s.shutdown()), playerManager.shutdown()]),
-    new Promise<void>((r) => setTimeout(r, 3_000)),
+    // Bughunt Runde 44: 3 s Backstop — kuerzer als die Shutdown-Leiter der
+    // Kinder (Sidecar 4.5 s bis SIGKILL, Player aehnlich). Hielt ein Kind
+    // SIGTERM nicht stand, gewann der Backstop, `app.quit()` lief fertig,
+    // und das Kind ueberlebte als Waise (Windows: stirbt nicht mit dem
+    // Elternteil). Jetzt: SIGKILL an alle lebenden Prozesse, BEVOR fertig
+    // gemeldet wird.
+    new Promise<void>((r) =>
+      setTimeout(() => {
+        for (const s of allSidecars()) s.killHard();
+        playerManager.killHard();
+        r();
+      }, 3_000)
+    ),
   ]).then(done, done);
 });

@@ -150,8 +150,19 @@ async def schluessel_abholen(
                 GeraeteSchluesselOut(
                     device_pubkey=b.device_pubkey,
                     curve25519=b.curve25519,
+                    ed25519=b.ed25519,
+                    bundel_signatur=b.bundel_signatur,
                     einmalschluessel=einmal,
-                    rueckfallschluessel=b.rueckfallschluessel if einmal is None else None,
+                    # Bughunt-Runde 2 (2026-09-23, zweiter Lauf): der Rückfall
+                    # fährt IMMER mit — die Bündel-Signatur deckt die
+                    # PUBLIZIERTE Form ab, und die Nüllung hier („bei
+                    # geliefertem Einmalschluessel kein Rückfall") ließ die
+                    # Klienten-Verifikation im Regelfall scheitern: der
+                    # Vorrat ist ja fast nie leer. Der Konsum wird allein
+                    # über ``einmalschluessel`` signalisiert; der Sende-Weg
+                    # wählt ``einmalschluessel ?? rueckfallschluessel`` und
+                    # nimmt damit unverändert den Einmalschluessel zuerst.
+                    rueckfallschluessel=b.rueckfallschluessel,
                     dauerhaft=b.dauerhaft,
                     gekoppelt=b.gekoppelt_am is not None,
                 )

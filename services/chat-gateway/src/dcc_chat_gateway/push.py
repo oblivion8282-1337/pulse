@@ -158,6 +158,8 @@ def _send_one(
             data=body,
             vapid_private_key=vapid_pem,
             vapid_claims=dict(vapid_claims),
+            timeout=10,  # ohne Timeout hängt ein zäher Vendor-POST einen
+            # to_thread-Worker dauerhaft und verhungert den ganzen Push-Versand
         )
         return "ok"
     except WebPushException as exc:  # noqa: BLE001
@@ -354,7 +356,6 @@ async def fan_out_dm_push(
     *,
     recipient_id: int,
     author_name: str,
-    content: str,
     channel_id: int,
     message_id: int,
 ) -> None:
@@ -364,11 +365,16 @@ async def fan_out_dm_push(
     covers the tab-closed case. ``guild_id: None`` makes the SW route the
     click to ``/app/@me/<channel_id>``. DND is honoured SW-side; the per-type
     ``onDM`` toggle gates the in-page path (matching mention push).
+
+    Security-Audit 2026-09-16: ``body`` ist inhaltsfrei. Der Push-Dienst
+    (Drittanbieter) sah bisher den Klartext der DM — dieselbe Information wie
+    im verschlüsselten Postfach-Weg (``fan_out_dm_push_encrypted``), das
+    Absender und Kanal nennt, aber nie Inhalt.
     """
     payload = {
         "type": "dm",
         "title": author_name or "Pulse",
-        "body": _make_snippet(content),
+        "body": "Neue Direktnachricht",
         "channel_id": str(channel_id),
         "message_id": str(message_id),
         "guild_id": None,
@@ -437,6 +443,31 @@ async def fan_out_friend_push(
     await _fan_out_payload({recipient_id}, payload)
 
 
+async def fan_out_community_invite_push(
+    *, recipient_id: int, inviter_name: str, guild_name: str, guild_id: int
+) -> None:
+    """Push a closed-browser notification for a community invite.
+
+    Entscheidung 2d (2026-09-21): Einladungen lösten kein Web-Push aus
+    (Freundschaftsanfragen taten es) — geschlossen-browser Nutzer sahen
+    die Karte erst beim nächsten App-Start. ``target_url`` führt auf die
+    App (die Karte liegt im Einladungs-Eingang), der Body nennt Einladenden
+    und Community."""
+    payload = {
+        "type": "community_invite",
+        "title": inviter_name or "Pulse",
+        "body": f"{inviter_name} lädt dich ein: {guild_name}",
+        "channel_id": None,
+        "message_id": None,
+        # target_url entscheidet den Klick (ohne channel_id → /app).
+        "guild_id": str(guild_id),
+        "author_name": inviter_name or "",
+        "icon": None,
+        "target_url": "/app",
+    }
+    await _fan_out_payload({recipient_id}, payload)
+
+
 def _make_snippet(content: str, limit: int = 100) -> str:
     """One-line, marker-free preview of the message content.
 
@@ -460,6 +491,7 @@ __all__ = [
     "ensure_vapid",
     "fan_out_dm_push",
     "fan_out_dm_push_encrypted",
+    "fan_out_community_invite_push",
     "fan_out_friend_push",
     "fan_out_mention_push",
     "reset_vapid_cache_for_tests",

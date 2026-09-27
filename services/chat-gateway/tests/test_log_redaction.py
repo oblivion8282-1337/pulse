@@ -64,3 +64,23 @@ def test_install_is_idempotent():
     logger = logging.getLogger("uvicorn.access")
     redactors = [f for f in logger.filters if isinstance(f, RedactTokenFilter)]
     assert len(redactors) == 1
+
+
+def test_invite_code_in_access_line_wird_geschwaerzt():
+    """Bughunt Runde 33: Einladungs-Codes sind Einzel-Capabilities im Pfad
+    (GET /invites/<code>) — der Access-Log druckte sie wortwoertlich, jeder
+    Log-Ausschnitt enthielt einen lebenden Beitritts-Code."""
+    import logging
+
+    from dcc_chat_gateway.log_filters import RedactTokenFilter
+
+    flt = RedactTokenFilter()
+    rec = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "p", 1,
+        '%s - "%s %s HTTP/%s" %s',
+        ("127.0.0.1", "GET", "/invites/Ab3xY9Km42", "1.1", "204"),
+        None,
+    )
+    flt.filter(rec)
+    assert "Ab3xY9Km42" not in str(rec.args)
+    assert "<redacted>" in str(rec.args)

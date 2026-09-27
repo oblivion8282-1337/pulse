@@ -1252,6 +1252,17 @@ pub async fn run(
         }
     };
 
+    // Der Dekodier-Faden muss VOR allem Grafikseitigen beendet sein: Er
+    // besitzt den Decoder samt Zero-Copy-Bruecke. Fiel der Griff bisher
+    // einfach nur, raeumte der Faden asynchron weiter, waehrend die Sitzung
+    // schon abgebaut wurde — genau in diesem Fenster ist am 2026-09-22 das
+    // Schliessen in einem SIGSEGV geendet (Hauptfaden, libGLX_nvidia,
+    // Null-Aufruf). `take()`: hier beenden, nicht erst beim Fallenlassen
+    // der lokalen Variablen am Funktionsende.
+    if let Some(faden) = decoder.take() {
+        faden.beenden_und_warten();
+    }
+
     // Eine laufende Aufnahme ausdruecklich abschliessen, damit der
     // Matroska-Trailer geschrieben wird. `Recorder` hat dafuer zusaetzlich ein
     // `Drop`-Netz; hier steht es explizit, weil die Absicht sonst nicht

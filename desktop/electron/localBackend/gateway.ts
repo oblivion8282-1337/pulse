@@ -1,7 +1,13 @@
 // Default-Gateway-Discovery für NAT-PMP/PCP (UDP 5351 zum Gateway).
 // Node hat keine Stdlib-API → Plattform-Route-Befehl parsen, Subnetz-Fallback.
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { networkInterfaces } from 'node:os';
+
+// Entscheidung 6.6: async statt execFileSync — der Route-Befehl kann auf
+// Maschinen mit vielen Adaptern Sekunden dauern; synchron blockierte das
+// den MAIN-Prozess (alle Fenster) mitten im Hosting-Start.
+const execFileAsync = promisify(execFile);
 
 const RE_DARWIN = /gateway:\s*(\d+\.\d+\.\d+\.\d+)/;
 const RE_LINUX = /default\s+via\s+(\d+\.\d+\.\d+\.\d+)/;
@@ -47,13 +53,15 @@ export function subnetFallbackGateway(): string | null {
   return null;
 }
 
-export function discoverGateway(): string | null {
+export async function discoverGateway(): Promise<string | null> {
   const spec = ROUTE_CMD[process.platform];
   if (spec) {
     try {
       const [bin, args] = spec;
-      const out = execFileSync(bin, args, { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] });
-      const gw = parseGateway(process.platform, out);
+      const { stdout } = await execFileAsync(bin, args, {
+        encoding: 'utf8', timeout: 3000,
+      });
+      const gw = parseGateway(process.platform, stdout);
       if (gw) return gw;
     } catch { /* fällt auf Subnetz-Heuristik */ }
   }

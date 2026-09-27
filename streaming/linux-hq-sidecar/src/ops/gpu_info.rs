@@ -1,8 +1,13 @@
 //! `gpu_info` — GPU-Vendor + Codec-Set.
 //!
 //! Echte DRM-Vendor-Erkennung (`system::drm`: sysfs renderD*/driver →
-//! nvidia/amd/intel) + Render-Node-Pfad (`card_path`). Codecs aktuell statisch
-//! (h264+av1); die echte Open-Probe pro Vendor kommt mit den HW-Modulen (Phase 4).
+//! nvidia/amd/intel) + Render-Node-Pfad (`card_path`). Codecs aus der echten
+//! Open-Probe (`caps::gemeldete_video_codecs` — Phase 4 ist gelandet): pro
+//! Kandidat wird der Hardware-Encoder über das gelinkte FFmpeg geöffnet, nur
+//! was aufgeht, gilt als verfügbar. Hat die Probe noch kein definitives
+//! Ergebnis (Sidecar frisch gestartet, GPU-Reset), bleibt `video_codecs`
+//! WEG — „fehlend" heißt „unbekannt", nicht „nichts" (Begründung:
+//! `caps::gemeldete_video_codecs`).
 //! Shape wie die anderen Sidecars: `{ok, vendor, card_path, display_server, video_codecs}`.
 
 use anyhow::Result;
@@ -17,10 +22,13 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         None => (Value::String("unknown".to_string()), Value::Null),
     };
 
-    Ok(super::json_to_map(json!({
+    let mut out = super::json_to_map(json!({
         "vendor": vendor,
         "card_path": card_path,
         "display_server": std::env::var("XDG_SESSION_TYPE").unwrap_or_default(),
-        "video_codecs": caps::available_video_codecs(),
-    })))
+    }));
+    if let Some(codecs) = caps::gemeldete_video_codecs() {
+        out.insert("video_codecs".to_string(), json!(codecs));
+    }
+    Ok(out)
 }

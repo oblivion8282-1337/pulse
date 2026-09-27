@@ -16,9 +16,16 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// `node --test` (Unit-Gate) zieht 'electron' als CJS-String-Export (Pfad zum
+// Binary) — ein BENANNTER `app`-Import bricht dort schon das Modul-Laden und
+// reißt die reinen Funktions-Tests mit ab. Der Default-Import liefert unter
+// Electron das echte API-Objekt (.app vorhanden) und unter bare Node einen
+// String (.app fehlt → wie „packaged nicht prüfbar").
+import electron from 'electron';
+
 import type { BootstrapCreds } from './pairing.ts';
 import { detectRuntime, ensureMachine, rtExec, type ContainerRuntime } from './containerRuntime.ts';
-import { waitFor, httpHealth } from './health.ts';
+import { httpHealth } from './health.ts';
 
 export const CONTAINER_NAME = 'pulse-host';
 export const DATA_VOLUME = 'pulse-host-data';
@@ -26,13 +33,24 @@ export const DEFAULT_IMAGE = 'registry.howispulse.com/pulse-allinone:edge';
 
 /** Dev/Test-Seam: `PULSE_HOST_IMAGE` zeigt auf ein lokal gebautes Image —
  *  dann entfallen Registry-Login + Pull (Dev-Instanz-Creds existieren im
- *  Prod-Registry-Realm nicht). Prod-Pfad bleibt der Default. */
+ *  Prod-Registry-Realm nicht). Prod-Pfad bleibt der Default.
+ *
+ *  Security-Scan 2026-09-18: Der Override greift NUR in ungepackten Builds
+ *  (Muster wie PULSE_URL in main.ts) — mit Env-Kontrolle über einen gepackten
+ *  Build liefe sonst ein Angreifer-Image als `pulse-host` und empfinge
+ *  Bootstrap-Creds/Relay-Token direkt in seinem Environment
+ *  (siehe `renderContainerEnv`). */
 export function resolveImage(env: Record<string, string | undefined> = process.env): {
   image: string;
   local: boolean;
 } {
   const override = env.PULSE_HOST_IMAGE;
-  return override ? { image: override, local: true } : { image: DEFAULT_IMAGE, local: false };
+  const isPackaged = (electron as { app?: { isPackaged?: boolean } }).app?.isPackaged ?? false;
+  if (override && !isPackaged) return { image: override, local: true };
+  if (override) {
+    console.warn('[host] PULSE_HOST_IMAGE ignored in packaged build (developer-only override).');
+  }
+  return { image: DEFAULT_IMAGE, local: false };
 }
 
 /** Host-Port für den behind-proxy-HTTP des Containers (nur 127.0.0.1 —

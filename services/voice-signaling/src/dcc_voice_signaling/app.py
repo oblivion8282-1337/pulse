@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 from dcc_voice_signaling.config import get_settings
 from dcc_voice_signaling.routes import chat_gateway as _chat_gateway
 from dcc_shared.logging_setup import konfiguriere_logging
+from dcc_shared.singleworker import assert_single_worker
 
 log = structlog.get_logger(__name__)
 
@@ -40,7 +41,14 @@ _DEV_SECRET = "devsecretdevsecretdevsecretdevsecret"
 # Placeholder aus infra/prod/.env.example — wer das File 1:1 deployed, darf
 # nicht still mit einem öffentlich bekannten "Secret" starten.
 _PLACEHOLDER_SECRET = "__CHANGE_ME__"
-_LOCAL_LIVEKIT_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
+# KEIN host.docker.internal hier (Bughunt 2026-09-16, Runde 2): der Eintrag
+# liess Custom-Deployments, in denen voice-signaling im Container lief und
+# LiveKit auf dem Host, still mit den oeffentlichen Dev-Keys starten — jeder
+# Kenner konnte Webhook-Signaturen faelschen. Offizielle Wege pruefen sich
+# als unberuehrt: dev-up.fish nutzt localhost, Self-Host rendert echte Keys
+# und wss://<hostname>/livekit. Wer containerized dev macht, setzt ein
+# eigenes Key-Paar in BEIDE Dienste (eine Env-Zeile).
+_LOCAL_LIVEKIT_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 from dcc_voice_signaling.routes import router
 from dcc_voice_signaling.webhook import router as webhook_router
 
@@ -89,6 +97,9 @@ def _enforce_secret_guards(settings) -> None:  # noqa: ANN001
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Security-Scan 2026-09-18: s. dcc_shared/singleworker.py — der Token-Mint-
+    # Limiter lebt in Prozess.
+    assert_single_worker("voice-signaling")
     from livekit import api as lk
 
     settings = get_settings()

@@ -24,6 +24,7 @@
  */
 
 import { currentServerUserId } from '$lib/stores/currentServerUser';
+import { schreibeDndNachIdb } from '$lib/notifications/dndSpeicher';
 
 export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline';
 export type OwnPresenceStatus = 'online' | 'idle' | 'dnd' | 'invisible';
@@ -61,6 +62,8 @@ class PresenceStore {
   seedStatuses(map: Record<string, PresenceStatus>, ownStatus: OwnPresenceStatus): void {
     this.statuses = { ...map };
     this.myStatus = ownStatus;
+    // Bughunt Runde 19: SW-Flag mitführen (ready-seed = Server-Truth).
+    schreibeDndNachIdb(ownStatus === 'dnd');
   }
 
   /** Cloud-only: den Freundes-Online-Set aus dem Cloud-``ready``
@@ -78,10 +81,15 @@ class PresenceStore {
   }
 
   apply(userId: string, online: boolean): void {
-    if (online) this.onlineIds.add(userId);
-    else this.onlineIds.delete(userId);
-    // Svelte 5 $state<Set> doesn't track Set mutation — reassign for reactivity.
-    this.onlineIds = this.onlineIds;
+    // Neues Set statt Selbstzuweisung: `this.x = this.x` auf dieselbe
+    // Referenz löst bei $state-Klassenfeldern KEINE Ableitungen aus — die
+    // Mitgliederliste blieb beim Disconnect-Ereignis stehengelassen (Bug
+    // 2026-09-22: „Abgemeldete Nutzer rutschen nicht in die Offline-Gruppe").
+    // Die In-Place-Mutation war da, nur die Benachrichtigung fehlte.
+    const next = new Set(this.onlineIds);
+    if (online) next.add(userId);
+    else next.delete(userId);
+    this.onlineIds = next;
   }
 
   /** Apply a ``presence_status_changed`` for a peer (masked value — caller
@@ -122,6 +130,9 @@ class PresenceStore {
   setOwnStatus(status: OwnPresenceStatus): void {
     if (this.myStatus === status) return;
     this.myStatus = status;
+    // Bughunt Runde 19: SW-Flag mitführen (presence_status_changed von
+    // einem Zweitgerät ist hier ebenfalls angekommen).
+    schreibeDndNachIdb(status === 'dnd');
   }
 
   isOnline(userId: string): boolean {
@@ -185,6 +196,10 @@ class PresenceStore {
     this.friendOnlineIds = new Set();
     this.friendStatuses = {};
     this.myStatus = 'online';
+    // Bughunt Runde 19: Sign-Out räumt auch das SW-DND-Flag weg — sonst
+    // schluckte der Service-Worker ALLE Pushes für den nächsten Nutzer
+    // dieses Browsers, wenn der vorige DND an hatte.
+    schreibeDndNachIdb(false);
   }
 
   /** DEV-ONLY (``?demo=online`` auf der Freunde-Seite): Markiert die

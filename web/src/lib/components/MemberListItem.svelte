@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import MemberQuickRoleMenu from './MemberQuickRoleMenu.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
@@ -42,7 +43,7 @@
 
   let name = $derived(member.nickname ?? userCache.displayName(member.user_id));
   let url = $derived(safeAvatarUrl(userCache.get(member.user_id)?.avatar_url));
-  let initials = $derived(name.slice(0, 1).toUpperCase());
+  let initials = $derived(anfangsBuchstabe(name));
   let colour = $derived.by<string | null>(() => {
     const ids = memberRoles.for(guildId, member.user_id);
     const top = roles.topColorRole(guildId, ids);

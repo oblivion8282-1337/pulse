@@ -82,7 +82,15 @@ impl RtcFactory {
         let answer = pc.create_answer(None).await?;
         let mut gathered = pc.gathering_complete_promise().await;
         pc.set_local_description(answer).await?;
-        let _ = gathered.recv().await;
+        // Bughunt Runde 3: Deadline wie in den Schwester-Implementierungen
+        // (pulse-whip 5 s, Player 2 s) — webrtc-rs hängt gelegentlich beim
+        // Kandidaten-Sammeln, und ohne Schranke parkt der Answer-Task für
+        // immer und die gecachte PeerConnection wird nie geräumt.
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            gathered.recv(),
+        )
+        .await;
         let local = pc
             .local_description()
             .await

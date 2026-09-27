@@ -80,6 +80,15 @@ async def einmalschluessel_budget_uebrig(redis, anfragender_id: int, ziel_id: in
     settings = chat_config.get_settings()
     schluessel = f"keys:claim-budget:{anfragender_id}:{ziel_id}"
     aktuell = await redis.incr(schluessel)
-    if aktuell == 1:
-        await redis.expire(schluessel, settings.schluessel_claim_fenster_sekunden)
+    # ``nx=True`` statt ``if aktuell == 1`` (Bughunt Runde 5, Spiegel zu
+    # ``gaeste.bremse``): Zähler und Frist sind zwei Befehle — stirbt der
+    # Prozess dazwischen, blieb der Schlüssel OHNE Frist liegen, zählte
+    # für immer weiter, und der Anfragende war nach kumulativ 30 Versuchen
+    # dauerhaft auf den wiederverwendbaren Fallback-Schlüssel verbannt
+    # (genau der Forward-Secrecy-Verlust, gegen den der Deckel gebaut ist).
+    # nx holt auch einen fristlosen Altbestand nach, ohne laufende
+    # Fenster zu verlängern.
+    await redis.expire(
+        schluessel, settings.schluessel_claim_fenster_sekunden, nx=True
+    )
     return aktuell <= settings.schluessel_claim_budget_je_ziel

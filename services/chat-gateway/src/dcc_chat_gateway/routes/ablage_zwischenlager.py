@@ -37,6 +37,7 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import AblageZwischenlagerDatei
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import guild_oder_404, mitglied_oder_403
+from dcc_chat_gateway.routes._dropbox_helpers import with_quota_lock
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
@@ -134,28 +135,32 @@ async def zwischenlager_ankuendigen(
                 f"{settings.ablage_zwischenlager_max_datei_bytes} bytes)"
             ),
         )
-    belegt = await _belegte_bytes(session, guild_id)
-    if belegt + payload.groesse > settings.ablage_zwischenlager_max_gesamt_bytes:
-        raise HTTPException(
-            status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=(
-                f"community staging quota exceeded ({belegt} + {payload.groesse} > "
-                f"{settings.ablage_zwischenlager_max_gesamt_bytes} bytes)"
-            ),
-        )
+    # Entscheidung 2b.2 (2026-09-21): dieselbe Guild-Sperre wie im
+    # Pulse-Laufwerk (Runde 48) — die Buchhaltung ist check-then-insert,
+    # zwei gleichzeitige Ankündigungen gewannen sonst beide die Prüfung.
+    async with with_quota_lock(guild_id):
+        belegt = await _belegte_bytes(session, guild_id)
+        if belegt + payload.groesse > settings.ablage_zwischenlager_max_gesamt_bytes:
+            raise HTTPException(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=(
+                    f"community staging quota exceeded ({belegt} + {payload.groesse} > "
+                    f"{settings.ablage_zwischenlager_max_gesamt_bytes} bytes)"
+                ),
+            )
 
-    eintrag_id = next_id()
-    storage_key = _storage_key(guild_id, eintrag_id)
-    session.add(
-        AblageZwischenlagerDatei(
-            id=eintrag_id,
-            guild_id=guild_id,
-            hochgeladen_von=current.id,
-            groesse=payload.groesse,
-            storage_key=storage_key,
+        eintrag_id = next_id()
+        storage_key = _storage_key(guild_id, eintrag_id)
+        session.add(
+            AblageZwischenlagerDatei(
+                id=eintrag_id,
+                guild_id=guild_id,
+                hochgeladen_von=current.id,
+                groesse=payload.groesse,
+                storage_key=storage_key,
+            )
         )
-    )
-    await session.commit()
+        await session.commit()
 
     # Fester Content-Type, unabhaengig vom tatsaechlichen Inhalt — der Server
     # darf den MIME-Typ nie sehen (er steckt verschluesselt im PADF-Kopf).

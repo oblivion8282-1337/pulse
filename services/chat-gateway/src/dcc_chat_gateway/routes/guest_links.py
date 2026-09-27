@@ -27,6 +27,7 @@ from dcc_chat_gateway import gaeste
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, GuestLink
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.permissions import filter_viewable_channels
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 from dcc_chat_gateway.zeit import als_utc
@@ -93,12 +94,11 @@ async def create_guest_link(
     channel = await session.get(Channel, channel_id)
     if channel is None or channel.guild_id is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="channel not found")
-    if channel.type != CHANNEL_TYPE_VOICE:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, detail="guest links are voice-channel only"
-        )
-    # MOVE_MEMBERS, kanalgenau geprüft: wer in genau diesem Kanal niemanden
-    # bewegen darf, lädt auch niemanden hinein.
+    # Rechteprüfung VOR dem Typ-Check (Bughunt Runde 9): die 400er-Typ-
+    # Meldung bestätigte sonst jedem Authentifizierten die Existenz UND
+    # den Typ beliebig erfragbarer Kanal-Snowflakes (400 = Text/Ablage,
+    # 403 = Voice) — genau das Existenz-Orakel, das channels.py und die
+    # Reactions/Pins-Fixes bewusst vermeiden.
     await check_permission(
         session,
         current,
@@ -106,6 +106,10 @@ async def create_guest_link(
         Permissions.MOVE_MEMBERS,
         channel_id=channel_id,
     )
+    if channel.type != CHANNEL_TYPE_VOICE:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="guest links are voice-channel only"
+        )
     redis = getattr(request.app.state, "redis", None)
     if not await gaeste.erzeugung_bremse(redis, current.id):
         # Redis statt Prozess-Zähler (wie bei den anonymen Routen): hinter
@@ -168,7 +172,16 @@ async def list_guest_links(
         .order_by(GuestLink.id.desc())
         .limit(100)
     )
-    return [_out(link) for link in (await session.execute(stmt)).scalars()]
+    links = (await session.execute(stmt)).scalars().all()
+    # Bughunt Runde 9: Links privater Sprachkanäle nur für Nutzer ausgeben,
+    # die diese Kanäle überhaupt sehen dürfen (VIEW_CHANNEL) — vorher
+    # verriet die Liste Existenz, Zeitfenster und Ersteller verdeckter
+    # Kanäle an jeden MOVE_MEMBERS-Halter, während GET /channels/{id}
+    # demselben Nutzer bewusst 404 antwortet.
+    sichtbar = await filter_viewable_channels(
+        session, current, guild_id, [link.channel_id for link in links]
+    )
+    return [_out(link) for link in links if link.channel_id in sichtbar]
 
 
 @router.delete("/guest-links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)

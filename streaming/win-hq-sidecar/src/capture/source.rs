@@ -355,7 +355,9 @@ fn resolve_minimized(win: Window, label: &str) -> Result<ResolvedTarget> {
 }
 
 /// `rcNormalPosition` — Fenster-Rechteck im wiederhergestellten Zustand.
-fn placement_normal_rect(hwnd: HWND) -> Option<RECT> {
+/// `pub(crate)`: außer dem Resolver zeigt auch `ops/list_windows` minimierte
+/// Fenster in ihrer Echtgröße an (GetWindowRect wäre der -32000-Stummel).
+pub(crate) fn placement_normal_rect(hwnd: HWND) -> Option<RECT> {
     let mut wp = WINDOWPLACEMENT {
         length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
         ..Default::default()

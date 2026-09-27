@@ -18,6 +18,7 @@
   import { onMount } from 'svelte';
   import KeyRoundIcon from '@lucide/svelte/icons/key-round';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import { toast } from 'svelte-sonner';
@@ -27,6 +28,7 @@
   import { getRecoveryPackage } from '$lib/api/recovery-package';
   import { ApiError } from '$lib/api/client';
   import { m } from '$lib/paraglide/messages.js';
+import { currentLocale } from '$lib/i18n';
 
   type Zustand = 'unbekannt' | 'keins' | 'vorhanden';
   let zustand = $state<Zustand>('unbekannt');
@@ -36,6 +38,11 @@
   let einloesenOffen = $state(false);
   let neuerCode = $state<string | null>(null);
   let busy = $state(false);
+  // Passwortpflicht (Entscheidung 4.2): der Server nimmt das Päckchen nur
+  // gegen den Kontobeweis ab — der erste Tap auf „Erzeugen" fragt inline
+  // ab (dasselbe Muster wie die Passkey-Löschung), der zweite führt aus.
+  let fragtPasswort = $state(false);
+  let passwort = $state('');
 
   async function ladeStatus() {
     try {
@@ -53,10 +60,20 @@
 
   async function starteErzeugen() {
     if (busy) return;
+    if (!fragtPasswort) {
+      fragtPasswort = true;
+      return;
+    }
+    if (!passwort) {
+      toast.error(m.wiederherstellung_passwort_noetig());
+      return;
+    }
     busy = true;
     try {
-      neuerCode = await erzeugeUndSichere();
+      neuerCode = await erzeugeUndSichere(passwort);
       erzeugenOffen = true;
+      passwort = '';
+      fragtPasswort = false;
     } catch {
       toast.error(m.wiederherstellung_erzeugen_fehler());
     } finally {
@@ -100,11 +117,21 @@
 
   {#if zustand === 'vorhanden' && zuletztAktualisiert}
     <p class="text-text-muted text-xs" data-testid="wiederherstellung-stand">
-      {m.wiederherstellung_stand({ datum: new Date(zuletztAktualisiert).toLocaleDateString() })}
+      {m.wiederherstellung_stand({ datum: new Date(zuletztAktualisiert).toLocaleDateString(currentLocale()) })}
     </p>
   {/if}
 
-  <div class="flex flex-wrap gap-2">
+  <div class="flex flex-wrap items-center gap-2">
+    {#if fragtPasswort}
+      <Input
+        type="password"
+        autocomplete="current-password"
+        bind:value={passwort}
+        placeholder={m.wiederherstellung_passwort_label()}
+        class="h-8 w-48 text-xs"
+        data-testid="wiederherstellung-passwort"
+      />
+    {/if}
     <Button onclick={starteErzeugen} disabled={busy} data-testid="wiederherstellung-erzeugen-knopf">
       {zustand === 'vorhanden' ? m.wiederherstellung_erneuern_knopf() : m.wiederherstellung_einrichten_knopf()}
     </Button>

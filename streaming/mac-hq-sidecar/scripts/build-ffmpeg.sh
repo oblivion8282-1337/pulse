@@ -43,6 +43,10 @@
 set -euo pipefail
 
 VER="${FFMPEG_VERSION:-8.0.1}"
+# SHA256 des Release-Tarballs (Bughunt 2026-09-23: der Download ging ungeprüft
+# in den Build, dessen dylibs in den DMG landen). Gekreuzt gegen den eigenen
+# TLS-Download von ffmpeg.org und das FreeBSD-Ports-distinfo.
+TARBALL_SHA256="05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41"
 PREFIX="${PREFIX:-$HOME/src/ffmpeg-openssl}"
 WORK="${WORK:-$HOME/src}"
 SRC="$WORK/ffmpeg-$VER"
@@ -53,7 +57,11 @@ export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix
 
 echo "→ FFmpeg $VER  →  prefix $PREFIX"
 mkdir -p "$WORK"
-[ -f "$TARBALL" ] || curl -fSL "https://ffmpeg.org/releases/ffmpeg-$VER.tar.xz" -o "$TARBALL"
+if [ ! -f "$TARBALL" ]; then
+  curl -fSL "https://ffmpeg.org/releases/ffmpeg-$VER.tar.xz" -o "$TARBALL"
+fi
+echo "$TARBALL_SHA256  $TARBALL" | shasum -a 256 -c - \
+  || { echo "✗ Checksumme von $TARBALL falsch — Datei verworfen." >&2; rm -f "$TARBALL"; exit 1; }
 rm -rf "$SRC"; mkdir -p "$SRC"; tar -xf "$TARBALL" -C "$WORK"
 
 cd "$SRC"

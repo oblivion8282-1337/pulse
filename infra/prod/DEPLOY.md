@@ -14,7 +14,7 @@ is one Docker Compose project (`name: pulse`) in `~/pulse/infra/prod/`.
 App images (`ghcr.io/oblivion8282-1337/pulse-*`) are built by
 `.github/workflows/ci.yml` on every push to `main` and auto-pulled on the server
 by a **user crontab** running `infra/prod/pulse-update.sh` every 5 min (scoped
-pull+`up -d` of the app services + migrate one-shots). postgres / redis / minio /
+pull+`up -d` of the app services + migrate one-shots). postgres / redis / garage /
 mediamtx / livekit are pinned in the compose file and deliberately NOT
 auto-updated. **No Watchtower** — it mounted the Docker socket (= root on the
 host); the cron script keeps the updater as a small host script with no socket
@@ -39,10 +39,11 @@ rsync -av --exclude .env --exclude secrets --exclude target --exclude node_modul
 # 2. on the server: secrets
 ssh michael@159.195.150.54
 mkdir -p ~/pulse/infra/prod/secrets && cd ~/pulse/infra/prod
-PGPW=$(openssl rand -hex 32); RPW=$(openssl rand -hex 32); LKS=$(openssl rand -hex 32)
+PGPW=$(openssl rand -hex 32); RPW=$(openssl rand -hex 32); LKS=$(openssl rand -hex 32); GRS=$(openssl rand -hex 32)
 sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PGPW|" \
     -e "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=$RPW|" \
     -e "s|^LIVEKIT_API_SECRET=.*|LIVEKIT_API_SECRET=$LKS|" \
+    -e "s|^GARAGE_RPC_SECRET=.*|GARAGE_RPC_SECRET=$GRS|" \
     -e "s|^REDIS_URL=.*|REDIS_URL=redis://:$RPW@redis:6379/0|" \
     .env.example > .env && chmod 600 .env
 openssl genrsa -out secrets/jwt_private.pem 2048
@@ -90,10 +91,18 @@ sudo ufw allow 7881/tcp        # LiveKit TCP fallback
 sudo ufw allow 7882:7892/udp   # LiveKit RTC
 #    docker-bridge → host (the pulse_web nginx + pulse_media_svc reach the
 #    host-network MediaMTX/LiveKit; UFW's INPUT DROP blocks bridge→host
-#    otherwise; 8888/8889 are already open to Anywhere from the old streaming
-#    setup, so only these two need a rule):
+#    otherwise; only these two need a rule):
 sudo ufw allow from 10.0.0.0/8 to any port 7880 proto tcp   # LiveKit signaling
 sudo ufw allow from 10.0.0.0/8 to any port 9997 proto tcp   # MediaMTX API
+#    NO 8888/8889 to Anywhere (Bughunt 2026-09-23, resolves the old note that
+#    claimed they were "already open to Anywhere" from the legacy streaming
+#    setup): HLS is off and WHEP playback goes through the public pulse_web
+#    nginx — the handshake ports themselves belong behind the bridge rule
+#    below. On hosts migrated from the old setup, CLOSE them:
+sudo ufw delete allow 8888/tcp 2>/dev/null || true
+sudo ufw delete allow 8889/tcp 2>/dev/null || true
+sudo ufw allow from 10.0.0.0/8 to any port 8888 proto tcp   # MediaMTX HLS (off, defense in depth)
+sudo ufw allow from 10.0.0.0/8 to any port 8889 proto tcp   # MediaMTX WHEP handshake via nginx
 
 # 4. pull + start (must run from infra/prod/ so docker compose finds .env)
 cd ~/pulse/infra/prod
@@ -440,6 +449,40 @@ Dockerfile`) runs restic-encrypted snapshots of Postgres + MinIO + avatars
 - `maintenance` — Sunday 05:00 (`forget --prune` 7d/4w/6m per tag + `check`)
 
 Schedule + script live in `infra/prod/backup/{crontab,backup.sh}`.
+
+## Storage: MinIO → Garage (Umgestellt 2026-09-22)
+
+Der Objektspeicher für Anhänge ist Garage (Service `garage`, Bucket
+`pulse-attachments`). Wichtig: **App-Images und compose/Infra rollen
+getrennt** — die Images kommen per cron, Infra-Änderungen nur per rsync +
+manuelllem `up -d`. Am 2026-09-22 rollte das neue pulse-web/chat-gateway-Image
+bereits auf Garage, während der Server noch ohne `garage`-Container lief —
+Folge: Uploads (PUT /pulse-attachments) und alte Anhänge gingen mit **502**,
+bis die Umstellung komplett war. Ablauf der Umstellung (Referenz):
+
+```sh
+# lokal: Infra auf den Server bringen (Doku oben, gleiche rsync-Zeile)
+# auf dem Server, in ~/pulse/infra/prod:
+# (seit Bughunt 2026-09-23: GARAGE_RPC_SECRET in die .env — `openssl rand -hex 32`
+#  bei Ersteinrichtung; auf DIESEM Bestandsserver den Wert aus der bisherigen
+#  garage/garage.toml übernehmen, bevor die neue compose hochrollt — die neue
+#  Fassung hat keinen rpc_secret-Eintrag mehr und erzwingt die Env-Variable
+#  mit `:?`, ein fehlender Wert bricht `docker compose up` laut ab)
+docker compose up -d garage
+# Bootstrap: siehe garage/garage.toml-Kommentar (layout, bucket, GK-Schlüssel)
+# S3_ACCESS_KEY/S3_SECRET_KEY in .env auf den GK-Schlüssel setzen, dann:
+docker compose up -d chat-gateway
+# Bestandsdaten aus MinIO (lief damals noch als Container `minio`):
+docker run --rm --network pulse-net --entrypoint /bin/sh \
+  -e U=… -e P=… -e GK=… -e SK=… minio/mc:RELEASE.2025-08-13T08-35-41Z -c \
+  'mc alias set old http://minio:9000 $U $P; mc alias set new http://garage:9000 $GK $SK; \
+   mc mirror --preserve old/pulse-attachments new/pulse-attachments'
+# Backup-Sidecar auf Garage umstellen (neue compose def zieht S3_*-Schlüssel):
+docker compose --profile backup up -d backup
+```
+
+MinIO bleibt danach als Rückfall laufen (orphan im compose-Projekt) und kann
+nach einer Ruhefrist entfernt werden.
 
 ### Setup (one-time, when ready to enable backups)
 

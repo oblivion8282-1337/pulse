@@ -36,15 +36,18 @@ type GdriveVerbindungRecord = {
 const DESKTOP_KUNDEN_ID = import.meta.env.VITE_SICHERUNG_GDRIVE_KUNDEN_ID ?? '';
 const DESKTOP_GEHEIMNIS = import.meta.env.VITE_SICHERUNG_GDRIVE_GEHEIMNIS ?? '';
 const WEB_KUNDEN_ID = import.meta.env.VITE_SICHERUNG_GDRIVE_WEB_KUNDEN_ID ?? '';
+// Bughunt-Entscheidung 4.9 (2026-09-20): dieses Secret liegt im ausgelieferten
+// JS-Bundle und ist damit öffentlich — BEWUSST akzeptiert. Es wirkt nur am
+// Google-Token-Endpoint (nicht als Zugangs-Berechtigung) und Google behandelt
+// Secrets von installierten Clients ohnehin als nicht-vertraulich; PKCE
+// trägt die eigentliche Absicherung. Sauberer wäre ein serverseitiger
+// Tausch — erst wenn der Sicherungs-Flow ohnehin angefasst wird.
 const WEB_GEHEIMNIS = import.meta.env.VITE_SICHERUNG_GDRIVE_WEB_GEHEIMNIS ?? '';
 
 /** Lokaler Schlüssel des Rückkehr-Tabs → Einstellungssektion (Browser-Weg). */
 export const OAUTH_RUECKGABE_SPEICHER = 'pulse.sicherung-oauth-rueckgabe';
 
 /** Ob dieser Build die Sicherung im jeweiligen Kontext anbieten darf. */
-export function sicherungClientKonfiguriert(): boolean {
-	return isElectron() ? WEB_KUNDEN_ID !== '' || DESKTOP_KUNDEN_ID !== '' : WEB_KUNDEN_ID !== '';
-}
 
 function gdriveZiel(weiterleitung: string): {
 	ziel: 'gdrive';
@@ -90,17 +93,27 @@ function ruecklaufBruecke(): RuecklaufBruecke | null {
 	);
 }
 
+/** OAuth-Fehler eines Anbieters lesbar werfen (Bughunt Runde 38): vorher
+ *  versickerten `?error=access_denied`-Rückgaben als generisches
+ *  „Rückgabe unvollständig“ bzw. liefen in die 5-Minuten-Frist. */
+function werfeAnbieterFehler(fehler: string | null | undefined): never {
+	throw new Error(`Google-OAuth: ${fehler ?? 'unbekannter Fehler'}`);
+}
+
 /** Rückgabe-URL (Electron) in Code + State zerlegen. */
 export function zerlegeRueckgabe(rueckgabe: string): { code: string; state: string } {
 	const code = /[?&]code=([^&]+)/.exec(rueckgabe)?.[1];
 	const state = /[?&]state=([^&]+)/.exec(rueckgabe)?.[1];
+	const fehler = /[?&]error=([^&]+)/.exec(rueckgabe)?.[1];
+	if (fehler) werfeAnbieterFehler(decodeURIComponent(fehler));
 	if (!code || !state) throw new Error(m.sicherung_oauth_rueckgabe_unvollstaendig());
 	return { code: decodeURIComponent(code), state: decodeURIComponent(state) };
 }
 
 /** Rückgabe aus der Rückkehr-Route prüfen (Browser-Weg): State muss passen. */
 export function pruefeRueckgabe(roh: string, erwarteterState: string): string {
-	const geparst = JSON.parse(roh) as { state?: string; code?: string };
+	const geparst = JSON.parse(roh) as { state?: string; code?: string; error?: string };
+	if (geparst.error) werfeAnbieterFehler(geparst.error);
 	if (geparst.state !== erwarteterState || typeof geparst.code !== 'string') {
 		throw new Error(m.sicherung_oauth_state_falsch());
 	}
@@ -122,7 +135,10 @@ export async function googleSicherungVerbinden(): Promise<GdriveVerbindungRecord
 		: `${globalThis.location.origin}/sicherung/ruecklauf`;
 	const ziel = gdriveZiel(weiterleitung);
 	const pkce: Pkce = await erzeugePkce();
-	const zustand = zufallsHex(16);
+	// 128 Bit (Bughunt Runde 38, Spiegel zum Ablage-Flow mit randomUUID):
+	// der state ist die einzige CSRF-Schwelle und deckt zugleich den
+	// Loopback-Abgleich — 64 Bit rechten knapp, die Nachbarn nutzen mehr.
+	const zustand = zufallsHex(32);
 	const adresse = autorisierungsAdresse(anbindung(ziel), pkce, zustand);
 
 	let code: string;

@@ -77,6 +77,9 @@ import {
 import { baueNachrichtNutzlast, baueLoeschNutzlast, type AnhangAngabe } from './nachrichtNutzlast';
 import { anhangAngabeZuAttachment } from './anhangAnzeige';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
+import { geraetebuendelAuthentifizieren } from './geraetePinnung';
+import { BuendelUnsigniertFehler } from './buendelSignatur';
+import { melde } from '../diagnose/app-diagnose';
 import { wurdeZugestellt, deuteEinliefernFehler } from './zustellErgebnis';
 import { parseMentionMarkers } from '../components/mentionMarkierungen';
 
@@ -106,8 +109,29 @@ async function versendeUmschlaege(
 ): Promise<'verschluesselt' | 'unverschluesselt' | null> {
   const nutzlasten: PostfachNutzlast[] = [];
   const ident = await kryptoAccountLaden();
+  // Vorzeichenlose Alt-Bündel (Vorfall 2026-09-24: Nutzer „dev" mit drei
+  // September-Registrierungen blockierte JEDE Zustellung, obwohl sein
+  // lebendes Gerät frisch signiert hatte). Sie werden je Gerät übersprungen
+  // — nicht still: der Sprung geht in den Käfer-Ring, und bleibt am Ende
+  // kein einziges signiertes Gerät übrig, wirft die Schleife denselben
+  // Fehler wie vorher. Kein Abstieg in den Klartext-Weg: die Signatur-lose
+  // Ausrede darf niemals „dann eben unverschlüsselt" nach sich ziehen.
+  const unsignierteAltgeraete: string[] = [];
 
   for (const { geraet } of ziel) {
+    // **Signatur + TOFU (Bughunt 2026-09-23), vor allem anderen** — die
+    // geteilte Authentifizierung (`geraetePinnung.ts`, gilt ebenso fuer den
+    // Gruppen-Verteilweg). Ungültige Signatur und Pinnungs-Abweichung
+    // werfen weiterhin hart; nur das VORHANDENSEIN einer Signatur ist kein
+    // Grund, die ganze Sendung zu töten (s. unsignierteAltgeraete oben).
+    try {
+      await geraetebuendelAuthentifizieren(geraet);
+    } catch (err) {
+      if (!(err instanceof BuendelUnsigniertFehler)) throw err;
+      unsignierteAltgeraete.push(geraet.device_pubkey);
+      continue;
+    }
+
     const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
       let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
       if (sitzung) {
@@ -117,7 +141,10 @@ async function versendeUmschlaege(
         // (Begruendung an `partnerSchluesselLesen`). Eine Sitzung ohne
         // gemerkten Partner (von vor dem 2026-09-03) gilt als ungewiss und
         // wird einmal neu gebaut; das kostet einen Einmalschluessel, nicht
-        // mehr.
+        // mehr. Der Fall ist seit der TOFU-Pinnung selten: ein echter
+        // Schluesselwechsel scheitert bereits OBEN an der Pinnung — dieser
+        // Zweig bleibt fuer Uebergangsbestaende (Sitzung aus der Zeit vor
+        // der Pinnung, gleiche Identitaet).
         const gemerkt = await partnerSchluesselLesen(kanalId, geraet.device_pubkey);
         if (gemerkt !== geraet.curve25519) {
           console.warn('[postfach] Gegenseite hat neuen Schlüsselbund — Sitzung wird neu aufgebaut');
@@ -143,7 +170,20 @@ async function versendeUmschlaege(
     });
   }
 
+  if (unsignierteAltgeraete.length > 0) {
+    melde(
+      'postfach',
+      'buendel_unsigniert_uebersprungen',
+      `Geräte ohne signiertes Bündel übersprungen: ${unsignierteAltgeraete.join(', ')}`
+    );
+  }
+
   if (nutzlasten.length === 0) {
+    if (unsignierteAltgeraete.length > 0) {
+      // Alles übersprungen, nichts zugestellt — derselbe laute Fehler wie
+      // vor der Skip-Regel: „App dort einmal öffnen". Fail-closed.
+      throw new BuendelUnsigniertFehler(unsignierteAltgeraete[0]);
+    }
     // Alle Zielgeraete waren ohne verwertbaren Schluessel — dieselbe
     // Antwort wie "kein Geraet ueberhaupt".
     return 'unverschluesselt';
@@ -233,7 +273,13 @@ export async function sendeVerschluesselt(
   const nachrichtId = lokaleNachrichtId();
   // Antwort-Kennung faehrt ebenfalls in der Nutzlast mit (statt eines
   // Klartext-Rueckfalls nur wegen `replyToId`) — s. `nachrichtNutzlast.ts`.
-  const klartextBytes = baueNachrichtNutzlast(klartext, nachrichtId, replyToId, anhaenge);
+  // Die Absender-Angabe faehrt mit denselben Gruenden wie die Autor-ID mit
+  // (Bughunt 2026-09-23): der Empfaenger attribuiert aus der authentisierten
+  // Nutzlast, nicht aus den vom Server frei gesetzten Metadaten.
+  const klartextBytes = baueNachrichtNutzlast(klartext, nachrichtId, replyToId, anhaenge, {
+    nutzer: eigeneUserId,
+    geraet: eigeneKennung
+  });
   const status = await versendeUmschlaege(kanalId, ziel, eigeneKennung, klartextBytes,
     anhaenge.map((a) => a.id));
   if (status !== 'verschluesselt') {
@@ -313,7 +359,7 @@ export async function sendeLoeschung(
     kanalId,
     ziel,
     eigeneKennung,
-    baueLoeschNutzlast(nachrichtId)
+    baueLoeschNutzlast(nachrichtId, { nutzer: eigeneUserId, geraet: eigeneKennung })
   );
   return status === 'verschluesselt';
 }

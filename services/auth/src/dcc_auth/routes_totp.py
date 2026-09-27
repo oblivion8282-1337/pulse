@@ -37,6 +37,7 @@ from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import BackupCode, User, WebAuthnCredential
 from dcc_auth.recovery import (
+    SingleUseNichtPruefbar,
     claim_mfa_ticket,
     decode_mfa_ticket,
     generate_backup_codes,
@@ -181,6 +182,10 @@ async def totp_disable(
     """
     settings = get_settings()
     await _check_rate(request, "totp_disable", settings.rate_limit_totp_disable)
+    # Bughunt Runde 40: je-KONTO-Bremse wie bei login_totp — sonst grindi
+    # ein verteilter Angreifer die 6-stellige TOTP bzw. den 32-Bit-Backup-
+    # Code von rotierenden IPs aus, ohne dass der documented Deckel greift.
+    await _check_account_rate(request, "totp_disable", str(current.id))
     if not current.totp_enabled or not current.totp_secret:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="totp not enabled")
 
@@ -228,6 +233,8 @@ async def totp_backup_regen(
     await _check_rate(
         request, "totp_backup_regenerate", settings.rate_limit_totp_backup_regenerate
     )
+    # Bughunt Runde 40: je-Konto-Bremse, s. totp_disable.
+    await _check_account_rate(request, "totp_backup_regen", str(current.id))
     if not current.totp_enabled or not current.totp_secret:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="totp not enabled")
 
@@ -320,9 +327,17 @@ async def login_totp(
     # ticket can't be replayed (with the next valid TOTP code) to mint a second
     # token pair within the 5-min TTL. Claimed only after the factor verified, so
     # a mistyped code never burns the legitimate user's ticket.
-    if not await claim_mfa_ticket(
-        settings.redis_url, ticket_jti, settings.mfa_ticket_ttl_seconds
-    ):
+    try:
+        claimed = await claim_mfa_ticket(
+            settings.redis_url, ticket_jti, settings.mfa_ticket_ttl_seconds
+        )
+    except SingleUseNichtPruefbar as exc:
+        # Fail-closed (Audit 2026-09-16): ohne Redis kein Replay-Schutz —
+        # Anmeldung verweigern statt das Ticket weitergehen lassen.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="single-use store unavailable"
+        ) from exc
+    if not claimed:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
         )
@@ -354,6 +369,7 @@ async def login_totp(
         user_agent=user_agent,
         ip_hash=_hash_ip(request),
         session_id=sid,
+        response=response,
     )
     await session.commit()
     set_session_cookie(response, sid)
@@ -382,6 +398,16 @@ async def _consume_second_factor(
     Side effect: a successful backup-code path stamps ``used_at`` so the same
     code can't be replayed. The caller must commit.
     """
+    # Bughunt Runde 40: die Nutzer-Zeile SPERREN, bevor der Replay-Schutz
+    # ``accepted <= user.totp_last_counter`` liest. Vorher hielt nur
+    # ``login_totp`` das Schloss (eigene ``with_for_update``-Ladung); alle
+    # anderen Verbraucher (totp_disable, backup_regen, delete_me,
+    # passkey-delete) lasen ungesperrt — zwei gleichzeitige Anfragen mit
+    # DEMSELben Code sahen denselben Zählerstand, last-writer-wins schrieb
+    # ihn zweimal, und ein abgefangener Code powered zwei
+    # faktorverbrauchende Operationen statt einer. ``session.get`` liefert
+    # über die Identitäts-Map DIESELBE Instanz, jetzt unter FOR UPDATE.
+    await session.get(User, user.id, with_for_update=True)
     if code:
         if not user.totp_secret:
             return None

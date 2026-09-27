@@ -3,6 +3,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
 import { defineConfig } from 'vite';
+import process from 'node:process';
 
 // Proxy-Ziele des Dev-Servers. Vorgabe sind die Ports des Dev-Stacks
 // (`scripts/dev-up.fish`); die E2E-Suite startet ihren EIGENEN Vite mit
@@ -13,6 +14,7 @@ const AUTH_PORT = process.env.PULSE_API_AUTH_PORT || '8001';
 const CHAT_PORT = process.env.PULSE_API_CHAT_PORT || '8002';
 const VOICE_PORT = process.env.PULSE_API_VOICE_PORT || '8003';
 const WEB_PORT = Number(process.env.PULSE_WEB_PORT) || 5173;
+const S3_PORT = process.env.PULSE_S3_PORT || '9000';
 
 // `PULSE_API_ORIGIN=https://howispulse.com` — die Oberfläche dieses Zweigs
 // gegen ein FERTIGES Backend fahren statt gegen lokale Dienste.
@@ -94,6 +96,21 @@ function selfHostDateien() {
 }
 
 export default defineConfig({
+  // Bughunt Runde 13: PULSE_*-Build-Variablen waren dokumentiert, kamen aber
+  // NIE im Client an — Vite exponiert nur VITE_*-Präfixe. Runde 22:
+  // bewusst `define` mit EXAKTEN Namen statt `envPrefix: ['VITE_', 'PULSE_']`
+  // — der Präfix-Sweep hätte den GESAMTEN PULSE_-Namensraum (auch
+  // PULSE_CLOUD_CLIENT_SECRET, PULSE_RELAY_TUNNEL_TOKEN) in das Client-
+  // Bundle gebacken, sobald beim Build ein Shell mit sourcen self-host
+  // .env aktiv war. Nur diese beiden nicht-geheimen Namen sind bestimmt.
+  define: {
+    'import.meta.env.PULSE_DROPBOX_CLIENT_ID': JSON.stringify(
+      process.env.PULSE_DROPBOX_CLIENT_ID ?? ''
+    ),
+    'import.meta.env.PULSE_PLUGIN_PERMISSIONS': JSON.stringify(
+      process.env.PULSE_PLUGIN_PERMISSIONS ?? ''
+    )
+  },
   plugins: [
     selfHostDateien(),
     tailwindcss(),
@@ -143,6 +160,16 @@ export default defineConfig({
   server: {
     port: WEB_PORT,
     host: '127.0.0.1',
+    headers: {
+      // Dev-CSP (Security-Audit 2026-09-16): das frühere Meta-CSP in app.html
+      // ist entfernt — in Produktion setzt nginx/Caddy eine strikte Policy als
+      // HEADER (kein 'unsafe-inline'/'unsafe-eval' für Scripte). Der Dev-
+      // Server braucht beide Ausnahmen (Vite-HMR) plus die localhost-Einträge
+      // für MediaMTX-WHEP (8889) und MinIO (9000), deshalb lebt die großzügige
+      // Variante genau hier — nur im Dev wirksam, nie im Build.
+      'Content-Security-Policy':
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://www.youtube.com https://www.youtube-nocookie.com https://embed.twitch.tv; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https: http://localhost:* http://127.0.0.1:* stun: turn:; font-src 'self' data:; media-src 'self' blob: https: http://localhost:* http://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+    },
     fs: {
       // Task 0 (Etappe B2) mass nur den Prod-Build nach, und bettete das
       // WASM-Paket damals ein, WEIL `krypto/pulse-krypto/pkg/` zufaellig
@@ -201,7 +228,18 @@ export default defineConfig({
       // Pre-Check) — in Produktion routet nginx/Caddy dies an den chat-gateway
       // (web-nginx.conf / Self-Host-Caddyfile); ohne die Dev-Weiterleitung
       // greift der SPA-Rückfall und die Anzeige bliebe lokal leer.
-      '/.well-known/pulse-server-info': apiProxy(CHAT_PORT)
+      '/.well-known/pulse-server-info': apiProxy(CHAT_PORT),
+      // Objektspeicher wie die Prod-nginx unter der eigenen Origin ausliefern
+      // (Cloud: location /pulse-attachments/ → MinIO; Self-Host: Caddy).
+      // dev-up setzt S3_PUBLIC_ENDPOINT des chat-gateway auf diesen Dev-
+      // Server, Browser-URLs sind damit SAME-ORIGIN — Garages lückenhafte
+      // CORS-Header (auf Fehlerantworten wie dem 404 einer noch nicht
+      // existierenden Dateiliste fehlen sie komplett) können dem Fenster
+      // nichts mehr anhaben. KEIN changeOrigin: SigV4 signiert den Host-Header,
+      // Garage validiert gegen den gesendeten 'localhost:<WEB_PORT>'.
+      '/pulse-attachments': {
+        target: `http://127.0.0.1:${S3_PORT}`
+      }
     }
   }
 });

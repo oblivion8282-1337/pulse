@@ -5,6 +5,7 @@
 //! nächsten Intervall erneut versucht — der Adapter stirbt daran nicht.
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use anyhow::{bail, Result};
 use serde::Serialize;
@@ -31,8 +32,17 @@ pub struct HeartbeatClient {
 
 impl HeartbeatClient {
     pub fn new(cloud_origin: &str, api_prefix: &str) -> Self {
+        // Bughunt Runde 3: reqwest hat default WEDER Connect- noch Request-
+        // Timeout — ein Cloud-Worker, der TCP annimmt aber nicht antwortet,
+        // hat den Heartbeat-Loop sonst für immer stillgelegt (await ohne
+        // Schranke, der Telefonbuch-Eintrag veraltet still).
+        let http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("reqwest client konfigurierbar");
         Self {
-            http: reqwest::Client::new(),
+            http,
             url: format!(
                 "{}{}/selfhost/directory/heartbeat",
                 cloud_origin.trim_end_matches('/'),

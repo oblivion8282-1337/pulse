@@ -29,6 +29,11 @@ COTURN_SECRET=$(cat "${COTURN_DATA}/secret")
 # Hostname is required for the realm.
 HOSTNAME="${PULSE_HOSTNAME:?PULSE_HOSTNAME required}"
 
+# Relay-Portbereich (Bughunt 2026-09-20, Runde 2): Vorgabe muss mit dem
+# UDP-Publish im compose-File übereinstimmen — beides zusammen ändern.
+COTURN_MIN_PORT="${PULSE_TURN_MIN_PORT:-49160}"
+COTURN_MAX_PORT="${PULSE_TURN_MAX_PORT:-49200}"
+
 # external-ip: ohne sie relayt coturn hinter Docker/NAT auf die interne Bridge-IP
 # und ist für externe Clients unbrauchbar (F13). PULSE_PUBLIC_IP wenn gesetzt,
 # sonst per HTTP-Lookup ermitteln (best effort, schlägt offline einfach fehl).
@@ -50,6 +55,14 @@ cat > /etc/coturn/turnserver.conf <<EOF
 # Manual edits will be overwritten on next container start.
 
 listening-port=3478
+# Relay-Portbereich (Bughunt 2026-09-20, Runde 2): MUSS exakt dem
+# veröffentlichten UDP-Portbereich im compose-File entsprechen. Ohne diese
+# Zeilen allocierte coturn im Default-Hochbereich (49152-65535) — der
+# Container veröffentlichte aber nur 3478, eingehende Relay-Pakete verliefen
+# ins Leere und der TURN-Relay war von außen still tot (ICE-Fallback scheitert
+# ohne jeden coturn-Log-Eintrag).
+min-port=${COTURN_MIN_PORT}
+max-port=${COTURN_MAX_PORT}
 ${EXTERNAL_IP_LINE}
 fingerprint
 use-auth-secret

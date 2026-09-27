@@ -120,18 +120,25 @@
     if (ok) waehlen(id);
   }
 
+  /** In-flight-Merker gegen den Doppelklick-Rückschlag (s. RolesEditor). */
+  let sortiertGerade = false;
+
   async function umsortieren(neu: Role[]): Promise<void> {
+    if (sortiertGerade) return;
     const zug = bewegterAusschnitt(hoechsteZuerst, neu);
     if (zug.art === 'unveraendert') return;
     if (zug.art === 'nicht_darstellbar') {
       toast.error(m.roles_editor_reorder_failed());
       return;
     }
+    sortiertGerade = true;
     try {
       const zeilen = await rolesApi.setPositions(guildId, zug.eintraege);
       for (const r of zeilen) rolesStore.upsertRole(r);
     } catch (err) {
       toast.error(m.roles_editor_reorder_failed(), { description: (err as Error).message });
+    } finally {
+      sortiertGerade = false;
     }
   }
 
@@ -151,11 +158,16 @@
 
   async function speichern(): Promise<void> {
     if (!selectedRole) return;
+    // Ziel-ID festnageln (Bughunt Runde 18, Spiegel zu RolesEditor) —
+    // sonst Cross-Apply der A-Antwort auf B's Formular bei Wechsel im Flug.
+    const zielId = selectedRole.id;
     speichert = true;
     try {
-      const r = await rolesApi.patch(guildId, selectedRole.id, entwurf.alsAenderung(selectedRole));
+      const r = await rolesApi.patch(guildId, zielId, entwurf.alsAenderung(selectedRole));
       rolesStore.upsertRole(r);
-      entwurf.uebernehmen(r);
+      // Cross-Apply-Schutz: hat sich die Auswahl im Flug geändert, B's Formular
+      // nicht mit A's Antwort überschreiben — der Toast bleibt trotzdem.
+      if (selectedRole?.id === zielId) entwurf.uebernehmen(r);
       toast.success(m.roles_editor_role_saved());
     } catch (err) {
       toast.error(m.roles_editor_save_failed(), { description: (err as Error).message });
@@ -219,6 +231,14 @@
     try {
       if (on) await rolesApi.assign(guildId, userId, role.id);
       else await rolesApi.unassign(guildId, userId, role.id);
+      // Entscheidung 3.2: die gemeinsame Trägerliste mitschreiben — sie
+      // pflegt `rollen` nur im laden(); die Gruppierung links und die
+      // Trägerzahlen der Rangleiste folgten sonst erst nach dem
+      // Wiederöffnen des Dialogs.
+      const aktuell = new Set(liste.rollen[userId] ?? []);
+      if (on) aktuell.add(role.id);
+      else aktuell.delete(role.id);
+      liste.rollen = { ...liste.rollen, [userId]: [...aktuell] };
     } catch (err) {
       const rollback = new Set(mitgliedRollen[userId] ?? existing);
       if (on) rollback.delete(role.id);

@@ -141,7 +141,7 @@ fn encoder_name(vendor: &str, codec: VideoCodec, push_url: &str) -> Option<&'sta
 /// Kann diese Maschine HDR senden — unabhängig davon, ob der Schirm gerade in
 /// HDR läuft?
 ///
-/// Das ist die Frage, die `health.gsr.hdr` beantwortet, und sie ist bewusst die
+/// Das ist die Frage, die `health.sidecar.hdr` beantwortet, und sie ist bewusst die
 /// **Geräte**-Frage: die Oberfläche soll das Kästchen anbieten dürfen, auch
 /// wenn HDR im Windows-Umschalter gerade aus ist. Sonst verschwände die Option
 /// spurlos und niemand käme darauf, dass sie an einer Windows-Einstellung

@@ -12,6 +12,7 @@
    * Erfolg) — das haelt die serverseitige Logik dort, wo sie hingehoert.
    */
   import { Button } from '$lib/components/ui/button/index.js';
+  import { m } from '$lib/paraglide/messages.js';
   import NextcloudVerbinden from './NextcloudVerbinden.svelte';
   import type { AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
 
@@ -44,7 +45,7 @@
 <div class="rounded-lg border border-dashed p-6 text-center" data-testid="{testIdPraefix}-aufforderung">
   <p class="mb-3 text-sm text-muted-foreground">{hinweisText}</p>
   <Button onclick={() => (verbindenOffen = true)} data-testid="{testIdPraefix}-verbinden">
-    Laufwerk verbinden
+    {m.ablage_pulse_verbinden_knopf()}
   </Button>
 </div>
 {#if verbindenOffen}

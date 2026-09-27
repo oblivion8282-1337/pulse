@@ -21,14 +21,18 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dcc_chat_gateway import s3
 from dcc_chat_gateway.models import AblageKontoLaufwerk, AblagePulseObjekt, AblageZwischenlagerDatei
 
 
-async def purge_ablage_zwischenlager(session: AsyncSession, user_id: int) -> None:
-    """Loescht die Zwischenlager-Zeilen des geloeschten Kontos + ihre
-    Klumpen im Objektspeicher. Bytes fallen NACH dem Zeilen-Delete, wie
-    ueberall in diesem Purge (``user_purge.py``-Modulkopf)."""
+async def purge_ablage_zwischenlager(session: AsyncSession, user_id: int) -> list[str]:
+    """Loescht die Zwischenlager-Zeilen des geloeschten Kontos; liefert ihre
+    Objektspeicher-Schluessel zurueck. Die Bytes fallen NACH dem Commit —
+    Rueckgabe statt Eigenloeschung (Bughunt Runde 37: vorher lief das
+    ``s3.delete_object`` IN der uncommitteten Transaktion; ein transienter
+    Objektspeicher-Fehler riss den GESAMTEN Konto-Purge mit Rollback ab,
+    waehrend Blobs schon weg waren — genau die Verletzung der Invariante aus
+    dem ``user_purge.py``-Modulkopf). Der Aufrufer haengt die Keys an
+    ``deferred_s3`` an, wo ``purge_s3_keys`` sie nach dem Commit nimmt."""
     schluessel = list(
         (
             await session.execute(
@@ -39,14 +43,13 @@ async def purge_ablage_zwischenlager(session: AsyncSession, user_id: int) -> Non
         ).scalars()
     )
     if not schluessel:
-        return
+        return []
     await session.execute(
         sa_delete(AblageZwischenlagerDatei).where(
             AblageZwischenlagerDatei.hochgeladen_von == user_id
         )
     )
-    for key in schluessel:
-        await s3.delete_object(key)
+    return schluessel
 
 
 async def purge_ablage_konto_laufwerk(session: AsyncSession, user_id: int) -> None:
@@ -67,16 +70,17 @@ async def purge_ablage_konto_laufwerk(session: AsyncSession, user_id: int) -> No
     )
 
 
-async def purge_ablage_pulse_objekte(session: AsyncSession, user_id: int) -> None:
-    """Loescht die Pulse-Laufwerk-Klumpen des geloeschten Kontos (Zeilen +
-    Bytes).
+async def purge_ablage_pulse_objekte(session: AsyncSession, user_id: int) -> list[str]:
+    """Loescht die Pulse-Laufwerk-Zeilen des geloeschten Kontos; liefert ihre
+    Objektspeicher-Schluessel zurueck (Bytes nach dem Commit via
+    ``deferred_s3``, dieselbe Begruendung wie bei
+    ``purge_ablage_zwischenlager``).
 
     **Anders als die Cloud-Adresse oben ist das hier Pulse-EIGENTUM, das der
     Nutzer gemietet hat:** der Klumpen liegt im Objektspeicher der Instanz,
     nicht in seiner Cloud. Beim Kontoloeschen bleibt er sonst als Chiffrat
     liegen, das niemand mehr oeffnen kann und das nur Platz frisst — deshalb
-    Bytes-und-Zeilen weg, in derselben Reihenfolge wie ueberall im Purge
-    (Zeilen zuerst, Bytes danach).
+    Zeilen weg und Bytes danach.
 
     In Communitys, in denen er Mitglied war, bleibt das Laufwerk selbst
     bestehen — nur seine eigenen Uploads fallen heraus; deren
@@ -93,12 +97,11 @@ async def purge_ablage_pulse_objekte(session: AsyncSession, user_id: int) -> Non
         ).scalars()
     )
     if not schluessel:
-        return
+        return []
     await session.execute(
         sa_delete(AblagePulseObjekt).where(AblagePulseObjekt.hochgeladen_von == user_id)
     )
-    for key in schluessel:
-        await s3.delete_object(key)
+    return schluessel
 
 
 __all__ = [

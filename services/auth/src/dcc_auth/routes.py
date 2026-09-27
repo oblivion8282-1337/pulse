@@ -8,22 +8,25 @@ import hashlib
 import ipaddress
 import uuid
 from datetime import UTC, datetime
-from time import monotonic
+from time import monotonic, time
 
 import jwt
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from dcc_shared.snowflake import INT64_MAX, INT64_MIN
 
 from dcc_auth.browser_sessions import (
     COOKIE_NAME,
+    REFRESH_COOKIE_NAME,
+    clear_refresh_cookie,
     clear_session_cookie,
     create_session,
+    set_refresh_cookie,
     set_session_cookie,
     user_and_session_from_cookie,
 )
@@ -36,6 +39,7 @@ from dcc_auth.models import (
     RegistrationInvite,
     User,
     UserSession,
+    UsernameReservation,
     WebAuthnCredential,
 )
 from dcc_auth.refresh_kette import (
@@ -145,6 +149,7 @@ async def _issue_tokens(
     ip_hash: str | None = None,
     session_id: uuid.UUID | str | None = None,
     vorgaenger: RefreshToken | None = None,
+    response: "Response | None" = None,
 ) -> TokensOut:
     """Zugriffs- + Refresh-Token ausstellen und die Refresh-Zeile schreiben.
 
@@ -165,6 +170,11 @@ async def _issue_tokens(
     Jeder ANDERE Aufrufer ist ein frischer Anmeldevorgang und laesst den
     Vorgaenger weg: dann beginnt hier eine neue Kette. Genau das ist der Punkt,
     an dem die Geraete eines Nutzers voneinander getrennt werden.
+
+    ``response`` gesetzt → der frische Refresh-Token wandert ZUSAETZLICH in den
+    HttpOnly-Refresh-Cookie (Audit 2026-09-16). Der Token im Antwort-Koerper
+    bleibt fuer Alt-Clients (Migration, Desktop) erhalten; der Klient hoert
+    neu auf, ihn dauerhaft zu speichern.
     """
     blocked = await _email_gate_blocked(session, user)
     access = signer.issue_access(
@@ -193,6 +203,9 @@ async def _issue_tokens(
     if vorgaenger is not None:
         vorgaenger.replaced_by = jti
     await session.flush()
+    if response is not None:
+        ttl = int(exp_ts - time())
+        set_refresh_cookie(response, refresh, ttl)
     return TokensOut(access_token=access, refresh_token=refresh)
 
 
@@ -246,8 +259,6 @@ async def _get_current_user(
     user, _row = await user_and_session_from_cookie(request, session)
     return user
 
-    raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
-
 
 @router.post("/register", response_model=TokensOut, status_code=status.HTTP_201_CREATED)
 async def register(
@@ -289,6 +300,36 @@ async def register(
             status.HTTP_403_FORBIDDEN, detail="invite code required"
         )
 
+    # Username-Vorab-Checks — billig, und zwar VOR dem Argon2-Hash (dieselbe
+    # Logik wie der Mode-Check oben). Groß-/klein gemischt vergleichen: die
+    # Resolver (Nutzername-Einladungen, Mention-Kandidaten, Profilsuche)
+    # matchen alle über lower(username), zwei Konten, die sich nur in der
+    # Schreibweise unterscheiden, würden dort beliebig vermengt. Dasselbe
+    # Gate wie in ``change_username`` (routes_profile.py).
+    # ponytail: kein unique lower()-Index dahinter — zwei parallel
+    # registrierte Schreibvarianten können die Lücke noch reißen; Upgrade-
+    # Pfad wäre eine Migration mit eindeutigem Funktions-Index.
+    lower_name = payload.username.lower()
+    if await session.scalar(
+        select(User.id).where(func.lower(User.username) == lower_name)
+    ) is not None:
+        suggestions = await _suggest_usernames(session, payload.username)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"error": "username_taken", "suggestions": suggestions},
+        )
+    now = datetime.now(UTC)
+    reservation = await session.scalar(
+        select(UsernameReservation).where(
+            func.lower(UsernameReservation.old_username) == lower_name,
+            UsernameReservation.released_at > now,
+        )
+    )
+    if reservation is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail={"error": "username_reserved"}
+        )
+
     # Argon2 is CPU-bound (~50-150ms at t=3/m=64MiB/p=4); run it off the event
     # loop so it doesn't block other requests on this worker.
     password_hash = await asyncio.to_thread(hash_password, payload.password)
@@ -297,7 +338,7 @@ async def register(
         username=payload.username,
         email=payload.email.lower(),
         password_hash=password_hash,
-        display_name=payload.display_name,
+        display_name=(payload.display_name or "").strip() or None,
     )
     session.add(user)
     try:
@@ -311,11 +352,16 @@ async def register(
         conflict_row = (
             await session.execute(
                 select(
-                    (User.username == payload.username).label("u_taken"),
+                    # LOWER-Vergleich: Migration 0053 (uq_users_username_lower)
+                    # erzwingt Fall-Varianten auf DB-Ebene — die Re-Abfrage
+                    # muss denselben Vergleich fahren, sonst lief ein
+                    # Fallkollisions-Race in das generische „conflict“ statt
+                    # in die hilfreiche username_taken-Antwort mit Vorschlägen.
+                    (func.lower(User.username) == payload.username.lower()).label("u_taken"),
                     (User.email == payload.email.lower()).label("e_taken"),
                 ).where(
                     or_(
-                        User.username == payload.username,
+                        func.lower(User.username) == payload.username.lower(),
                         User.email == payload.email.lower(),
                     )
                 )
@@ -372,10 +418,16 @@ async def register(
     # so the server operator has a path into ``/app/admin`` without
     # needing to SQL-promote themselves. Counts include the row we just
     # flushed; ==1 means we are the only user in the database.
-    # Race-mode (two concurrent registrations both seeing count==1) is
-    # accepted — same trade-off Mastodon / Gitea / Forgejo make. On a
-    # public-facing first-deploy the operator registers in the same
-    # second as the docker stack comes up, so this is fine in practice.
+    # Security-Audit 2026-09-16: der Race zweier gleichzeitiger Erst-
+    # Registrierungen (beide sehen count==1 → zwei Admins) ist kein
+    # akzeptierter Trade-off mehr. Ein transaktions-lokaler Advisory-Lock
+    # serialisiert die Zählung atomar (Postgres; migrationsfrei). Auf dem
+    # SQLite-Test-Backend ist der Lock ein No-Op — dort ist alles Single-
+    # Writer, der Advisory-Lock-Kanal existiert schlicht nicht.
+    try:
+        await session.execute(text("SELECT pg_advisory_xact_lock(724011)"))
+    except Exception:  # noqa: BLE001 — SQLite u. a.: kein Advisory-Lock-Kanal
+        pass
     user_count = await session.scalar(select(func.count()).select_from(User))
     if user_count == 1:
         user.is_admin = True
@@ -404,18 +456,37 @@ async def register(
         user_agent=user_agent,
         ip_hash=_hash_ip(request),
         session_id=sid,
+        response=response,
     )
+
+    await session.commit()
 
     # Auto-fire the verify-email so the new user finds a fresh link in their
     # inbox right after the redirect to /app. Wrapped in try/except: a flaky
     # mail relay must NOT abort registration — the token row is committed
     # alongside the user either way, and the in-app banner has a manual resend.
+    # Bughunt Runde 24: der Versand lief INNERHALB des globalen Advisory-Locks
+    # UND vor dem Commit — ein träges Relay blockierte jede parallele
+    # Registrierung für die volle SMTP-Laufzeit (bis 15 s je Versuch), und
+    # ein Crash vor dem Commit schickte einen toten Link raus. Jetzt: Commit
+    # zuerst (User + Token durable), Versand danach ohne Lock.
     try:
         await issue_verification_email(session, user)
+        # issue_verification_email committet bewusst nicht selbst — nach dem
+        # Umzug hinter den User-Commit braucht der Token-Zweile einen
+        # eigenen Commit, sonst rollt der Request-Teardown ihn zurück.
+        await session.commit()
     except Exception as exc:  # noqa: BLE001
+        # Die DB-Seite (Token-Zeile invalidieren + anlegen) ist vor dem
+        # SMTP-Versand fertig und bleibt gültig — committieren, damit der
+        # User über den Banner neu senden kann (das erwartet
+        # test_register_succeeds_when_verify_mail_fails).
+        try:
+            await session.commit()
+        except Exception:  # noqa: BLE001
+            pass
         log.warning("register_verify_email_failed", user_id=user.id, error=str(exc))
 
-    await session.commit()
     set_session_cookie(response, sid)
     return tokens
 
@@ -449,7 +520,19 @@ async def login(
         )
 
     needle = payload.email_or_username.strip()
-    stmt = select(User).where(or_(User.email == needle.lower(), User.username == needle))
+    # Bughunt-Entscheidung 4.11a (2026-09-21): Username-Fall insensitive —
+    # die Registrierung reserviert case-insensitiv (LOWER-Index, Migration
+    # 0053), der Login war aber exakt: "Michael" konnte sich nicht einloggen,
+    # nachdem er "michael" getippt hatte. Der lower()-Vergleich bedient
+    # sich des eindeutigen lower()-Index (0053) und des text_pattern-Index
+    # (0024); DB-kollidierende Fall-Varianten kann es seit 0053 nicht mehr
+    # geben, scalar_one ist damit sicher.
+    stmt = select(User).where(
+        or_(
+            User.email == needle.lower(),
+            func.lower(User.username) == needle.lower(),
+        )
+    )
     user = (await session.execute(stmt)).scalar_one_or_none()
     # Run argon2 verification off the event loop (same reasoning as register).
     # For a non-existent user, run a dummy verify of equal cost so the response
@@ -509,6 +592,7 @@ async def login(
         user_agent=user_agent,
         ip_hash=_hash_ip(request),
         session_id=sid,
+        response=response,
     )
     await session.commit()
     set_session_cookie(response, sid)
@@ -556,7 +640,7 @@ async def renew_session(
         user_agent=user_agent,
         ip=_client_ip(request),
     )
-    await relink_to_new_session(
+    moved = await relink_to_new_session(
         session,
         user_id=current.id,
         old_sid=old_sid,
@@ -568,8 +652,16 @@ async def renew_session(
         # gelten zu lassen hiesse nur, eine zweite lebende Sitzung zu führen,
         # die niemand mehr sieht.
         await revoke_sessions(session, [old_sid], user_id=current.id)
-    await session.commit()
-    set_session_cookie(response, sid)
+    # Bughunt Runde 33: Relink-Ergebnis auswerten — aber NUR im Cookie-Pfad
+    # (old_sid gesetzt). Zwei parallele /session/renew-Rufe mit demselben
+    # Cookie (mehrere Tabs beim Start) hingen sonst beide Refresh-Ketten um,
+    # revokten sich gegenseitig, und der Browser behielt das Cookie des
+    # Verlierers — eine lebende, in /sessions unsichtbare Sitzung. Ohne
+    # Cookie (Bearer-Pfad, Desktop) bleibt das alte Verhalten: Cookie wird
+    # gesetzt, Relink-Ausgang egal.
+    if old_sid is None or moved > 0:
+        await session.commit()
+        set_session_cookie(response, sid)
     return None
 
 
@@ -624,17 +716,51 @@ async def _strongest_session_context(
     return amr, acr
 
 
+def _refresh_cookie_loeschen_401(detail: str) -> HTTPException:
+    """401, die den Refresh-Cookie im gleichen Zug löscht.
+
+    FastAPI verwirft bei ``HTTPException`` die Header des injizierten
+    ``Response``-Objekts — das ``Set-Cookie`` muss deshalb in der Exception
+    selbst reisen, sonst bliebe ein toter ``pulse_rt`` im Browser stehen.
+    """
+    toeter = Response()
+    clear_refresh_cookie(toeter)
+    cookie_header = toeter.headers.get("set-cookie", "")
+    headers = {"Set-Cookie": cookie_header} if cookie_header else None
+    return HTTPException(status.HTTP_401_UNAUTHORIZED, detail=detail, headers=headers)
+
+
 @router.post("/refresh", response_model=TokensOut)
 async def refresh(
     payload: RefreshIn,
     request: Request,
+    response: Response,
     session: SessionDep,
     signer: JwtSigner = Depends(get_signer),
     user_agent: str | None = Header(default=None, alias="User-Agent"),
 ):
+    # Zwei Wege zum selben Ausweis (Audit 2026-09-16): der Refresh-Token im
+    # Anfrage-Koerper (Alt-Klienten, Desktop) oder im HttpOnly-Cookie
+    # ``pulse_rt`` (Browser speichert ihn nicht mehr in JS-lesbarem Speicher).
+    # Der Cookie-Weg ist der bestmoegliche: JS kann den Token nicht lesen und
+    # ihn deshalb auch nicht exfiltrieren.
+    body_token = (payload.refresh_token or "").strip()
+    credential = body_token or request.cookies.get(REFRESH_COOKIE_NAME, "")
+    via_cookie = not body_token
+    if not credential:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="missing refresh credential"
+        )
     try:
-        decoded = signer.decode(payload.refresh_token, expected_type="refresh")
+        decoded = signer.decode(credential, expected_type="refresh")
     except jwt.PyJWTError as exc:
+        # Abgelaufener/ungueltiger Cookie: auch den Cookie selbst toeten,
+        # sonst reitet der Browser mit einem toten Ausweis jeden Request hier
+        # gegen die Wand. Bei HTTPException verwirft FastAPI die Header des
+        # injizierten Response-Objekts — das Loeschen reist deshalb IN der
+        # Exception.
+        if via_cookie:
+            raise _refresh_cookie_loeschen_401("invalid token") from exc
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
 
     try:
@@ -697,6 +823,35 @@ async def refresh(
                 rt, jetzt=now, nachgereicht=nachfolger.nachgereicht, ua_jetzt=user_agent
             )
             await session.commit()
+            nachfolger_token = signer.reissue_refresh(
+                user.id,
+                nachfolger.jti,
+                int(
+                    (
+                        nachfolger.expires_at
+                        if nachfolger.expires_at.tzinfo is not None
+                        else nachfolger.expires_at.replace(tzinfo=UTC)
+                    ).timestamp()
+                ),
+            )
+            # Cookie-Weg: der Token reist NUR im HttpOnly-Cookie — ein XSS im
+            # Ursprung kann Anfragen stellen, solange es laeuft, aber keinen
+            # dauerhaft nutzbaren Ausweis aus der Antwort exfiltrieren.
+            set_refresh_cookie(
+                response,
+                nachfolger_token,
+                ttl_s=max(
+                    1,
+                    int(
+                        (
+                            nachfolger.expires_at
+                            if nachfolger.expires_at.tzinfo is not None
+                            else nachfolger.expires_at.replace(tzinfo=UTC)
+                        ).timestamp()
+                    )
+                    - int(time()),
+                ),
+            )
             return TokensOut(
                 access_token=signer.issue_access(
                     user.id,
@@ -705,17 +860,7 @@ async def refresh(
                     is_owner=user.is_owner,
                     email_blocked=await _email_gate_blocked(session, user),
                 ),
-                refresh_token=signer.reissue_refresh(
-                    user.id,
-                    nachfolger.jti,
-                    int(
-                        (
-                            nachfolger.expires_at
-                            if nachfolger.expires_at.tzinfo is not None
-                            else nachfolger.expires_at.replace(tzinfo=UTC)
-                        ).timestamp()
-                    ),
-                ),
+                refresh_token="" if via_cookie else nachfolger_token,
             )
         # Nichts nachzureichen: entweder ist der Nachfolger im Umlauf und zwei
         # Parteien haben denselben Ausweis, oder diese Zeile wurde nie rotiert
@@ -734,7 +879,11 @@ async def refresh(
             ereignis=befund.ereignis,
         )
         await session.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
+        # Die Kette ist tot — ein Refresh-Cookie, der auf sie zeigt, muss mit
+        # sterben, sonst haemmert der Browser bei jedem Request gegen 401.
+        # (Header-IN-der-Exception, s. oben — das injizierte Response-Objekt
+        # ueberlebt eine HTTPException nicht.)
+        raise _refresh_cookie_loeschen_401("refresh token not active")
 
     # Rotate: revoke old, issue new — only now that the row is locked. The
     # rotated-out row keeps its original ``last_used_at`` (audit trail); the
@@ -753,8 +902,13 @@ async def refresh(
         ip_hash=_hash_ip(request),
         session_id=rt.session_id,
         vorgaenger=rt,
+        response=response,
     )
     await session.commit()
+    if via_cookie:
+        # Der frische Token steht im HttpOnly-Cookie (setzt _issue_tokens);
+        # im Koerper bleibt er weg — gleiche Begruendung wie beim Nachreichen.
+        tokens.refresh_token = ""
     return tokens
 
 
@@ -767,10 +921,15 @@ async def logout(
     signer: JwtSigner = Depends(get_signer),
 ):
     # --- Revoke refresh token (JWT path, optional) ---
+    # Ohne Body-Token (Browser im Cookie-Modus, Audit 2026-09-16) gilt der
+    # Ausweis aus dem Refresh-Cookie als der abzumeldende.
+    refresh_credential = (payload.refresh_token or "").strip() or request.cookies.get(
+        REFRESH_COOKIE_NAME, ""
+    )
     decoded = None
-    if payload.refresh_token:
+    if refresh_credential:
         try:
-            decoded = signer.decode(payload.refresh_token, expected_type="refresh")
+            decoded = signer.decode(refresh_credential, expected_type="refresh")
         except jwt.PyJWTError:
             decoded = None
 
@@ -814,6 +973,7 @@ async def logout(
         await session.commit()
 
     clear_session_cookie(response)
+    clear_refresh_cookie(response)
     return MessageOut(detail="ok")
 
 
@@ -822,6 +982,16 @@ async def me(session: SessionDep, current: User = Depends(_get_current_user)):
     out = UserPublic.model_validate(current)
     # Computed (not a column): drives the frontend's hard verification gate.
     out.email_verification_pending = await _email_gate_blocked(session, current)
+    # Ebenso computed: der Konto-Lösch-Dialog leitet daraus, ob ein zweiter
+    # Faktor fällig ist — bei Passkey-only-Konten ohne TOTP sonst unsichtbar
+    # (Bughunt Runde 4).
+    out.has_passkey = bool(
+        await session.scalar(
+            select(func.count())
+            .select_from(WebAuthnCredential)
+            .where(WebAuthnCredential.user_id == current.id)
+        )
+    )
     return out
 
 
@@ -858,14 +1028,22 @@ async def jwks(signer: JwtSigner = Depends(get_signer)) -> dict:
 @router.get("/users", response_model=list[UserSummary])
 async def batch_users(
     ids: str,
+    request: Request,
     session: SessionDep,
     current: User = Depends(_get_current_user),
 ):
     """Batch-lookup users by Snowflake IDs (comma-separated, max 100).
 
     Returns only id/username/display_name/avatar_url — no email exposed.
-    Unknown IDs are silently omitted.
+    Unknown IDs are silently omitted. Rate-limited wie ``/users/search``
+    (Security-Scan 2026-09-18): ohne Drossel wäre das komplette
+    Nutzerverzeichnis per Snowflake-Walking harvestbar. Kein
+    ``discoverable``-Filter — siehe config.rate_limit_user_batch.
     """
+    settings = get_settings()
+    await _check_rate(
+        request, "user_batch", settings.rate_limit_user_batch, account=str(current.id)
+    )
     raw_ids = [s.strip() for s in ids.split(",") if s.strip()]
     if len(raw_ids) > 100:
         raise HTTPException(400, detail="too many ids (max 100)")

@@ -37,17 +37,6 @@ export function webauthnSupported(): boolean {
   );
 }
 
-/** Best-effort: is a built-in authenticator (Touch ID / Windows Hello)
- *  available? Used only to tailor copy — never to gate functionality. */
-export async function platformAuthenticatorAvailable(): Promise<boolean> {
-  if (!webauthnSupported()) return false;
-  try {
-    return await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-  } catch {
-    return false;
-  }
-}
-
 // ---- options decode / credential encode ------------------------------------
 
 /** Map the server's JSON options into the BufferSource-typed shape that
@@ -217,13 +206,17 @@ export function renamePasskey(id: string, name: string): Promise<WebAuthnCredent
   });
 }
 
-/** Passkey löschen. `password` ist Pflicht: das Löschen des LETZTEN Schlüssels
- *  nimmt dem Konto seinen zweiten Faktor mit — es war damit der stillste Weg,
- *  ein fremdes Konto zu entschärfen. */
-export function deletePasskey(id: string, password: string): Promise<void> {
+/** Passkey löschen. `password` ist Pflicht; beim letzten Passkey ohne TOTP
+ *  zusätzlich `backupCode` (die Konten verlieren sonst ihren zweiten Faktor
+ *  komplett — Bughunt Runde 34). */
+export function deletePasskey(
+  id: string,
+  password: string,
+  backupCode?: string
+): Promise<void> {
   return request<void>(`/webauthn/credentials/${id}`, {
     method: 'DELETE',
-    body: { password },
+    body: { password, ...(backupCode ? { backup_code: backupCode } : {}) },
     endpoint: 'auth'
   });
 }

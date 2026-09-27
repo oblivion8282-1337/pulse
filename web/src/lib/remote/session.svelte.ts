@@ -355,7 +355,7 @@ class RemoteSessionStore {
     if (this.phase !== 'idle') return; // schon beschäftigt — Server-Gate (4054) deckt das ab
     // Kann dieser Rechner überhaupt ferngesteuert werden? Ohne Brücke
     // (Browser, Android) oder ohne die Fähigkeit (`stream.fernsteuerbar`,
-    // gespeist aus `health.gsr.remote_input` — heute Windows und macOS mit
+    // gespeist aus `health.sidecar.remote_input` — heute Windows und macOS mit
     // erteilter Accessibility-Freigabe, auf dem Mac jederzeit widerrufbar)
     // wird OHNE Dialog abgelehnt (Bughunt R2): der reguläre Weg zeigt den
     // Anfrage-Knopf nur an fernsteuerbaren Streams, aber der Gateway prüft

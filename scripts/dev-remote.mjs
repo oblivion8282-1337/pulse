@@ -178,7 +178,7 @@ function tailRemoteLogs() {
  * ebenso den Player. Für den Rust-Linux-Sidecar gibt es diese Aufwärtssuche
  * NICHT — `resolveLinuxRustBinaryPath()` kennt nur `$PULSE_LINUX_HQ_SIDECAR`
  * oder den Flatpak-Pfad `/app/bin/…`. Ohne eine der beiden bleibt
- * `stream.gsrAvailable` false und der HQ-Knopf verschwindet, obwohl ein
+ * `stream.sidecarAvailable` false und der HQ-Knopf verschwindet, obwohl ein
  * gebautes Binary im Repo liegt.
  */
 function resolveNativeParts() {
@@ -236,7 +236,7 @@ function sidecarReport(binary) {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'ignore']
     });
-    health = JSON.parse(out.split('\n').find((l) => l.trim().startsWith('{')) || '{}').gsr;
+    health = JSON.parse(out.split('\n').find((l) => l.trim().startsWith('{')) || '{}').sidecar;
   } catch {
     return ['⚠ Sidecar antwortet nicht auf `health` — HQ-Aufnahme wird nicht funktionieren'];
   }

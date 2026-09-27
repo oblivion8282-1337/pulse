@@ -197,9 +197,3 @@ export async function getDirectConnectionDetailed(
  * Liefert die offene Direktverbindung — oder `null`, wenn es (noch) keine
  * gibt. Nie werfend: VPS-Aufrufer fallen auf ihren Hostname zurück.
  */
-export async function getDirectConnection(
-  instanceId: string | null,
-): Promise<DirectConnection | null> {
-  const result = await getDirectConnectionDetailed(instanceId);
-  return result.ok ? result.conn : null;
-}

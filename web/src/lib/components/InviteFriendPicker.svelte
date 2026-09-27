@@ -14,6 +14,7 @@
 -->
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { Input } from '$lib/components/ui/input/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -197,7 +198,7 @@
               <Avatar.Fallback
                 class="accent-gradient text-primary-foreground text-xs font-semibold"
               >
-                {f.name.slice(0, 1).toUpperCase()}
+                {anfangsBuchstabe(f.name)}
               </Avatar.Fallback>
             </Avatar.Root>
             <div class="min-w-0 flex-1">

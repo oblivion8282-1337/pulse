@@ -559,6 +559,35 @@ async def test_mute_strips_microphone_from_cached_sources(
 
 
 @pytest.mark.asyncio
+async def test_mute_without_cache_grants_nothing(
+    app_with_redis, auth_signer, monkeypatch, _stub_livekit_update
+):
+    """Missing source-cache (Redis flush, session older than the feature) on
+    Mute must NOT invent camera/screen_share live — the old fallback here
+    granted publish rights the target's token never had (Bughunt 2026-09-16,
+    Runde 2). Expected: conservative strip of microphone-only → nothing
+    publishable until the target reconnects."""
+    client, redis = app_with_redis
+    await redis.delete("voice:user_sources:channel-987654321:user-99")
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_MUTE_MEMBERS),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={"mute": True},
+        headers=auth(access),
+    )
+    assert r.status_code == 200
+    assert _stub_livekit_update[-1]["sources"] == []
+    assert _stub_livekit_update[-1]["can_publish"] is False
+
+
+@pytest.mark.asyncio
 async def test_unmute_restores_only_cached_sources(
     app_with_redis, auth_signer, monkeypatch, _stub_livekit_update
 ):
@@ -680,3 +709,30 @@ async def test_internal_evict_calls_livekit_and_clears_overrides(
     # Both override keys are gone.
     assert await redis.get("voice:override:channel-1:user-42") is None
     assert await redis.get("voice:override:channel-2:user-42") is None
+
+
+@pytest.mark.asyncio
+async def test_override_fail_closed_ohne_guild_id(
+    app_with_redis, auth_signer, monkeypatch
+):
+    """Bughunt 2026-09-20: antwortet chat-gateway 200, aber ohne ``guild_id``
+    im Body (Schema-Drift — die Spalte ist NOT NULL), darf die Ziel-Prüfung
+    nicht stumm übersprungen werden. Fail-closed: 502 statt stiller Aktion."""
+    client, _redis = app_with_redis
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+
+    async def _guildless_mock(method, path, *, bearer):
+        if path.endswith("/permissions/me"):
+            return httpx.Response(200, json={"permissions": str(_PERM_MUTE_MEMBERS)})
+        return httpx.Response(200, json={"id": "987654321", "type": 1})
+
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _guildless_mock)
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={"mute": True},
+        headers=auth(access),
+    )
+    assert r.status_code == 502

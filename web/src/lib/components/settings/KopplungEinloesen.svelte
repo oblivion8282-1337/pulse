@@ -172,8 +172,10 @@
     <p class="text-sm text-muted-foreground">{m.kopplung_anhaenge_hinweis()}</p>
   {:else}
     <p class="text-sm text-muted-foreground">{m.kopplung_eingeben_wartet()}</p>
+    <!-- Entscheidung 3.3: der Knopf trug das Label des echten Imports —
+         er tut aber nur einen Status-Poll ohne jeden Import. -->
     <Button variant="outline" onclick={standPruefen} data-testid="kopplung-stand-pruefen">
-      {m.kopplung_eingeben_uebernehmen()}
+      {m.kopplung_eingeben_stand_pruefen()}
     </Button>
   {/if}
 

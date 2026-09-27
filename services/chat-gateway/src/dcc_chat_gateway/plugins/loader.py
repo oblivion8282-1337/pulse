@@ -22,8 +22,8 @@ Prozess wirksam**: der PUT-Handler ruft :func:`activate_plugin` (lädt
 ``app.state.plugin_allowlist``-Snapshot unter Lock; der DELETE-Handler
 entfernt den Namen nur aus dem Snapshot — die im Loader-Lauf
 registrierten Op-Handler bleiben im Dispatch-Dict, sind aber durch das
-Allowlist-Gate (``ws_op_gate``) effektiv inert (siehe Doku in
-:func:`deactivate_plugin` für den Trade-off).
+Allowlist-Gate (``ws_op_gate``) effektiv inert (Begründung: siehe
+Doku in ``routes/admin_plugins.py``).
 
 Multi-Pod-Setup bekommt zusätzlich eine Redis-Pub/Sub-Notify
 ``plugin:allowlist:changed`` vom mutierenden Pod publisht; der
@@ -80,10 +80,8 @@ __all__ = [
     "LoadResult",
     "PluginLoadError",
     "activate_plugin",
-    "deactivate_plugin",
     "discover_plugins_dir",
     "discover_manifests",
-    "load_all",
     "load_all_with_allowlist",
     "load_directory",
     "load_directory_with_allowlist",
@@ -214,23 +212,6 @@ def load_directory(
             loaded.append(manifest)
     log.info("loaded %d plugin(s) from %s", len(loaded), path)
     return loaded
-
-
-def load_all(*, manager: PluginManager | None = None) -> list[PluginManifest]:
-    """Discover the default plugin directory + load it.
-
-    No-op (returns ``[]``) if no plugin directory is found.
-
-    **Allowlist-Bypass.** Diese Variante ignoriert die Allowlist und
-    aktiviert alles. Wird nur noch in Tests benutzt
-    (``test_plugin_loader.py``), die ohne DB-Setup laufen — die echte
-    chat-gateway-Lifespan ruft :func:`load_all_with_allowlist`.
-    """
-    path = discover_plugins_dir()
-    if path is None:
-        log.info("no plugin directory discovered; plugin loader idle")
-        return []
-    return load_directory(path, manager=manager)
 
 
 def _parse_manifests_in_dir(path: Path) -> list[tuple[Path, PluginManifest]]:
@@ -430,32 +411,3 @@ def activate_plugin(
     return None
 
 
-def deactivate_plugin(
-    plugin_name: str, *, manager: PluginManager | None = None
-) -> None:
-    """Pendant zu :func:`activate_plugin` — heute bewusst no-op.
-
-    Trade-off-Doku
-    --------------
-    Wir könnten ``mgr.deactivate(plugin_name)`` rufen, was die im
-    Plugin registrierten Ops/Channels aus den Dispatch-Registries
-    räumt. Praktisches Problem: derselbe Process-State kann später
-    durch ein erneutes ``PUT`` wieder aktiviert werden — wir hätten
-    dann eine Race zwischen "alte Handler weg, neue Handler kommen
-    rein" und WS-Frames die in dieser Lücke ankommen. Außerdem leakt
-    der Plugin-Modulcode in ``sys.modules`` (Python kann Module nicht
-    sauber entladen), sodass ein zweiter Aktivierungspfad ohnehin
-    keinen frischen Import bekommen würde.
-
-    Pragmatischer Pfad: Handler bleiben registriert, der WS-Op-Gate
-    rejected Plugin-Ops aber sofort über den
-    ``app.state.plugin_allowlist``-Snapshot — eine Allowlist-Entfernung
-    wirkt also funktional als "Plugin off", auch wenn intern die
-    Registries nicht aufgeräumt sind. Bei einem späteren Re-Add greifen
-    die alten Handler weiter (idempotent: ``register_ws_op`` ist
-    last-writer-wins, kein Drift).
-
-    Volles ``deactivate()`` machen wir nur in Tests + beim
-    Service-Shutdown (:meth:`PluginManager.deactivate_all`).
-    """
-    pass

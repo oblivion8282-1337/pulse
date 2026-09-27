@@ -12,7 +12,7 @@
  * mit zurück. PUT auf `hello` → 409; das Frontend zeigt den Toggle deshalb
  * disabled mit Hinweis "Immer aktiv (System-Plugin)".
  */
-import { request } from './client';
+import { request, type RequestRoute } from './client';
 
 export type GuildPluginEntry = {
   plugin_name: string;
@@ -24,20 +24,21 @@ type GuildPluginTogglePayload = {
 };
 
 export const guildPluginsApi = {
-  list(guildId: string): Promise<GuildPluginEntry[]> {
+  list(guildId: string, route: RequestRoute = {}): Promise<GuildPluginEntry[]> {
     return request<GuildPluginEntry[]>(`/guilds/${guildId}/plugins`, {
       endpoint: 'chat'
-    });
+    }, route);
   },
   toggle(
     guildId: string,
     name: string,
-    enabled: boolean
+    enabled: boolean,
+    route: RequestRoute = {}
   ): Promise<GuildPluginEntry> {
     return request<GuildPluginEntry>(`/guilds/${guildId}/plugins/${name}`, {
       method: 'PUT',
       endpoint: 'chat',
       body: { enabled } satisfies GuildPluginTogglePayload
-    });
+    }, route);
   }
 };

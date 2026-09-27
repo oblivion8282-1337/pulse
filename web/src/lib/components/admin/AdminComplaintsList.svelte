@@ -159,16 +159,30 @@
   async function doBanUser(c: Complaint) {
     if (!c.target_user_id || banning) return;
     banning = true;
+    // Bughunt Runde 18/21: zwei Schritte in EINEM try-Block meldeten einen
+    // Halberfolg als Totalscheitern — die Sperre war durch, der Admin sah
+    // aber nur "fehlgeschlagen" und die Beschwerde blieb offen.
+    let gesperrt = false;
     try {
       // Zwei bestehende, getestete Endpoints: Konto plattformweit sperren
       // (widerruft Sessions/Tokens, Owner-Schutz serverseitig) + Beschwerde
       // erledigen (schickt dem Melder die automatische Rückmeldung).
       await adminApi.patchUser(c.target_user_id, { disabled: true });
+      gesperrt = true;
       await adminComplaintsApi.resolve(c.id, m.admin_complaints_ban_note());
       toast.success(m.admin_complaints_ban_ok());
       drop(c.id);
     } catch (e) {
-      toast.error(m.admin_complaints_ban_failed(), { description: errText(e) });
+      if (gesperrt) {
+        // Konto IST gesperrt — nur der Abschluss riss. Distinct Meldung,
+        // und die Beschwerde bleibt bewusst in der Liste (Abschluss per
+        // resolve-Knopf nachholbar).
+        toast.warning(m.admin_complaints_ban_failed(), {
+          description: errText(e)
+        });
+      } else {
+        toast.error(m.admin_complaints_ban_failed(), { description: errText(e) });
+      }
     } finally {
       banning = false;
     }

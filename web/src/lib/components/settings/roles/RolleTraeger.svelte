@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { Input } from '$lib/components/ui/input/index.js';
   import XIcon from '@lucide/svelte/icons/x';
   import PlusIcon from '@lucide/svelte/icons/plus';
@@ -101,7 +102,7 @@
                 <Avatar.Image src={u.avatar_url} alt="" />
               {/if}
               <Avatar.Fallback class="accent-gradient text-primary-foreground text-[0.6rem] font-semibold">
-                {name(uid).slice(0, 1).toUpperCase()}
+                {anfangsBuchstabe(name(uid))}
               </Avatar.Fallback>
             </Avatar.Root>
             <span class="max-w-40 truncate text-sm">{name(uid)}</span>

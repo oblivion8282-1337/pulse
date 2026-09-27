@@ -49,6 +49,10 @@ export function kodiereSicherungEintrag(eintrag: SicherungEintrag): Uint8Array {
 				// Grabstein-Markierung reist mit — ohne sie wäre der Stein nach
 				// dem Entschlüsseln von einer normalen Nachricht ununterscheidbar.
 				geloescht: n.geloescht ? true : undefined,
+				// Die geraeteuebergreifende Autor-ID ebenso — ohne sie erkennt
+				// der Wiederherstellungs-Leser die Kopie des anderen Geräts
+				// nicht (doppelte Zeile auf dem Frischgerät).
+				kryptoId: n.kryptoId || undefined,
 			},
 		}),
 	);

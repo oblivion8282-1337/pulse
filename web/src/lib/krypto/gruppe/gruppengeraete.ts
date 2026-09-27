@@ -30,6 +30,12 @@ export type GruppenBuendelEintrag = {
   curve25519: string;
   einmalschluessel: string | null;
   rueckfallschluessel: string | null;
+  /** Ed25519-Identitaet + Buendel-Signatur (Bughunt 2026-09-23) — `null`/
+   *  fehlend bei Bestandsbuendeln; solche Geraete bekommen den Verteil-
+   *  schluessel nicht mehr (`../geraetePinnung.ts` wirft), bis ihr naechster
+   *  Start das Buendel signiert veroeffentlicht. */
+  ed25519?: string | null;
+  bundel_signatur?: string | null;
   dauerhaft?: boolean;
 };
 

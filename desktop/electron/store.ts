@@ -10,23 +10,86 @@
  * File: `<userData>/pulse-stream.json`. Loaded once into memory on first use
  * (`app.whenReady()` → `initStore()`); every `set` re-serialises the whole blob.
  *
- * **Security:** the file can hold custom-server stream keys in cleartext (same
- * caveat as the Tauri store — this is *not* a secret vault, just better than
- * world-readable). On Linux we `chmod 700` the userData dir and `chmod 600` the
+ * **Security:** secret-bearing keys (`GEHEIME_SCHLUESSEL` — `pulse.host.creds`,
+ * legacy `custom_servers`) are encrypted via Electron `safeStorage` since the
+ * 2026-09-23 bughunt (see below); without an OS keyring they fall back to
+ * cleartext. On Linux we `chmod 700` the userData dir and `chmod 600` the
  * JSON file (writes always use `{ mode: 0o600 }`). On Windows/macOS chmod is a
- * no-op; the per-user profile dir is the protection there. Never `console.log`
- * the contents.
+ * no-op; the per-user profile dir is the protection there — which is exactly
+ * why the secret keys moved into `safeStorage` (DPAPI/Keychain). Never
+ * `console.log` the contents.
  */
 
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import {
+  entwickleGeheimnis,
+  istGeheimWickel,
+  wickelGeheimnis
+} from './geheimform';
 
 const STORE_FILE = 'pulse-stream.json';
 
 /** In-memory mirror of the JSON blob. `null` until `initStore()` has run. */
 let data: Record<string, unknown> | null = null;
 let storePath: string | null = null;
+
+/**
+ * Store-Schlüssel, die verschlüsselt abgelegt werden (Bughunt 2026-09-23).
+ *
+ * * `pulse.host.creds` — das Pairing des Server-Modus: `client_secret` +
+ *   `relay_tunnel_token`, bislang Klartext-JSON. Wer die Datei liest (Malware
+ *   im Nutzerkontext, gesichertes Backup, Sync-Client auf dem Profilordner),
+ *   erhielt die vollständige Instanz-Identität samt Relay-Tunnel.
+ * * `custom_servers` — LEGACY: kann auf Alt-Installationen noch Stream-Keys
+ *   tragen; neue Fassungen leeren den Schlüssel (`stream/persistence.ts`).
+ *
+ * Verschlüsselt wird über Electron `safeStorage` (DPAPI/Keychain/libsecret).
+ * **Fallback ohne OS-Tresor** (Linux headless): Klartext wie bisher — der
+ * chmod-600-Schutz und das Benutzerprofil bleiben dann die Schranke, die
+ * Start-Migration holt beim nächsten Start mit Tresor nach. Beide Formen
+ * koexistieren; gelesen wird transparent (`istGeheimWickel` unterscheidet).
+ */
+const GEHEIME_SCHLUESSEL = new Set(['pulse.host.creds', 'custom_servers']);
+
+function tresorBereit(): boolean {
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
+
+/** Wickelt den Wert eines Geheimnis-Schlüssels, wenn ein Tresor bereit ist —
+ *  sonst unverändert (Klartext-Fallback, s. `GEHEIME_SCHLUESSEL`). */
+function verschluessleWert(key: string, value: unknown): unknown {
+  if (!GEHEIME_SCHLUESSEL.has(key) || !tresorBereit()) return value;
+  try {
+    return wickelGeheimnis(JSON.stringify(value), (klar) => safeStorage.encryptString(klar));
+  } catch (err) {
+    // Encrypt fehlgeschlagen — lieber Klartext (bisheriger Zustand) als ein
+    // Store-Schreibvorgang, der das Pairing zerstört.
+    console.warn(`[store] Verschlüsseln von "${key}" fehlgeschlagen, lege Klartext ab:`, err);
+    return value;
+  }
+}
+
+/** Entwickelt einen gewickelten Wert zurück — `undefined`, wenn das Geheimnis
+ *  nicht mehr entschlüsselbar ist (OS-Tresor gewechselt, Profil umgezogen):
+ *  es wird verworfen statt halb ausgeliefert, Neu-Pairing ist der Weg
+ *  zurück. */
+function entschluesseleWert(key: string, value: unknown): unknown {
+  if (!GEHEIME_SCHLUESSEL.has(key) || !istGeheimWickel(value)) return value;
+  const klar = entwickleGeheimnis(value, (d) => safeStorage.decryptString(d));
+  if (klar === null) {
+    console.error(
+      `[store] Geheimnis "${key}" ist nicht mehr entschlüsselbar (OS-Tresor gewechselt?) — verworfen. Neu paaren.`
+    );
+    return undefined;
+  }
+  return klar;
+}
 
 function isLinux(): boolean {
   return process.platform === 'linux';
@@ -91,16 +154,77 @@ export function initStore(): void {
     // Only chmod if it already exists; don't create an empty file just to chmod.
     if (fs.existsSync(storePath)) chmodQuiet(storePath, 0o600);
   }
+
+  // **Einmalige Migration (Bughunt 2026-09-23):** Klartext-Geheimnisse in den
+  // OS-Tresor holen, sobald einer bereit steht. Bestehende Leser merken
+  // nichts — `storeGet`/`storeGetAll` entwickeln transparent (s. unten).
+  // Ohne Tresor bleibt alles, wie es ist; der nächste Start versucht es
+  // wieder. `persist()` genau einmal: nur wenn mindestens EIN Wert neu
+  // gewickelt wurde.
+  if (tresorBereit()) {
+    let migriert = false;
+    for (const key of GEHEIME_SCHLUESSEL) {
+      const wert = data[key];
+      if (wert === undefined || istGeheimWickel(wert)) continue;
+      const gewickelt = verschluessleWert(key, wert);
+      if (gewickelt !== wert) {
+        data[key] = gewickelt;
+        migriert = true;
+      }
+    }
+    if (migriert) persist();
+  }
 }
 
-/** Read one key. `undefined` if not set or the store isn't ready yet. */
+/** Read one key. `undefined` if not set or the store isn't ready yet.
+ *  Gewickelte Geheimnisse kommen transparent als Klartext zurück. */
 export function storeGet(key: string): unknown {
-  return data?.[key];
+  const roh = data?.[key];
+  if (roh === undefined) return undefined;
+  const wert = entschluesseleWert(key, roh);
+  if (wert === undefined && roh !== undefined) {
+    // Unentschlüsselbares Geheimnis nur dann wegwerfen, wenn der Tresor im
+    // Fehlermoment bereit steht (Bughunt 2026-09-23, zweiter Lauf): dann ist
+    // der Wrapper wirklich kaputt bzw. der Schlüssel gewechselt — Neu-Pairing
+    // ist der Weg zurück. Steht KEIN Tresor bereit (gesperrter Keyring beim
+    // Autostart, libsecret-Timeout), wäre die Löschung die Zerstörung eines
+    // gesunden Geheimnisses wegen eines TRANSIENTEN Fehlers — der Wrapper
+    // bleibt liegen, der nächste Start versucht es erneut.
+    if (data !== null && istGeheimWickel(roh) && tresorBereit()) {
+      delete data[key];
+      persist();
+    }
+    return undefined;
+  }
+  return wert;
 }
 
-/** Read the whole blob (a shallow copy so callers can't mutate the mirror). */
-export function storeGetAll(): Record<string, unknown> {
-  return data ? { ...data } : {};
+/** Read the whole blob (a shallow copy so callers can't mutate the mirror).
+ *  Gewickelte Geheimnisse kommen transparent als Klartext zurück — der
+ *  Renderer kennt nur die Klartext-Formen (die Geheimnis-Schlüssel sind
+ *  über `RENDERER_BLOCKED_STORE_KEYS`/Allowlist ohnehin gesperrt bzw. nur
+ *  Legacy).
+ *  `geheimnisseAusnehmen` schlüsselt die genannten Schlüssel gar nicht erst
+ *  (Bughunt 2026-09-23, zweiter Lauf): der Renderer-getAll-Pfad reicht sie
+ *  danach ohnehin gefiltert weg — der Main-Prozess soll den am stärksten
+ *  geschützten Wert nicht bei jedem getAllSync entschlüsseln (libsecret-DBus
+ *  ist synchron und blockiert beim hängenden Keyring Main UND Renderer). */
+export function storeGetAll(
+  geheimnisseAusnehmen?: ReadonlySet<string>
+): Record<string, unknown> {
+  if (!data) return {};
+  const kopie: Record<string, unknown> = { ...data };
+  for (const key of GEHEIME_SCHLUESSEL) {
+    if (geheimnisseAusnehmen?.has(key)) continue;
+    if (kopie[key] === undefined) continue;
+    const wert = entschluesseleWert(key, kopie[key]);
+    if (wert === undefined) {
+      delete kopie[key];
+      continue;
+    }
+    kopie[key] = wert;
+  }
+  return kopie;
 }
 
 /** Write one key and persist. No-op if the store isn't ready (shouldn't happen
@@ -110,7 +234,7 @@ export function storeSet(key: string, value: unknown): void {
     console.error('[store] storeSet called before initStore()');
     return;
   }
-  data[key] = value;
+  data[key] = verschluessleWert(key, value);
   persist();
 }
 
@@ -123,7 +247,7 @@ export function storeSetBatch(entries: Record<string, unknown>): void {
     return;
   }
   for (const [key, value] of Object.entries(entries)) {
-    data[key] = value;
+    data[key] = verschluessleWert(key, value);
   }
   persist();
 }

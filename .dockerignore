@@ -49,6 +49,10 @@ Logo
 
 # Self-uploads from a running dev install
 services/*/uploads
+# Runtime data dirs (z. B. chat-gateway/web VAPID-Private-Keys im Dev-CWD) —
+# gehören nie in eine Image-Schicht, auch nicht in eine Builder-Layer.
+services/*/data
+web/data
 .plans
 
 # Markdown: keep the top-level README + the self-host README, drop everything else

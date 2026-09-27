@@ -287,7 +287,7 @@ async def members_who_can_view_large(
         # @everyone overwrite first, then role overwrites by position,
         # then the user-specific overwrite.
         value = base
-        for role in sorted(ow_roles, key=lambda r: (not r.is_everyone, r.position)):
+        for role in sorted(ow_roles, key=lambda r: (not r.is_everyone, r.position, r.id)):
             ow = overwrites.get((OVERWRITE_TARGET_ROLE, role.id))
             if ow is not None:
                 value = ow.apply(value)

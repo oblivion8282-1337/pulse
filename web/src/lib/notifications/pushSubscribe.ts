@@ -12,7 +12,7 @@
  * either no-op or duplicate native toasts.
  */
 
-import { isElectron } from '$lib/platform/runtime';
+import { isElectron, isCapacitorAndroid } from '$lib/platform/runtime';
 import { base64UrlDecode, base64UrlEncode } from '$lib/utils/base64url';
 import {
   fetchVapidPublicKey,
@@ -23,10 +23,16 @@ import {
 export type PushPermissionState = 'granted' | 'denied' | 'default' | 'unsupported';
 
 /** True when this UA can subscribe to web-push. Electron renderer falls into
- *  the unsupported branch (push goes through the main process IPC). */
+ *  the unsupported branch (push goes through the main process IPC).
+ *  Bughunt Runde 45: auch die Capacitor-Android-WebView fällt in
+ *  „unsupported" — sie exponiert die SW/Push-APIs, erteilt aber die
+ *  Notification-Permission NIE (kein Prompt im WebView): der Schalter im
+ *  Einstellungs-Block war eine Sackgasse, die immer auf „verweigert"
+ *  endete. Natives Mobile-Push ist ein dokumentiertes Feature-Wunschziel
+ *  (IDEAS.md), bis dahin ist hier nichts zu holen. */
 function pushSupported(): boolean {
   if (typeof window === 'undefined') return false;
-  if (isElectron()) return false;
+  if (isElectron() || isCapacitorAndroid()) return false;
   return (
     'serviceWorker' in navigator &&
     'PushManager' in window &&

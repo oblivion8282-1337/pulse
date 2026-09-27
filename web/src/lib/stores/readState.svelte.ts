@@ -46,6 +46,15 @@ class ReadState {
   private persistMentionsTimer: ReturnType<typeof setTimeout> | null = null;
   private persistUnreadTimer: ReturnType<typeof setTimeout> | null = null;
 
+  constructor() {
+    // Derselbe Schutz wie im Drafts-Store (Bughunt Runde 3): das 200-ms-
+    // Debounce-Fenster darf einen Reload nicht überleben — sonst springt
+    // der Lesestand der letzten Nachricht beim F5 auf ungelesen zurück.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', () => this.flushPending());
+    }
+  }
+
   /** Liest eine der drei Karten aus dem Speicher. `null` heisst „da steht
    *  nichts Brauchbares" — der Aufrufer behält dann seinen bisherigen Stand.
    *  `null` ist bewusst von `{}` unterschieden: ein leeres Objekt wäre von

@@ -109,15 +109,6 @@ export function schedulePushSection(
   pending.set(sectionName, { timer, snapshot });
 }
 
-/** Force a flush of one section's pending push. */
-export async function flushSection(sectionName: string): Promise<void> {
-  const p = pending.get(sectionName);
-  if (!p) return;
-  clearTimeout(p.timer);
-  pending.delete(sectionName);
-  await pushSectionNow(sectionName, p.snapshot());
-}
-
 /** Force a flush of every pending push (called on sign-out). */
 export async function flushAllPending(): Promise<void> {
   const entries = Array.from(pending.entries());
@@ -148,23 +139,3 @@ async function pushSectionNow(
   }
 }
 
-/** Delete a server-side section (used by sign-out policies that need
- *  to clear the cross-device slot — most plugins want to *keep* server
- *  state across sign-outs, so this is opt-in). */
-export async function deleteServerSection(sectionName: string): Promise<void> {
-  const p = pending.get(sectionName);
-  if (p) {
-    clearTimeout(p.timer);
-    pending.delete(sectionName);
-  }
-  const resp = await authFetch(`/preferences/${sectionName}`, {
-    method: 'DELETE'
-  });
-  if (resp && !resp.ok) {
-    console.warn(
-      '[settings-registry] DELETE /preferences/%s failed: %d',
-      sectionName,
-      resp.status
-    );
-  }
-}

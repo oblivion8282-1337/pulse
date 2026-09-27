@@ -10,6 +10,9 @@ class UIOverlays {
   settingsOpen = $state(false);
   quickSwitcherOpen = $state(false);
   hqStreamDialogOpen = $state(false);
+  /** Käfer-Knopf: Diagnose-Bericht an die Cloud schicken (Klick = Einwilligung,
+   *  s. Spec 2026-09-21 §5). */
+  diagnoseOpen = $state(false);
   /** Tab, auf dem der Einstellungs-Dialog beim nächsten Öffnen landet.
    *  SettingsDialog wendet ihn nur auf der Open-Transition an. */
   settingsInitialTab = $state<SettingsTab>('audio-video');

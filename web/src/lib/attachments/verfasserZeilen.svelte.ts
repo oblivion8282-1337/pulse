@@ -98,6 +98,14 @@ export class VerfasserAnhaenge {
     return this.zeilen.some((z) => z.state === 'uploading' || z.state === 'queued');
   }
 
+  /** Bughunt Runde 18: mindestens eine Zeile im Fehlerzustand — Senden muss
+   *  dann blockieren, sonst ging die Nachricht OHNE den Anhang raus und die
+   *  Fehlerzeile (letzte Retry-Möglichkeit) verschwand still im
+   *  nachDemSenden-Sweep. */
+  get hatFehler(): boolean {
+    return this.zeilen.some((z) => z.state === 'error');
+  }
+
   /** Kennungen der fertigen Anhaenge — was der Klartext-Weg braucht. */
   get ids(): string[] {
     return this.zeilen

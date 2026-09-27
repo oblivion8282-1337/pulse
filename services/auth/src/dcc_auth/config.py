@@ -124,6 +124,11 @@ class Settings(BaseSettings):
     rate_limit_login: str = "20/minute"
     rate_limit_password_forgot: str = "2/minute"
     rate_limit_password_reset: str = "10/minute"
+    # Bughunt Runde 24: die anonymen Token-Consume-Endpoints waren die
+    # einzigen Token-Gates ganz ohne Brake (SHA-256-Lookups + Row-Locks
+    # pro Aufruf). 43-Byte-Token machen Brute-Force aussichtslos — der
+    # Deckel dämpft nur den.blinden Loop.
+    rate_limit_token_confirm: str = "30/minute"
     rate_limit_email_verify_send: str = "2/minute"
     rate_limit_login_totp: str = "20/minute"
     rate_limit_totp_verify_setup: str = "10/minute"
@@ -200,6 +205,19 @@ class Settings(BaseSettings):
     # ``users.discoverable`` (opt-out) so the limit is the second line of
     # defence, not the first.
     rate_limit_user_search: str = "30/minute"
+    # Batch-Aufloesung ``GET /users?ids=`` (Security-Scan 2026-09-18: war
+    # komplett ungedrosselt). Gleiches Budget wie user_search — drosselt
+    # ID-Walking (Snowflakes sind zeitgeordnet => Verzeichnis-Harvest).
+    # Bewusst KEIN discoverable-Filter wie bei der Suche: der Endpoint
+    # resolved im Frontend die Autoren-IDs aus geteilten Gilden/DMs fuer
+    # die Anzeige (userCache) — wer show_in_search abgewaehlt hat, darf
+    # dort weiter namentlich erscheinen. Das kontextlos-offene Pendant
+    # ist die Chat-CachedUserProfile-Route (gleiche Entscheidung).
+    # ponytail: Decke = 100 IDs/Request * 30/min pro IP (plus 10/min pro
+    # Account via rate_limit_per_account) — verlangsamt Ernte, verhindert
+    # sie nicht; Aufstieg = kontextgebundene Aufloesung (nur IDs aus
+    # gemeinsamen Gilden/DMs zulassen, Auth-svc kennt Memberships nicht).
+    rate_limit_user_batch: str = "30/minute"
     # Docker-Registry-Token-Realm (``GET /registry/token``). Der Docker-Daemon
     # holt pro Pull ein frisches Token (TTL 5 min) — 30/min/Instanz deckt
     # Pull-Spikes locker, blockt aber Brute-Force auf client_secrets.
@@ -291,6 +309,7 @@ class Settings(BaseSettings):
         "rate_limit_login",
         "rate_limit_password_forgot",
         "rate_limit_password_reset",
+        "rate_limit_token_confirm",
         "rate_limit_email_verify_send",
         "rate_limit_login_totp",
         "rate_limit_totp_verify_setup",

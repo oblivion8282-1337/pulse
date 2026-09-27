@@ -31,6 +31,8 @@ import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
 import { meldeNeueZustellung } from './postfachBenachrichtigung';
 import { registerWsHandler } from '../handler-registry';
+import { serversStore } from '$lib/api/servers.svelte';
+import { dispatchingServerId } from '$lib/ws/gateway-connection';
 import { isRecentMention, markRecentMention } from './_mentionSuppression';
 import type { HandlerContext } from './context';
 import { m } from '$lib/paraglide/messages.js';
@@ -48,6 +50,13 @@ function dmVorschauAuffrischen(): void {
     dmVorschauTimer = null;
     void directMessages.hydrate();
   }, 1500);
+}
+
+/** Bughunt Runde 19: notification_mode=none des Servers schaltet beide
+ *  Chimes stumm (Nachricht + Mention), nicht nur den OS-Toast. */
+function serverStumm(): boolean {
+  const sid = dispatchingServerId();
+  return sid ? serversStore.servers.find((s) => s.id === sid)?.notification_mode === 'none' : false;
 }
 
 /**
@@ -223,7 +232,7 @@ export function register(ctx: HandlerContext): void {
         readState.markRead(evt.channel_id, evt.message_id);
       } else {
         readState.incUnread(evt.channel_id);
-        if (!isRecentMention(evt.message_id) && !isDnd()) {
+        if (!isRecentMention(evt.message_id) && !isDnd() && !serverStumm()) {
           sounds.play('notification.message', { guildId: evt.guild_id });
         }
       }
@@ -326,7 +335,7 @@ export function register(ctx: HandlerContext): void {
       // (a sound for the focused channel is just noise).
       readState.markRead(channel_id, message_id);
     } else {
-      if (!isDnd()) sounds.play('notification.mention', { guildId: guild_id });
+      if (!isDnd() && !serverStumm()) sounds.play('notification.mention', { guildId: guild_id });
     }
     // In-page notification (only fires when tab is in background — the
     // helper gates on visibility + settings). The matching push from the

@@ -144,14 +144,25 @@ async def channel_membership(session, channel_id: int, user_id: int) -> Channel 
 def parse_snowflake_int(value: object) -> int | None:
     """Parse a stringified snowflake (channel_id, host_user_id, …) to int, or
     ``None`` when it is missing or malformed. Geteilte Grundlage der
-    ``_channel_id``-Helfer in den WS-Op-Modulen."""
+    ``_channel_id``-Helfer in den WS-Op-Modulen.
+
+    Bughunt Runde 35: ohne int64-Klemme lief ``999…9`` (29 Ziffern) bis zum
+    Treiber, der je Frame einen DataError plus ERROR-Traceback in die Logs
+    schrieb (gleiche Schadensklasse wie der Broadcast-Filter-Fix in
+    ``pubsub_perm_filter.py``) — die Klemme hier hebelt ALLE Verbraucher
+    auf einmal ab (subscribe, voice_self_state, watch_*, device_*)."""
     s = str(value or "").strip()
     if not s:
         return None
     try:
-        return int(s)
+        v = int(s)
     except ValueError:
         return None
+    # Snowflakes sind positive int64 — ausserhalb dessen kann keine Zeile
+    # existieren, also ist „malformed“ die korrekte Antwort.
+    if not 0 < v < 2**63:
+        return None
+    return v
 
 
 def ws_manager(websocket: WebSocket):

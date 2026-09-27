@@ -3,14 +3,14 @@
 //! Wire-form mirrors `gsr-sidecar/control.py::op_health`:
 //!
 //! ```jsonc
-//! {"ok": true, "gsr": {"available": ..., "source": ..., "is_flatpak": ...,
+//! {"ok": true, "sidecar": {"available": ..., "source": ..., "is_flatpak": ...,
 //!                       "path": ..., "version": ..., "vendor": ...,
 //!                       "display_server": ..., "video_codecs": [...],
 //!                       "capture_options": [...], "has_flv_patch": ...}}
 //! ```
 //!
 //! Available = there is at least one hardware adapter found via DXGI. The
-//! renderer's `state.svelte.ts:59` flips `stream.gsrAvailable` on this, which
+//! renderer's `state.svelte.ts:59` flips `stream.sidecarAvailable` on this, which
 //! ungates the HQ-Stream button (further gated on `isLinux()` until we deploy
 //! a web build that also lets Windows through — covered in a later session).
 //!
@@ -72,7 +72,7 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     // einer Meldung, die den Windows-Schalter nennt.
     let hdr = vendor.is_some_and(|v| crate::encode::hdr::verfuegbar(v, &video_codecs));
 
-    let mut gsr = json!({
+    let mut sidecar = json!({
         "available": available,
         "source": source,
         "is_flatpak": false,
@@ -97,13 +97,13 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         "remote_input": true,
     });
     if let Some(p) = path {
-        gsr["path"] = Value::String(p);
+        sidecar["path"] = Value::String(p);
     }
     if let Some(v) = vendor {
-        gsr["vendor"] = Value::String(v.to_string());
+        sidecar["vendor"] = Value::String(v.to_string());
     }
 
     let mut out = Map::new();
-    out.insert("gsr".to_string(), gsr);
+    out.insert("sidecar".to_string(), sidecar);
     Ok(out)
 }

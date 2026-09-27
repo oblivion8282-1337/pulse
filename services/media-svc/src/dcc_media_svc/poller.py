@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -255,6 +255,18 @@ _EMPTY_SNAPSHOT_GRACE_POLLS = 2
 _empty_snapshot_streak = 0
 
 
+# Bughunt Runde 4: die Lücke zwischen Publish-Auth (der Hook schreibt den
+# ``stream:active``-Datensatz) und MediaMTX-„ready" (RTMP-Handshake bzw.
+# WHIP-ICE/DTLS, 1–3 s) ist für den Stale-Sweep eine Todeszone: startet ein
+# Durchlauf in diesem Fenster, gilt der frische Datensatz als alt und wird
+# UNWIEDERBRINGLICH gelöscht — der Zuschauer-Lookup läuft danach dauerhaft
+# 404, bis der Streamer neu startet. Ein Datensatz jünger als diese Gnade
+# überlebt den Sweep; der Preis ist eine verzögerte Offline-Erkennung von
+# bis zu einer Gnade für Abstürze ohne Stop (explizite Stops tragen ohnehin
+# ein ``stream:stopping``-Grabstein und sind unabhängig davon geschützt).
+_ACTIVE_FRESH_GRACE_S = 15
+
+
 async def _delete_active_sparing_fresh(
     redis: Redis, keys: list[str], pass_start: datetime
 ) -> None:
@@ -264,14 +276,19 @@ async def _delete_active_sparing_fresh(
     nonce: the auth-hook writes the record at publish-auth time, before MediaMTX
     reports the path ready. Deleting it is unrecoverable — later passes only
     EXPIRE records for present pairs, and EXPIRE cannot resurrect a deleted key.
+
+    Die Frisch-Schwelle trägt eine Gnade (``_ACTIVE_FRESH_GNADEN_S``): genau
+    in der Handshake-Lücke beginnt der Durchlauf NACH dem Schreiben des
+    Datensatzes, ``started_at >= pass_start`` greift also nicht mehr.
     """
     if not keys:
         return
+    cutoff = pass_start - timedelta(seconds=_ACTIVE_FRESH_GRACE_S)
     values = await redis.mget(*keys)
     to_delete = [
         k
         for k, raw in zip(keys, values, strict=False)
-        if not _active_created_after(raw, pass_start)
+        if not _active_created_after(raw, cutoff)
     ]
     if to_delete:
         await redis.delete(*to_delete)

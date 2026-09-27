@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.db import SessionDep
@@ -156,9 +156,21 @@ async def upload_sound(
         )
 
     key = storage_key(guild_id, sound_id)
-    await s3.put_object(key, body=raw, content_type=file.content_type)
+    # Bughunt Runde 16: die neuen Bytes landen ERST auf einem Temp-Key —
+    # der feste Key wird erst NACH dem Commit überschrieben. Vorher
+    # über schrieb put_object das alte Blob vor dem Commit: ein Commit-
+    # Fehler hinterließ DB-Zeile auf zerstörten Bytes (der alte Override-
+    # Sound unwiederbringlich weg), bei Erst-Upload ein verwaistes Objekt.
+    import uuid as _uuid  # noqa: PLC0415
+
+    temp_key = f"{key}-tmp-{_uuid.uuid4().hex[:8]}"
+    await s3.put_object(temp_key, body=raw, content_type=file.content_type)
 
     existing = await session.get(GuildSoundOverride, (guild_id, sound_id))
+    # Runde 22: Merker für den Restpfad — schlägt das finale put_object
+    # nach dem Commit fehl, rollt ein ERST-Upload die noch leere Zeile
+    # zurück (statt ein 404-Sound-Angebot stehen zu lassen).
+    ist_erstupload = existing is None
     if existing is None:
         existing = GuildSoundOverride(
             guild_id=guild_id,
@@ -180,9 +192,40 @@ async def upload_sound(
         # — DB onupdate would fire on any UPDATE, including no-op resaves.
         existing.uploaded_at = datetime.now(timezone.utc)
 
-    await session.commit()
+    try:
+        await session.commit()
+    except Exception:
+        # Temp-Key aufräumen — die DB ist unangetastet, der alte Sound spielt.
+        await s3.delete_object(temp_key)
+        raise
+    # Jetzt erst den festen Key überschreiben (Commit ist durable), dann
+    # den Temp-Key abwerfen. Scheitert das Überschreiben, spielt noch der
+    # alte Sound — ein Retry des Uploads heilt es. Beim ERST-Upload gibt
+    # es keinen alten Stand: die leere Zeile wird zurückgerollt (Runde 22),
+    # sonst bliebe ein 404-Sound-Angebot stehen.
+    try:
+        await s3.put_object(key, body=raw, content_type=file.content_type)
+    except Exception:
+        # Bughunt Runde 37: der Temp-Key wurde vorher nur am ERFOLGSweg
+        # abgeworfen — jedes fehlgeschlagene Überschreiben hinterließ ein
+        # ≤5-MB-Orphan, ein Retry-Ausbruch füllte den Bucket. Best effort:
+        # schlägt auch das Aufräumen fehl, bleibt es beim einmaligen Orphan.
+        try:
+            await s3.delete_object(temp_key)
+        except Exception:  # noqa: BLE001
+            log.warning("sound temp cleanup failed", sound_id=sound_id)
+        if ist_erstupload:
+            await session.rollback()
+            await session.execute(
+                sa_delete(GuildSoundOverride).where(
+                    GuildSoundOverride.guild_id == guild_id,
+                    GuildSoundOverride.sound_id == sound_id,
+                )
+            )
+            await session.commit()
+        raise
+    await s3.delete_object(temp_key)
     await session.refresh(existing)
-
     await _publish_sound_event(request, guild_id, sound_id, removed=False)
     log.info(
         "guild_sound_uploaded",
@@ -217,6 +260,10 @@ async def delete_sound(
     )
 
     existing = await session.get(GuildSoundOverride, (guild_id, sound_id))
+    # Runde 22: Merker für den Restpfad — schlägt das finale put_object
+    # nach dem Commit fehl, rollt ein ERST-Upload die noch leere Zeile
+    # zurück (statt ein 404-Sound-Angebot stehen zu lassen).
+    ist_erstupload = existing is None
     if existing is None:
         return
 

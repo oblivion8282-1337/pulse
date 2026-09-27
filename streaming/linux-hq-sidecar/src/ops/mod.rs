@@ -4,17 +4,17 @@
 //!
 //! Implementierungs-Status (Roadmap siehe Plan):
 //!
-//! | Op                     | Status          | Real-impl unlocks                       |
+//! | Op                     | Status          | Bemerkung                                |
 //! |------------------------|-----------------|-----------------------------------------|
-//! | health                 | static          | DRM-Vendor + VAAPI/NVENC-Codec-Probe    |
-//! | gpu_info               | stub            | DRM-Vendor + codec_query (vaapi/nvenc)  |
-//! | list_monitors          | stub (`[]`)     | PipeWire/Portal-Display-Enumeration     |
-//! | list_windows           | stub (`[]`)     | wlr-foreign-toplevel / Portal           |
-//! | list_application_audio | stub (`[]`)     | PipeWire-Node-Enumeration                |
+//! | health                 | real            | DRM-Vendor + VAAPI/NVENC-Open-Probe     |
+//! | gpu_info               | real            | DRM-Vendor + `caps`-Codec-Probe         |
+//! | list_monitors          | stub (`[]`)     | Linux wählt die Quelle im Portal-Dialog |
+//! | list_windows           | stub (`[]`)     | dito; Fenster wählt der Portal-Dialog   |
+//! | list_application_audio | real            | PipeWire-Node-Enumeration               |
 //! | build_argv             | real            | diagnostic argv (token-redacted)        |
-//! | start                  | stub (error)    | PipeWire + VAAPI/NVENC + RTMPS (Phase 5)|
-//! | stop                   | idempotent      | StreamController                        |
-//! | state                  | idle            | StreamController snapshot               |
+//! | start                  | real            | PipeWire + VAAPI/NVENC + RTMPS (Ph. 5)  |
+//! | stop                   | real            | StreamController, idempotent            |
+//! | state                  | real            | StreamController snapshot               |
 
 pub mod build_argv;
 pub mod gpu_info;

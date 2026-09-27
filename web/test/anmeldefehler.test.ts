@@ -3,15 +3,18 @@ import assert from 'node:assert/strict';
 import {
   ABLEHNUNGSCODES,
   MELDUNGSSCHLUESSEL,
-  VON_SELBST_HEILBAR,
-  hatTextFuerJedenCode,
   istAblehnungscode,
 } from '../src/lib/api/anmelde-fehler-codes.ts';
 
 test('jeder Ablehnungscode hat einen eigenen Text', () => {
   // Ein Code ohne Meldung ist die Sammelmeldung zurueck — genau das, wogegen
   // dieser Umbau gerichtet ist.
-  assert.ok(hatTextFuerJedenCode(), 'mindestens ein Code ohne Meldung');
+// Entscheidung 3.6-Audit: die Deckungs-Prüfung (jeder Code hat eine
+	// Meldung) inline statt über den toten Test-Helper.
+	assert.ok(
+		ABLEHNUNGSCODES.every((c) => c in MELDUNGSSCHLUESSEL),
+		'mindestens ein Code ohne Meldung'
+	);
 });
 
 test('die Codeliste deckt ab, was der Server tatsaechlich antwortet', () => {
@@ -41,17 +44,6 @@ test('fremde Werte gelten nicht als Code', () => {
   assert.equal(istAblehnungscode('irgendwas'), false);
   assert.equal(istAblehnungscode(null), false);
   assert.equal(istAblehnungscode(42), false);
-});
-
-test('von selbst heilbar sind nur die, die keine Handlung verlangen', () => {
-  // Ein gebannter Nutzer wird durch Wiederholen nicht entbannt. Wer das
-  // vermischt, baut eine Endlosschleife statt einer Fehlermeldung.
-  for (const c of VON_SELBST_HEILBAR) {
-    assert.ok(ABLEHNUNGSCODES.includes(c), `${c} steht nicht in der Codeliste`);
-  }
-  assert.ok(!VON_SELBST_HEILBAR.includes('instance banned' as never));
-  assert.ok(!VON_SELBST_HEILBAR.includes('join_not_permitted' as never));
-  assert.ok(!VON_SELBST_HEILBAR.includes('jwks_cold' as never));
 });
 
 test('kein Code zeigt auf einen leeren Schluessel', () => {

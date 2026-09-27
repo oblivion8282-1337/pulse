@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { Popover as PopoverPrimitive } from 'bits-ui';
   import type { AdminUser } from '$lib/api/admin';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -38,7 +39,7 @@
       <Avatar.Image src={safeAvatarUrl(user.avatar_url)!} alt={user.username} />
     {/if}
     <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
-      {(user.display_name ?? user.username).slice(0, 1).toUpperCase()}
+      {anfangsBuchstabe(user.display_name ?? user.username)}
     </Avatar.Fallback>
   </Avatar.Root>
 

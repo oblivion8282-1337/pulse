@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import hmac
 import json
 import logging
 import time
@@ -225,24 +224,6 @@ async def suspended_instances(
 # Internal: broadcast-update
 # ---------------------------------------------------------------------------
 
-
-def _require_internal_secret(authorization: str | None = Header(default=None)) -> None:
-    """Dependency: reject requests without a matching INTERNAL_SERVICE_SECRET."""
-    from dcc_auth.config import get_settings
-
-    secret = get_settings().internal_service_secret
-    if not secret:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="INTERNAL_SERVICE_SECRET not configured",
-        )
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
-    token = authorization.split(" ", 1)[1].strip()
-    if not hmac.compare_digest(token, secret):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret")
-
-
 @router.post("/admin/instances/_broadcast-update")
 async def broadcast_update(
     session: SessionDep,
@@ -264,7 +245,7 @@ async def broadcast_update(
     """
     # Inline auth check (can't use Depends cleanly when also needing session)
     from dcc_auth.config import get_settings
-    from dcc_auth.security import get_signer
+    from dcc_auth.security import constant_time_eq, get_signer
 
     settings = get_settings()
     # Rate limit BEFORE the secret compare — rejected attempts count too, so
@@ -281,7 +262,7 @@ async def broadcast_update(
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
-    if not hmac.compare_digest(token, secret):
+    if not constant_time_eq(token, secret):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret")
 
     # Fetch all active instances

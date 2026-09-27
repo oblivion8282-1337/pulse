@@ -135,15 +135,31 @@ gezogen="$revisions"
 # Am 2026-08-26 genau daran vorbeigeschrammt. Der Vergleich gegen den laufenden
 # Container kennt diesen Zustand nicht: er fragt, ob das Ausgelieferte dem
 # Gezogenen entspricht, und das ist die Frage, um die es geht.
-# -aq: ein `restarting` chat-gateway ist kein laufender, soll aber verglichen
+#
+# Bughunt 2026-09-20 (Runde 2): der Vergleich lief nur ueber chat-gateway —
+# war ein frueheres `compose up` NACH dessen Neustart mittendrin
+# gescheitert (Port-Konflikt, Health-Timeout bei einem der uebrigen
+# Services), meldete der naechste Lauf "schon ausgeliefert" und ließ auth/
+# voice/media/web auf dem alten Build stehen, bis der naechste CI-Build kam.
+# Jetzt: ALLE App-Services muessen auf der gezogenen Revision laufen.
+# -aq: ein `restarting` Service ist kein laufender, soll aber verglichen
 # werden (der Handstopp-Riegel oben hat exited/paused schon beendet).
-laufend="$(docker compose ps -aq chat-gateway 2>/dev/null | head -1)"
-if [ -n "$laufend" ]; then
+ausgeliefert=1
+for svc in "${APP_SERVICES[@]}"; do
+  laufend="$(docker compose ps -aq "$svc" 2>/dev/null | head -1)"
+  if [ -z "$laufend" ]; then
+    ausgeliefert=0
+    break
+  fi
   laeuft_rev="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
                  "$(docker inspect --format '{{.Image}}' "$laufend")" 2>/dev/null || true)"
-  if [ "$laeuft_rev" = "$gezogen" ]; then
-    exit 0   # schon ausgeliefert — still bleiben
+  if [ "$laeuft_rev" != "$gezogen" ]; then
+    ausgeliefert=0
+    break
   fi
+done
+if [ "$ausgeliefert" = 1 ]; then
+  exit 0   # schon ausgeliefert — still bleiben
 fi
 
 echo "$(ts) pulse-update: vollstaendiger Build ${gezogen:0:8} — deploying"

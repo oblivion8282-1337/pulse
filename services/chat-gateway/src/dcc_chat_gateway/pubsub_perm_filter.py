@@ -48,9 +48,9 @@ class _PermFilterMixin:
         """Wire the SQLAlchemy sessionmaker the permission filter should
         use. The lifespan in ``app.py`` calls this with the production
         ``SessionLocal``; tests use whichever factory their fixture
-        produced. When unset, the filter falls through (broadcast-to-all),
-        which preserves pre-Phase-3 behaviour for any caller that hasn't
-        wired it up."""
+        produced. When unset, the filter drops broadcasts it cannot
+        permission-check (fail-closed, Security-Audit 2026-09-16 — previously
+        it fell through to broadcast-to-all)."""
         self._session_factory = factory
 
     async def _resolve_channel_perms(self, ws: WebSocket, channel_id: int) -> int:
@@ -97,10 +97,13 @@ class _PermFilterMixin:
     async def can_view_channel(self, ws: WebSocket, channel_id: int) -> bool:
         """Predicate over the resolved cache. Used by the broadcast filter
         to drop targets without ``VIEW_CHANNEL`` for ``channel_id``.
-        Returns True when no session factory is wired up (filter off)."""
+
+        Fail-CLOSED seit dem Security-Audit 2026-09-16: ohne Session-Factory
+        ist die Sichtbarkeit NICHT pruefbar — dann wird geliefert-NEIN, nicht
+        liefere-alles. (Zuvor fiel der Filter hier auf ``True`` durch.)"""
         value = await self._resolve_channel_perms(ws, channel_id)
         if value < 0:
-            return True
+            return False
         return has_permission(value, Permissions.VIEW_CHANNEL)
 
     def _drop_view_members_for_guild(self, guild_id: int) -> None:
@@ -306,9 +309,14 @@ class _PermFilterMixin:
         ``report_new`` so a plain member can't learn a report was filed.
 
         Reports are rare (rate-limited 10/h/user), so this resolves the mod
-        member set fresh per event — no cache."""
-        if not targets or self._session_factory is None:
+        member set fresh per event — no cache.
+
+        Fail-CLOSED seit dem Security-Audit 2026-09-16: ohne Factory ist die
+        Moderator-Menge nicht bestimmbar — dann niemanden beliefern statt alle."""
+        if not targets:
             return targets
+        if self._session_factory is None:
+            return []
         try:
             gid = int(guild_id)
         except (TypeError, ValueError):
@@ -349,7 +357,11 @@ class _PermFilterMixin:
             # long enough for a concurrent HTTP request to see stale data.
             return targets
         if self._session_factory is None:
-            return targets
+            # Fail-CLOSED (Audit 2026-09-16): ohne Session-Factory ist nicht
+            # pruefbar, wer den Kanal sehen darf — liefern waere der Leak-Fall.
+            # DMs kommen hier nie an (der Kind-Filter oben hat sie schon
+            # durchgereicht, deren Abonnentenmenge IST die Zugangsprüfung).
+            return []
         try:
             cid_int = int(channel_id)
         except (TypeError, ValueError):

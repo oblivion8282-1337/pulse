@@ -49,7 +49,7 @@
   // wie beim Reiter-Gate und bei der Anmeldung (`darfStandplatzSein`).
   //
   // **`$derived`, nicht einmalig beim Einhaengen.** Die Faehigkeit kommt aus
-  // `health.gsr.remote_input` und trifft erst nach einem IPC-Umlauf ein — eine
+  // `health.sidecar.remote_input` und trifft erst nach einem IPC-Umlauf ein — eine
   // Momentaufnahme beim Einhaengen zeigte auf einem langsamen Start dauerhaft
   // „geht nicht", obwohl es geht. Auf macOS ist der Wert ausserdem wechselhaft:
   // eine zurueckgezogene Systemfreigabe muss hier ankommen.

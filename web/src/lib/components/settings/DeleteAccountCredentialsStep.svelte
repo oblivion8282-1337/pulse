@@ -20,6 +20,10 @@
   type Props = {
     username: string;
     totpEnabled: boolean;
+    /** Bughunt Runde 4: auch Passkey-only-Konten brauchen den zweiten
+     *  Faktor (Backup-Code) — ohne dieses Flag renderte der Step kein
+     *  Eingabefeld und die Löschung war unmöglich. */
+    mfaRequired: boolean;
     busy: boolean;
     error: string | null;
     password?: string;
@@ -33,6 +37,7 @@
   let {
     username,
     totpEnabled,
+    mfaRequired,
     busy,
     error,
     password = $bindable(''),
@@ -52,7 +57,11 @@
     </span>
   </AlertDialog.Title>
   <AlertDialog.Description>
-    {totpEnabled ? m.delete_account_credentials_description_totp({ username }) : m.delete_account_credentials_description({ username })}
+    {totpEnabled
+    ? m.delete_account_credentials_description_totp({ username })
+    : mfaRequired
+      ? m.delete_account_credentials_description_passkey({ username })
+      : m.delete_account_credentials_description({ username })}
   </AlertDialog.Description>
 </AlertDialog.Header>
 
@@ -72,8 +81,8 @@
     />
   </div>
 
-  {#if totpEnabled}
-    {#if useBackup}
+  {#if mfaRequired}
+    {#if !totpEnabled || useBackup}
       <div class="space-y-1.5">
         <FieldLabel for="delete-backup" required class="text-text-muted text-xs font-semibold uppercase">
           {m.delete_account_credentials_backup_code_label()}
@@ -108,14 +117,16 @@
       </div>
     {/if}
 
-    <Button
-      variant="link"
-      size="xs"
-      onclick={() => (useBackup = !useBackup)}
-      data-testid="delete-account-toggle-backup"
-    >
-      {useBackup ? m.delete_account_credentials_use_totp_code() : m.delete_account_credentials_use_backup_code()}
-    </Button>
+    {#if totpEnabled}
+      <Button
+        variant="link"
+        size="xs"
+        onclick={() => (useBackup = !useBackup)}
+        data-testid="delete-account-toggle-backup"
+      >
+        {useBackup ? m.delete_account_credentials_use_totp_code() : m.delete_account_credentials_use_backup_code()}
+      </Button>
+    {/if}
   {/if}
 
   {#if error}

@@ -342,6 +342,103 @@ async def test_username_same_name_rejected(client):
     assert r.status_code == 422
 
 
+# ─── Bughunt 2026-09-20: Register kennt die Reservierung, Fallkollisionen ───
+
+
+@pytest.mark.asyncio
+async def test_register_blocks_reserved_username(client, session_factory):
+    """Der 30-Tage-Hold eines freigegebenen Namens galt bisher nur für
+    /me/username — /register holte sich den Namen einfach trotzdem."""
+    signer = get_signer()
+    r_reg = await client.post("/register", json={
+        "username": "holder_user", "email": "holder@dcc-test.example.com", "password": "holderpassword1",
+    })
+    holder_id = int(signer.decode(r_reg.json()["access_token"])["sub"])
+    async with session_factory() as session:
+        session.add(UsernameReservation(
+            old_username="freigegeben_name", original_user_id=holder_id,
+            released_at=datetime.now(tz=UTC) + timedelta(days=30),
+        ))
+        await session.commit()
+    r = await client.post("/register", json={
+        "username": "freigegeben_name", "email": "snatcher@dcc-test.example.com", "password": "snatcherpassword1",
+    })
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "username_reserved"
+    # Auch in anderer Schreibweise — die Resolver matchen case-insensitiv.
+    r2 = await client.post("/register", json={
+        "username": "FREIGEGEBEN_NAME", "email": "snatcher2@dcc-test.example.com", "password": "snatcherpassword1",
+    })
+    assert r2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_register_allows_expired_reservation(client, session_factory):
+    """Positive Kontrolle: eine ausgelaufene Reservierung blockiert nicht."""
+    signer = get_signer()
+    r_reg = await client.post("/register", json={
+        "username": "expired_holder", "email": "expired@dcc-test.example.com", "password": "expiredpassword1",
+    })
+    holder_id = int(signer.decode(r_reg.json()["access_token"])["sub"])
+    async with session_factory() as session:
+        session.add(UsernameReservation(
+            old_username="abgelaufen_name", original_user_id=holder_id,
+            released_at=datetime.now(tz=UTC) - timedelta(days=1),
+        ))
+        await session.commit()
+    r = await client.post("/register", json={
+        "username": "abgelaufen_name", "email": "fresh@dcc-test.example.com", "password": "freshpassword1",
+    })
+    assert r.status_code == 201, r.text
+
+
+@pytest.mark.asyncio
+async def test_register_blocks_case_variant_of_live_username(client):
+    """Zwei Konten, die sich nur in der Groß-/Kleinschreibung unterscheiden,
+    lassen sich nicht mehr anlegen — die Resolver (Nutzername-Einladungen,
+    Mentions) matchen über lower(username) und würden die beiden vermengen."""
+    assert (await client.post("/register", json={
+        "username": "fall_kollision", "email": "fall1@dcc-test.example.com", "password": "fallpassword1",
+    })).status_code == 201
+    r = await client.post("/register", json={
+        "username": "FALL_KOLLISION", "email": "fall2@dcc-test.example.com", "password": "fallpassword1",
+    })
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "username_taken"
+
+
+@pytest.mark.asyncio
+async def test_username_change_case_variant_of_other_rejected(client):
+    await client.post("/register", json={
+        "username": "bestehend_user", "email": "bestehend@dcc-test.example.com", "password": "bestehendpassword1",
+    })
+    r_reg_b = await client.post("/register", json={
+        "username": "wechsler_user", "email": "wechsler@dcc-test.example.com", "password": "wechslerpassword1",
+    })
+    access_b = r_reg_b.json()["access_token"]
+    r = await client.post(
+        "/me/username", json={"new_username": "BESTEHEND_USER"},
+        headers={"Authorization": f"Bearer {access_b}"},
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "username_taken"
+
+
+@pytest.mark.asyncio
+async def test_username_change_own_case_variant_allowed(client):
+    """Ein reiner Schreibweisewechsel des EIGENEN Namens bleibt möglich."""
+    r_reg = await client.post("/register", json={
+        "username": "wende_user", "email": "wende@dcc-test.example.com", "password": "wendepassword1",
+    })
+    access = r_reg.json()["access_token"]
+    r = await client.post(
+        "/me/username", json={"new_username": "Wende_User"},
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["success"] is True
+
+
 @pytest.mark.asyncio
 async def test_migration_0016_username_reservations_table_exists(engine):
     from sqlalchemy import inspect as sa_inspect

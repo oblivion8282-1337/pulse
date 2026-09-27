@@ -137,6 +137,7 @@ import { verarbeiteMitWiederherstellung } from './postfachSchleife';
 import { KontoSicherungFehlgeschlagen, zustellungOeffnen } from './zustellungOeffnen';
 import { mitKontosperre } from './sperren';
 import { mitNachlaufBeiWeckung } from './postfachNachlauf';
+import { fuelleEinmalschluesselNach } from './veroeffentlichen';
 
 // DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
 // Modulkopf (Bughunt 2026-08-28, FIX 4). Ohne diesen Parameter faellt
@@ -169,7 +170,16 @@ async function postfachZyklus(): Promise<Message[]> {
   }
 
   const zustellungen = await postfachApi.abholen({ device_pubkey: kennung }, cloudRoute());
-  if (zustellungen.length === 0) return [];
+  if (zustellungen.length === 0) {
+    // Bughunt Runde 36: auch der LEERE Zyklus ist der Nachfüll-Moment — der
+    // eigene Vorrat wird ja von den Claims ANDERER verbraucht, nicht durch
+    // eigene Abholungen. Ohne dieses regelmäßige Auffüllen blieb die
+    // langlebige Registerkarte nach ~100 empfangenen Nachrichten ohne
+    // Einmalschlüssel und jeder neue Sitzungsaufbau lief über den
+    // Fallback-Schlüssel (s. `fuelleEinmalschluesselNach`).
+    await fuelleEinmalschluesselNach();
+    return [];
+  }
 
   let ident = await kryptoAccountLaden();
   // FIX 2 (Bughunt-Runde 3, s. Modulkopf + `postfachSchleife.ts`): laesst nur
@@ -275,6 +285,12 @@ async function postfachZyklus(): Promise<Message[]> {
       cloudRoute()
     );
   }
+
+  // Bughunt Runde 36: am Zyklusende nachfüllen — der lokale Account ist hier
+  // vollständig gesichert, ein frisch geladenes `Identitaet`-Objekt kann den
+  // Stand dieses Zyklus nicht mehr überschreiben (s.
+  // `fuelleEinmalschluesselNach`).
+  await fuelleEinmalschluesselNach();
 
   return geoeffnet;
 }

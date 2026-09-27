@@ -16,7 +16,6 @@ chown pulse:pulse /etc/pulse
 
 PG_PASS=$(cat "${KEYS}/postgres.password")
 INTERNAL_SECRET=$(cat "${KEYS}/internal_service.token")
-CERT_CHALLENGE=$(cat "${KEYS}/cert_challenge.secret")
 LIVEKIT_KEY=$(cat "${KEYS}/livekit.key")
 LIVEKIT_SECRET=$(cat "${KEYS}/livekit.secret")
 MINIO_USER=$(cat "${KEYS}/minio.user")
@@ -102,15 +101,6 @@ export MEDIA_SVC_URL='http://127.0.0.1:8004'
 export AUTH_SVC_URL='http://127.0.0.1:8001'
 export AUTH_JWKS_URL='http://127.0.0.1:8001/.well-known/jwks.json'
 
-# Cert-login challenge HMAC
-export CHAT_GATEWAY_CHALLENGE_SECRET='${CERT_CHALLENGE}'
-
-# Cert-JWT audience check (credential_validator): Certs tragen die Audience
-# der CLOUD ("dcc" — siehe infra/prod/.env.example JWT_AUDIENCE), NICHT das
-# lokale JWT_AUDIENCE=pulse-self-host oben. Ohne diese Var bleibt der
-# aud-Check auf Self-Hosts aus (Opt-in-Default).
-export PULSE_JWT_AUDIENCE=dcc
-
 # LiveKit (voice-signaling mints tokens with these; livekit-server validates)
 export LIVEKIT_API_KEY='${LIVEKIT_KEY}'
 export LIVEKIT_API_SECRET='${LIVEKIT_SECRET}'
@@ -144,7 +134,8 @@ export WEBAUTHN_ORIGIN='https://${PULSE_HOSTNAME}'
 # Snowflake worker IDs (single-container — fixed)
 export SNOWFLAKE_WORKER_ID_AUTH=1
 export SNOWFLAKE_WORKER_ID_CHAT=2
-export SNOWFLAKE_WORKER_ID_VOICE=3
+# (Entscheidung 2c, 2026-09-21: SNOWFLAKE_WORKER_ID_VOICE entfernt —
+# voice-signaling prägt keine Snowflakes, der Knob war ein No-op.)
 
 # Self-host identity.
 export PULSE_HOSTNAME='${PULSE_HOSTNAME}'
@@ -163,6 +154,13 @@ export PULSE_ADMIN_EMAIL='${PULSE_ADMIN_EMAIL}'
 # no service consumes them yet.
 export PULSE_CLOUD_CLIENT_ID='${PULSE_CLOUD_CLIENT_ID}'
 export PULSE_CLOUD_CLIENT_SECRET='${PULSE_CLOUD_CLIENT_SECRET}'
+# Bughunt Runde 13: drei Vars, die Longruns bisher NIE sahen (sie lesen nur
+# diese env.sh) — der direct-adapter schlief deshalb im All-in-One-Container
+# immer („kein Relay-Token"), und /health/setup meldete für behind-proxy-
+# Deployments tls_modus=auto statt des konfigurierten Modus.
+export PULSE_RELAY_TUNNEL_TOKEN='${PULSE_RELAY_TUNNEL_TOKEN:-}'
+export PULSE_TLS_MODE='${PULSE_TLS_MODE:-auto}'
+export PULSE_DATA_PATH='${PULSE_DATA_PATH:-/data}'
 
 # Upload-Verzeichnisse (F10). Die Defaults sind relativ (./uploads/...) und unter
 # s6 (cwd=/opt/pulse/services/*) nicht beschreibbar → Avatar-/Guild-Icon-Upload
@@ -177,13 +175,8 @@ export GUILD_ICON_UPLOAD_DIR='${DATA}/uploads/guild-icons'
 #  - INTERNAL  = loopback, server-seitige Ops (delete/head/list/storageinfo).
 #  - PUBLIC    = die über Caddy erreichbare Adresse, mit der presigned URLs
 #                signiert werden (Path-Style → https://host/<bucket>/<key>).
-# MINIO_SERVER_URL gibt MinIO denselben Public-Host für die eigene Signatur-
-# Prüfung — sonst lehnt MinIO die vom chat-gateway signierte URL ab. (Bei
-# PULSE_TLS_MODE=behind-proxy terminiert der externe Proxy TLS; der Browser
-# nutzt weiterhin https://${PULSE_HOSTNAME}, daher hier immer https.)
-export MINIO_ROOT_USER='${MINIO_USER}'
-export MINIO_ROOT_PASSWORD='${MINIO_PASS}'
-export MINIO_SERVER_URL='https://${PULSE_HOSTNAME}'
+# MINIO_SERVER_URL entfernt (Ponytail-Audit 2026-09-21): Garage wird
+# ausschliesslich über garage.toml konfiguriert, keine Env-Obergabe.
 export S3_INTERNAL_ENDPOINT='http://127.0.0.1:9000'
 export S3_PUBLIC_ENDPOINT='https://${PULSE_HOSTNAME}'
 export S3_REGION=us-east-1

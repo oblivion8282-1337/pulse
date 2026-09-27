@@ -167,7 +167,20 @@ def check_and_update_pin(
             Path(pin_path + ".kids").write_text("|".join(sorted(new_kids)))
             log.info("jwks_pin: initial pin written (%s…)", new_pin[:8])
         except OSError as exc:
-            log.warning("jwks_pin: could not write initial pin to %s: %s", pin_path, exc)
+            # Bughunt Runde 7: ein Pin OHNE Kids-Datei wäre schlimmer als
+            # gar kein Pin — der nächste Pull würde old_kids=leer lesen und
+            # selbst einen vollständigen Schlüssel-Austausch als "gegradete
+            # Rotation" durchgehen. Pin wieder wegwerfen, nächster Pull
+            # etabliert beides gemeinsam.
+            try:
+                Path(pin_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+            log.warning(
+                "jwks_pin: could not write initial pin to %s: %s — pin discarded "
+                "(a pin without .kids would silently disable replacement detection)",
+                pin_path, exc,
+            )
         return
 
     if new_pin == old_pin:

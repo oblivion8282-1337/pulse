@@ -64,7 +64,7 @@ async def test_ein_zaehler_ohne_frist_wird_nachtraeglich_befristet(redis):
 
 @pytest.mark.asyncio
 async def test_ein_laufendes_fenster_wird_nicht_verlaengert(redis):
-    """Sonst hielte ein bestürmender Aufrufer sich selbst unbegrenzt gesperrt
+    """Sonst hielte ein bestürmende Aufrufer sich selbst unbegrenzt gesperrt
     — und die Nachbarn hinter derselben IP gleich mit."""
     key = "gast:rate:test:fenster"
     await redis.delete(key)
@@ -77,6 +77,26 @@ async def test_ein_laufendes_fenster_wird_nicht_verlaengert(redis):
         assert erste > 5
     finally:
         await redis.delete(key)
+
+
+@pytest.mark.asyncio
+async def test_transportfehler_faellt_auf_prozessfenster_zurueck():
+    """Security-Scan 2026-09-18: Fällt Redis UNTERWEGS aus (Transportfehler —
+    nicht ``None``, die bewusste Dev-Konfiguration bleibt fail-open), über-
+    nimmt ein In-Prozess-Fenster dieselben Limits. Die anonymen Code-Routen
+    dürfen ihre Drossel nicht mit dem Redis-Ausfall verlieren."""
+
+    class KaputterRedis:
+        async def incr(self, *_args, **_kwargs):
+            raise ConnectionError("redis weg")
+
+        async def expire(self, *_args, **_kwargs):
+            raise ConnectionError("redis weg")
+
+    ergebnisse = [
+        await bremse(KaputterRedis(), "gast:rate:test:down", 3, 60) for _ in range(4)
+    ]
+    assert ergebnisse == [True, True, True, False]
 
 
 @pytest.mark.asyncio

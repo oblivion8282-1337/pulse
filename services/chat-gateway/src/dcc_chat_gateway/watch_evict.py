@@ -86,3 +86,32 @@ async def end_watch_parties_for_member(
             user_id=uid, count=beendet,
         )
     return beendet
+
+
+async def end_watch_parties_for_channels(
+    redis: Any, manager: Any, channel_ids: list[int]
+) -> int:
+    """Jede Watch-Party in den gegebenen (z. B. gelöschten) Kanälen beenden.
+
+    Bughunt Runde 4: Kanal- und Community-Löschung räumten die Partys nicht —
+    ``handle_control``/``handle_heartbeat`` prüfen nur Host-Identität und
+    Mitgliedschaft, nie die Kanal-Existenz. Der Host heartbeatete in einem
+    gelöschten Kanal unbegrenzt weiter, Zuschauer bekamen Snapshots und
+    Playback-Kontrolle. Derselbe Sofort-Abbruch wie bei Bann/Rauswurf, nur
+    ohne Host-Filter. Gibt zurück, wie viele Partys beendet wurden."""
+    if redis is None or not channel_ids:
+        return 0
+    ids = [str(cid) for cid in channel_ids]
+    partys = await watchkeys.read_states_for(redis, ids)
+    beendet = 0
+    for eintrag in partys:
+        cid, pid = eintrag["channel_id"], eintrag["party_id"]
+        await watchkeys.delete_party(redis, cid, pid)
+        if manager is not None:
+            manager.cancel_host_end(cid, pid)
+        beendet += 1
+    if beendet:
+        log.info(
+            "watch_parties_ended_for_channels", channels=ids, count=beendet,
+        )
+    return beendet

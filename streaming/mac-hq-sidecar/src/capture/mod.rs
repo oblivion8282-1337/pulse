@@ -30,7 +30,7 @@ use waechter::{QuelleWeg, StreamWaechter};
 pub use abfrage::{list_audio_applications, list_capture_windows, list_displays};
 pub use postfach::Postfach;
 
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Sender, SyncSender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -214,7 +214,7 @@ impl Capturer {
         fps: u32,
         show_cursor: bool,
         post: Arc<Postfach<Frame>>,
-        audio_tx: Option<Sender<AudioFrame>>,
+        audio_tx: Option<SyncSender<AudioFrame>>,
     ) -> Result<Self> {
         let want_audio = audio_tx.is_some();
         let content = shareable_content()?;

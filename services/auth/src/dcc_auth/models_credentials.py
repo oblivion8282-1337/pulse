@@ -10,21 +10,13 @@ Zertifikaten zu tun hatte und nur hier lag.
 from __future__ import annotations
 
 from datetime import datetime
-from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
     DateTime,
-    ForeignKey,
     Index,
-    LargeBinary,
     String,
-    Text,
-    func,
-    text,
 )
-from sqlalchemy.dialects import sqlite as _sqlite
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from dcc_auth.db import Base

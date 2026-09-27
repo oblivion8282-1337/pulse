@@ -138,17 +138,22 @@ async def _media_svc_request(
     method: str, path: str, *, bearer: str, json_body: dict | None = None, http: httpx.AsyncClient | None = None
 ) -> httpx.Response:
     """Call media-svc, forwarding the user's bearer token. Raises on transport
-    errors; the route maps those to 502/503."""
+    errors; the route maps those to 502/503.
+
+    Der Internal-Secret-Header weist media-svc nach, dass dieser Aufruf durch
+    DIESE Mitgliedschafts-/Permission-Prüfung gegangen ist — die Member-Routen
+    dort nehmen ohne ihn nichts mehr an (Audit 2026-09-16).
+    """
     settings = get_settings()
     url = settings.media_svc_url.rstrip("/") + path
+    headers = {
+        "Authorization": f"Bearer {bearer}",
+        "X-Pulse-Internal-Secret": settings.internal_service_secret or "",
+    }
     if http is not None:
-        return await http.request(
-            method, url, headers={"Authorization": f"Bearer {bearer}"}, json=json_body
-        )
+        return await http.request(method, url, headers=headers, json=json_body)
     async with httpx.AsyncClient(timeout=settings.media_svc_timeout_s) as http:
-        return await http.request(
-            method, url, headers={"Authorization": f"Bearer {bearer}"}, json=json_body
-        )
+        return await http.request(method, url, headers=headers, json=json_body)
 
 
 def _bearer_from_header(authorization: str | None) -> str:

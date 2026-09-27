@@ -17,11 +17,16 @@ export interface RecoveryPackageOut {
   updated_at: string;
 }
 
-/** Ablegen ODER ersetzen — ein Päckchen je Konto, der Server überschreibt. */
-export async function putRecoveryPackage(ciphertext: string): Promise<RecoveryPackageOut> {
+/** Ablegen ODER ersetzen — ein Päckchen je Konto, der Server überschreibt.
+ *  `password` ist seit der Passwortpflicht (Entscheidung 4.2) Pflicht: das
+ *  Päckchen ist die einzige serverseitige Kopie der Archiv-Schlüssel. */
+export async function putRecoveryPackage(
+  ciphertext: string,
+  password: string
+): Promise<RecoveryPackageOut> {
   return request<RecoveryPackageOut>('/me/recovery-package', {
     method: 'PUT',
-    body: { ciphertext },
+    body: { ciphertext, password },
     endpoint: 'auth',
   });
 }
@@ -33,11 +38,6 @@ export async function putRecoveryPackage(ciphertext: string): Promise<RecoveryPa
  */
 export async function getRecoveryPackage(): Promise<RecoveryPackageOut> {
   return request<RecoveryPackageOut>('/me/recovery-package', { endpoint: 'auth' });
-}
-
-/** Der Widerruf ohne Neuausstellung — räumt nur auf. Idempotent. */
-export async function deleteRecoveryPackage(): Promise<void> {
-  await request<void>('/me/recovery-package', { method: 'DELETE', endpoint: 'auth' });
 }
 
 /** True für den 404-Fall „kein Päckchen für dieses Konto" — nie für einen

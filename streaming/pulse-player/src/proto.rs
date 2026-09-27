@@ -70,11 +70,6 @@ pub struct Request {
     /// an; das waere eine Zusage, die niemand halten kann.
     #[serde(default)]
     pub can_reattach: Option<bool>,
-    /// Index aus `list_monitors`; ohne Angabe entscheidet der Compositor.
-    /// Noch nicht ausgewertet — Fensterplatzierung folgt.
-    #[allow(dead_code)]
-    #[serde(default)]
-    pub monitor: Option<usize>,
     #[serde(default)]
     pub fullscreen: Option<bool>,
 
@@ -90,10 +85,8 @@ pub struct Request {
     /// Protokoll" — das ist falsch: `record` und `clip` sind laengst verdrahtet
     /// (`app/requests.rs`) und schreiben mit diesem Pfad in das Dateisystem
     /// (geprueft in `recorder::pruefe_ziel`). Nur `screenshot` fehlt noch.
-    #[allow(dead_code)]
     #[serde(default)]
     pub path: Option<String>,
-    #[allow(dead_code)]
     #[serde(default)]
     pub seconds: Option<f64>,
 
@@ -479,10 +472,6 @@ pub enum SessionState {
     Connecting,
     /// Frames kommen an und werden dargestellt.
     Playing,
-    /// Verbindung steht, aber es kommen keine Frames mehr.
-    /// Wird noch nicht gemeldet — die Stillstandserkennung fehlt.
-    #[allow(dead_code)]
-    Stalled,
     /// Regulaer beendet (auch: Nutzer hat das Fenster geschlossen).
     Closed,
     /// Abgebrochen; Ursache steht im `error`-Feld des Events.
@@ -494,7 +483,6 @@ impl SessionState {
         match self {
             Self::Connecting => "connecting",
             Self::Playing => "playing",
-            Self::Stalled => "stalled",
             Self::Closed => "closed",
             Self::Failed => "failed",
         }

@@ -141,11 +141,18 @@ restore() {
 
 # --- cron ------------------------------------------------------------------
 cron_off() {
-  remote "crontab -l | sed '/pulse-update.sh/ s/^\([^#]\)/#\1/' | crontab -"
+  # Bughunt Runde 21: mit unterscheidbarer Marke kommentieren — vorher
+  # kommentierte cron-off ALLE aktiven Zeilen und cron-on entmarkierte
+  # ALLE commenting-artigen Zeilen. Ein VOR der Session bewusst
+  # deaktivierter Auto-Update („#...pulse-update.sh") wurde von cron-on
+  # mitten im Hotfix wiederbelebt.
+  remote "crontab -l | sed '/pulse-update.sh/ s/^\([^#]\)/#HOTFIX-OFF \1/' | crontab -"
   say "Auto-Update pausiert. NICHT VERGESSEN: 'cron-on' nach der Session."
 }
 cron_on() {
-  remote "crontab -l | sed '/pulse-update.sh/ s/^#\+//' | crontab -"
+  # Nur Zeilen mit der HOTFIX-OFF-Marke reaktivieren; fremd-deaktivierte
+  # Zeilen (bereits '#' davor ohne Marke) bleiben deaktiviert.
+  remote "crontab -l | sed '/pulse-update.sh/ s/^#HOTFIX-OFF //' | crontab -"
   say "Auto-Update wieder aktiv."
 }
 

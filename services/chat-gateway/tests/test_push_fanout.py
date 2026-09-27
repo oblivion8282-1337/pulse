@@ -25,10 +25,12 @@ def captured(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dm_push_payload(captured):
+    """Security-Audit 2026-09-16: der DM-Push ist inhaltsfrei — der Push-
+    Dienst (Drittanbieter) sieht NIE den Nachrichtentext, nur Absender und
+    Kanal (gleiche Grenze wie die verschluesselte Variante unten)."""
     await push.fan_out_dm_push(
         recipient_id=42,
         author_name="alice",
-        content="hey <@123> check this out",
         channel_id=999,
         message_id=1000,
     )
@@ -40,8 +42,7 @@ async def test_dm_push_payload(captured):
     assert payload["channel_id"] == "999"
     assert payload["message_id"] == "1000"
     assert payload["guild_id"] is None  # SW routes to /app/@me/<channel>
-    # Mention markers stripped from the preview body.
-    assert "<@123>" not in payload["body"]
+    assert payload["body"] == "Neue Direktnachricht"
 
 
 @pytest.mark.asyncio

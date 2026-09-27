@@ -153,6 +153,17 @@ class User(Base):
             func.lower(text("display_name")),
             postgresql_ops={"lower(display_name)": "text_pattern_ops"},
         ),
+        # Bughunt-Entscheidung 2.2 (2026-09-21 umgesetzt): die
+        # Fallkollisions-Vorabchecks bei /register sind check-then-act —
+        # zwei gleichzeitige Registrierungen von „micha“ und „Micha“
+        # gewannen beide die Prüfung, der eindeutige lower()-Index
+        # (Migration 0053) ist die DB-Zährdung. /register fängt den
+        # IntegrityError und antwortet mit username_taken + Vorschlägen.
+        Index(
+            "uq_users_username_lower",
+            func.lower(text("username")),
+            unique=True,
+        ),
     )
 
 

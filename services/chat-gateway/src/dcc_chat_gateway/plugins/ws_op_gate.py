@@ -269,11 +269,12 @@ async def check_plugin_op_gate(
     plugin_name, _ = parsed
 
     if plugin_name not in allowlist:
-        # Return a generic "unknown op" message — do NOT embed the plugin
-        # name or distinguishable text here. Distinct messages for
-        # "not in allowlist" vs "not enabled for guild" would let any
-        # authenticated user enumerate the instance's installed plugins
-        # by probing arbitrary op names and reading the response code.
+        # Generisches "unknown op" als TEXT — keine Rückschlüsse auf den
+        # Plugin-Namen. Entscheidung 2.4 (2026-09-21): Allowlist-Miss und
+        # Guild-Toggle-Miss liefern jetzt DEISELBENben Code (4040) — vorher
+        # (4040 vs 4043) liess sich probierend "installiert vs. fremd"
+        # unterscheiden. Das Debug-Signal für Plugin-Autoren wandert in die
+        # Server-Logs, nicht auf die Leitung.
         return GateDecision(
             allowed=False,
             error_code=WS_CODE_PLUGIN_NOT_ALLOWED,
@@ -300,11 +301,11 @@ async def check_plugin_op_gate(
         )
 
     if not await is_plugin_enabled_for_guild(session, guild_id, plugin_name):
-        # Use the same generic message as the allowlist-miss case to avoid
-        # leaking which plugins are installed on the instance.
+        # Gleicher Code + Text wie der Allowlist-Miss (Entscheidung 2.4,
+        # 2026-09-21) — kein "installiert vs. fremd"-Orakel mehr.
         return GateDecision(
             allowed=False,
-            error_code=WS_CODE_PLUGIN_NOT_ENABLED,
+            error_code=WS_CODE_PLUGIN_NOT_ALLOWED,
             error_msg="unknown op",
         )
 

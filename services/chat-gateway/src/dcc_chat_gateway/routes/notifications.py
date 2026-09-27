@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
+from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import WebPushSubscription
 from dcc_chat_gateway.push import ensure_vapid
@@ -166,6 +167,10 @@ async def subscribe(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, detail="push_disabled"
         )
+    # Bughunt Runde 47: Bremse — je Aufruf laufen vier Statements inkl.
+    # Fremd-Zeilen-Delete; ohne Deckel reines DB-Churn fuer Skripte.
+    if not ratelimit.check("push_abo", current.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
     _validate_push_endpoint(payload.endpoint)
     # Ein physischer Endpunkt kann nur einem Konto gehoeren: eine Zeile eines
     # ANDEREN Users mit demselben Endpoint zuerst entfernen. Ohne das behaelt
@@ -222,6 +227,8 @@ async def unsubscribe(
     """Drop a single subscription. Silently 204s on a missing endpoint —
     a 404 here would leak whether the user ever subscribed from that
     device (low-stakes leak but also no benefit to surfacing)."""
+    if not ratelimit.check("push_abo", current.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
     await session.execute(
         delete(WebPushSubscription).where(
             WebPushSubscription.user_id == current.id,

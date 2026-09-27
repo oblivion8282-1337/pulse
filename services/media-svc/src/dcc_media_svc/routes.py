@@ -28,7 +28,7 @@ from time import monotonic
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 
@@ -38,7 +38,7 @@ from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
 
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.poller import _parse_state, _publish_event
-from dcc_media_svc.security import CurrentGast, CurrentUser
+from dcc_media_svc.security import CurrentGast, CurrentUser, require_internal
 from dcc_shared.streaming import read_cache_key
 from dcc_media_svc.streamkeys import (
     CHANNEL_STATE_KEY,
@@ -168,7 +168,7 @@ class StreamTokenIn(BaseModel):
     # **Kann der Sidecar dieses Streamers Eingaben einspielen?** Reist genau wie
     # ``ten_bit`` mit bis zum Zuschauer — dort entscheidet sich, ob der Knopf
     # „Fernsteuerung anfragen" ueberhaupt erscheint. Der Wert kommt aus der
-    # Fähigkeitsmeldung des Sidecars (``health.gsr.remote_input``), nicht aus
+    # Fähigkeitsmeldung des Sidecars (``health.sidecar.remote_input``), nicht aus
     # dem Betriebssystem des Streamers: massgeblich ist, was das Programm kann,
     # das die Frames am Ende einspielen muesste. Fehlt das Feld (Linux-Sidecar,
     # aeltere Clients), gilt ``False`` — fail-closed.
@@ -240,7 +240,11 @@ def _push_url(path: str, protocol: str, token: str) -> str:
     )
 
 
-@router.post("/channels/{channel_id}/stream-token", response_model=StreamTokenOut)
+@router.post(
+    "/channels/{channel_id}/stream-token",
+    response_model=StreamTokenOut,
+    dependencies=[Depends(require_internal)],
+)
 async def issue_stream_token(
     channel_id: ChannelId,
     payload: StreamTokenIn,
@@ -355,7 +359,11 @@ async def issue_stream_token(
     )
 
 
-@router.get("/channels/{channel_id}/stream", response_model=StreamStateOut)
+@router.get(
+    "/channels/{channel_id}/stream",
+    response_model=StreamStateOut,
+    dependencies=[Depends(require_internal)],
+)
 async def get_stream_state(
     channel_id: ChannelId,
     user: CurrentUser,
@@ -439,12 +447,14 @@ async def _read_token_fuer(
     channel_id: str,
     user_id: str,
     slot: int,
+    ttl_max_s: int | None = None,
 ) -> str:
     """Das WHEP-Lese-Token fuer genau ein (Zuschauer, Kanal, Streamer, Platz).
 
     Deterministisch statt je Anfrage frisch: ein Zuschauer in einer
     Wiederverbindungs-Schleife haeufte sonst pro Anlauf einen lebenden
-    Redis-Schluessel an (je 1 h TTL), ohne dass sich am Umfang des Tokens
+    Redis-Schluessel an (TTL = ``read_token_ttl_s``, seit dem zweiten
+    Bughunt-Lauf 2026-09-23 10 min), ohne dass sich am Umfang des Tokens
     etwas aenderte.
 
     Sicherheit: Lese-Token sind **nicht** einmalig — der auth-hook nimmt sie
@@ -457,6 +467,9 @@ async def _read_token_fuer(
     hier herauskommt, muss der Bann in chat-gateway finden koennen.
     """
     s = get_settings()
+    ttl = s.read_token_ttl_s
+    if ttl_max_s is not None:
+        ttl = min(ttl, ttl_max_s)
     # Form in `dcc_shared.streaming` — chat-gateway loescht diese Schluessel
     # beim Bann, und zwei Fassungen davon waeren eine stille Fehlerquelle.
     cache_key = read_cache_key(viewer_id, channel_id, user_id, slot)
@@ -477,7 +490,7 @@ async def _read_token_fuer(
             cache_key,
             _TOKEN_PRAEFIX,
             read_record,
-            str(s.read_token_ttl_s),
+            str(ttl),
             secrets.token_urlsafe(32),
         )
     )
@@ -490,13 +503,15 @@ async def _whep_fuer_zuschauer(
     channel_id: str,
     user_id: str,
     slot: int,
+    ttl_max_s: int | None = None,
 ) -> WhepOut:
     """Der gemeinsame Rumpf beider WHEP-Routen (Mitglied und Gast).
 
     Der Zuschauer taucht nur als Schluessel-Bestandteil des Lese-Tokens auf
     (``read_cache_key``); ob dort eine Nutzer-ID oder eine Gast-Kennung steht,
     ist dieser Ebene gleich. Deshalb EIN Rumpf statt zweier Kopien, die beim
-    naechsten Nonce-/Pfad-Umbau auseinanderliefen.
+    naechsten Nonce-/Pfad-Umbau auseinanderliefen. ``ttl_max_s`` nutzt nur der
+    Gast-Weg, um das Lese-Token an die Ticket-Restlaufzeit zu ketten.
     """
     redis = _get_redis(request)
     raw = await redis.get(active_key(channel_id, user_id, slot))
@@ -509,7 +524,9 @@ async def _whep_fuer_zuschauer(
     if not isinstance(path, str) or not path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
     s = get_settings()
-    read_token = await _read_token_fuer(redis, zuschauer_id, channel_id, user_id, slot)
+    read_token = await _read_token_fuer(
+        redis, zuschauer_id, channel_id, user_id, slot, ttl_max_s=ttl_max_s
+    )
     base = s.mediamtx_public_base.rstrip("/")
     return WhepOut(
         whep_url=f"{base}/{path}/whep?token={read_token}",
@@ -519,7 +536,7 @@ async def _whep_fuer_zuschauer(
     )
 
 
-@router.get("/gast/whep", response_model=WhepOut)
+@router.get("/gast/whep", response_model=WhepOut, dependencies=[Depends(require_internal)])
 async def get_whep_url_gast(
     channel_id: ChannelId,
     user_id: UserIdQuery,
@@ -548,16 +565,29 @@ async def get_whep_url_gast(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="ticket is for another channel")
     if await ist_gesperrt(_get_redis(request), gast.gast_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="removed from the meeting")
+    # Lese-Token an die Ticket-Restlaufzeit ketten (Bughunt 2026-09-16,
+    # Runde 2): mit der fixen 1-h-TTL ueberlebte die WHEP-URL das Ticket um
+    # bis zu eine Stunde — /gast/token klemmt genau so, dieser Weg tat es
+    # nicht. Restlaufzeit <= 0 (Race zwischen exp-Check und hier): nichts
+    # mehr ausstellen.
+    restlaufzeit = gast.exp - int(time.time())
+    if restlaufzeit <= 0:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="ticket expired")
     return await _whep_fuer_zuschauer(
         request,
         zuschauer_id=gast.gast_id,
         channel_id=channel_id,
         user_id=user_id,
         slot=slot,
+        ttl_max_s=restlaufzeit,
     )
 
 
-@router.get("/channels/{channel_id}/whep", response_model=WhepOut)
+@router.get(
+    "/channels/{channel_id}/whep",
+    response_model=WhepOut,
+    dependencies=[Depends(require_internal)],
+)
 async def get_whep_url(
     channel_id: ChannelId,
     user_id: UserIdQuery,
@@ -573,10 +603,11 @@ async def get_whep_url(
     live publisher for that user; the WhepPlayer treats that the same as a
     publisher-not-up situation and keeps retrying.
 
-    ``user`` (the verified bearer) is required even though the VIEW_CHANNEL
-    check lives in chat-gateway: without it, a deployment that exposes
-    media-svc directly (the self-host Caddy used to) hands the nonce'd WHEP
-    URL to unauthenticated callers.
+    ``user`` (the verified bearer) identifies the viewer; the VIEW_CHANNEL
+    check lives in chat-gateway, and ``require_internal`` on this route makes
+    that proxy assumption enforced: a deployment that exposes media-svc
+    directly (the self-host Caddy used to) gets 503, not the nonce'd WHEP
+    URL (Audit 2026-09-16).
     """
     return await _whep_fuer_zuschauer(
         request,
@@ -587,7 +618,11 @@ async def get_whep_url(
     )
 
 
-@router.delete("/channels/{channel_id}/stream", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/channels/{channel_id}/stream",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_internal)],
+)
 async def stop_stream(
     channel_id: ChannelId,
     user: CurrentUser,
@@ -785,9 +820,6 @@ async def kill_gast_sessions(
                 )
             except Exception:  # noqa: BLE001 — siehe oben
                 log.warning("whep_session_list_failed", page=seiten)
-                break
-            items = (data.get("items") or []) if isinstance(data, dict) else []
-            if not items:
                 break
             items = (data.get("items") or []) if isinstance(data, dict) else []
             if not items:

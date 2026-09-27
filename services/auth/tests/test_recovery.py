@@ -555,16 +555,21 @@ async def test_claim_mfa_ticket_is_single_use(monkeypatch):
     assert await recovery.claim_mfa_ticket("redis://x", "jti-1", 300) is False
     assert await recovery.claim_mfa_ticket("redis://x", "jti-2", 300) is True
 
-    # Fail-open: a legacy ticket (no jti) or unconfigured Redis must not lock out.
+    # Fail-closed (Audit 2026-09-16): Legacy-Ticket ohne jti bleibt erlaubt
+    # (kein Single-Use-Versprechen), aber fehlender/unerreichbarer Redis
+    # SPERRT die Anmeldung (SingleUseNichtPruefbar → Aufrufer meldet 503),
+    # statt ein wiederspielbares MFA-Ticket durchzuwinken.
     assert await recovery.claim_mfa_ticket("redis://x", None, 300) is True
-    assert await recovery.claim_mfa_ticket(None, "jti-3", 300) is True
+    with pytest.raises(recovery.SingleUseNichtPruefbar):
+        await recovery.claim_mfa_ticket(None, "jti-3", 300)
 
-    # Fail-open on a Redis error (down/unreachable) — login must still proceed.
+    # Dasselbe bei einem Redis-Fehler (down/unreachable) — Anmeldung verweigert.
     def _boom(*a, **k):
         raise OSError("connection refused")
 
     monkeypatch.setattr(redis.asyncio.Redis, "from_url", _boom)
-    assert await recovery.claim_mfa_ticket("redis://x", "jti-4", 300) is True
+    with pytest.raises(recovery.SingleUseNichtPruefbar):
+        await recovery.claim_mfa_ticket("redis://x", "jti-4", 300)
 
 
 @pytest.mark.asyncio

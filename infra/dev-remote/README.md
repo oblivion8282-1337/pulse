@@ -155,6 +155,23 @@ cp docker-compose.yml docker-compose.yml.bak-$(date +%Y%m%d)
 # infra/dev-remote/docker-compose.yml vom Arbeitsrechner herüberkopieren
 ```
 
+### 2b. Garage einmalig bootstrappen (seit 2026-09-21, Entscheidung 4.1)
+
+Der Objektspeicher ist Garage (das MinIO-Hub-Image ist gelöscht, frische
+Hosts kamen sonst an den Tag nicht mehr ran). Der Service heißt weiterhin
+`minio` — `.env` (S3_INTERNAL_ENDPOINT) und die nginx-Location auf dem
+Server adressieren diesen DNS-Namen, und Garage hört genauso auf :9000.
+Bucket + Key legt ein Host-Skript an (das Garage-Image hat keine Shell,
+ein Init-Container geht nicht):
+
+```sh
+# im Repo-Root auf dem Server, NACH dem ersten `docker compose up -d`
+GARAGE_S3_KEY="$S3_ACCESS_KEY" GARAGE_S3_SECRET="$S3_SECRET_KEY" \
+  sh scripts/dev-garage-init.sh
+```
+
+Idempotent — kein Schaden, es erneut zu laufen zu lassen.
+
 ### 3. Quellcode hinschieben und starten
 
 ```sh

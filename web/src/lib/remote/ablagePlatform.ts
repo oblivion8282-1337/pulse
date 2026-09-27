@@ -7,7 +7,7 @@
  * Einfügen, keine Sitzung.
  *
  * **Zwei verschiedene Brücken, mit Absicht.** Hinaus geht jeder Wert über
- * `window.pulse.gsr.ablage(rolle, session, data, slot)` — der Hauptprozess
+ * `window.pulse.sidecar.ablage(rolle, session, data, slot)` — der Hauptprozess
  * entscheidet dort, ob er ins Player-Fenster oder an den Host-Sidecar geht
  * (`desktop/electron/ablageWeiche.ts`). Die **Rolle reist mit, statt im
  * Hauptprozess geraten zu werden**: ein Host, der nebenbei den Strom eines
@@ -17,14 +17,14 @@
  * **Herein kommen die beiden Rollen aus verschiedenen Quellen**, und das ist
  * kein Zufall: beim Steuernden hält der native Player die Ablage und meldet
  * über `player:event`, beim Host der Sidecar des Träger-Platzes über
- * `gsr:event`. Ein gemeinsames Abonnement beider Ströme wäre kürzer und
+ * `sidecar:event`. Ein gemeinsames Abonnement beider Ströme wäre kürzer und
  * falsch — der Host hat womöglich ein Player-Fenster offen (er schaut den
  * Strom eines Dritten an), und dessen Ablage-Ereignisse gehören nicht in seine
  * Host-Sitzung.
  */
 
 function ablageBruecke() {
-  return typeof window !== 'undefined' ? window.pulse?.gsr : undefined;
+  return typeof window !== 'undefined' ? window.pulse?.sidecar : undefined;
 }
 
 function playerBruecke() {

@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import CheckIcon from '@lucide/svelte/icons/check';
   import XIcon from '@lucide/svelte/icons/x';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
@@ -78,7 +79,7 @@
             <Avatar.Image src={avatar} alt="" />
           {/if}
           <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-            {(u?.display_name ?? u?.username ?? '?').slice(0, 1).toUpperCase()}
+            {anfangsBuchstabe(u?.display_name ?? u?.username ?? '?')}
           </Avatar.Fallback>
         </Avatar.Root>
         <div class="min-w-0 flex-1">
@@ -128,7 +129,7 @@
             <Avatar.Image src={avatar} alt="" />
           {/if}
           <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-            {(u?.display_name ?? u?.username ?? '?').slice(0, 1).toUpperCase()}
+            {anfangsBuchstabe(u?.display_name ?? u?.username ?? '?')}
           </Avatar.Fallback>
         </Avatar.Root>
         <div class="min-w-0 flex-1">

@@ -14,7 +14,7 @@ use ffmpeg_next as ffmpeg;
 
 /// Welches TLS-Backend das gelinkte libavformat nutzt, oder `None` wenn keines.
 ///
-/// Wird im `health`-Report als `gsr.tls_backend` exponiert — der Renderer /
+/// Wird im `health`-Report als `sidecar.tls_backend` exponiert — der Renderer /
 /// Operator sieht so, ob RTMPS-push mit self-signed certs funktionieren wird.
 pub fn detect() -> Option<&'static str> {
     let _ = ffmpeg::init();

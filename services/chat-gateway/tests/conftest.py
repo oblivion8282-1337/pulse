@@ -590,3 +590,5 @@ async def everyone_remote_control_entfernen(client, owner_token: str, gid) -> No
         json={"permissions": str(ohne)},
         headers={"Authorization": f"Bearer {owner_token}"},
     )
+
+

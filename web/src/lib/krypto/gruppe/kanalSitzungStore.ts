@@ -55,6 +55,19 @@ export function kanalSitzungState(guildId: string, kanalId: string): Zustand {
   return state;
 }
 
+/** Bughunt Runde 10: Alle Kanal-Zustände verwerfen (Reconnect). Die Liste
+ *  „wer gehört zum Ablage-Kanal" wird ausschließlich aus LIVE-WS-Ereignissen
+ *  gespeist — Ereignisse, die während einer WS-Unterbrechung fallen (Netz-
+ *  blippe, Sleep, Gateway-Restart), sind verloren und es gibt kein Replay.
+ *  Ohne das Verwerfen bliebe die Mitgliederliste dauerhaft alt: neue
+ *  Mitglieder bekämen den Verteilschlüssel nie, Ausgeschiedene behielten
+ *  ihn (statt der geplanten Rotation). Beim nächsten Senden liest
+ *  `kanalSitzungswahl` frisch nach — derselbe Schutz, den der private-
+ *  Gruppen-Weg durch das Vorher-Frischlesen ohnehin hat. */
+export function kanalSitzungenVerwerfen(): void {
+  eintraege.clear();
+}
+
 /** Speist ein WS-Ereignis in JEDEN bislang bekannten Kanal-Zustand ein —
  *  s. Modulkopf, warum nicht nur den aktiven Kanal. Rein bis auf die
  *  Überholt-Markierung; kein Netzaufruf, keine Rückwirkung, wenn noch kein

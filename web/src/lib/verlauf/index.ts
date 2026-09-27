@@ -52,7 +52,8 @@ import {
   verlaufSatzVorhanden,
   verlaufSatzAnhangIds,
   verlaufSatzIdFuerKryptoId,
-  anhangBytesLoeschen
+  anhangBytesLoeschen,
+  verlaufKanalVergessen
 } from './db';
 import { aktuellesKonto } from './konto';
 import { dauerhaftenSpeicherAnfordern } from '$lib/identity/dauerhafterSpeicher';
@@ -67,6 +68,7 @@ import { brauchtLokalenVerlauf } from './ablageEntscheidung';
 import type { Message } from '$lib/api/types';
 
 export { VerlaufSpeichernFehlgeschlagen };
+export { verlaufKanalVergessen };
 
 /**
  * Ob `kanalId` ein Ablage-Kanal ist (Guild-Kanal mit `ablage: true`) —

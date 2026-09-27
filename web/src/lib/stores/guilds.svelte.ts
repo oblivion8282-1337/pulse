@@ -12,6 +12,11 @@ class GuildStore {
   #channelLoads = new Map<string, Promise<Channel[]>>();
   // Reverse index: channelId → guildId for O(1) lookups.
   private channelToGuild = $state<Map<string, string>>(new Map());
+  // Zählt clear()-Aufrufe. Antworten von hydrate()/loadChannels(), die NACH
+  // einem clear() eintrudeln (Sign-Out/Server-Wechsel während des Flugs),
+  // dürfen den geleerten Cache nicht mit den Daten des Vorgängers
+  // wiederauffüllen — `ensureChannels` würde sie sonst dauerhaft servieren.
+  #generation = 0;
 
   // Snowflake-IDs als String vergleichen (Number() verlöre Präzision > 2^53).
   // compareSnowflakeId vergleicht die eingebettete Zeit → korrekt auch über
@@ -22,7 +27,9 @@ class GuildStore {
   );
 
   async hydrate(): Promise<void> {
+    const generation = this.#generation;
     const guilds = await chatApi.listGuilds();
+    if (generation !== this.#generation) return;
     const next: Record<string, Guild> = {};
     for (const g of guilds) next[g.id] = g;
     this.byId = next;
@@ -34,7 +41,9 @@ class GuildStore {
    * during a connected session, so this is rarely the right choice — prefer
    * ``ensureChannels``). */
   async loadChannels(guildId: string): Promise<Channel[]> {
+    const generation = this.#generation;
     const channels = await chatApi.listChannels(guildId);
+    if (generation !== this.#generation) return channels;
     this.channelsByGuild = { ...this.channelsByGuild, [guildId]: channels };
     // Keep the reverse index in sync — without this, `guildIdForChannel`
     // returns null for every bulk-loaded channel (only the WS-lifecycle
@@ -134,6 +143,7 @@ class GuildStore {
   }
 
   clear(): void {
+    this.#generation++;
     this.byId = {};
     this.channelsByGuild = {};
     this.loaded = false;

@@ -314,7 +314,14 @@ function eintraegeZuSaetze(eintraege: SicherungEintrag[], kontoId: string) {
 				created_at: eintrag.nachricht.zeit,
 				edited_at: eintrag.nachricht.bearbeitet,
 				reply_to_id: eintrag.nachricht.antwortAuf,
-				attachments: eintrag.nachricht.anhaenge.map((a) => ({
+					// Die geraeteuebergreifende Autor-ID — ohne sie erkennt der
+					// Anzeige-Merge die Kopie des anderen Geräts nicht (s.
+					// zusammenfuegen.ts); Frames vor der Nutzlast-Erweiterung
+					// tragen sie nicht und bleiben deswegen Duplikat-Risiko.
+					...(eintrag.nachricht.kryptoId
+						? { krypto_id: eintrag.nachricht.kryptoId }
+						: {}),
+					attachments: eintrag.nachricht.anhaenge.map((a) => ({
 					...(a as unknown as Record<string, unknown>),
 					id: a.id,
 					filename: (a as unknown as { name?: string | null }).name ?? null,

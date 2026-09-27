@@ -20,13 +20,19 @@
     passkey: WebAuthnCredentialSummary;
     onRenamed: (cred: WebAuthnCredentialSummary) => void;
     onRemoved: (id: string) => void;
+    /** true = Konto trägt TOTP → Löschen verlangt TOTP-Code statt Backup-Code. */
+    totpEnabled?: boolean;
+    /** true = dies ist der einzige Passkey → Backup-Code nötig (ohne TOTP). */
+    istLetzter?: boolean;
   };
-  let { passkey, onRenamed, onRemoved }: Props = $props();
+  let { passkey, onRenamed, onRemoved, totpEnabled = false, istLetzter = false }: Props = $props();
 
   let editing = $state(false);
   let confirmDelete = $state(false);
   let loeschPasswort = $state('');
+  let backupCode = $state('');
   let busy = $state(false);
+  let brauchtBackupCode = $derived(!totpEnabled && istLetzter);
   // Filled by `startEdit` — editing is only ever entered through it, so the
   // empty initial value is never shown.
   let nameDraft = $state('');
@@ -59,23 +65,25 @@
   }
 
   async function remove() {
-    // Seit 2026-08-13 verlangt der Server das Passwort: das Löschen des LETZTEN
-    // Schlüssels nimmt dem Konto seinen zweiten Faktor mit — es war damit der
-    // stillste Weg, ein fremdes Konto zu entschärfen.
+    // Seit 2026-08-13 verlangt der Server das Passwort. Bughunt Runde 34:
+    // beim LETZTEN Passkey ohne TOTP kommt zusätzlich ein Backup-Code
+    // (Passkey-only-Konten verlieren sonst ihren zweiten Faktor komplett).
     if (!loeschPasswort) {
       toast.error(m.passkey_row_password_required());
       return;
     }
+    if (brauchtBackupCode && !backupCode.trim()) {
+      toast.error(m.passkey_row_backup_code_required());
+      return;
+    }
     busy = true;
     try {
-      await deletePasskey(passkey.id, loeschPasswort);
+      await deletePasskey(passkey.id, loeschPasswort, brauchtBackupCode ? backupCode.trim() : undefined);
       onRemoved(passkey.id);
       toast.success(m.passkey_row_removed());
     } catch (err) {
       toast.error((err as Error).message);
       busy = false;
-      // Den Bestätigungs-Zustand STEHEN lassen: ein Tippfehler im Passwort soll
-      // nicht bedeuten, dass man von vorn anfängt.
       loeschPasswort = '';
     }
   }
@@ -140,6 +148,16 @@
         class="h-7 w-40 text-xs"
         data-testid="passkey-delete-password"
       />
+      {#if brauchtBackupCode}
+        <Input
+          bind:value={backupCode}
+          maxlength={28}
+          autocomplete="off"
+          placeholder={m.passkey_row_backup_code_label()}
+          class="h-7 w-40 text-xs"
+          data-testid="passkey-delete-backup-code"
+        />
+      {/if}
       <Button
         variant="destructive"
         size="xs"
@@ -155,6 +173,7 @@
         onclick={() => {
           confirmDelete = false;
           loeschPasswort = '';
+          backupCode = '';
         }}
         disabled={busy}
         aria-label={m.passkey_row_cancel()}

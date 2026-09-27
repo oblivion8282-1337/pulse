@@ -165,7 +165,17 @@ public class SpeakerphoneRouter {
                     }
                 }
                 @Override
-                public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) { /* no-op */ }
+                public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) {
+                    // Bughunt 2026-09-20: Headset-Ausstöpseln mitten im Call feuert
+                    // NUR hier — kein added-Event, kein Mode-Wechsel. Ohne Re-Apply
+                    // blieb die Ausgabe in AUTO auf dem OS-Default (Hörmuschel),
+                    // bis der Nutzer manuell umschaltete oder die Activity resumed.
+                    // Dieselben Guards wie im Added-Pfad; apply() ist idempotent
+                    // und gate't selbst (AUTO + Headset → OS-Default).
+                    if (!voiceActive
+                            || audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
+                    applyWithReassert();
+                }
             };
             try {
                 audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler);

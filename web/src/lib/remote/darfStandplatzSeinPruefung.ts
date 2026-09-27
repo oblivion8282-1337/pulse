@@ -8,7 +8,7 @@
  * - `electron`: nur die Desktop-Hülle hat überhaupt eine Brücke zu einem
  *   Sidecar — ein Browser-Tab kann nichts einspielen.
  * - `fernsteuerbar`: der laufende Sidecar hat die Eingabe-Fähigkeit selbst
- *   gemeldet (`health.gsr.remote_input` → `stream.fernsteuerbar`). Keine
+ *   gemeldet (`health.sidecar.remote_input` → `stream.fernsteuerbar`). Keine
  *   Plattform-Abfrage mehr: auf dem Mac ist genau dieser Wert wechselhaft
  *   (die Accessibility-Freigabe kann entzogen sein), auf Linux fehlt das
  *   Sidecar-Modul ganz, unter Windows ist er die Regel.

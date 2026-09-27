@@ -144,10 +144,6 @@ export function startUpdater(getWindow: () => BrowserWindow | null): () => void 
     logToFile('quitAndInstall (user clicked restart)');
     autoUpdater.quitAndInstall(false, true);
   });
-  // Manueller Re-Check (z.B. späterer Tray-Eintrag / Settings-Panel). Status
-  // kommt über die `updates:*`-Channels zurück.
-  ipcMain.handle('updates:check', () => check('manual'));
-
   // Boot-Check kurz verzögert (Renderer-Listener sind dann registriert), danach
   // periodisch. Der load-bearing `ready`-Prompt kommt ohnehin erst nach dem
   // Download, überlebt also jede Renderer-Startlatenz.

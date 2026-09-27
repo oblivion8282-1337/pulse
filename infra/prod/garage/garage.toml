@@ -1,0 +1,53 @@
+# Garage — S3-kompatibler Objektspeicher (ersetzt MinIO, Bughunt Runde 32).
+# Der `garage`-Service in docker-compose.yml mountet diese Datei nach
+# /etc/garage.toml.
+#
+# RPC_SECRET: eigenständiger 32-Byte-Hex-Wert (Generierung: openssl rand -hex 32).
+# Er schützt das interne Cluster-RPC; Single-Node, RPC nicht nach außen
+# veröffentlicht. **Bughunt 2026-09-23: bewusst NICHT mehr in dieser Datei** —
+# der Placeholder „BITTE_ERSETZEN…“ startete still durch, wenn der
+# Manuell-Schritt vergessen wurde. Der Wert kommt per GARAGE_RPC_SECRET aus
+# der Compose-Umgebung (docker-compose.yml, `:?required` — ohne bricht der
+# Start laut) und würde eine hier stehende Angabe ohnehin OVERRIDEN.
+# Bestands-Deployment: den bisherigen Wert in die .env ÜBERNEHMEN, nicht neu
+# würfeln — die Node-Identität hängt daran.
+#
+# Erstinbetriebnahme (einmalig, nach `docker compose up -d garage`):
+#   docker compose exec garage /garage status        # Node-ID notieren
+#   docker compose exec garage /garage layout assign -z dc1 -c 1G <NODE-ID>
+#   docker compose exec garage /garage layout apply --version 1
+#   docker compose exec garage /garage bucket create pulse-attachments
+#   docker compose exec garage /garage key create pulse   # Key ID (GK…) + Secret notieren
+#   docker compose exec garage /garage bucket allow --read --write pulse-attachments --key <GK…>
+# Und S3_ACCESS_KEY/S3_SECRET_KEY in der .env auf dieses Paar setzen
+# (chat-gateway neu starten). NICHT `key import` mit MINIO_ROOT_USER versuchen:
+# Garage-Key-IDs müssen mit GK beginnen, der Import scheitert an
+# "Invalid key format" (Prod 2026-09-22).
+# Bestandsdaten aus MinIO übernehmen: mc mirror (siehe DEPLOY.md §Storage).
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "lmdb"
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+# rpc_secret kommt per GARAGE_RPC_SECRET aus der Umgebung — s. Header.
+
+[s3_api]
+# Region MUSS zu S3_REGION passen, mit der chat-gateway SigV4-signiert
+# (Prod-.env: S3_REGION, Default us-east-1).
+s3_region = "us-east-1"
+# Bughunt Runde 42: hier stand 3900 (Garage-Default) — beide Verbraucher
+# gehen aber auf :9000 (MinIO-Konvention): nginx `proxy_pass http://$u:9000`
+# und chat-gateway MINIO_ENDPOINT http://garage:9000. Der erste Deploy mit
+# Garage wäre sonst DOA gewesen (connection refused auf 9000). 9000 ist
+# zugleich die Konvention im Self-Host-Stack (127.0.0.1:9000).
+api_bind_addr = "[::]:9000"
+
+[s3_web]
+bind_addr = "[::]:3902"
+root_domain = ".invalid"
+index = "index.html"
+
+[admin]
+api_bind_addr = "[::]:3909"

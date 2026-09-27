@@ -1,7 +1,7 @@
 /**
  * Ein Tor, das aufgeht, sobald die erste Health-Abfrage des Sidecars durch ist.
  *
- * **Wofür das gut ist.** `stream.fernsteuerbar` (aus `health.gsr.remote_input`)
+ * **Wofür das gut ist.** `stream.fernsteuerbar` (aus `health.sidecar.remote_input`)
  * ist nach dem Start eine Weile schlicht **unbekannt** — es steht auf `false`,
  * weil noch niemand gefragt hat, nicht weil der Rechner es nicht könnte. Wer in
  * diesem Fenster `darfStandplatzSein()` fragt, bekommt „nein" und hält es für
@@ -9,7 +9,7 @@
  *
  * **Genau daran ist die Standplatz-Anmeldung gescheitert** (gefunden am
  * 2026-08-26): `initStream()` läuft im Layout asynchron und muss dafür erst den
- * Sidecar starten — der wird lazy beim ersten `gsr:call` gespawnt. Die
+ * Sidecar starten — der wird lazy beim ersten `sidecar:call` gespawnt. Die
  * WebSocket-Verbindung braucht keinen Prozessstart und ist deshalb regelmässig
  * früher da. Beim `ready`-Rahmen stand `fernsteuerbar` also noch auf `false`,
  * die Anmeldung unterblieb — **und es gab kein Nachmelden**. Folge: das Gerät

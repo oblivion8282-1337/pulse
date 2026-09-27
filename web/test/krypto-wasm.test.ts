@@ -40,8 +40,7 @@ try {
 /** Leer, wenn gebaut; sonst ein Ueberspringen mit Begruendung. */
 const wennGebaut = fehlgrund ? { skip: fehlgrund } : {};
 
-test('WASM: Alice und Bob bauen eine Sitzung auf und schreiben in beide Richtungen', wennGebaut, () => {
-  const alice = new modul.Identitaet();
+test('WASM: Alice und Bob bauen eine Sitzung auf und schreiben in beide Richtungen', wennGebaut, () => {  const alice = new modul.Identitaet();
   const bob = new modul.Identitaet();
 
   const einmal = bob.einmalschluesselErzeugen(1);
@@ -69,6 +68,30 @@ test('WASM: Alice und Bob bauen eine Sitzung auf und schreiben in beide Richtung
   const nachgebaut = new modul.Umschlag(antwortUmschlag.art(), antwortUmschlag.daten());
   assert.equal(nachgebaut.art(), antwortUmschlag.art());
   assert.equal(nachgebaut.daten(), antwortUmschlag.daten());
+});
+
+test('WASM: Buendel-Signatur rundet durch und faellt auf Austausch (Bughunt 2026-09-23)', wennGebaut, () => {
+  // Der JS-seitige Rundgang des signierten Buendels: signieren (Publisher,
+  // `veroeffentlichen.ts`) und pruefen (Absender, `geraetePinnung.ts`) sind
+  // zwei Programme — hier passieren beide in einem Prozess, aber durch
+  // dieselbe WASM-Grenze wie in Produktion.
+  const geraet = new modul.Identitaet();
+  const ed25519 = geraet.ed25519();
+  const curve = geraet.curve25519();
+  const anmeldung =
+    '{"device_pubkey":"dev-1","curve25519":"' + curve + '","rueckfallschluessel":null}';
+  const signatur = geraet.signieren(anmeldung);
+
+  assert.equal(modul.signaturPruefen(ed25519, anmeldung, signatur), true);
+  // Der Verzeichnis-Angriff: curve25519 im Buendel ausgetauscht — die
+  // mitgelieferte Signatur passt dann nicht mehr.
+  const gefaelscht = anmeldung.replace(curve, 'GEFAELSCHT');
+  assert.equal(modul.signaturPruefen(ed25519, gefaelscht, signatur), false);
+  // Ein fremder Signierer (anderer ed25519) passt ebenso wenig.
+  const fremd = new modul.Identitaet();
+  assert.equal(modul.signaturPruefen(fremd.ed25519(), anmeldung, signatur), false);
+  // Unparsbare Eingaben sind false (fail closed), kein Wurf.
+  assert.equal(modul.signaturPruefen('kein-schluessel', anmeldung, signatur), false);
 });
 
 test('WASM: eine Gruppensitzung verschluesselt, der Empfang liest mit', wennGebaut, () => {

@@ -3,6 +3,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { toast } from 'svelte-sonner';
   import { uploadAvatar } from '$lib/api/auth';
+  import { forceProfileRefresh } from '$lib/identity/profile-refresh.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -64,6 +65,9 @@
     busy = true;
     try {
       const updated = await uploadAvatar(file);
+      // Neues Statement sofort ziehen (asymmetrisch zu Profil-Save vorher,
+      // Bughunt Runde 4): der clienteigene Cache hält sonst den alten Hash.
+      void forceProfileRefresh();
       if (auth.user) {
         auth.setUser({ ...auth.user, avatar_url: updated.avatar_url });
         // auch den User-Cache aktualisieren, damit der Avatar in Nachrichten /

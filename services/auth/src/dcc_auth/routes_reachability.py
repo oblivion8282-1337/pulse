@@ -9,7 +9,6 @@ Kein Medien-Traffic. Token wird NICHT geloggt.
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import socket
 from typing import Annotated
 
@@ -19,13 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from dcc_auth.config import get_settings
 from dcc_auth.routes import _check_rate, _client_ip
 from dcc_auth.routes_admin_instances import _require_cloud
-from dcc_auth.selfhost_probe import INTERNE_NETZE
+from dcc_auth.selfhost_probe import ist_oeffentlich
 
-# Die Netze, in die nie geprobt wird, stehen kanonisch in ``selfhost_probe``
-# (dieselbe Liste an zwei Stellen wäre genau die Art Behauptung, die
-# auseinanderläuft — CLAUDE.md „Eine Behauptung wird nie an nur EINER
-# Stelle korrigiert").
-_INTERNAL_NETS = INTERNE_NETZE
+# ``ist_oeffentlich`` entpackt IPv4-in-IPv6-Formen (::ffff:…, 6to4, Teredo),
+# bevor es gegen INTERNE_NETZE prüft — ``IPv6Address in IPv4Network`` wäre
+# sonst immer False und ``::ffff:169.254.169.254`` würde als öffentlich
+# durchgehen, obwohl der Kernel es als IPv4 verbindet (Port-Orakel).
 
 ALLOWED_UDP = frozenset({7882, 8189})
 ALLOWED_TCP = frozenset({7881, 1936})
@@ -67,12 +65,8 @@ async def reachability_probe(body: ProbeIn, request: Request) -> dict:
     source_ip = _client_ip(request)
     if body.public_ip != source_ip:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="public_ip mismatch")
-    try:
-        addr = ipaddress.ip_address(source_ip)
-    except ValueError:
+    if not ist_oeffentlich(source_ip):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="bad source ip")
-    if any(addr in net for net in _INTERNAL_NETS):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="source ip not public")
     if set(body.udp_ports) - ALLOWED_UDP or set(body.tcp_ports) - ALLOWED_TCP:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="port not allowed")
 

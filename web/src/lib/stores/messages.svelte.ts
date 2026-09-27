@@ -15,6 +15,12 @@ class MessageStore {
   private confirmedNonces = new Set<string>();
   // Track message IDs in the current channel for O(1) dedup during upsert.
   private messageIds = $state<Record<string, Set<string>>>({});
+  // Kanonische (krypto) IDs je Kanal — dasselbe Spiel für die geraete-
+  // übergreifende `krypto_id`: dieselbe logische Nachricht trägt je Gerät
+  // eine andere lokale ID (Empfangs-ID hier, Archiv-Kopie des anderen
+  // Geräts beim Hochscrollen). Nur über die kanonische ID erkennt der
+  // Store sie als dieselbe Nachricht.
+  private kryptoIds = $state<Record<string, Set<string>>>({});
   // LRU order of cached channels (least-recently-used first). Plain bookkeeping
   // — not rendered, so no $state. Keeps the in-memory cache from growing for
   // every channel ever visited in a session: beyond MAX_CACHED_CHANNELS the
@@ -76,6 +82,10 @@ class MessageStore {
     this.loadedChannels = { ...this.loadedChannels, [channelId]: true };
     // Populate the ID set for O(1) dedup during upsert.
     this.messageIds = { ...this.messageIds, [channelId]: new Set(sorted.map((m) => m.id)) };
+    this.kryptoIds = {
+      ...this.kryptoIds,
+      [channelId]: new Set(sorted.flatMap((m) => (m.krypto_id ? [m.krypto_id] : [])))
+    };
     this.touch(channelId);
   }
 
@@ -87,19 +97,31 @@ class MessageStore {
     if (!msgs.length) return false;
     const list = this.byChannel[channelId] ?? [];
     const ids = this.messageIds[channelId] ?? new Set(list.map((m) => m.id));
-    // id-sortiert + deduped in einem Durchgang.
+    const krypto =
+      this.kryptoIds[channelId] ??
+      new Set(list.flatMap((m) => (m.krypto_id ? [m.krypto_id] : [])));
+    // id-sortiert + deduped in einem Durchgang. Die kanonische `krypto_id`
+    // blockt die Kopie desselben Worts aus der Archiv-Kette des anderen
+    // Geräts — sie trägt eine fremde lokale ID und würde sonst doppelt
+    // angezeigt (Frischgerät + Sicherung, 2026-09-17).
     const fresh = [...msgs]
       .sort((a, b) => compareSnowflakeId(a.id, b.id))
-      .filter((m) => !ids.has(m.id));
+      .filter((m) => !ids.has(m.id) && !(m.krypto_id && krypto.has(m.krypto_id)));
     if (!fresh.length) return false;
     const trimmed = this.pruneToCap([...fresh, ...list]);
     this.byChannel = { ...this.byChannel, [channelId]: trimmed };
-    for (const m of fresh) ids.add(m.id);
+    for (const m of fresh) {
+      ids.add(m.id);
+      if (m.krypto_id) krypto.add(m.krypto_id);
+    }
     if (ids.size > trimmed.length) {
       ids.clear();
       for (const m of trimmed) ids.add(m.id);
+      krypto.clear();
+      for (const m of trimmed) if (m.krypto_id) krypto.add(m.krypto_id);
     }
     this.messageIds = { ...this.messageIds, [channelId]: ids };
+    this.kryptoIds = { ...this.kryptoIds, [channelId]: krypto };
     for (const m of fresh) {
       if (!m.id.startsWith('tmp-') && m.nonce) this.confirmedNonces.add(m.nonce);
     }
@@ -121,6 +143,16 @@ class MessageStore {
         ids.delete(list[idxNonce].id);
         ids.add(msg.id);
         this.messageIds = { ...this.messageIds, [msg.channel_id]: ids };
+        // Krypto-Set mitführen: der Echo-Träger trägt dieselbe kanonische
+        // ID wie der Optimist (falls überhaupt) — nur bei Abweichung ummelden.
+        const kryptoAlt = list[idxNonce].krypto_id;
+        const kryptoNeu = msg.krypto_id;
+        if (kryptoAlt && kryptoAlt !== kryptoNeu) {
+          const krypto = this.kryptoIds[msg.channel_id] ?? new Set();
+          krypto.delete(kryptoAlt);
+          if (kryptoNeu) krypto.add(kryptoNeu);
+          this.kryptoIds = { ...this.kryptoIds, [msg.channel_id]: krypto };
+        }
         // Track this nonce as confirmed if not tmp.
         if (!msg.id.startsWith('tmp-') && msg.nonce) {
           this.confirmedNonces.add(msg.nonce);
@@ -147,6 +179,20 @@ class MessageStore {
       next.forEach((m) => ids.add(m.id));
     }
     this.messageIds = { ...this.messageIds, [msg.channel_id]: ids };
+    // Krypto-Set nur mitführen (Buchhaltung) — das Verhalten von `upsert`
+    // bleibt bewusst id-basiert: ein Skip hier würde Echos/Bearbeitungen
+    // desselben Wortes verschlucken. Geprunt wird nur im Rebuild-Fall.
+    const krypto =
+      this.kryptoIds[msg.channel_id] ??
+      new Set(list.flatMap((m) => (m.krypto_id ? [m.krypto_id] : [])));
+    if (msg.krypto_id) krypto.add(msg.krypto_id);
+    if (ids.size > next.length) {
+      krypto.clear();
+      next.forEach((m) => {
+        if (m.krypto_id) krypto.add(m.krypto_id);
+      });
+    }
+    this.kryptoIds = { ...this.kryptoIds, [msg.channel_id]: krypto };
     // Track this nonce as confirmed if not tmp.
     if (!msg.id.startsWith('tmp-') && msg.nonce) {
       this.confirmedNonces.add(msg.nonce);
@@ -407,6 +453,8 @@ class MessageStore {
     this.loadedChannels = restLoaded;
     const { [channelId]: _ids, ...restIds } = this.messageIds;
     this.messageIds = restIds;
+    const { [channelId]: _krypto, ...restKrypto } = this.kryptoIds;
+    this.kryptoIds = restKrypto;
     const { [channelId]: _pins, ...restPins } = this.pinsByChannel;
     this.pinsByChannel = restPins;
     // Clear stale nonces from this channel.

@@ -70,12 +70,14 @@ function mapNetbefund(befund: Netbefund): string {
  * allgemeine Text ist dann immer noch richtig, nur unschärfer — eine erfundene
  * Ursache wäre schlechter als eine unscharfe.
  */
-async function genauerGrund(hostname: string): Promise<string | null> {
+async function genauerGrund(
+  hostname: string,
+): Promise<{ text: string; befund: Netbefund } | null> {
   const netdiag = typeof window === 'undefined' ? undefined : window.pulse?.netdiag;
   if (!netdiag) return null;
   try {
     const befund = deuteNetdiag(await netdiag.check(hostname));
-    return befund ? mapNetbefund(befund) : null;
+    return befund ? { text: mapNetbefund(befund), befund } : null;
   } catch {
     return null;
   }
@@ -98,7 +100,7 @@ export async function prepareHostJoin(raw: string): Promise<HostJoinPrepared> {
     // könnte ihnen nur widersprechen.
     const genauer =
       result.reason === 'unreachable' ? await genauerGrund(normalizeHostname(raw)) : null;
-    return { ok: false, message: genauer ?? mapPreCheckError(result.reason) };
+    return { ok: false, message: genauer?.text ?? mapPreCheckError(result.reason) };
   }
   if (serversStore.findByHostname(result.hostname)) {
     return { ok: false, message: m.add_server_dialog_already_in_list() };
@@ -162,4 +164,27 @@ export async function joinServerByHost(
   } else {
     await goto('/app');
   }
+}
+
+/**
+ * Die Netz-Ursache für einen gescheiterten API-Aufruf an einen (Self-Host-)
+ * Server — als anzeigbarer Hinweis für den NUTZER plus Befund-Code fürs
+ * Diagnose-Gedächtnis. Gordons Fall (2026-09-21/22): „Community anlegen
+ * scheitert, Server-Log leer, Anfragen kamen nie an" ist kein Bug, sondern
+ * fehlende Benutzerführung — der Nutzer braucht die SCHICHT (DNS? Port?
+ * Proxy-Upgrade?), um sein Netzwerk konfigurieren zu können.
+ *
+ * Reihenfolge: Desktop-Netzdiagnose (DNS/TCP/TLS, am genauesten) — sonst die
+ * WebSocket-Kettenprobe (Upgrade/Gateway/Zeit). `text: null` heißt: die Kette
+ * steht aus Sicht des Geräts — kein Netz-Grund gefunden, nichts anzeigen (eine
+ * erfundene Ursache wäre schlechter als eine unscharfe). Wirft nie.
+ */
+export async function netzUrsacheFuer(
+  hostname: string,
+): Promise<{ text: string | null; befund: Netbefund | Verbindungsbefund }> {
+  const genau = await genauerGrund(hostname);
+  if (genau) return genau;
+  const befund = await pruefeWebsocket(hostname);
+  if (befund === 'offen') return { text: null, befund };
+  return { text: mapVerbindungsbefund(befund), befund };
 }

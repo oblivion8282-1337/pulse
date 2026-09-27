@@ -14,28 +14,16 @@ import contextlib
 import unicodedata
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
-
-from dcc_chat_gateway import s3
-from dcc_chat_gateway.models import (
-    DROPBOX_KIND_FILE,
-    Channel,
-    DropboxConfig,
-    DropboxFile,
+from dcc_shared.events import (
+    DropboxEntryPurgedEvent,
+    DropboxQuotaUpdatedEvent,
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from dcc_chat_gateway.routes._dropbox_schemas import DropboxEntryOut
-from dcc_chat_gateway.snowflake import next_id
-from dcc_shared.events import (
-    DropboxEntryCreatedEvent,
-    DropboxEntryDeletedEvent,
-    DropboxEntryPurgedEvent,
-    DropboxEntryRestoredEvent,
-    DropboxEntryUpdatedEvent,
-    DropboxQuotaUpdatedEvent,
-)
 
+from dcc_chat_gateway import s3
+from dcc_chat_gateway.models import DropboxConfig
+from dcc_chat_gateway.snowflake import next_id
 
 # Path + name validation -----------------------------------------------
 
@@ -166,7 +154,7 @@ def _fold_name(name: str) -> str:
     return unicodedata.normalize("NFKC", folded)
 
 
-def validate_name(name: str) -> str:
+def validate_name(name: str, *, max_len: int = 255) -> str:
     """Validate that ``name`` is a safe basename (no path separators,
     no control chars, no leading/trailing dots/whitespace). Returns the
     canonical form.
@@ -188,15 +176,18 @@ def validate_name(name: str) -> str:
 
     if not name:
         raise ValueError("name is empty")
-    if len(name) > 255:
-        raise ValueError("name longer than 255 chars")
+    if len(name) > max_len:
+        raise ValueError(f"name longer than {max_len} chars")
     cleaned = _fold_name(name)
     # NFKC darf einen Namen verlängern (``ﷺ`` → mehrere Zeichen) und das
     # Streichen darf ihn leeren — beides erst nach der Faltung messbar.
     if not cleaned:
         raise ValueError("name is empty")
-    if len(cleaned) > 255:
-        raise ValueError("name longer than 255 chars")
+    # Bughunt Runde 14: die Faltung NACH der Längenprüfung erneut messen —
+    # sonst lief ein 4-Zeichen-Name (``ﷺﷺﷺﷺ``) durch die 422-Bound, faltete
+    # auf 72 Zeichen und sprengte die String(64)-Spalte → 500 statt 422.
+    if len(cleaned) > max_len:
+        raise ValueError(f"name longer than {max_len} chars after normalisation")
     if any(c in _FORBIDDEN_NAME_CHARS for c in cleaned):
         raise ValueError("name contains forbidden character (/ \\ \\0)")
     # Steuerzeichen (C0/C1). Der Docstring verspricht sie seit jeher, geprüft
@@ -212,16 +203,6 @@ def validate_name(name: str) -> str:
     # ``.gitignore``) sind ein gültiger Upload. ``.`` und ``..`` sind oben
     # bereits abgewiesen.
     return cleaned
-
-
-def full_path(parent_path: str, name: str) -> str:
-    """Combine a normalized parent path + validated name into the full
-    MinIO-relative path. Empty root → just the name. Public so the
-    upload route can build the storage key without redefining it."""
-
-    if not parent_path:
-        return name
-    return f"{parent_path}/{name}"
 
 
 # Quota mutation ------------------------------------------------------
@@ -268,108 +249,6 @@ async def locked_config(
 
 
 # Event helpers -------------------------------------------------------
-
-
-def entry_dict(entry: DropboxFile) -> dict[str, object]:
-    """Wire-shape of a dropbox entry — used everywhere an event fires.
-
-    Same field names + snowflake-as-string serialization as the
-    Pydantic ``DropboxEntryOut`` so the listener + FE can treat them
-    interchangeably."""
-
-    return DropboxEntryOut.model_validate(entry).model_dump(mode="json")
-
-
-async def resolve_or_create_dropbox_channel(
-    session, guild_id: int, *, name: str = "ablage"
-) -> Channel:
-    """Lazy-resolve the dropbox channel — re-creates on the
-    finish-upload path if the row was deleted between mint and finish.
-    ``routes.dropbox._get_or_create_dropbox_channel`` is the equivalent
-    for the routes-side first-access path; this one lives here so the
-    upload module doesn't need to import the route module."""
-
-    from dcc_chat_gateway.models import CHANNEL_TYPE_DROPBOX  # avoid cycle
-
-    stmt = (
-        select(Channel)
-        .where(
-            Channel.guild_id == guild_id,
-            Channel.type == CHANNEL_TYPE_DROPBOX,
-        )
-        .order_by(Channel.position.desc())
-        .limit(1)
-    )
-    channel = (await session.execute(stmt)).scalars().first()
-    if channel is not None:
-        return channel
-    channel = Channel(
-        id=fresh_entry_id(),
-        guild_id=guild_id,
-        name=name,
-        type=CHANNEL_TYPE_DROPBOX,
-        position=0,
-    )
-    session.add(channel)
-    await session.flush()
-    return channel
-
-
-async def serialize_entry(session, entry: DropboxFile) -> DropboxEntryOut:
-    """DB-row → wire dict, with a fresh presigned GET URL for files.
-
-    Single source of truth used by every dropbox route (list, folder,
-    patch, delete, restore, finish-upload). The presigned URL is
-    best-effort — transient MinIO outage degrades to ``url=None``
-    instead of failing the whole call.
-
-    The presigned URL is signed with ``inline=False`` when the row's
-    content-type is NOT in the inline-safe whitelist (set by
-    ``finish_upload`` via ``normalize_content_type``). That way the
-    browser downloads the file instead of rendering it — defuses the
-    ``text/html`` → in-browser-XSS vector. ``filename`` is the
-    row's display name so the saved file keeps its on-platform name."""
-
-    out = DropboxEntryOut.model_validate(entry)
-    if entry.kind == DROPBOX_KIND_FILE and entry.storage_key:
-        try:
-            inline = is_safe_inline_content_type(entry.content_type)
-            out.url = await s3.presigned_get_url(
-                entry.storage_key,
-                filename=entry.name if not inline else None,
-                inline=inline,
-            )
-        except Exception:  # noqa: BLE001 — transient MinIO outage
-            out.url = None
-    return out
-
-
-async def publish_entry_event(mgr, *, kind: str, guild_id: int, entry: DropboxFile) -> None:
-    """Fan out a dropbox-mutation event on the guild channel.
-
-    ``kind`` is one of ``created``, ``updated``, ``deleted``,
-    ``restored``. ``purged`` is handled separately because that one
-    doesn't carry a full entry (the row is gone by then)."""
-
-    if mgr is None:
-        return
-    payload = entry_dict(entry)
-    if kind == "created":
-        await mgr.publish_guild_event(
-            DropboxEntryCreatedEvent(guild_id=str(guild_id), entry=payload)
-        )
-    elif kind == "updated":
-        await mgr.publish_guild_event(
-            DropboxEntryUpdatedEvent(guild_id=str(guild_id), entry=payload)
-        )
-    elif kind == "deleted":
-        await mgr.publish_guild_event(
-            DropboxEntryDeletedEvent(guild_id=str(guild_id), entry=payload)
-        )
-    elif kind == "restored":
-        await mgr.publish_guild_event(
-            DropboxEntryRestoredEvent(guild_id=str(guild_id), entry=payload)
-        )
 
 
 async def publish_purge_event(mgr, *, guild_id: int, entry_id: int, kind: int) -> None:

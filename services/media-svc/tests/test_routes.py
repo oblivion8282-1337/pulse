@@ -758,3 +758,48 @@ async def test_ausgehaendigtes_lese_token_bleibt_fuer_den_bann_erreichbar(redis)
             )
     finally:
         await redis.delete(cache_key, *[TOKEN_KEY.format(token=t) for t in ausgehaendigt])
+
+
+# --- Internal-Secret-Gate auf Member-Routen (Security-Audit 2026-09-16) -----
+# Ohne den Proxy-Header X-Pulse-Internal-Secret muss jede Member-Route 503
+# liefern — fail-closed. Das schließt die Trust-the-Proxy-Lücke: wer media-svc
+# direkt erreicht (falscher Reverse-Proxy, offener Port), bekommt weder
+# Publish- noch Lese-Token, auch mit gueltigem Fremd-Bearer.
+
+
+@pytest.mark.asyncio
+async def test_member_routes_ohne_secret_503(client_ohne_secret, auth_signer):
+    access = auth_signer.issue_access(4242, "alice")
+    auth = {"Authorization": f"Bearer {access}"}
+    # Publish-Token, Stream-State, Member-WHEP, Stop — alle vier verweigert.
+    r1 = await client_ohne_secret.post(
+        "/channels/12345/stream-token", json={}, headers=auth
+    )
+    assert r1.status_code == 503, "stream-token ohne Internal-Secret"
+    r2 = await client_ohne_secret.get("/channels/12345/stream", headers=auth)
+    assert r2.status_code == 503, "stream-state ohne Internal-Secret"
+    r3 = await client_ohne_secret.get(
+        "/channels/12345/whep", params={"user_id": 4242}, headers=auth
+    )
+    assert r3.status_code == 503, "member-whep ohne Internal-Secret"
+    r4 = await client_ohne_secret.delete("/channels/12345/stream", headers=auth)
+    assert r4.status_code == 503, "stop ohne Internal-Secret"
+
+
+@pytest.mark.asyncio
+async def test_member_routes_mit_falschem_secret_503(client, auth_signer):
+    access = auth_signer.issue_access(4242, "alice")
+    falsch = {
+        "Authorization": f"Bearer {access}",
+        "X-Pulse-Internal-Secret": "falsch",
+    }
+    r = await client.post("/channels/12345/stream-token", json={}, headers=falsch)
+    assert r.status_code == 503, "stream-token mit falschem Internal-Secret"
+
+
+@pytest.mark.asyncio
+async def test_gast_whep_ohne_secret_503(client_ohne_secret):
+    # Auch die Gast-WHEP-Route ist hinter dem Gate (Aufrufer ist der
+    # chat-gateway-Proxy, nie der Gast selbst).
+    r = await client_ohne_secret.get("/gast/whep", params={"channel_id": 1, "user_id": 2})
+    assert r.status_code == 503, "gast-whep ohne Internal-Secret"

@@ -22,12 +22,20 @@ _RULES: dict[str, tuple[int, float]] = {
     "friend_request": (10, 3600.0), # 10 friend requests / hour
     "community_invite": (30, 3600.0), # 30 community invites / hour (per inviter)
     "member_invite": (10, 3600.0),  # 10 Nutzername-Einladungen / Stunde (pro Absender)
+    # Klassische Invite-Codes (Bughunt 2026-09-16, Runde 2): jeder Call legt
+    # eine DB-Zeile OHNE Aufräum-Pfad an, und CREATE_INVITES ist Default-
+    # Permission — ohne Bremse fuellt ein Member-Skript guild_invites endlos.
+    "invite": (30, 3600.0),         # 30 Invite-Codes / Stunde (pro Erzeuger)
     "report": (10, 3600.0),         # 10 reports / hour
     # 20 Gast-Links / Stunde (pro Erzeuger). MOVE_MEMBERS haelt nur, wem man
     # ohnehin vertraut — die Bremse steht gegen ein durchgedrehtes Skript,
     # nicht gegen den Menschen: jeder Aufruf schreibt eine Zeile, und die
     # Liste im Dialog wuerde bei tausenden unbrauchbar.
     "attach": (20, 60.0),           # 20 upload-URL requests / minute
+    # Verbrauchsfreie Bündel-Leserate (Bughunt 2026-09-23, zweiter Lauf):
+    # liefert Schlüssel-Material an Freunde — ohne Bremse dauerhaft hämmerbar
+    # (bis 4 DB-Lookups je Aufruf). Das Claim-Budget deckt nur OTK-Verbrauch.
+    "keys_buendel_auskunft": (60, 60.0), # 60 Leserate-Abrufe / Minute
     "dropbox_mint": (30, 60.0),     # 30 dropbox upload-URL mints / minute
     "dropbox_folder_create": (20, 60.0), # 20 folder creates / minute
     "dropbox_finish": (60, 60.0),    # 60 finish-upload calls / minute
@@ -83,6 +91,20 @@ _RULES: dict[str, tuple[int, float]] = {
     # Online-Raten auf INTERNAL_SERVICE_SECRET (Audit 2026-09); die
     # nginx-/Caddy-deny-Bloecke sind die erste Schicht davor.
     "internal_secret": (120, 60.0),
+    # Audio-Diagnose (Bughunt Runde 28): die Route bremst je Nutzer, aber
+    # die Regel fehlte in dieser Tabelle — JEDER Aufruf warf KeyError → 500,
+    # der Anti-Flooding-Bremser des Audits lief nie. 6/Minute: der Client
+    # feuert je Voice-Join mit Bluetooth-Gerät einmal.
+    "audio_diagnostic": (6, 60.0),
+    # Postfach-Einliefern (Bughunt Runde 35): die Route lief bislang ohne
+    # Bremse; je Anfrage laufen bis 100 Umschlaege mit je bis 64 Empfaenger-
+    # Lookups. 60/Minute je Konto deckelt den Amplifikator weit ueber dem
+    # echten Batch-Bedarf des Klienten.
+    "postfach": (60, 60.0),
+    # Web-Push-Abo-Pflege (Bughunt Runde 47): je Aufruf Delete+Select+
+    # Upsert+Commit — ohne Bremse fuellte ein Skript die DB mit Churn.
+    # 10/Minute: ein Mensch koppelt Geraete, kein Maschinenwerk.
+    "push_abo": (10, 60.0),
 }
 
 

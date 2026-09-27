@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { Input } from '$lib/components/ui/input/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
@@ -134,7 +135,7 @@
           <Avatar.Image src={avatar} alt="" />
         {/if}
         <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-          {(h.display_name ?? h.username).slice(0, 1).toUpperCase()}
+          {anfangsBuchstabe(h.display_name ?? h.username)}
         </Avatar.Fallback>
       </Avatar.Root>
       <div class="min-w-0 flex-1">

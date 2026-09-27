@@ -11,7 +11,7 @@
 import { ChildProcess, spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { E2E_AUTH_PORT, E2E_CHAT_PORT, E2E_WEB_PORT, E2E_BASE_URL } from './_ports';
 
 /**
@@ -72,7 +72,10 @@ function loadDotenv(path: string): Record<string, string> {
   }
 }
 
-async function waitFor(url: string, timeoutMs = 15_000): Promise<void> {
+async function waitFor(url: string, timeoutMs = 90_000): Promise<void> {
+  // 90s statt 15s: unter Last (mehrere parallele uv-Resolutions, kalter
+  // Cache) braucht uvicorn laenger, und ein false-negative hier wirft die
+  // ganze Suite weg, bevor ein einziger Test lief.
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
     try {
@@ -113,6 +116,7 @@ async function truncateDb(env: NodeJS.ProcessEnv) {
     TRUNCATE
       chat.message_attachments,
       chat.admin_audit_log,
+      chat.reports,
       chat.messages,
       chat.guild_members,
       chat.channels,
@@ -178,25 +182,25 @@ function clearSharedAuthRedisCache(redisUrl: string): void {
   );
 }
 
-function ensureTestDb(postgresUser: string) {
+function ensureTestDb(postgresUser: string, dbName = 'dcc_test') {
   const cwd = resolve(__dirname, '../../..');
   // CREATE DATABASE has no IF NOT EXISTS — check first, then create.
   const check = execSync(
-    `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='dcc_test'"`,
+    `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${dbName}'"`,
     { cwd }
   )
     .toString()
     .trim();
   if (check !== '1') {
     execSync(
-      `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d postgres -c "CREATE DATABASE dcc_test"`,
+      `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d postgres -c "CREATE DATABASE ${dbName}"`,
       { cwd }
     );
   }
   // Alembic stores alembic_version in the service schema, so the schemas
   // must exist before the first migration run.
   execSync(
-    `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d dcc_test -c "CREATE SCHEMA IF NOT EXISTS auth; CREATE SCHEMA IF NOT EXISTS chat;"`,
+    `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d ${dbName} -c "CREATE SCHEMA IF NOT EXISTS auth; CREATE SCHEMA IF NOT EXISTS chat;"`,
     { cwd }
   );
 }
@@ -294,19 +298,20 @@ function startService(name: string, env: NodeJS.ProcessEnv, port: number, cwd: s
  * Vier dauerhaft rote Tests sind vier Tests, die keine Regression mehr melden
  * koennen — deshalb wird die Voraussetzung jetzt hergestellt statt angenommen.
  *
- * `up -d` ist idempotent und laesst laufende Container in Ruhe. `minio-init`
- * legt den Bucket an und beendet sich (Exit 0) — das ist kein Fehler.
+ * `up -d` ist idempotent und laesst laufende Container in Ruhe. Bucket +
+ * Key anlegen uebernimmt `scripts/dev-garage-init.sh` (das Garage-Image hat
+ * keinen Init-Container — dasselbe Bild wie im Dev-Stack, Bughunt 4.1).
  */
 function ensureInfra() {
   const cwd = resolve(__dirname, '../../..');
   try {
-    execSync(`${COMPOSE} up -d postgres redis minio minio-init`, { cwd, stdio: 'ignore' });
+    execSync(`${COMPOSE} up -d postgres redis garage`, { cwd, stdio: 'ignore' });
   } catch (e) {
     // Laut, nicht still: ohne Infrastruktur scheitert die Suite ohnehin, aber
     // sie soll es HIER sagen und nicht als Testfehlschlag zwanzig Zeilen
     // spaeter.
     throw new Error(
-      `Die Test-Infrastruktur liess sich nicht starten (${COMPOSE} up -d postgres redis minio minio-init). ` +
+      `Die Test-Infrastruktur liess sich nicht starten (${COMPOSE} up -d postgres redis garage). ` +
         `Laeuft der Container-Dienst? Ursprungsfehler: ${e}`
     );
   }
@@ -315,21 +320,34 @@ function ensureInfra() {
 export default async function globalSetup() {
   ensureInfra();
   const dotenv = loadDotenv(resolve(ROOT, '.env'));
+  // Garage-S3-Credentials (GK…-Key) schlagen den (stale) MinIO-Stand aus
+  // .env — dieselbe Reihenfolge wie dev-up.fish für die Dev-Services.
+  const garageCreds = loadDotenv(resolve(ROOT, '.garage-dev-credentials'));
+  if (garageCreds.GARAGE_S3_KEY) {
+    dotenv.S3_ACCESS_KEY = garageCreds.GARAGE_S3_KEY;
+    dotenv.S3_SECRET_KEY = garageCreds.GARAGE_S3_SECRET;
+  }
   const pgUser = dotenv.POSTGRES_USER ?? 'dcc';
   const pgPort = dotenv.POSTGRES_PORT ?? '5434';
   const pgPassword = dotenv.POSTGRES_PASSWORD ?? '';
 
   // Ensure the dedicated test database exists (never touches dcc).
-  ensureTestDb(pgUser);
+  // Eigene Datenbank/Redis-DB fuer diesen Lauf, Vorgabe unverändert dcc_test
+  // und /1. Wer parallel fährt (mehrere Bughunt-Agenten teilen sich Postgres
+  // und Redis), setzt PULSE_E2E_DB/PULSE_E2E_REDIS_DB — sonst löscht das
+  // TRUNCATE eines Laufs die Nutzer mitten im Lauf des anderen.
+  const testDb = process.env.PULSE_E2E_DB ?? 'dcc_test';
+  const redisDb = process.env.PULSE_E2E_REDIS_DB ?? '1';
+  ensureTestDb(pgUser, testDb);
 
-  const baseEnv = {
+  const baseEnv: NodeJS.ProcessEnv = {
     ...process.env,
     ...dotenv,
     POSTGRES_HOST: 'localhost',
     POSTGRES_PORT: pgPort,
-    POSTGRES_DB: 'dcc_test',
-    DATABASE_URL: `postgresql+asyncpg://${pgUser}:${pgPassword}@localhost:${pgPort}/dcc_test`,
-    REDIS_URL: 'redis://localhost:6380/1',
+    POSTGRES_DB: testDb,
+    DATABASE_URL: `postgresql+asyncpg://${pgUser}:${pgPassword}@localhost:${pgPort}/${testDb}`,
+    REDIS_URL: `redis://localhost:6380/${redisDb}`,
     AUTH_JWKS_URL: `http://127.0.0.1:${E2E_AUTH_PORT}/.well-known/jwks.json`,
     JWT_PRIVATE_KEY_FILE: resolve(ROOT, 'secrets/jwt_private.pem'),
     JWT_PUBLIC_KEY_FILE: resolve(ROOT, 'secrets/jwt_public.pem'),
@@ -367,7 +385,7 @@ export default async function globalSetup() {
   await applyMigrations(baseEnv, 'dcc-auth', resolve(ROOT, 'services/auth'));
   await applyMigrations(baseEnv, 'dcc-chat-gateway', resolve(ROOT, 'services/chat-gateway'));
   await truncateDb(baseEnv);
-  clearSharedAuthRedisCache(baseEnv.REDIS_URL);
+  clearSharedAuthRedisCache(baseEnv.REDIS_URL ?? `redis://localhost:6380/${redisDb}`);
 
   // Kill only previously-spawned test services (from the last run's pid file).
   // This cleans up stale test processes after a crash without touching the
@@ -388,6 +406,16 @@ export default async function globalSetup() {
   // rather than silently testing the wrong DB.
   assertPortFree(E2E_AUTH_PORT);
   assertPortFree(E2E_CHAT_PORT);
+
+  // Eigene TMPDIR-Instanz für die E2E-Services: assert_single_worker (flock
+  // auf <tmp>/pulse-singleworker-<svc>.lock) würde sonst mit einem laufenden
+  // Dev-Stack kollidieren — der hält dieselbe Lockdatei, und die Suite stiebe
+  // im Lifespan ab („another 'auth' process already holds the lock"), obwohl
+  // Dev und E2E jeweils je genau einen Worker haben (eigene DB, eigener
+  // Redis-DB, eigene In-Process-Limiter).
+  const e2eTmp = resolve(ROOT, 'node_modules/.dcc-e2e-tmp');
+  mkdirSync(e2eTmp, { recursive: true });
+  baseEnv.TMPDIR = e2eTmp;
 
   startService('dcc-auth', baseEnv, E2E_AUTH_PORT, resolve(ROOT, 'services/auth'));
   startService('dcc-chat-gateway', baseEnv, E2E_CHAT_PORT, resolve(ROOT, 'services/chat-gateway'));

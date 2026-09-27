@@ -81,8 +81,10 @@ test.describe.serial('Chats-Bereich auf dem Handy', () => {
   let dmId: string;
 
   test.beforeAll(async ({ browser }) => {
-    ctxA = await browser.newContext({ viewport: HANDY });
-    ctxB = await browser.newContext({ viewport: HANDY });
+    // Geraeteklasse haengt am ZEIGER (geraetKlasse.ts) — ohne Finger-Emulation
+    // bleibt HANDY ein schmales Desktop-Fenster.
+    ctxA = await browser.newContext({ viewport: HANDY, locale: 'de-DE', isMobile: true, hasTouch: true });
+    ctxB = await browser.newContext({ viewport: HANDY, locale: 'de-DE', isMobile: true, hasTouch: true });
     a = await ctxA.newPage();
     b = await ctxB.newPage();
     uidA = await register(a, `chatsa_${TAG}`);

@@ -131,6 +131,12 @@ export async function leseSicherungKanalSeite(
 	);
 
 	const nachSchluessel = new Map<string, SicherungEintrag>();
+	// Krypto-Id → Schlüssel der liegenden Fassung: dieselbe logische
+	// Nachricht trägt je Gerät eine andere Id (Autor-Id bzw. Zustellungs-Id)
+	// — nur die kanonische Autor-ID erkennt die Kopie der anderen Kette.
+	// Frames vor der Nutzlast-Erweiterung führen sie nicht und bleiben
+	// deshalb (wie vorher) Id-Duplikate.
+	const kryptoJeSchluessel = new Map<string, string>();
 	const neuerStand: SicherungLeseStaende = { ...lesestand };
 
 	for (const [praefix, dateien] of ketten) {
@@ -189,7 +195,14 @@ export async function leseSicherungKanalSeite(
 					const klar = await entschlüsseleEintrag(dek, rahmenEinzeln.nutzlast);
 					const eintrag = leseSicherungEintrag(klar);
 					const schluessel = `${eintrag.kanalId}:${eintrag.nachricht.id}`;
-					const vorhanden = nachSchluessel.get(schluessel);
+					const kryptoId = eintrag.nachricht.kryptoId;
+					const stellvertreter =
+						kryptoId !== undefined ? kryptoJeSchluessel.get(kryptoId) : undefined;
+					const vorhanden =
+						nachSchluessel.get(schluessel) ??
+						(stellvertreter !== undefined && stellvertreter !== schluessel
+							? nachSchluessel.get(stellvertreter)
+							: undefined);
 					// Dieselbe Nachricht kann aus zwei Ketten stammen (zwei
 					// Geräte spiegeln beide) — sonst gewinnt die reichere
 					// Fassung (mehr Anhänge). ÜBER den Grabstein entscheidet
@@ -206,6 +219,7 @@ export async function leseSicherungKanalSeite(
 							eintrag.nachricht.anhaenge.length > vorhanden.nachricht.anhaenge.length)
 					) {
 						nachSchluessel.set(schluessel, eintrag);
+						if (kryptoId !== undefined) kryptoJeSchluessel.set(kryptoId, schluessel);
 					}
 				} catch {
 					/* Unlesbare Nutzlast — überspringen, der Cursor ist drüber */

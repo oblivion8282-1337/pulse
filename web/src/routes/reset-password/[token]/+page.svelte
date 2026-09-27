@@ -44,7 +44,13 @@
       // Hand off to /login with a flag → login page shows the success toast.
       await goto('/login?reset=1', { replaceState: true });
     } catch (err) {
-      if (err instanceof ApiError && (err.status === 400 || err.status === 410 || err.status === 404)) {
+      // Bughunt Runde 24: der Server antwortet für {unbekannt, abgelaufen,
+      // verbraucht} mit 401 (nicht 400/410/404) — ohne 401 in der Liste
+      // blieb die "neuen Link anfordern"-Affordance für immer tot.
+      if (
+        err instanceof ApiError &&
+        (err.status === 400 || err.status === 401 || err.status === 404 || err.status === 410)
+      ) {
         tokenInvalid = true;
         error = m.reset_password_error_token_expired();
       } else {

@@ -217,6 +217,18 @@ function bind() {
     finally { $('btnPair').disabled = false; refresh(); }
   };
   $('btnStart').onclick = async () => {
+    // Bughunt Runde 8: in der Phase "needs-windows-setup" (Windows ohne
+    // WSL2) verweigert host.start() nur mit derselben Phase — der dafür
+    // gebaute WSL2-Assistent (pulse.host.setupWindows → installWsl, mit
+    // UAC-Abfrage) war vom Server-App-UI aus unerreichbar. Jetzt führt der
+    // Start-Knopf in dieser Phase zuerst den Assistenten aus.
+    const statusVorher = await host.getStatus().catch(() => null);
+    if (statusVorher && statusVorher.phase === 'needs-windows-setup' && host.setupWindows) {
+      $('btnStart').disabled = true;
+      const wsl = await host.setupWindows().catch(() => null);
+      $('btnStart').disabled = false; refresh();
+      if (!wsl || wsl.ok !== true) return;
+    }
     $('btnStart').disabled = true;
     await host.start({}).catch((e) => alert('Start fehlgeschlagen: ' + e.message));
     $('btnStart').disabled = false; refresh();

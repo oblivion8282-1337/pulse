@@ -27,7 +27,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import hmac
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -40,7 +39,12 @@ from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import RegisteredInstance
 from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
-from dcc_auth.security import get_signer, verify_dummy_password, verify_password
+from dcc_auth.security import (
+    constant_time_eq,
+    get_signer,
+    verify_dummy_password,
+    verify_password,
+)
 
 # Realm-Endpoint ist cloud-only: nur die Cloud hält registered_instances und
 # provisioniert das Signier-Cert. Auf Self-Host-Deploys 403 (Defense-in-Depth).
@@ -104,7 +108,7 @@ async def registry_token(
     if username == CI_USERNAME:
         # CI-Push-Pfad: Service-Secret → pull+push.
         push_token = settings.registry_push_token
-        if not push_token or not hmac.compare_digest(password, push_token):
+        if not push_token or not constant_time_eq(password, push_token):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
         actions = _ci_actions(scope)
         jwt_token = signer.issue_registry_token(
@@ -120,7 +124,10 @@ async def registry_token(
         if row is None:
             # Timing-Equalizer: Dummy-Verify, sonst ist „client_id existiert"
             # über die Antwortzeit unterscheidbar (schnell vs. langsamer Argon2).
-            verify_dummy_password(password)
+            # Wie der echte Pfad im Threadpool: synchron wuerde der Dummy-Hash
+            # den Event-Loop stallen — ein Flooding mit unbekannten client_ids
+            # waere dann ein billiger DoS auf den ganzen Service.
+            await asyncio.to_thread(verify_dummy_password, password)
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
         # Argon2id ist teuer → in den Threadpool, damit der Event-Loop frei bleibt.
         valid = await asyncio.to_thread(verify_password, password, row.client_secret)

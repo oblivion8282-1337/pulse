@@ -292,7 +292,10 @@ pub fn ausfuehren(argv: &[String]) -> Result<()> {
         // Genau die Reihenfolge aus `session.rs`: erst der Einfrier-Wächter,
         // dann das Nachfordern, solange kein Einstiegspunkt da ist.
         if d.eingefroren() {
-            d.wegen_einfrieren_neu();
+            if let Err(e) = d.wegen_einfrieren_neu() {
+                z.abbruch = Some(e.to_string());
+                break;
+            }
             z.einfrier_meldungen += 1;
             anfordern = true;
         }

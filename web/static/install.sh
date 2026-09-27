@@ -812,7 +812,7 @@ if docker inspect "${CONTAINER}-old" >/dev/null 2>&1; then
 fi
 
 if [ -n "${REG_PASS:-}" ]; then
-  docker login "$REGISTRY" -u "$REG_USER" -p "$REG_PASS" >/dev/null 2>&1 \
+  printf '%s' "$REG_PASS" | docker login "$REGISTRY" -u "$REG_USER" --password-stdin >/dev/null 2>&1 \
     || { echo "pulse-update: registry login failed, will retry next run" >&2; exit 0; }
 fi
 docker pull "$IMAGE" >/dev/null 2>&1 \
@@ -1005,7 +1005,7 @@ log "Configuration written: ${ENV_FILE} (readable by root only)"
 case "$IMAGE" in
   registry.howispulse.com/*)
     log "Logging in to Pulse registry (instance credentials)…"
-    docker login registry.howispulse.com -u "$CLIENT_ID" -p "$CLIENT_SECRET" \
+    printf '%s' "$CLIENT_SECRET" | docker login registry.howispulse.com -u "$CLIENT_ID" --password-stdin \
       || die "Registry login failed — instance credentials rejected (suspended or wrong instance?)." ;;
 esac
 log "Pulling image ${IMAGE}…"

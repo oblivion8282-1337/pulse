@@ -19,6 +19,7 @@
    * fast das Doppelte der Grössen-Grenze für Svelte-Komponenten.
    */
   import PencilIcon from '@lucide/svelte/icons/pencil';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import BereichsKopf from './BereichsKopf.svelte';
@@ -35,6 +36,7 @@
   import { nameStyle } from '$lib/utils/nameColor';
   import { safeAvatarUrl } from '$lib/avatar';
   import { kurzeUhrzeit } from '$lib/utils/kurzeUhrzeit';
+  import { currentLocale } from '$lib/i18n';
   import { suchnorm } from '$lib/utils/suche';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import type { DMChannel } from '$lib/api/types';
@@ -68,10 +70,6 @@
   $effect(() => {
     for (const dm of directMessages.list) userCache.queue(dm.other_user_id);
   });
-
-  function initialen(name: string): string {
-    return name.slice(0, 1).toUpperCase();
-  }
 
   /**
    * Der Ausschnitt unter dem Namen. Die beiden Marker aus `dm_vorschau.py`
@@ -170,7 +168,7 @@
               <span
                 class="flex size-full items-center justify-center rounded-full text-base font-bold text-white"
                 style="background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));"
-                >{initialen(name)}</span
+                >{anfangsBuchstabe(name)}</span
               >
             {/if}
             <StatusDot
@@ -197,7 +195,7 @@
                 >
               {:else if dm.last_message_at}
                 <time class="text-text-muted text-2xs ml-auto shrink-0"
-                  >{kurzeUhrzeit(dm.last_message_at)}</time
+                  >{kurzeUhrzeit(dm.last_message_at, new Date(), currentLocale())}</time
                 >
               {/if}
             </span>

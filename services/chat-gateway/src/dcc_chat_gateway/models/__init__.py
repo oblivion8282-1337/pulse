@@ -22,7 +22,6 @@ from dcc_chat_gateway.models.channels import (
     Channel,
     DirectMessageChannel,
 )
-from dcc_chat_gateway.models.community_invites import CommunityInvite
 from dcc_chat_gateway.models.devices import (
     DEVICE_NAME_MAX_LEN,
     SUBJECT_EVERYONE,
@@ -89,7 +88,6 @@ __all__ = [
     "LEGACY_READONLY_DETAIL",
     "DROPBOX_KIND_FILE",
     "DROPBOX_KIND_FOLDER",
-    "CommunityInvite",
     "CommunityInviteNotification",
     "GuestLink",
     "MENTION_EVERYONE_TARGET_ID",

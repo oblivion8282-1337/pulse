@@ -178,12 +178,18 @@ export async function sendeInKanal(
       stand.sitzungId,
       stand.sitzung.verteilschluessel(),
       ziel.filter((z) => nachzuliefern.has(z.geraet.device_pubkey)),
-      ablage ?? undefined
+      ablage ?? undefined,
+      eigeneKennung
     );
 
     const nachrichtId = lokaleNachrichtId();
+    // Absender-Angabe in der authentisierten Nutzlast (Bughunt 2026-09-23)
+    // — der Empfaenger attribuiert daraus, nicht aus Server-Metadaten.
     const geheimtext = stand.sitzung.verschluesseln(
-      baueNachrichtNutzlast(klartext, nachrichtId, replyToId)
+      baueNachrichtNutzlast(klartext, nachrichtId, replyToId, [], {
+        nutzer: eigeneUserId,
+        geraet: eigeneKennung
+      })
     );
     const daten = baueGruppenhuelle(stand.sitzungId, geheimtext);
     const alleGeraete = ziel.map((z) => z.geraet.device_pubkey);

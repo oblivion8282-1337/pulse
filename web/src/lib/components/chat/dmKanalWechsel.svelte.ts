@@ -95,6 +95,11 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
         if (isStale()) return;
         loadError = err instanceof Error ? err.message : m.dm_page_dm_not_found();
         resolving = false;
+        // Bughunt Runde 7: prevDM lösen — sonst blockt `cid === prev` die
+        // Rückkehr zum VORGÄNGER-Gespräch (dessen Abo wir oben schon
+        // abgegeben haben) und der Fehlerbildschirm bleibt für einen völlig
+        // gesunden Kanal stehen, bis der Nutzer einen dritten öffnet.
+        untrack(() => (prevDM = ''));
         return;
       }
     }
@@ -173,7 +178,11 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     // Nicht fuer Gruppen: `gapFill` holt ueber die Klartext-Route nach, die
     // eine Gruppen-ID abweist — das Nachholen dort erledigt das Postfach
     // (`ws/handlers/ready.ts`).
-    if (alreadyLoaded && !istGruppe) void cloudGateway.gapFill(cid);
+    // Bughunt Runde 5: nicht nur beim Wieder-Öffnen — der Frisch-Pfad
+    // friert den REST-Snapshot ein, eine DM im Fenster bis zur Abo-
+    // Registrierung erzeugt nur einen dm_bump. gapFillChannel liest
+    // lastPersistedId (der frische Stand) und holt genau das Fenster.
+    if (!istGruppe) void cloudGateway.gapFill(cid);
     const loaded = messages.for(cid);
     const latestSeen = loaded[loaded.length - 1]?.id;
     if (latestSeen) readState.recordSeen(cid, latestSeen);
@@ -188,6 +197,16 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
 
   // WS reconnect: messages.clearChannel() may empty the loaded set. Re-fetch
   // if we're still parked on this DM.
+  //
+  // Security-/Bughunt-Nachtrag 2026-09-18 (live am Cross-Server-Szenario
+  // reproduziert): das setInitial hier trug NUR die Server-Antwort — und die
+  // kennt bei E2E-DMs die neuere Nachrichten NICHT (der Server löscht den
+  // Umschlag nach der Quittung; sie leben im lokalen Verlauf). Nach einem
+  // Serverwechsel (messages.clear() durch resetServerScopedStores, während
+  // prevDM === cid bleibt) warf dieser Pfad die lokale Ansicht weg und
+  // ersetzte sie durch den alten Klartext-Stand — „plötzlich andere PMs von
+  // derselben Person", heilbar nur per Reload. Deshalb derselbe Merge wie in
+  // switchTo: lokal + Server.
   function nachladenWennNoetig(cid: string) {
     if (!cid || messages.loadedChannels[cid]) return;
     if (prevDM !== cid) return;
@@ -198,11 +217,12 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     if (!directMessages.byId[cid]) return;
     void chatApi
       .listMessages(cid, {}, cloudRoute)
-      .then((history) => {
-        if (untrack(() => prevDM) === cid) {
-          messages.setInitial(cid, history);
-          void verlaufSpeichern(cid, history);
-        }
+      .then(async (history) => {
+        if (untrack(() => prevDM) !== cid) return;
+        const lokal = await verlaufLesen(cid, { anzahl: 50 });
+        if (untrack(() => prevDM) !== cid) return;
+        messages.setInitial(cid, verlaufMergen(lokal, history));
+        void verlaufSpeichern(cid, history);
       })
       .catch(() => {
         /* user-driven retry via navigation */

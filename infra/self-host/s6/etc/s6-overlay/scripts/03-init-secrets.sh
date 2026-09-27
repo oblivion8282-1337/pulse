@@ -46,12 +46,14 @@ write_if_missing() {
 [ -f "${KEYS}/livekit.secret" ] || write_if_missing \
     "${KEYS}/livekit.secret" "$(gen_hex)"
 
-# MinIO root credentials — embedded S3 object store for message attachments.
-# Doubles as the S3 access-key/secret the chat-gateway signs presigned URLs
-# with. MinIO requires user ≥3 chars + password ≥8; both satisfied. Generated
-# once and persisted, so existing buckets keep matching creds across restarts.
+# S3 credentials für den eingebetteten Garage-Objektspeicher — genau damit
+# signiert chat-gateway die presigned URLs. Garage-Key-IDs MÜSSEN das Format
+# GK + 24 Hex-Zeichen haben; ein "pulse-…"-Name (MinIO-Konvention) wird beim
+# `key import` mit "Invalid key format" abgelehnt (2026-09-22, Prod wie
+# Self-Host-Box). Einmal erzeugt und persistiert, damit Bucket und Signatur
+# über Neustarts stabil bleiben.
 [ -f "${KEYS}/minio.user" ] || write_if_missing \
-    "${KEYS}/minio.user" "pulse-$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
+    "${KEYS}/minio.user" "GK$(python3 -c 'import secrets; print(secrets.token_hex(12))')"
 [ -f "${KEYS}/minio.password" ] || write_if_missing \
     "${KEYS}/minio.password" "$(gen_hex)"
 

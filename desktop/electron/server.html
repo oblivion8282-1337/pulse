@@ -3,6 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Security-Audit 2026-09-16: lokale UI, lokale Skripte, Loopback-API.
+       Keine externen Quellen, kein inline script (server.js ist extern),
+       Inline-Styles der Seite selbst bleiben erlaubt (style-src 'unsafe-inline'). -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; object-src 'none'; base-uri 'self'" />
   <title>Pulse Server</title>
   <style>
     :root { color-scheme: dark; }

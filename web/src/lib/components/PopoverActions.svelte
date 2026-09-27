@@ -18,6 +18,9 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
+  import type { Role } from '$lib/api/roles';
+  import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
+  import { memberRoles } from '$lib/stores/memberRoles.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import * as actions from './popoverActions';
@@ -70,16 +73,40 @@
   let guildOwnerId = $derived(
     (guilds.byId[guildId!] ?? serverGuilds.findGuild(guildId!))?.owner_id
   );
+  // Entscheidung 6.3: best-effort Rangvergleich — der Server verlangt
+  // assert_actor_outranks (Ziel muss STRIKT niedriger stehen); ohne den
+  // clientseitigen Check blieb der Knopf bei gleichrangigen Zielen sichtbar
+  // und 403te. Owner ist immer outranked-unerreicht (halbiert den Fall schon).
+  function uebertrifftRang(zielUserId: string): boolean {
+    if (!guildId) return false;
+    const eigene = roles.myRoleIds[guildId] ?? [];
+    const eigeneRolls = eigene
+      .map((id) => (guilds.byId[guildId] ? (roles.roleIdMap.get(id)) : undefined))
+      .filter((r): r is Role => !!r);
+    const eigeneTop = eigeneRolls.length ? Math.max(...eigeneRolls.map((r) => r.position)) : -1;
+    const zielIds = memberRoles.byMember[`${guildId}:${zielUserId}`] ?? [];
+    const zielRolls = zielIds
+      .map((id) => roles.roleIdMap.get(id))
+      .filter((r): r is Role => !!r);
+    const zielTop = zielRolls.length ? Math.max(...zielRolls.map((r) => r.position)) : -1;
+    return eigeneTop > zielTop;
+  }
   let canKick = $derived.by(() => {
     if (!guildId || isSelf) return false;
     // Can't kick the guild owner even with KICK_MEMBERS.
     if (guildOwnerId && guildOwnerId === userId) return false;
-    return roles.hasGuildPermission(guildId, Perm.KICK_MEMBERS);
+    return (
+      roles.hasGuildPermission(guildId, Perm.KICK_MEMBERS) &&
+      uebertrifftRang(userId)
+    );
   });
   let canBan = $derived.by(() => {
     if (!guildId || isSelf) return false;
     if (guildOwnerId && guildOwnerId === userId) return false;
-    return roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS);
+    return (
+      roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS) &&
+      uebertrifftRang(userId)
+    );
   });
 
   // Voice channel (if any) that the target user is currently in within
@@ -99,14 +126,23 @@
   // Shared pre-condition for the per-voice-channel admin actions
   // (mute/deafen/disconnect) — the target must currently be in voice.
   let canVoiceAction = $derived(!!guildId && !isSelf && !!targetVoiceChannelId);
+  // Entscheidung 6.3: kanalskopiert — voice-signaling prüft dieselben Bits
+  // über /channels/{id}/permissions/me; das Guild-Bit allein zeigte sonst
+  // Knöpfe, die bei einem Kanal-Deny garantiert 403en.
   let canMute = $derived(
-    canVoiceAction && roles.hasGuildPermission(guildId!, Perm.MUTE_MEMBERS)
+    canVoiceAction &&
+      roles.hasGuildPermission(guildId!, Perm.MUTE_MEMBERS) &&
+      channelPermissions.hasChannelPermission(guildId!, targetVoiceChannelId!, Perm.MUTE_MEMBERS)
   );
   let canDeafen = $derived(
-    canVoiceAction && roles.hasGuildPermission(guildId!, Perm.DEAFEN_MEMBERS)
+    canVoiceAction &&
+      roles.hasGuildPermission(guildId!, Perm.DEAFEN_MEMBERS) &&
+      channelPermissions.hasChannelPermission(guildId!, targetVoiceChannelId!, Perm.DEAFEN_MEMBERS)
   );
   let canDisconnectVoice = $derived(
-    canVoiceAction && roles.hasGuildPermission(guildId!, Perm.MOVE_MEMBERS)
+    canVoiceAction &&
+      roles.hasGuildPermission(guildId!, Perm.MOVE_MEMBERS) &&
+      channelPermissions.hasChannelPermission(guildId!, targetVoiceChannelId!, Perm.MOVE_MEMBERS)
   );
   // "bring into →" submenu: bring the target into a voice channel — a
   // switch if they're connected, a summon otherwise. Gated by MOVE_MEMBERS.

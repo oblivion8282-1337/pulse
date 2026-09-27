@@ -8,12 +8,13 @@
   import AdminInstancesPending from './AdminInstancesPending.svelte';
   import AdminInstancesActive from './AdminInstancesActive.svelte';
   import AdminInstancesSuspended from './AdminInstancesSuspended.svelte';
+  import AdminDiagnose from './AdminDiagnose.svelte';
   import ServerIcon from '@lucide/svelte/icons/server';
   import { m } from '$lib/paraglide/messages.js';
   import { adminInstancesApi } from '$lib/api/instances';
   import AdminTabBar from './AdminTabBar.svelte';
 
-  type Tab = 'pending' | 'active' | 'suspended';
+  type Tab = 'pending' | 'active' | 'suspended' | 'diagnose';
   let activeTab = $state<Tab>('pending');
 
   // Pending-Antrags-Counter: ohne ihn merkt ein Cloud-Admin gar nicht, dass ein
@@ -38,7 +39,8 @@
   const tabs: { id: Tab; label: string }[] = [
     { id: 'pending', label: m.admin_instances_tab_pending() },
     { id: 'active', label: m.admin_instances_tab_active() },
-    { id: 'suspended', label: m.admin_instances_tab_suspended() }
+    { id: 'suspended', label: m.admin_instances_tab_suspended() },
+    { id: 'diagnose', label: m.admin_diagnose_tab() }
   ];
 </script>
 
@@ -80,7 +82,9 @@
     <AdminInstancesPending onchange={refreshPendingCount} />
   {:else if activeTab === 'active'}
     <AdminInstancesActive />
-  {:else}
+  {:else if activeTab === 'suspended'}
     <AdminInstancesSuspended />
+  {:else}
+    <AdminDiagnose />
   {/if}
 </section>

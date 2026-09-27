@@ -24,15 +24,17 @@ use std::time::{Duration, Instant};
 use crate::encode;
 use crate::system::drm::{self, Vendor};
 
-/// Kandidaten in Präferenzordnung. HEVC ist die Mittelstufe: Encoder-Hardware
-/// seit ~2015/16 (Pascal/VCE 3.x/Skylake), wo AV1 erst ab 2022 anfängt —
-/// Karten dazwischen fielen bisher auf H.264 mit doppelter Bitrate zurück.
+/// Kandidaten in Fähigkeits-Leiter (h264 auf jeder Karte, HEVC als Mittelstufe
+/// seit ~2015/16 — Pascal/VCE 3.x/Skylake —, AV1 erst ab 2022). Das ist KEINE
+/// Auswahlpräferenz: der Renderer zieht AV1 vor (`codecVorgabeFuerGpu`), der
+/// Start-Rückfall geht auf H.264 — die Ordnung hier sagt nur, welche Stufe
+/// welche Hardware-Generation gewinnt.
 const CANDIDATES: &[&str] = &["h264", "hevc", "av1"];
 
 /// Was diese Maschine per Hardware encodieren kann.
 #[derive(Debug, Clone, Default)]
 pub struct Caps {
-    /// Video-Codecs in Präferenzordnung.
+    /// Video-Codecs in Fähigkeits-Leiter (s. `CANDIDATES` — keine Präferenz).
     pub codecs: Vec<&'static str>,
     /// Kann 10 bit encodiert werden? Immer AV1-gebunden: H.264 mit 10 bit wäre
     /// `High 10`, und das dekodiert KEIN Browser — der WHEP-Rückfall im Web
@@ -57,9 +59,32 @@ pub fn available_video_codecs() -> Vec<&'static str> {
     probe().codecs
 }
 
+/// `video_codecs` für die Wire-Meldung (`gpu_info`/`health`): `None`, solange
+/// die Probe noch kein definitives Ergebnis hat (Sidecar frisch gestartet,
+/// GPU-Reset, Treiber nicht bereit). Das Feld bleibt dann GANZ weg — „leere
+/// Liste" hieße „Karte kann nichts", und der Renderer würde darauf die
+/// gespeicherte Codec-Wahl auf H.264 herabstufen; „Feld fehlt" heißt
+/// „Antwort unbekannt", und der Renderer stellt nichts an, bis eine
+/// definitive Antwort kommt (Retry frühestens alle 30 s).
+///
+/// Der Start-Pfad nimmt bewusst weiterhin {@link available_video_codecs}:
+/// Dort ist konservativ richtig (lieber H.264 streamen als auf eine
+/// transiente Fähigkeit vertrauen).
+pub fn gemeldete_video_codecs() -> Option<Vec<&'static str>> {
+    let (caps, definitiv) = probe_mit_definitiv();
+    definitiv.then(|| caps.codecs)
+}
+
 /// Volle Fähigkeiten (Codecs + Bittiefe), aus EINEM Probe-Lauf und derselben
 /// Cache-Entscheidung.
 pub fn probe() -> Caps {
+    probe_mit_definitiv().0
+}
+
+/// Wie [`probe`], aber mit dem Definitiv-Flag: `false`, wenn irgendein
+/// Probe-Schritt mit einem echten Fehler endete (nicht „HW kann's nicht") —
+/// das Ergebnis ist dann nur die konservative Zwischenantwort bis zum Retry.
+pub fn probe_mit_definitiv() -> (Caps, bool) {
     /// Frühestens alle 30 s neu proben, wenn das letzte Ergebnis nicht
     /// definitiv war: `list_profiles` fragt pro Profil, `start` bis zu 2× —
     /// bei DAUERHAFT kaputtem Treiber wären das sonst echte Encoder-Opens
@@ -74,11 +99,14 @@ pub fn probe() -> Caps {
 
     let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(v) = cache.definitive.as_ref() {
-        return v.clone();
+        return (v.clone(), true);
     }
     if let Some((at, v)) = cache.last.as_ref() {
         if at.elapsed() < RETRY_EVERY {
-            return v.clone();
+            // Konnte nur das `last` sein, wenn es nicht definitiv war — ein
+            // definitives Ergebnis läge in `cache.definitive` und hätte
+            // oben geantwortet.
+            return (v.clone(), false);
         }
     }
     let (caps, definitive) = probe_all();
@@ -92,7 +120,7 @@ pub fn probe() -> Caps {
         );
     }
     cache.last = Some((Instant::now(), caps.clone()));
-    caps
+    (caps, definitive)
 }
 
 /// `(caps, definitive)` — `definitive=false`, wenn irgendein Schritt mit
@@ -148,7 +176,7 @@ fn probe_all() -> (Caps, bool) {
     (Caps { codecs: out, ten_bit, ten_bit_hevc }, definitive)
 }
 
-/// Kann diese Maschine den Pulse-Codec (h264/av1) per Hardware encodieren?
+/// Kann diese Maschine den Pulse-Codec (h264/hevc/av1) per Hardware encodieren?
 pub fn supports_codec(codec_id: &str) -> bool {
     available_video_codecs().contains(&codec_id)
 }

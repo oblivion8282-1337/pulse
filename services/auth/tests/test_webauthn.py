@@ -176,9 +176,11 @@ async def test_register_verify_duplicate_conflict(client, monkeypatch):
 @pytest.mark.asyncio
 async def test_list_rename_delete(client, monkeypatch):
     bearer = _bearer(await _register(client))
-    cred_id = (await _enrol(client, monkeypatch, bearer, name="Old name")).json()[
-        "credential"
-    ]["id"]
+    enrol_resp = await _enrol(client, monkeypatch, bearer, name="Old name")
+    cred_id = enrol_resp.json()["credential"]["id"]
+    # Erster MFA-Faktor → frische Backup-Codes im Klartext; ohne einen davon
+    # verweigert der Server das Loeschen des letzten Schluessels (s. u.).
+    backup_code = enrol_resp.json()["backup_codes"][0]
 
     listed = (await client.get("/webauthn/credentials", headers=bearer)).json()
     assert len(listed) == 1 and listed[0]["name"] == "Old name"
@@ -192,7 +194,7 @@ async def test_list_rename_delete(client, monkeypatch):
         "DELETE",
         f"/webauthn/credentials/{cred_id}",
         headers=bearer,
-        json={"password": REG["password"]},
+        json={"password": REG["password"], "backup_code": backup_code},
     )
     assert r.status_code == 200, r.text
     assert (await client.get("/webauthn/credentials", headers=bearer)).json() == []
@@ -347,3 +349,54 @@ async def test_delete_requires_the_password(client, monkeypatch):
     assert r.status_code == 401, r.text
     # Der Schluessel steht noch.
     assert len((await client.get("/webauthn/credentials", headers=bearer)).json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_last_passkey_requires_backup_code(client, monkeypatch):
+    """Passkey-only-Konto: das Loeschen des LETZTEN Schluessels verlangt neben
+    dem Passwort einen gueltigen Backup-Code.
+
+    Passwort + Token reichten bisher, um den EINZIGEN zweiten Faktor zu
+    entfernen — bei einem Konto ohne Passwort-Login (Passkey-only) war das
+    die komplette Entschärfung. Spiegelt delete_me: dieselbe Beweislast.
+    Mit TOTP auf dem Konto bleibt der Restfaktor — dort ist kein Code noetig.
+    """
+    bearer = _bearer(await _register(client))
+    enrol_resp = await _enrol(client, monkeypatch, bearer)
+    cred_id = enrol_resp.json()["credential"]["id"]
+    codes = enrol_resp.json()["backup_codes"]
+    assert codes, "erster Faktor muss Backup-Codes minten"
+
+    # Korrektes Passwort, aber ohne bzw. mit falschem Backup-Code → 401.
+    for payload in (
+        {"password": REG["password"]},
+        {"password": REG["password"], "backup_code": "XXXXX-XXXXX"},
+    ):
+        r = await client.request(
+            "DELETE", f"/webauthn/credentials/{cred_id}", headers=bearer, json=payload
+        )
+        assert r.status_code == 401, r.text
+        assert len((await client.get("/webauthn/credentials", headers=bearer)).json()) == 1
+
+    # Gekürzter/verbrauchter Code zählt nicht: falscher zuerst (kein Verbrauch),
+    # dann der echten — und der Schluessel ist weg.
+    r = await client.request(
+        "DELETE",
+        f"/webauthn/credentials/{cred_id}",
+        headers=bearer,
+        json={"password": REG["password"], "backup_code": codes[0]},
+    )
+    assert r.status_code == 200, r.text
+    assert (await client.get("/webauthn/credentials", headers=bearer)).json() == []
+
+    # Der verbrauchte Code ist danach tot — ein zweiter Passkey-Delete mit dem
+    #selben Code scheitert (Replay-Schutz von _consume_second_factor).
+    await _enrol(client, monkeypatch, bearer, cred_id=bytes(range(21, 41)))
+    cred2 = (await client.get("/webauthn/credentials", headers=bearer)).json()[0]["id"]
+    r = await client.request(
+        "DELETE",
+        f"/webauthn/credentials/{cred2}",
+        headers=bearer,
+        json={"password": REG["password"], "backup_code": codes[0]},
+    )
+    assert r.status_code == 401, r.text

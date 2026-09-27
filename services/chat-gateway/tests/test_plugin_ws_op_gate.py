@@ -114,8 +114,11 @@ async def test_gate_blocks_plugin_disabled_for_guild(session_factory):
             user_id=1,
             allowlist=frozenset({"tamagotchi"}),
         )
+    # Entscheidung 2.4 (2026-09-21): Allowlist-Miss und Toggle-Miss tragen
+    # denselben Code — kein "installiert vs. fremd"-Orakel beim Probieren.
     assert decision.allowed is False
-    assert decision.error_code == 4043
+    assert decision.error_code == 4040
+    assert decision.error_msg == "unknown op"
 
 
 @pytest.mark.asyncio

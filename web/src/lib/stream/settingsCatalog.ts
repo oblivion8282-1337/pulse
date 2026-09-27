@@ -57,7 +57,9 @@ export const HQ_BITRATE_MAX_KBPS = 10_000;
 // docs/2026-09-13-windows-amf-hevc-10bit.md); plain-web viewers remain
 // subject to browser support (Chrome 136+/Safari with hardware decode play,
 // Firefox and Linux+NVIDIA negotiate it not at all → black picture, audio
-// keeps playing). Choosing it is a deliberate trade, not the default.
+// keeps playing). Since 2026-09-20 it IS the default when the GPU encodes
+// HEVC but not AV1 (`codecVorgabeFuerGpu`) — the streamer sees the choice in
+// the codec field and can switch back to H.264 for a browser-mixed audience.
 export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'h264', label: 'H.264' },
   { value: 'hevc', label: 'HEVC' },
@@ -279,14 +281,6 @@ export function snapFps(current: number, steps: ReadonlyArray<number>): number {
   return darunter ?? steps[0];
 }
 
-export const AUDIO_MODES: ReadonlyArray<AudioMode> = [
-  'Aus',
-  'Desktop',
-  'Mikrofon',
-  'Desktop + Mikrofon',
-];
-
-
 /** Prefix the sidecar uses to recognise "capture this app's audio" — the
  *  on-the-wire `audio.mode` for app capture is `"App: <name>"`, which the
  *  sidecar maps to GSR's `-a "app:<name>"`. (Mirrors `APP_LABEL_PREFIX` in
@@ -315,6 +309,15 @@ export function audioModeUsesDesktop(mode: string): boolean {
   return mode === 'Desktop' || mode === 'Desktop + Mikrofon';
 }
 
+/** Ton-Vorgabe je Platz beim Öffnen des Stream-Dialogs: der ERSTE Stream
+ *  trägt den Systemton, jeder weitere startet stumm — zwei gleichzeitige
+ *  Streams mit demselben Ton kämen beim Zuschauer doppelt und leicht
+ *  versetzt an. Nur die Vorgabe, kein Lock: am Dialog lässt sich jeder
+ *  Platz nachträglich auf jede Quelle stellen. */
+export function tonVorgabeFuerPlatz(slot: number): AudioMode {
+  return slot <= 0 ? 'Desktop' : 'Aus';
+}
+
 /** True iff the GPU's reported `video_codecs` mention AV1 (i.e. AV1 encode is
  *  available). Heuristic: any codec string containing "av1", case-insensitive.
  *  Each sidecar reports the *actual* hardware codec set (Linux GSR, Windows
@@ -329,4 +332,38 @@ export function gpuHasAv1(codecs: ReadonlyArray<string> | undefined): boolean {
  *  to H.264 on one without. */
 export function gpuHasHevc(codecs: ReadonlyArray<string> | undefined): boolean {
   return (codecs ?? []).some((c) => /hevc|h265/i.test(c));
+}
+
+/** Codec-Vorgabe nach GPU-Fähigkeit: das Beste, was die Karte hardwareseitig
+ *  encodieren kann — AV1 vor HEVC vor H.264 —, jeweils in 8 bit. 10 bit/HDR
+ *  bleibt bewusst eine ausdrückliche Wahl im Codec-Feld (`VIDEO_MODES`).
+ *  `hasAv1` ist beim Aufrufer bereits plattformbereinigt (`av1Nutzbar`
+ *  schließt macOS aus — VideoToolbox hat keinen AV1-Encoder), d. h. auch der
+ *  Mac läuft hier über die HEVC-Stufe. */
+export function codecVorgabeFuerGpu(hasAv1: boolean, hasHevc: boolean): string {
+  return hasAv1 ? 'av1' : hasHevc ? 'hevc' : 'h264';
+}
+
+/** Codec-Entscheidung aus der GPU-Antwort: Vorgabe, wenn nichts gespeichert
+ *  ist, sonst Herabstufung eines gespeicherten Codecs, den die Karte nicht
+ *  encodieren kann — oder `undefined` für „nichts anstellen".
+ *
+ *  `bekannt=false` (die Sidecar-Probe hat noch kein definitives Ergebnis —
+ *  Sidecar frisch gestartet, GPU-Reset, Treiber nicht bereit) lässt ALLES
+ *  unangetastet: eine transiente Unfähigkeit ist keine Fähigkeit, und ein
+ *  Zwangs-Coercen auf H.264 hätte die gespeicherte Wahl still zerstört und
+ *  beim nächsten Speichern dauerhaft gemacht (Bughunt 2026-09-20). Anzeige
+ *  und Start fallen in dem Fenster konservativ auf H.264, ohne zu speichern;
+ *  die nächste definitive Antwort setzt die Vorgabe dann richtig. */
+export function codecAnpassungFuerGpu(
+  bekannt: boolean,
+  hasAv1: boolean,
+  hasHevc: boolean,
+  gespeichert: string | undefined,
+): string | undefined {
+  if (!bekannt) return undefined;
+  if (!gespeichert) return codecVorgabeFuerGpu(hasAv1, hasHevc);
+  if (gespeichert === 'av1' && !hasAv1) return codecVorgabeFuerGpu(false, hasHevc);
+  if (gespeichert === 'hevc' && !hasHevc) return codecVorgabeFuerGpu(hasAv1, false);
+  return undefined;
 }

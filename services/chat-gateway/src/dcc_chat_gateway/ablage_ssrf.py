@@ -120,7 +120,32 @@ PRIVATE_NETZE = (
     ipaddress.ip_network("::1/128"),
     ipaddress.ip_network("fc00::/7"),
     ipaddress.ip_network("fe80::/10"),
+    # NAT64 (Well-Known-Prefix + Local-Use) — der eingebettete Kernel-Weg
+    # routet die letzten 32 Bit als IPv4 ins Zielnetz.
+    ipaddress.ip_network("64:ff9b::/96"),
+    ipaddress.ip_network("64:ff9b:1::/48"),
 )
+
+
+def _eingebettetes_v4(adr: ipaddress._BaseAddress) -> ipaddress._BaseAddress:
+    """Holt die IPv4-Adresse heraus, die in einer IPv6-Adresse steckt.
+
+    **Warum das sein muss:** ``IPv6Address in IPv4Network`` ist in Python immer
+    ``False`` — kein Fehler, einfach kein Treffer. Die v4-Einträge in
+    ``PRIVATE_NETZE`` greifen deshalb bei ``::ffff:169.254.169.254`` nicht, und
+    die Sperre wäre mit einer Literal-URL wie ``http://[::ffff:169.254.169.254]/``
+    zu umgehen: der Dual-Stack-Kernel verbindet sie als IPv4, und der
+    Antwortkörper der Ablage geht an den Nutzer zurück. Drei Formen betten
+    IPv4 ein, alle drei werden ausgepackt; NAT64 ist oben als ganzes Netz
+    gesperrt. Derselbe Schutz steht in ``dcc_auth.selfhost_probe``.
+    """
+    if isinstance(adr, ipaddress.IPv6Address):
+        for eingebettet in (adr.ipv4_mapped, adr.sixtofour, adr.teredo):
+            if isinstance(eingebettet, tuple):  # teredo -> (server, client)
+                eingebettet = eingebettet[0]
+            if eingebettet is not None:
+                return eingebettet
+    return adr
 
 
 def ist_privat(roh_ip: str) -> bool:
@@ -128,6 +153,7 @@ def ist_privat(roh_ip: str) -> bool:
         adr = ipaddress.ip_address(roh_ip)
     except ValueError:
         return True  # unparsbar -> fail closed, nicht durchlassen
+    adr = _eingebettetes_v4(adr)
     return any(adr in netz for netz in PRIVATE_NETZE)
 
 

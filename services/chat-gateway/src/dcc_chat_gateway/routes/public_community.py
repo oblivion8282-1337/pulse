@@ -114,8 +114,15 @@ async def list_public_communities(
         stmt = stmt.where(Guild.category == category)
     if q:
         begriff = q.strip()
+        # Bughunt Runde 23: LIKE-Metazeichen maskieren + Länge deckeln
+        # (Spiegel zu dms.py::_like_maskieren) — ein '%'-/'_'-Term traf
+        # jede Community, eine '_'-Kette trieb den Musterabgleich in
+        # pathologisches Zurücksetzen, ohne Rate-Limiter drosselbar.
         if begriff:
-            stmt = stmt.where(Guild.name.ilike(f"%{begriff}%"))
+            maskiert = (
+                begriff.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )[:64]
+            stmt = stmt.where(Guild.name.ilike(f"%{maskiert}%", escape="\\"))
     stmt = stmt.order_by(Guild.name, Guild.id).limit(
         max(1, min(limit, _VERZEICHNIS_MAX))
     )

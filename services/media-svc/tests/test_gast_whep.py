@@ -104,3 +104,43 @@ async def test_konto_token_taugt_hier_nicht_und_gast_ticket_dort_nicht(
     assert (
         await client.get(f"/channels/{cid}/whep?user_id=42", headers=_auth(ticket))
     ).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_lese_token_ttl_ueberlebt_das_ticket_nicht(client, redis, auth_signer):
+    """Bughunt 2026-09-16, Runde 2: Mit der fixen 1-h-TTL ueberlebte die
+    WHEP-URL das (bis 4 h laufende) Ticket um bis zu eine Stunde. Jetzt klemmt
+    der Gast-Weg die Lese-Token-TTL auf die Ticket-Restlaufzeit — hier: 5 min
+    Restlaufzeit, also darf der Redis-TTL der Token-Zeiger nicht groesser sein."""
+    cid = "770005"
+    path = f"channel-{cid}-42-{'deadbeef' * 4}"
+    await redis.set(
+        ACTIVE_KEY.format(channel_id=cid, user_id="42"),
+        json.dumps({"user_id": "42", "started_at": "2026-09-04T00:00:00+00:00", "path": path}),
+    )
+    await redis.delete("gast:gesperrt:gast-77")
+    try:
+        r = await client.get(
+            f"/gast/whep?channel_id={cid}&user_id=42",
+            headers=_auth(
+                auth_signer.issue_gast(
+                    gast_id="gast-77",
+                    guild_id="9",
+                    channel_id=cid,
+                    name="Frau Meier",
+                    ttl_s=300,
+                )
+            ),
+        )
+        assert r.status_code == 200, r.text
+        token = r.json()["whep_url"].partition("token=")[2]
+        assert 0 < int(await redis.ttl(TOKEN_KEY.format(token=token))) <= 300
+    finally:
+        await redis.delete(ACTIVE_KEY.format(channel_id=cid, user_id="42"))
+        token = None
+        try:
+            token = r.json()["whep_url"].partition("token=")[2]
+        except Exception:
+            pass
+        if token:
+            await redis.delete(TOKEN_KEY.format(token=token))

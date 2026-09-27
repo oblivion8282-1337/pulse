@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { chatApi } from '$lib/api/chat';
   import { ApiError } from '$lib/api/client';
   import type { InvitePreview } from '$lib/api/types';
@@ -107,10 +108,6 @@
     }
   });
 
-  function guildInitial(name: string): string {
-    return name.trim().charAt(0).toUpperCase();
-  }
-
   // Erstkontakt-Bestätigung für neue, unbekannte Self-Hosts.
   let confirmOpen = $state(false);
   let confirmHost = $state('');
@@ -181,7 +178,7 @@
   {:else if host && !selfHostInvalid}
     <Avatar.Root class="size-10 shrink-0">
       <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-        {guildInitial(host)}
+        {anfangsBuchstabe(host)}
       </Avatar.Fallback>
     </Avatar.Root>
     <div class="min-w-0 flex-1">
@@ -207,7 +204,7 @@
         <Avatar.Image src={previewIconSrc} alt={preview.guild.name} />
       {/if}
       <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-        {guildInitial(preview.guild.name)}
+        {anfangsBuchstabe(preview.guild.name)}
       </Avatar.Fallback>
     </Avatar.Root>
     <div class="min-w-0 flex-1">

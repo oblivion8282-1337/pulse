@@ -61,10 +61,6 @@ GUILD_MEMBER_SCOPED_OPS = frozenset(
         # dropbox channel must not receive presigned URLs for files they can't
         # see in the sidebar. Same channel-scope as ``channel_bump`` (see the
         # gate in pubsub_channel_guild.handle_guild_events).
-        "dropbox_entry_created",
-        "dropbox_entry_updated",
-        "dropbox_entry_deleted",
-        "dropbox_entry_restored",
         "dropbox_entry_purged",
         "dropbox_quota_updated",
         # New moderation report: pre-narrow to guild members here (cheap), then

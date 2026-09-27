@@ -26,7 +26,7 @@
   import StreamStatusBar from '$lib/stream/components/StreamStatusBar.svelte';
   import { onMount } from 'svelte';
   import { isCapacitorAndroid } from '$lib/platform/runtime';
-  import { setAudioRoute, getAudioRoute } from '$lib/platform/audioRoute';
+  import { setAudioRoute, getAudioRoute, type AudioRoute } from '$lib/platform/audioRoute';
 
   // Camera-toggle gate: same shape as the HQ-stream button. Hide when
   // the channel's resolved permissions lack USE_VIDEO. Falls back to
@@ -86,16 +86,22 @@
   // Default = Lautsprecher (= nativer Auto-Modus); Tippen erzwingt Hörmuschel
   // bzw. zurück. Onmount mit dem nativen Stand synchronisieren.
   const showAudioRouteToggle = isCapacitorAndroid();
-  let speakerOn = $state(true);
+  // Bughunt Runde 8: der Toggle kannte nur zwei Zustände — „auto" (der
+  // EINZIGE Modus mit aktiver BT-SCO-Routing-Logik des nativen Routers)
+  // war nach dem ersten Tippen für immer unerreichbar: Im Auto schickte
+  // der zweite Tipp 'speaker' statt 'auto', der Ton sprang vom Car-Kit
+  // auf den Handy-Lautsprecher und blieb dort bis zum App-Neustart.
+  let route = $state<AudioRoute>('auto');
   onMount(() => {
     if (!showAudioRouteToggle) return;
     void getAudioRoute().then((r) => {
-      speakerOn = r !== 'earpiece';
+      route = r;
     });
   });
   function toggleAudioRoute(): void {
-    speakerOn = !speakerOn;
-    void setAudioRoute(speakerOn ? 'speaker' : 'earpiece');
+    // auto → speaker → earpiece → auto …
+    route = route === 'auto' ? 'speaker' : route === 'speaker' ? 'earpiece' : 'auto';
+    void setAudioRoute(route);
   }
 
   // `rounded-full` ausdrücklich: Anruf-Steuerungen sind rund, das ist die
@@ -217,28 +223,33 @@
       </Tooltip.Root>
 
       <!-- Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App (nativer
-           AudioRoute-Toggle). Behebt den earpiece-Default im Kommunikationsmodus. -->
-      {#if showAudioRouteToggle && !viewport.isMobile}
+           AudioRoute-Toggle). Behebt den earpiece-Default im Kommunikationsmodus.
+           Bughunt Runde 45: das `&& !viewport.isMobile` war eine
+           Gate-Inversion — ausgerechnet auf Phones (die EINZIGEN mit
+           Hörmuschel) war der Schalter weg, nur Tablets durften umschalten. -->
+      {#if showAudioRouteToggle}
         <Tooltip.Root>
           <Tooltip.Trigger>
             {#snippet child({ props })}
               <Button
                 {...props}
-                variant={speakerOn ? 'default' : 'ghost'}
+                variant={route === 'earpiece' ? 'ghost' : 'default'}
                 size="icon-sm"
                 class={btnCls}
                 onclick={toggleAudioRoute}
                 data-testid="voice-audio-route-toggle"
-                aria-label={speakerOn
-                  ? m.voice_bar_route_to_earpiece()
-                  : m.voice_bar_route_to_speaker()}
+                aria-label={route === 'auto'
+                  ? m.voice_bar_route_to_speaker()
+                  : route === 'speaker'
+                    ? m.voice_bar_route_to_earpiece()
+                    : m.voice_bar_route_to_speaker()}
               >
-                {#if speakerOn}<Volume2Icon class={iconCls} />{:else}<EarIcon class={iconCls} />{/if}
+                {#if route === 'earpiece'}<EarIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
               </Button>
             {/snippet}
           </Tooltip.Trigger>
           <Tooltip.Content>
-            {speakerOn ? m.voice_bar_route_speaker_hint() : m.voice_bar_route_earpiece_hint()}
+            {route === 'earpiece' ? m.voice_bar_route_earpiece_hint() : m.voice_bar_route_speaker_hint()}
           </Tooltip.Content>
         </Tooltip.Root>
       {/if}

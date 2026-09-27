@@ -23,7 +23,6 @@ isoliert — das ist die Zusage und nicht ein technischer Zufall.
 from __future__ import annotations
 
 import asyncio
-import hmac
 from typing import Annotated
 from urllib.parse import urlsplit
 
@@ -39,7 +38,7 @@ from dcc_auth.diagnose_texte import SCHRITTE, container_name, erklaerung, sprach
 from dcc_auth.models_instances import RegisteredInstance
 from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
-from dcc_auth.security import verify_password
+from dcc_auth.security import constant_time_eq, verify_password
 from dcc_auth.selfhost_probe import Schritt, pruefe_dns, pruefe_tcp, pruefe_tls
 from dcc_auth.selfhost_probe_anmeldeweg import pruefe_anmeldeweg
 from dcc_auth.selfhost_probe_betreiber import pruefe_betreiber
@@ -106,7 +105,7 @@ async def _instanz_oder_404(
     if client_id and client_secret:
         # Der ID-Vergleich zuerst und in konstanter Zeit; das Argon2 darunter
         # kostet Rechenzeit, die ein Fremder sonst gratis auslösen könnte.
-        if not hmac.compare_digest(client_id, inst.client_id):
+        if not constant_time_eq(client_id, inst.client_id):
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
         if not await asyncio.to_thread(verify_password, client_secret, inst.client_secret):
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")

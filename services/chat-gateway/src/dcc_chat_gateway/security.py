@@ -45,11 +45,9 @@ __all__ = [
     "AuthenticatedUser",
     "CurrentGast",
     "CurrentUser",
-    "CurrentUserQuery",
     "OwnerUser",
     "decode_token",
     "get_current_user",
-    "get_current_user_token_query",
     "get_settings",
     "install_static_jwks",
     "reset_cache",
@@ -70,20 +68,7 @@ async def get_current_user(
     return await _tv.get_current_user(authorization, get_settings)
 
 
-async def get_current_user_token_query(
-    authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None),
-) -> AuthenticatedUser:
-    """Accept the bearer token from the ``Authorization`` header **or** a
-    ``?token=`` query param. The query form exists for browser-initiated
-    downloads (``window.location.href`` / ``<a href>`` can't attach a header)
-    and mirrors the WS endpoint's ``token`` query param. Same verification +
-    gates as the header path — just an extra intake channel."""
-    return await _tv._user_from_token(_extract_bearer(authorization) or token, get_settings)
-
-
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]
-CurrentUserQuery = Annotated[AuthenticatedUser, Depends(get_current_user_token_query)]
 
 
 async def require_admin(current: CurrentUser) -> AuthenticatedUser:

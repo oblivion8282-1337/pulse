@@ -28,6 +28,7 @@
  * das hier abkuerzt, macht aus einem Cache-Treffer ein Sicherheitsloch.
  */
 import type { PrivateGruppe } from '$lib/api/gruppen';
+import { compareSnowflakeId } from '$lib/utils/snowflake';
 
 class PrivateGruppenStore {
   byId = $state<Record<string, PrivateGruppe>>({});
@@ -60,10 +61,25 @@ class PrivateGruppenStore {
   }
 
   /** Ersetzt den ganzen Bestand — die Antwort von `GET /gruppen` ist
-   *  vollstaendig, ein Merge wuerde eine verlassene Gruppe stehen lassen. */
+   *  vollstaendig, ein Merge wuerde eine verlassene Gruppe stehen lassen.
+   *  AUSNAHME (Bughunt Runde 6): die klientengefuehrte `last_message_id`
+   *  (der Server sieht verschluesselte Nachrichten nie) bleibt stehen, wenn
+   *  sie NEUER ist als der Server-Stand — sonst regrediert die Listen-
+   *  sortierung bei jedem Ready/Seed, das mit einer Nachricht rennt. */
   seed(gruppen: PrivateGruppe[]): void {
     const next: Record<string, PrivateGruppe> = {};
-    for (const g of gruppen) next[g.id] = g;
+    for (const g of gruppen) {
+      const aktuell = this.byId[g.id];
+      if (
+        aktuell?.last_message_id &&
+        (!g.last_message_id ||
+          compareSnowflakeId(aktuell.last_message_id, g.last_message_id) > 0)
+      ) {
+        next[g.id] = { ...g, last_message_id: aktuell.last_message_id };
+      } else {
+        next[g.id] = g;
+      }
+    }
     this.byId = next;
     this.#bereitAufloesen();
   }
@@ -85,6 +101,13 @@ class PrivateGruppenStore {
 
   clear(): void {
     this.byId = {};
+    // Neues Gate aufspannen: nach dem Leeren (Sign-Out/Account-Wechsel) muss
+    // der nächste Seed wieder abwartbar sein — das alte Promise ist längst
+    // aufgelöst, ein Aufrufer würde sonst den leeren Anfangszustand für die
+    // Wahrheit halten (derselbe Bug, dem `bereit` ursprünglich galt).
+    this.bereit = new Promise((res) => {
+      this.#bereitAufloesen = res;
+    });
   }
 }
 

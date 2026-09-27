@@ -12,6 +12,7 @@
    * im Raster auf/zu.
    */
   import { m } from '$lib/paraglide/messages.js';
+  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import { safeAvatarUrl } from '$lib/avatar';
   import { gastRaum, type GastTeilnehmer } from './gastRaum.svelte';
@@ -27,7 +28,7 @@
   );
   let anzeigeName = $derived(profil?.name ?? t.name);
   let avatarSrc = $derived(safeAvatarUrl(profil?.avatarUrl ?? null));
-  let initial = $derived((anzeigeName.trim()[0] ?? '?').toUpperCase());
+  let initial = $derived(anfangsBuchstabe(anzeigeName) || '?');
 
   /** HQ-Streams dieses Senders — einer (LIVE öffnet direkt) oder mehrere. */
   let streams = $derived(gastStreams.sender.filter((s) => `user-${s.userId}` === t.identity));

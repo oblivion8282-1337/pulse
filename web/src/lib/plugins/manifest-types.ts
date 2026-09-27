@@ -10,7 +10,6 @@
  */
 
 /** Pulse Plugin-API major. Schritt 4 ships `"1"`. */
-export const DEFAULT_PLUGIN_API = '1' as const;
 
 export type ScopeType = 'per-user' | 'per-guild' | 'global';
 

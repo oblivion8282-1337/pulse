@@ -14,9 +14,11 @@
  * `db.ts`, `monitorZuordnung.ts` neben seinem `.svelte.ts`-Verbraucher).
  */
 
-/** Die drei Lagen aus Plan Task 1 — Reihenfolge der Prüfung ist irrelevant,
- *  die drei Mengen sind disjunkt. */
-export type SpeicherLage = 'nicht_verfuegbar' | 'voll' | 'fehler';
+/** Die vier Lagen — Reihenfolge der Prüfung ist irrelevant, die Mengen sind
+ *  disjunkt. `zu_neu` (2026-09-22): der gespeicherte Bestand trägt eine
+ *  HÖHERE Fassung als der Code — nur möglich in Profilen, die einmal einen
+ *  Experimentier-Zweig mit jüngerer Fassung geladen haben. */
+export type SpeicherLage = 'nicht_verfuegbar' | 'voll' | 'zu_neu' | 'fehler';
 
 export type GedeuteterFehler = {
   art: SpeicherLage;
@@ -29,13 +31,17 @@ const NICHT_VERFUEGBAR_NAMEN = new Set(['SecurityError', 'InvalidStateError']);
 /** `QuotaExceededError` — der Browser hat das Speicherlimit erreicht. */
 const VOLL_NAMEN = new Set(['QuotaExceededError']);
 
+/** `VersionError` — der Bestand ist jünger als die laufende App-Fassung. */
+const ZU_NEU_NAMEN = new Set(['VersionError']);
+
 /**
- * fail-loud: alles, was sich keiner der beiden bekannten Lagen zuordnen
- * lässt, gilt als echter Fehler — nicht als „wird schon nichts Ernstes sein".
+ * fail-loud: alles, was sich keiner der bekannten Lagen zuordnen lässt, gilt
+ * als echter Fehler — nicht als „wird schon nichts Ernstes sein".
  */
 export function deuteSpeicherfehler(err: unknown): GedeuteterFehler {
   const name = err instanceof Error ? err.name : undefined;
   if (name && NICHT_VERFUEGBAR_NAMEN.has(name)) return { art: 'nicht_verfuegbar' };
   if (name && VOLL_NAMEN.has(name)) return { art: 'voll' };
+  if (name && ZU_NEU_NAMEN.has(name)) return { art: 'zu_neu' };
   return { art: 'fehler' };
 }

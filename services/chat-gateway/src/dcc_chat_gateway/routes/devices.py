@@ -363,6 +363,28 @@ async def patch_device(
             body.channel_id,
             detail="you need permission to stream in the new channel",
         )
+        # Community-Wechsel: derselbe Deckel wie beim Anlegen (Bughunt
+        # Runde 4). Ohne diese Zählung ließ sich der Limit via Umweg
+        # beliebig dehnen — Gerät in A parken, nach B umziehen, wieder
+        # von vorn.
+        if ziel_guild != device.guild_id:
+            eigene_ziel = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(Device)
+                    .where(
+                        Device.guild_id == ziel_guild,
+                        Device.owner_user_id == user.id,
+                    )
+                )
+            ).scalar_one()
+            ziel = await session.get(Guild, ziel_guild)
+            ziel_deckel = effective(ziel, LIMITS_BY_KEY["max_devices_per_owner"]) if ziel else None
+            if ziel_deckel is not None and eigene_ziel >= ziel_deckel:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail=f"at most {ziel_deckel} devices per community",
+                )
         alter_kanal = device.channel_id
         alte_guild = device.guild_id
         device.channel_id = body.channel_id

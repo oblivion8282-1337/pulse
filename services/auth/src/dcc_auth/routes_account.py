@@ -42,7 +42,7 @@ import dcc_auth.config as _config
 from dcc_auth.db import SessionDep
 from dcc_auth.models import AdminAuditLog, User, WebAuthnCredential
 from dcc_auth.models_instances import RegisteredInstance
-from dcc_auth.routes import _check_rate, _get_current_user
+from dcc_auth.routes import _check_account_rate, _check_rate, _get_current_user
 from dcc_auth.routes_instance_delete import _DELETE_REASON, soft_delete_instance
 from dcc_auth.routes_suspended_instances import _get_redis, suspended_list_add
 from dcc_auth.schemas import AccountDeleteIn
@@ -120,6 +120,9 @@ async def delete_me(
     """
     settings = _config.get_settings()
     await _check_rate(request, "account_delete", settings.rate_limit_account_delete)
+    # Bughunt Runde 40: je-Konto-Bremse (Backup-Code-Raten grinden), s.
+    # totp_disable in routes_totp.
+    await _check_account_rate(request, "account_delete", str(current.id))
 
     # Operator hint: with no internal secret we cannot purge chat-side. Bail
     # *before* asking for password / 2FA so the user doesn't waste a code on

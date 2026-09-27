@@ -130,8 +130,12 @@ class AuthStore {
           void serversStore.hydrateFromBackend();
           startProfileRefresh();
           try {
-            const { runIssueFlow } = await import('$lib/identity/issue-flow');
-            await runIssueFlow();
+            // Bughunt Runde 11: über starteGeraeteAnmeldung statt
+            // runIssueFlow — der Single-Flight-Schutz war gebaut, aber nie
+            // verdrahtet. setUser- und Hydrate-Hook feuern beide beim Login;
+            // zwei parallele Flows = zwei Keypairs = kaputter Empfänger-Fächer.
+            const { starteGeraeteAnmeldung } = await import('$lib/identity/issue-flow');
+            await starteGeraeteAnmeldung();
           } catch (fehler) {
             // best-effort — der naechste Login/Restore versucht es erneut.
             // Seit B11 wirft der Fluss auch das Scheitern der Schluessel-
@@ -187,8 +191,9 @@ class AuthStore {
     // Geraete-Anmeldung (Weg A) — fire-and-forget, best-effort wie beim Restore.
     void (async () => {
       try {
-        const { runIssueFlow } = await import('$lib/identity/issue-flow');
-        await runIssueFlow();
+        // Bughunt Runde 11: s. Restore-Pfad — Single-Flight statt Parallellauf.
+        const { starteGeraeteAnmeldung } = await import('$lib/identity/issue-flow');
+        await starteGeraeteAnmeldung();
       } catch (fehler) {
         // s. derselbe Hinweis im Restore-Pfad oben (B11): sichtbar warnen.
         console.warn('[krypto] Geraete-Anmeldung fehlgeschlagen:', fehler instanceof Error ? fehler.message : fehler);
@@ -238,6 +243,14 @@ class AuthStore {
         gatewayPool.close(s.id);
         sessionTokens.clear(s.id);
       }
+      // Bughunt Runde 51: auch die CLOUD-Connection schließen — vorher
+      // überlebte der als A authentifizierte Socket den Kontowechsel
+      // (connect() early-returns auf offenem Socket), B ritt auf A's
+      // Handshake, A's Social-Events flossen weiter in die frisch geleerten
+      // Stores, und replayReadyForActivation hätte A's ready-Snapshot
+      // zurückgesät. signOut vermeidet das nur via closeAll().
+      const cloud = serversStore.cloudId();
+      if (cloud) gatewayPool.close(cloud);
       // Self-Hosts aus der Geräte-Liste entfernen (silent: kein Tresor-Push).
       serversStore.keepOnlyCloud(true);
       const cloudId = serversStore.cloudId();
@@ -254,6 +267,21 @@ class AuthStore {
       // In-Memory-Reste leeren (greift im SPA-Login-Pfad ohne Reload).
       resetServerScopedStores();
       resetSocialStores();
+      // Bughunt Runde 51: die identitätsgebundenen Reste, die bisher NUR
+      // signOut räumte (Wipe-Liste war schmaler) — sonst erbte B am selben
+      // Tab A's Admin-Flag-Anzeige (serverAdmin), Privacy-Policies
+      // (optimistisch), User-Cache-Einträge, offene Fernsteuerungs-Anfragen
+      // und nutzergebundene Plugin-Einstellungen.
+      userCache.clear();
+      capabilities.clear();
+      privacy.clear();
+      serverAdmin.clear();
+      void import('$lib/remote/session.svelte').then((m) => m.remoteSession.abmelden());
+      settings.resetUserScoped();
+      void import('$lib/stores/serverGuilds.svelte').then((m) => m.serverGuilds.clear());
+      void import('$lib/stores/serverCapabilities.svelte').then((m) =>
+        m.serverCapabilities.clear(),
+      );
       // Voice-Resume des Vorgängers verwerfen, damit ein anderer User am selben
       // Gerät nicht in dessen Channel auto-rejoined.
       clearVoiceResume();

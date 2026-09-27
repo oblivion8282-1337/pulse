@@ -14,9 +14,9 @@ seinen Handler/Section/Schema einklinkt.
 ### Schritt 1 — Event-Schema-Registry (Backend, shared) — fertig (9ac593d)
 
 Branch: `feat/event-schema-registry`, merged auf `main`.
-Backend-Pendant: `shared/dcc_shared/events.py` exportiert eine Registry für
+Backend-Pendant: `shared/src/dcc_shared/events/` (Package) exportiert eine Registry für
 `{op, schema, version}`-Tupel; alle WS-Op-Payloads werden über sie validiert.
-Plugins können neue Ops registrieren, ohne `events.py` zu patchen.
+Plugins können neue Ops registrieren, ohne das Event-Package zu patchen.
 
 ### Schritt 1b — Listener-side strict validation — fertig
 
@@ -474,7 +474,7 @@ Copy-Paste-Vorlage für eigene Plugins.
   Op-Code (`plugin:action`) — schützt vor versehentlicher Kollision mit
   Built-in-Ops (`send`/`subscribe`/…). Cast through `unknown`, weil
   `ClientEvent` plugin ops zur Build-Time nicht kennt.
-* **Default-aktiv**: `web/src/lib/plugins/activation-state.svelte.ts` listet
+* **Default-aktiv**: (Datei später entfernt; Aktivierungsliste liegt in der DB) — historisch: listete
   `tamagotchi` neben `hello` in `DEFAULT_ACTIVATED` — frische Installationen
   sehen das Widget direkt. User kann's im Plugin-Manager
   (`/Einstellungen → Plugins`) toggeln; der persistierte State überschreibt
@@ -509,7 +509,7 @@ Was bewusst NICHT in Schritt 7:
 Branch: `feature/plugin-admin-activation-backend`.
 
 **Problem.** Schritt 6 hat Aktivierung pro User in
-`web/src/lib/plugins/activation-state.svelte.ts` gespeichert (User
+(später entfernt, s. Zeile 598) — historisch: gespeichert in (User
 entscheidet selbst, welche Plugins er sieht). Für ein Discord-artiges
 Server-Modell ist das falsch — Plugins sollen vom Instanz-Admin
 freigegeben und vom Guild-Admin pro Server toggelt werden.

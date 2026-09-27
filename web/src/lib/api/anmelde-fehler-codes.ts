@@ -71,19 +71,6 @@ export const MELDUNGSSCHLUESSEL: Record<Ablehnungscode, string> = {
  * verlangen etwas: eine Einladung, einen erreichbaren Server, ein Gespräch mit
  * dem Betreiber.
  */
-export const VON_SELBST_HEILBAR: readonly Ablehnungscode[] = [
-  'ticket_expired',
-  'ticket_replayed',
-  'network',
-  // Ein Speicherausfall auf dem Server geht vorbei, ohne dass der Nutzer etwas
-  // tun kann — anders als eine fehlende Einladung.
-  'speicher_nicht_erreichbar',
-];
-
-export function hatTextFuerJedenCode(): boolean {
-  return ABLEHNUNGSCODES.every((c) => !!MELDUNGSSCHLUESSEL[c]);
-}
-
 export function istAblehnungscode(wert: unknown): wert is Ablehnungscode {
   return typeof wert === 'string' && (ABLEHNUNGSCODES as readonly string[]).includes(wert);
 }

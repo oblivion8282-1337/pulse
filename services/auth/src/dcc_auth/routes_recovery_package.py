@@ -23,18 +23,24 @@ die ``BackupCode``/``WebAuthnCredential`` beim ``DELETE FROM users`` in
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import delete
 
+from dcc_auth.security import verify_password
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.models_recovery_package import RecoveryPackage
 from dcc_auth.routes import _check_rate, _get_current_user
-from dcc_auth.schemas import RecoveryPackageIn, RecoveryPackageOut
+from dcc_auth.schemas import (
+    RecoveryPackageDeleteIn,
+    RecoveryPackageIn,
+    RecoveryPackageOut,
+)
 
 router = APIRouter()
 
@@ -53,9 +59,19 @@ async def put_recovery_package(
     Primärschlüssel gleichzeitig sinnvoll schreibt (der aufrufende Nutzer
     ersetzt sein eigenes Päckchen — kein Wettlauf mit sich selbst, den es
     lohnte, extra zu härten).
+
+    **Passwortpflicht** (Bughunt-Entscheidung 4.2, 2026-09-21): ein
+    gestohlener Bearer/Session-Token allein darf das Päckchen nicht
+    überschreiben — es ist die einzige serverseitige Kopie des
+    Archiv-Schlüssel-Bündels, und ein Überschreiben ist dauerhafter
+    Datenverlust. Derselbe Beweis wie bei Passwort-Wechsel & Co.
     """
     settings = get_settings()
     await _check_rate(request, "recovery_package_write", settings.rate_limit_recovery_package)
+    if not await asyncio.to_thread(
+        verify_password, payload.password, current.password_hash
+    ):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
     now = datetime.now(UTC)
     row = await session.get(RecoveryPackage, current.id)
@@ -92,6 +108,7 @@ async def get_recovery_package(
 
 @router.delete("/me/recovery-package", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_recovery_package(
+    payload: RecoveryPackageDeleteIn,
     request: Request,
     session: SessionDep,
     current: Annotated[User, Depends(_get_current_user)],
@@ -99,9 +116,17 @@ async def delete_recovery_package(
     """Löschen — das ist der Widerruf, wenn der Satz abhandenkommt (Aufgabe 4:
     "erneuern" ist client-seitig ein PUT mit neuem ``ciphertext``; ein
     reines DELETE räumt nur auf, ohne dass sofort ein neues Päckchen entsteht).
-    Idempotent — Löschen einer nicht vorhandenen Zeile ist kein Fehler."""
+    Idempotent — Löschen einer nicht vorhandenen Zeile ist kein Fehler.
+
+    **Passwortpflicht** wie beim PUT (Entscheidung 4.2): der Widerruf
+    vernichtet dieselbe einzige Kopie.
+    """
     settings = get_settings()
     await _check_rate(request, "recovery_package_write", settings.rate_limit_recovery_package)
+    if not await asyncio.to_thread(
+        verify_password, payload.password, current.password_hash
+    ):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
     await session.execute(delete(RecoveryPackage).where(RecoveryPackage.user_id == current.id))
     await session.commit()

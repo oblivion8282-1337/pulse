@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
 import { errText } from '$lib/utils/errText';
+import { currentLocale } from '$lib/i18n';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
@@ -247,7 +248,7 @@ import { errText } from '$lib/utils/errText';
               {app.origin === 'app_host' ? m.hosting_apply_mode_app_title() : app.hostname}
             </p>
             <p class="text-text-muted text-xs mt-0.5">
-              {new Date(app.created_at).toLocaleDateString('de-DE')}
+              {new Date(app.created_at).toLocaleDateString(currentLocale())}
               · {app.purpose}
             </p>
           </div>
