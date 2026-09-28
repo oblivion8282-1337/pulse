@@ -71,11 +71,12 @@ webrtcIPsFromInterfaces: no
 #    veroeffentlicht — der Output war fuer niemanden erreichbar. Reine
 #    Verschwendung ohne Gegenleistung.
 #
-# PULSE_KEYFRAME_INTERVAL=0 (Heim-Server 2026-09-28, Cloud-Paritaet): entzieht
-# dem HLS-Muxer die periodischen Vollbilder — `hlsAlwaysRemux: yes` würde den
-# Stream sonst zum Einsturz bringen (s. infra/prod/mediamtx.yml). Glatter
-# Strom nur mit Vollbildern on demand.
-PULSE_KEYFRAME_INTERVAL=0
+# Keyframe-Takt (Heim-Server 2026-09-28, Cloud-Paritaet): der Fork wird mit
+# PULSE_KEYFRAME_INTERVAL=0 gefahren (s. s6-rc.d/mediamtx/run) — der
+# periodische Vollbild-Takt ist aus, glatter Strom nur mit Vollbildern on
+# demand. STEHT HIER NUR ALS KOMMENTAR: eine Env-Zuweisung im YAML ist keine —
+# sie liest MediaMTX als Dokument-Skalar und bricht mit "non-map value" ab
+# (Erststart im Mac-E2E 2026-09-28, der Container restart-loopte davon).
 hls: no
 
 # MoQ (Media over QUIC, Port 8892) ist bei MediaMTX 1.19.1 STANDARDMAESSIG an,
