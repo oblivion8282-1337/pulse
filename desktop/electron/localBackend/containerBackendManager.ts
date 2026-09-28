@@ -161,6 +161,18 @@ export function updateVerdict(runningImageId: string, pulledImageId: string): 'u
   return a && b && a !== b ? 'update' : 'none';
 }
 
+/** Erste globale IPv4 aus einer `ip -4 addr show`-Ausgabe — die Adresse der
+ *  podman-machine-VM. Loopback wird übersprungen; der Interface-Name spielt
+ *  keine Rolle (WSL2: eth0, Podman 6/applehv auf macOS: enp0s1 — s.
+ *  machineVmIp). null, wenn keine globale Adresse dabei ist. */
+export function vmIpAusIpAusgabe(ausgabe: string): string | null {
+  const treffer = ausgabe.matchAll(/inet (\d+\.\d+\.\d+\.\d+)[/\s]/g);
+  for (const m of treffer) {
+    if (!m[1].startsWith('127.')) return m[1];
+  }
+  return null;
+}
+
 /** UDP-Ports, die der Host-Relay in die VM spiegeln muss (Win/Mac, s.
  *  udpRelay.ts): 7900 = Direktpfad-ICE-Mux. Die LiveKit-Medienports
  *  (7882-7892 etc.) sind bewusst NICHT dabei — LiveKit announced keine
@@ -190,11 +202,14 @@ export class ContainerBackendManager {
   private async machineVmIp(rt: ContainerRuntime): Promise<string | null> {
     if (rt.kind !== 'podman') return null;
     if (process.platform !== 'win32' && process.platform !== 'darwin') return null;
-    const r = await rtExec(rt, ['machine', 'ssh', 'ip -4 addr show eth0'], {
+    // Interface NICHT anfassen, ganze Ausgabe parsen: WSL2 heißt es eth0, aber
+    // Podman 6 auf macOS (applehv-VM) nennt es enp0s1 — fixiert brach der Mac-
+    // Erststart mit "VM-IP nicht ermittelbar" ab (E2E 2026-09-28). Die erste
+    // globale IPv4 ist die VM-Adresse, egal wie das Interface heißt.
+    const r = await rtExec(rt, ['machine', 'ssh', 'ip -4 addr show'], {
       timeoutMs: 20_000,
     }).catch(() => null);
-    const m = r?.code === 0 ? /inet (\d+\.\d+\.\d+\.\d+)/.exec(r.stdout) : null;
-    return m ? m[1] : null;
+    return r?.code === 0 ? vmIpAusIpAusgabe(r.stdout) : null;
   }
 
   /** Host-UDP-Relay in die VM starten (idempotent — läuft er, bleibt er).

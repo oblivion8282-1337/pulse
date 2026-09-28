@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { renderContainerEnv, hostLanIpv4s } from '../../electron/localBackend/containerBackendManager.ts';
+import { renderContainerEnv, hostLanIpv4s, vmIpAusIpAusgabe } from '../../electron/localBackend/containerBackendManager.ts';
 import { runtimeCandidates, inFlatpak, machineAction } from '../../electron/localBackend/containerRuntime.ts';
 import type { BootstrapCreds } from '../../electron/localBackend/pairing.ts';
 
@@ -93,4 +93,21 @@ test('runtimeCandidates: Flatpak → flatpak-spawn --host, sonst podman vor dock
   const kinds = plain.map((c) => c.kind);
   assert.ok(kinds.indexOf('podman') < kinds.indexOf('docker'));
   assert.equal(inFlatpak({}), existsSync('/.flatpak-info'));
+});
+
+test('vmIpAusIpAusgabe: erste globale IPv4, Loopback übersprungen — Interface-Name egal', () => {
+  // Podman 6 / applehv auf macOS (E2E 2026-09-28): enp0s1, kein eth0.
+  const mac = [
+    '1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536',
+    '    inet 127.0.0.1/8 scope host lo',
+    '2: enp0s1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500',
+    '    inet 192.168.127.2/24 brd 192.168.127.255 scope global dynamic',
+  ].join('\n');
+  assert.equal(vmIpAusIpAusgabe(mac), '192.168.127.2');
+  // WSL2-Stand (Windows, bisheriger Fix-stand): eth0.
+  const wsl = '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP>\n    inet 172.20.144.5/20 brd 172.20.159.255';
+  assert.equal(vmIpAusIpAusgabe(wsl), '172.20.144.5');
+  // Nur Loopback (VM ohne Netz) → null, kein Relay.
+  assert.equal(vmIpAusIpAusgabe('1: lo:\n    inet 127.0.0.1/8'), null);
+  assert.equal(vmIpAusIpAusgabe(''), null);
 });
