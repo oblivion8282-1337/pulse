@@ -20,6 +20,15 @@
 #   → release-server/Pulse-Server-Setup-<version>.exe + latest.yml + .blockmap
 # CI (.github/workflows/win-build-server.yml) rsynct/scpt die drei Artefakte
 # nach howispulse.com/updates/win-server/ (analog win-build.yml).
+#
+# LOKAL auf Windows (einmalig): electron-builder entpackt winCodeSign-2.6.0.7z,
+# dessen darwin/-Ordner Symlinks enthält — ohne Admin-/Developer-Mode-Recht
+# bricht die Extraktion ab ("Cannot create symbolic link"). Workaround: die
+# fehlerhafte Extraktion aus %LOCALAPPDATA%\electron-builder\Cache\winCodeSign\
+# (<temp-dir>\, alles außer den beiden darwin-dylib-Symlinks ist da) nach
+# Cache\winCodeSign\winCodeSign-2.6.0\ kopieren — dann greift der Cache und der
+# Build läuft. Die fehlenden dylibs sind macOS-Signatur-Dateien, Windows
+# braucht sie nie.
 appId: com.howispulse.PulseServer
 productName: Pulse Server
 # Ad-hoc-macOS-Signatur (afterPack.cjs) greift nur für darwin — für win harmlos.
@@ -38,18 +47,16 @@ files:
   - electron/icon-server.png
   - package.json
 # Tray-Status-Icons (tray.ts lädt tray-server-*.png via process.resourcesPath/
-# tray/) + Update-Splash-HTML + Splash-Icon. Ziele als EXPLIZITE Dateinamen
+# tray/) + Fenster-Icon als extraResource. Ziele als EXPLIZITE Dateinamen
 # (nicht `to: build-resources/`): der Trailing-Slash-Collapse (Client-Fix 0.1.33)
 # greift hier, weil icon-server.png außerhalb build-resources/ liegt — mit
-# Slashes kollabierten beide Files zu einer Datei `build-resources` (Splash
-# bliebe weiß). Explizite Pfade legen electron-builder als Verzeichnis + Datei an.
+# Slashes kollabierten beide Files zu einer Datei `build-resources`. Explizite
+# Pfade legen electron-builder als Verzeichnis + Datei an.
 extraResources:
   - from: build-resources/tray
     to: tray
     filter:
       - "*.png"
-  - from: build-resources/update-splash.html
-    to: build-resources/update-splash.html
   - from: electron/icon-server.png
     to: build-resources/icon-server.png
 # ── macOS (Heim-Server 2026-09-27): Drag-Install-DMG wie der Client, aber
