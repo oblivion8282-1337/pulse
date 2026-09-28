@@ -145,11 +145,14 @@ gilt die Nennungspflicht:
 
 ### Änderung an webrtc-rs
 
-Pulse verändert zwei Stellen der Fassung 0.17.2 und liefert das Ergebnis
+Pulse verändert drei Stellen der Fassung 0.17.2 und liefert das Ergebnis
 statisch eingebunden aus. Betroffen sind `webrtc/src/dtls_transport/mod.rs`
 (Lesezugriff auf Datenströme, deren Kennung zu keiner angemeldeten Spur passt —
-dort liegen die Pakete zur Verlustkorrektur) und der NACK-Generator unter
-`interceptor/src/nack/generator/`. Dieser Hinweis erfüllt Apache-2.0 §4(b); die
+dort liegen die Pakete zur Verlustkorrektur), der NACK-Generator unter
+`interceptor/src/nack/generator/` und der H.264-Depacketizer unter
+`rtp/src/codecs/h264/mod.rs` — dort prüft ein Grenzcheck beim Auspacken von
+STAP-A-Paketen die Länge, nachdem ein Paket mit überzähligem Byte den
+Empfangs-Task abstürzen ließ. Dieser Hinweis erfüllt Apache-2.0 §4(b); die
 Patch-Dateien liegen mitsamt eigener Lizenzdatei im öffentlichen
 Quellcode-Repository unter
 [`streaming/pulse-player/patches/`](https://github.com/oblivion8282-1337/pulse/tree/main/streaming/pulse-player/patches).
@@ -183,4 +186,4 @@ Server aus, damit kein Browser eines Besuchers Google Fonts kontaktiert.
 
 ---
 
-Stand: 9. September 2026
+Stand: 28. September 2026

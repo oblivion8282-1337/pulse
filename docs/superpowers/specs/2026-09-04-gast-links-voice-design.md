@@ -96,6 +96,11 @@ Neue Tabelle `chat.guest_links` (chat-gateway, eigene Migration):
 | `expires_at` | TIMESTAMPTZ | Vorgabe 24 h, wählbar |
 | `revoked_at` | TIMESTAMPTZ NULL | gesetzt = entwertet |
 
+*Korrektur 2026-09-28 (Migration `20260905_2000_0089_gast_zeitfenster`):*
+die Tabelle trägt zusätzlich `valid_from` (TIMESTAMPTZ NULL) — ein
+freiwilliger Startzeitpunkt; liegt er in der Zukunft, wird der
+Beitritt abgewiesen (`routes/gast.py:115`).
+
 Kein FK auf `guilds` oder `channels` (die Tabelle folgt darin
 `community_invite_notifications`); das Aufräumen beim Kanal- oder
 Community-Löschen macht die jeweilige Delete-Route von Hand.

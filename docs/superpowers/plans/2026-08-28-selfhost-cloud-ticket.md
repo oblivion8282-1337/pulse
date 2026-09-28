@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`services/auth/src/dcc_auth/server_ticket.py` + `routes/session_ticket.py` + `web/src/lib/api/server-ticket.ts`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Self-Host-Anmeldung über Cloud-Ticket — Umsetzungsplan
 
 > **Für agentische Bearbeiter:** ERFORDERLICHE UNTER-SKILL: `superpowers:subagent-driven-development` (empfohlen) oder `superpowers:executing-plans`, um diesen Plan Aufgabe für Aufgabe umzusetzen. Die Schritte nutzen Checkbox-Syntax (`- [ ]`).

@@ -1,13 +1,17 @@
 # Self-Host Templates
 
-This directory is populated by **Phase 6.B**:
+This directory holds exactly one template:
 
-- `Caddyfile.template` — reverse proxy with auto-TLS
-- `livekit.yaml.template` — LiveKit SFU config (`@@LIVEKIT_KEY@@`, `@@LIVEKIT_SECRET@@`, `@@PULSE_HOSTNAME@@`)
-- `mediamtx.yml.template` — RTMPS + WHEP/HLS + authHTTP wiring
-- `pulse-health` — Docker `HEALTHCHECK` script
+- `livekit.yaml.template` — LiveKit SFU config, rendered by
+  `s6/etc/s6-overlay/scripts/05-init-livekit.sh`. Placeholders:
+  `@@LIVEKIT_KEY@@` / `@@LIVEKIT_SECRET@@` (substituted at container start).
 
-Phase 6.A renders fallback configs inline in the cont-init scripts when the
-template is missing — so the container boots and individual services have a
-chance to surface real errors, but **production deployment requires 6.B's
-templates** for full functionality (TLS, hostname-aware certs, etc.).
+The configs this directory once promised live elsewhere or don't exist as
+files:
+
+- `Caddyfile.template` — lives at `s6/etc/caddy/Caddyfile.template`, rendered
+  by `09-init-caddy.sh` (TLS modes auto / provided / behind-proxy).
+- MediaMTX config — no external template; `08-init-mediamtx.sh` writes it
+  inline (see "Known limitations" in `infra/self-host/README.md`).
+- `pulse-health` — lives at `s6/usr/local/bin/pulse-health`
+  (Docker `HEALTHCHECK` script).

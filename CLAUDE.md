@@ -9,7 +9,7 @@ Vollständige Architektur + History: `PLAN.md`, `infra/prod/DEPLOY.md`, `streami
 
 Chat/Voice-Client, **Web-First** (alle Browser), PWA-installierbar, Desktop via **Electron** (`desktop/`), Mobile (Android) via Capacitor/TWA (`packaging/android/`).
 Backend = mehrere kleine FastAPI-Services: `services/{auth,chat-gateway,voice-signaling,media-svc,mediamtx-auth-hook,relay-frps-plugin}`.
-Voice über LiveKit (WebRTC/Opus). HQ-Screen-Streaming über vendored GPU Screen Recorder (`streaming/`) als Sidecar, pusht an MediaMTX → Viewer per WHEP.
+Voice über LiveKit (WebRTC/Opus). HQ-Screen-Streaming über die Pulse-Rust-Sidecars (`streaming/`), pusht an MediaMTX → Viewer per WHEP.
 Drei Transportpfade getrennt: HTTPS/WSS → FastAPI · WebRTC → LiveKit · WHEP → MediaMTX (Details `PLAN.md` §1).
 `streaming/` enthält die Pulse-eigenen Sidecars und den nativen Player. **Der alte Python-Aufsatz um `gpu-screen-recorder` ist am 2026-08-27 ersatzlos entfernt** (mit ihm `streaming/patches/` und `bootstrap-gsr.fish`) — Linux fährt seit 2026-07-17 den Rust-Sidecar, seit 2026-08-16 war der alte Weg für Nutzer ohnehin nicht mehr erreichbar. `~/Dokumente/GPU_Screen_Recorder/` ist damit für dieses Projekt gegenstandslos.
 
@@ -17,7 +17,7 @@ Drei Transportpfade getrennt: HTTPS/WSS → FastAPI · WebRTC → LiveKit · WHE
 
 Pulse ist **nicht Open Source**. Verbindlich ist `LICENSE` im Root.
 - **Server** (`services/`, `shared/`, `infra/`) = **Pulse Server License 1.0** — Quelle einsehbar, 32 Tage Evaluierung, danach kommerzielle Lizenz (Hebel für bezahltes Self-Hosting).
-- **Client** (`web/`, `desktop/`, `mobile/`, `streaming/`, `plugins/`, `packaging/`, `Logo/`, `scripts/`) = **Pulse Client License 1.0** — **Nutzung frei**, Quelle einsehbar, aber Ändern/Weitergabe/Wiederverwendung untersagt. Eigene Texte statt PolyForm (PolyForm erlaubt ausdrücklich „Changes/New Works" — genau das soll hier verboten sein). **Anwaltlich nicht geprüft** — bei echtem Umsatz nachholen.
+- **Client** (`web/`, `desktop/`, `mobile/`, `krypto/`, `streaming/`, `plugins/`, `packaging/`, `Logo/`, `scripts/`) = **Pulse Client License 1.0** — **Nutzung frei**, Quelle einsehbar, aber Ändern/Weitergabe/Wiederverwendung untersagt. Eigene Texte statt PolyForm (PolyForm erlaubt ausdrücklich „Changes/New Works" — genau das soll hier verboten sein). **Anwaltlich nicht geprüft** — bei echtem Umsatz nachholen.
 - **Keine GPL-Komponente mehr im Baum**: `streaming/patches/` war die einzige (GPL-3.0, von gpu-screen-recorder abgeleitet) und ist am 2026-08-27 entfallen. `LICENSE` und `LICENSE-CLIENT.md` sind entsprechend nachgezogen.
 - Bei neuen Lizenz-Aussagen **alle** Stellen synchron halten: `LICENSE*`, Verzeichnis-`LICENSE`s, `README.md`, `CLA.md`, beide `packaging/*.metainfo.xml`, OCI-Label in `allinone.yml`, `web/src/lib/legal/impressum.md`.
 - **Keine AGPL/GPL-Dependencies aufnehmen** (kollidiert hart, z. B. die Cap-Encoder-Crates in `WINDOWS_HQ_SIDECAR.md`). FFmpeg überall LGPL und **dynamisch** gelinkt — so lassen.
@@ -27,7 +27,7 @@ Pulse ist **nicht Open Source**. Verbindlich ist `LICENSE` im Root.
 Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3.15`) · **uv** · **Node** ≥20 (CI `ci.yml`+`flatpak.yml` auf **25**, App-Builds `win`/`mac`/`android` auf **22** — beide Gruppen prüfen) · **pnpm** 10. Ruff `line-length=100`, `target-version=py313`, `ignore=["E501"]`.
 
 **Backend** (`services/*` + `shared/`) — FastAPI + uvicorn, SQLAlchemy[asyncio] (**eigenes Schema pro Service**: `auth`/`chat`), asyncpg (Prod) / aiosqlite (Tests), Alembic (pro Service `alembic/versions/`), pydantic v2.
-- **pyjwt[crypto]**: RS256; `PyJWKClient.from_jwks` fehlt in der Version → Eigenbau via `RSAAlgorithm.from_jwk` in `security.py`.
+- **pyjwt[crypto]**: RS256; `PyJWKClient.from_jwks` fehlt in der Version → Eigenbau via `RSAAlgorithm.from_jwk`, kanonisch in `dcc_shared/token_verify.py`, Kopien im chat-gateway (`credential_validator.py`, `user_profile_cache.py`).
 - **argon2-cffi**: Argon2id (t=3/m=64MiB/p=4). **slowapi**-Rate-Limit in auth-svc ist **in-process**.
 - **redis** async: ConnectionManager nutzt `psubscribe` + `get_message()`-Poll (kein `listen()`-Race).
 - **email-validator** blockt special-use-TLDs → Tests nutzen `dcc-test.example.com`, nicht `*.test`.
@@ -37,7 +37,7 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
 **Frontend** (`web/`, SvelteKit-SPA `ssr=false` `adapter-static`) — Svelte 5 Runes, Tailwind 4 (shadcn-Tokens im `.dark{}`), shadcn-svelte/bits-ui (`web/src/lib/components/ui/`, Vendor — Größen-Policy ausgenommen).
 - Build → `web/build/` → `pulse_web`-nginx-Image. **Electron lädt die *deployte* Web-App remote**, nicht `web/build/`.
 - Vite-Dev-Proxy: `/api/auth`→:8001 · `/api/chat`+`/api/ws`→:8002 · `/api/voice`→:8003.
-- **livekit-client**: `lib/voice/livekit.svelte.ts` abonniert rohe `Room`/`Participant`-Events (kein `@livekit/components-core`-Wrapper, obwohl installiert).
+- **livekit-client**: `lib/voice/livekit.svelte.ts` abonniert rohe `Room`/`Participant`-Events (kein `@livekit/components-core`-Wrapper — inzwischen deinstalliert).
 - **@sapphi-red/web-noise-suppressor**: RNNoise→NoiseGate (`lib/voice/noiseFilter.ts`). **`MediaStreamDestinationNode.channelCount = 1` zwingend** (Default Stereo + `explicit` → mono-Worklet füllt nur output[0], rechter Kanal stumm).
 - **mode-watcher** via `setMode()` (`settings.svelte.ts`), persistiert `dcc.settings`; FOUC-Inline-Script in `app.html`.
 - **@svelte-put/shortcut**: In-Window-PTT (Taste aus `settings.voice.pttKey`).
@@ -66,10 +66,10 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
 
 **LiveKit/MediaMTX `network_mode: host`**: Host-UFW (`INPUT DROP`) blockt Container→Host über die Bridge; nur host-Networking erreichen LiveKit `127.0.0.1:8003` (Webhooks), MediaMTX den auth-hook (`:8005`), media-svc die MediaMTX-API (`:9997`).
 
-**Bootstrap-Admin**: `POST /register` setzt `is_admin=true`, wenn der neue User der einzige in `auth.users` ist (`COUNT(*) == 1` nach flush). Race bei Parallel-Registrierung akzeptiert.
+**Bootstrap-Admin**: `POST /register` setzt `is_admin=true`, wenn der neue User der einzige in `auth.users` ist (`COUNT(*) == 1` nach flush). Die Parallel-Registrierung ist seit 2026-09-16 per `pg_advisory_xact_lock(724011)` serialisiert (`dcc_auth/routes.py`).
 
 **Refresh-Token: Kette statt Konto, Nachreichen mit Kontingent** (`dcc_auth/refresh_kette.py`, Migration 0050, seit 2026-08-26). Ein wiederholt vorgelegter Token galt vorher immer als Diebstahl und widerrief **alle** Token des Kontos — in 17 Tagen kostete das einen einzigen Nutzer 28 Sitzungen, weil ein abgerissener Rundlauf (Rechner schläft während des Tauschs ein, Antwort kommt nie an) von einem Diebstahl nicht zu unterscheiden ist. **Der Server kann die beiden grundsätzlich nicht trennen** — beide sehen identisch aus; jede Heilung öffnet dasselbe Fenster für beide, die einzige Stellschraube ist, wie weit.
-- Heute: wurde der Nachfolger nie eingelöst, wird **genau er** noch einmal ausgegeben (`reissue_refresh`, gleiche `jti`/`exp` — echte Idempotenz, keine Kettengabelung). Wurde er seinerseits rotiert, stirbt die **Anmelde-Kette** (`family_id`), nicht das Konto.
+- Heute: wurde der Nachfolger nie eingelöst, wird **genau er** noch einmal ausgegeben (`pruefe_wiedervorlage`, gleiche `jti`/`exp` — echte Idempotenz, keine Kettengabelung). Wurde er seinerseits rotiert, stirbt die **Anmelde-Kette** (`family_id`), nicht das Konto.
 - **`NACHREICH_LIMIT = 3` ist kein Komfortwert, sondern die Sicherheitsgrenze.** Ohne ihn ist die Erkennung nicht verzögert, sondern **aufgehoben** (nachgemessen): wer mitpollt, liegt nie zwei Schritte zurück und bekommt endlos denselben Nachfolger; wer immer denselben alten Token vorlegt, bekommt endlos frische Access-Token, während jede Rotation den Ablauf um 30 Tage schiebt. Der Zähler hängt an der **Kette** (an der Zeile wäre er wirkungslos) und wird bei gesunder Rotation **nicht** zurückgesetzt (sonst hielte ihn das mitdrehende Opfer auf null).
 - **Drei Log-Ereignisse, alle `warning`** (die Cloud-Vorgabe für `PULSE_LOG_LEVEL` ist `warning` — `info` wäre unsichtbar, s. `logging_setup.py`): `refresh_nachgereicht` · `refresh_verdacht` (Nachfolger **rotiert** — nur das belegt zwei Parteien) · `refresh_kontingent`. Ein blosses `replaced_by` als Verdachtsmerkmal wäre falsch: nach `refresh` + `logout` trägt die Zeile ebenfalls einen Nachfolger.
 
@@ -90,29 +90,29 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
 - **Server-Delete + Owner-Transfer bleiben Owner-only** (ADMIN bypasst Delete, NICHT Transfer). MANAGE_GUILD = nur rename/icon/settings.
 
 **Voice-Presence**: LiveKit-Webhooks → voice-signaling `POST /webhook` (Sig via `WebhookReceiver`, Key `webhook:`-Block in `livekit.yaml`) → pflegt Redis-Sets `voice:room:channel-<id>` → published `voice:events`. chat-gateway broadcastet `voice_state`; Re-Sync über `ready`-Frame.
-- **Reconcile-Loop** (`voice-signaling/reconcile.py`): Webhook-Pfad driftet (verlorene Webhooks bei Deploy + NX-TTL-Trap in dauerbesetzten Channels). Background-Task pollt LiveKit alle `voice_reconcile_interval_seconds` (default 30) und **überschreibt** die Sets via `_set_exact` (non-NX TTL) — ist die Autorität. `voice_reconcile_enabled=false` → Webhook-only.
+- **Reconcile-Loop** (`voice-signaling/reconcile.py`): Webhook-Pfad driftet (verlorene Webhooks bei Deploy + NX-TTL-Trap in dauerbesetzten Channels). Background-Task pollt LiveKit alle `voice_reconcile_interval_seconds` (default 30) und **überschreibt** die Sets via `_set_exact_triple` (non-NX TTL) — ist die Autorität. `voice_reconcile_enabled=false` → Webhook-only.
 - **`LIVEKIT_API_URL`** (prod `.env` `=http://host.docker.internal:7880`): server-seitige Calls gehen sonst über die öffentliche `LIVEKIT_URL` → crasht 502 während eines Deploys. Braucht `extra_hosts: host.docker.internal:host-gateway`. Unset → Fallback `LIVEKIT_URL` (dev ok). Browser kriegen weiter `LIVEKIT_URL`.
 
 **HQ-Streaming** (per-User-Pfade, mehrere pro Channel möglich). Voller Datenfluss + Redis-Keys + Routen → `streaming/README.md`.
 - **media-svc** (8004) vergibt Stream-Tokens (chat-gateway reicht nach Membership-Check weiter) + pollt MediaMTX (3s) Self-Heal. **mediamtx-auth-hook** (8005) = MediaMTX `authMethod: http`, nur Redis: Publish prüft `scope:publish`-Token gegen Pfad, Read prüft `scope:read`-Token (channel+user-gebunden, **nicht** konsumiert — Multi-Use; `read_token_required=false` abschaltbar). media-svc mintet das Read-Token in `GET /whep` und hängt es als `?token=` an die WHEP-URL.
 - **Nonce gegen Republish-ICE-Race**: jeder Token-Issue → frische 32-Hex-Nonce → Pfad `channel-<cid>-<uid>[-s<slot>]-<nonce>` (Slot = gleichzeitige Streams desselben Users; Slot 0 = Legacy-Pfad ohne `-s0`). `stream:active:*` hält den Live-Pfad **ohne** Nonce für WHEP-Lookup.
-- **Redis-Key-Namen dupliziert** in `dcc_media_svc/streamkeys.py` + `dcc_mediamtx_auth_hook/shared.py` (**synchron halten**) — der auth-hook hat bewusst keine `dcc-shared`-Abhängigkeit. **Ausnahme seit 2026-08-13:** `stream:token:*` und `stream:read-cache:*` stehen kanonisch in `dcc_shared/streaming.py` (`TOKEN_KEY`/`token_key`, `READ_CACHE_KEY`/`read_cache_key`/`read_cache_channel`), weil chat-gateway sie beim Bann löschen muss (`stream_revoke.py`); `streamkeys.py` reicht `TOKEN_KEY` nur durch, die Kopie im auth-hook bleibt.
+- **Redis-Key-Namen dupliziert** in `dcc_media_svc/streamkeys.py` + `dcc_mediamtx_auth_hook/shared.py` (**synchron halten**) — der auth-hook hat bewusst keine `dcc-shared`-Abhängigkeit. **Ausnahme seit 2026-08-13:** `stream:token:*` und `stream:read-cache:*` — seither auch `ACTIVE_KEY`/`CHANNEL_STATE_KEY` (`stream:active:*`/`stream:channel:*`) — stehen kanonisch in `dcc_shared/streaming.py` (`TOKEN_KEY`/`token_key`, `READ_CACHE_KEY`/`read_cache_key`/`read_cache_channel`, `ACTIVE_KEY`, `CHANNEL_STATE_KEY`), weil chat-gateway sie beim Bann löschen muss (`stream_revoke.py`); `streamkeys.py` reicht `TOKEN_KEY` nur durch, die Kopie im auth-hook bleibt.
 - chat-gateway braucht `MEDIA_SVC_URL`; fehlt media-svc → **502 nur** auf Stream-Routen.
 - **Push-Weg entscheidet der Client** (`web/src/lib/stream/settings.svelte.ts::pushProtokoll` → `protocol` im Stream-Token-Request; media-svc erzwingt, der Wunsch hebt nur **nach oben** Richtung WHIP). **Seit 2026-08-18 IMMER WHIP** (`https://<host>/whep/<pfad>/whip?token=…`) — nur WHIP hat den RTCP-Rückkanal, über den ein beitretender Zuschauer sein erstes Vollbild anfordert, und nur über WHIP entsteht FlexFEC-Parität. Vorher galt WHIP nur bei Intra-Refresh und H.264; AV1 mit periodischen Vollbildern ging über RTMPS, **begründet damit, dass dort garantiert alle 2 s ein Vollbild im Strom steht**. Seit `PULSE_KEYFRAME_SECONDS` den Abstand streckbar macht, gilt die Garantie nicht mehr — bei 30 s Abstand wartete ein Zuschauer live bis zu 30 s auf sein erstes Bild, ohne auffälliges Log. Die Fallunterscheidung ist deshalb ganz entfallen statt um den Abstand erweitert (den die Oberfläche gar nicht kennt). **RTMPS** (`rtmps://<host>:1936`, self-signed, UFW `1936/tcp`, `rtmpEncryption: strict`; plain :1935 entfernt) bleibt serverseitig bestehen — für Netze, die UDP sperren —, wird von der Oberfläche aber nicht mehr gewählt.
 - **Vollbild-Abstand: Vorgabe 60 s** (`PULSE_KEYFRAME_SECONDS`, seit 2026-08-18 auf Linux/Windows, seit 2026-08-20 auch macOS; davor 2 s, Grenzen 0,1–120 s). An der echten Leitung gemessen (drei Mitschnitte des ausgehenden Stroms, AV1/VAAPI 1080p60 @2000 kbps): Stoss-Fenster 4,06 % (30 s) → **2,16 % (60 s)** → 2,96 % (120 s), p99/Rate 4,1× → **2,8×** → 3,4×. **120 s ist wieder schlechter** — ab etwa einer Minute bestimmt nicht mehr die Einstellung, wie oft ein Vollbild kommt, sondern der Bedarf der Zuschauer (9 Vollbilder in 449 s bei einem Takt, der 4 vorsah, und in Häufungen statt verteilt). Die **Höhe** der Spitze ändert der Takt nie, nur ihre Häufigkeit (Vollbild ~110 kB gegen ~4 kB). **Zwei Zahlen dürfen der Vorgabe NICHT folgen** und hängen deshalb an `KEYFRAME_SEKUNDEN_UNBEDENKLICH` (2 s): die Bremse für angeforderte Vollbilder (sonst verwirft der Sender eine Anforderung 60 s lang) und die Warnschwelle für „langer Takt ohne Rückkanal". Ungemessen: alles lief auf sauberer Leitung (0 Nachlieferungen).
 - **Wer `pushProtokoll` oder den Vollbild-Abstand anfasst, geht ALLE DREI Sidecars UND die Rückfall-Zweige durch.** Der Bughunt am 2026-08-19 fand sieben ernste Fehler, und fünf davon waren Kollateralschäden der beiden Änderungen vom 2026-08-18: auf Linux und im Web sauber durchgezogen, auf macOS (60 s ohne Rückkanal und ohne Anforderungspfad → bis zu 60 s schwarz, AV1 still auf H.264), im Intel-Weg (der WHIP-Kurzschluss in `encode_path` schneidet die Vendor-Tabelle ab) und im AMD-Rückfall (D3D12 verschluckte HDR/10 bit) mitgezogen, ohne mitgedacht zu werden. Die Rückfall-Zweige sind die unauffälligste Stelle: ihre Kommentare zählen auf, was der Zielweg nicht trägt, und die Aufzählung veraltet still, wenn eine Betriebsart dazukommt.
-- **macOS hat seit dem 2026-08-20 keinen Sonderfall mehr.** Bis dahin fehlte dem mac-Sidecar als einzigem ein Vollbild-Anforderungspfad und ein eigener WHIP-Sender (`http(s)://` ging an ffmpegs WHIP-Muxer, kein RTCP zurück), der Vollbild-Abstand blieb deshalb bei 2 s statt der gestreckten 60 s, und AV1 war in der Oberfläche ausgeblendet. Der eigene WHIP-Sender (`mac-hq-sidecar/src/whip/`) hat das behoben und der Rückkanal ist nachgemessen (Zahlen + Log-Zeile: `streaming/mac-hq-sidecar/README.md`) — macOS folgt jetzt derselben 60-s-Vorgabe wie Linux/Windows. **AV1 bleibt trotzdem unnutzbar**, nicht mehr wegen des Muxers, sondern weil FFmpeg 8.0.1 keinen `av1_videotoolbox`-Encoder mitbringt und kein Apple-Chip AV1 encodiert (M3+ kann es nur dekodieren, s. `caps.rs`); `settings.svelte.ts::av1Nutzbar` prüft dafür weiterhin echt `gpuHasAv1`, ohne den `!isMac()`-Riegel.
+- **macOS hat seit dem 2026-08-20 keinen Sonderfall mehr.** Bis dahin fehlte dem mac-Sidecar als einzigem ein Vollbild-Anforderungspfad und ein eigener WHIP-Sender (`http(s)://` ging an ffmpegs WHIP-Muxer, kein RTCP zurück), der Vollbild-Abstand blieb deshalb bei 2 s statt der gestreckten 60 s, und AV1 war in der Oberfläche ausgeblendet. Der eigene WHIP-Sender (`mac-hq-sidecar/src/whip/`) hat das behoben und der Rückkanal ist nachgemessen (Zahlen + Log-Zeile: `streaming/mac-hq-sidecar/README.md`) — macOS folgt jetzt derselben 60-s-Vorgabe wie Linux/Windows. **AV1 bleibt trotzdem unnutzbar**, nicht mehr wegen des Muxers, sondern weil FFmpeg 8.0.1 keinen `av1_videotoolbox`-Encoder mitbringt und kein Apple-Chip AV1 encodiert (M3+ kann es nur dekodieren, s. `caps.rs`); `settings.svelte.ts::av1Nutzbar` prüft dafür weiterhin echt `gpuHasAv1`, hat aber seit 2026-08-19 wieder den `!isMac()`-Riegel davor — AV1 bleibt auf Mac so oder so aus.
 
 - **Die Bildschirm-Nummer ist eine POSITIONSNUMMER, keine Identität** — `ops/list_monitors.rs` vergibt `index = i + 1` aus der Reihenfolge von `Monitor::enumerate()`, und dieselbe Nummer wird gespeichert (`Monitor: <n>`), über `Monitor::from_index` wieder aufgelöst, als `monitor_index` bis zur Zuschauer-Kachel gereicht **und** von einem Standplatz-Gerät als Bildschirmliste gemeldet (`anmeldung.svelte.ts`). Fällt ein Bildschirm aus der Aufzählung (Sperre/Standby meldet DisplayPort-Schirme kurz ab), rücken alle dahinter auf — dieselbe Nummer zeigt danach auf ein anderes Gerät. **Offen**; die Wurzel bräuchte eine Kennung vom Gerät selbst (Windows: `DISPLAYCONFIG_TARGET_DEVICE_NAME`).
   - Gemildert (2026-08-26, `stream/monitorZuordnung.ts` — **importfrei**, s. `pnpm test:unit`-Falle): eine Bildschirm-Wahl wird **nie** verworfen, nur Fenster-Wahlen verfallen (eine geschlossene Fensterkennung wird neu vergeben). Fehlt der Bildschirm gerade, weicht **nur dieser Start** aus, sichtbar im Dialog. Start und Beschriftung nehmen die **aktive** Quelle, nicht die gemerkte.
   - **Ein verschwindender Monitor beendet den Stream NICHT**: `capture/wgc.rs::on_closed` behandelt nur Fenster-Quellen; bei Monitoren läuft der Worker weiter, ohne dass Bilder kommen (sieht beim Zuschauer wie ein Standbild aus, nicht wie ein Abbruch).
-- Frontend: WHEP-Client `web/src/lib/stream/whep.ts`. Gating: `isElectron() && (isLinux()||isWindows()||isMac()) && stream.gsrAvailable`.
+- Frontend: WHEP-Client `web/src/lib/stream/whep.ts`. Gating: `isElectron() && (isLinux()||isWindows()||isMac()) && stream.sidecarAvailable`.
 
-**Mobil/Tablet „chat-first" (seit 2026-08-23)** — auf `< lg` navigiert man über **vier Bereiche** (Chats, Räume, Freunde, Du) statt über die `GuildRail`; **Desktop (`≥ lg`) ist unverändert**. Entwurf `docs/superpowers/specs/2026-08-22-mobile-chatfirst-design.md`, Plan `docs/superpowers/plans/2026-08-22-mobile-chatfirst.md`, Bildquelle ist der Design-Canvas im Claude-Design-Projekt `498e4ab1-e7b9-49ff-9ba6-3f0483a9152b`.
+**Mobil/Tablet „chat-first" (seit 2026-08-23)** — auf Handy/Tablet navigiert man über **vier Bereiche** (Chats, Räume, Freunde, Du) statt über die `GuildRail`; **die Desktop-Klasse ist unverändert**. Seit 2026-09-04 entscheidet die GERÄTEKLASSE (`web/src/lib/stores/geraetKlasse.ts`, getragen von `viewport.svelte.ts`), nicht die Fensterbreite. Entwurf `docs/superpowers/specs/2026-08-22-mobile-chatfirst-design.md`, Plan `docs/superpowers/plans/2026-08-22-mobile-chatfirst.md`, Bildquelle ist der Design-Canvas im Claude-Design-Projekt `498e4ab1-e7b9-49ff-9ba6-3f0483a9152b`.
 - **Die Bereiche sind echte Routen, es gibt KEINEN Navigations-Store.** Der Stack ist die URL (`/app/@me` · `/app/rooms` → `/app/rooms/[guildId]` → die **bestehende** Kanal-Route · `/app/friends` · `/app/me` → `/app/me/[section]` · `/app/discover`). Damit funktionieren Android-System-Back und `navigateToFromNotification()` ohne Zusatzcode. Wer hier einen Store einzieht, baut beides nach.
-- **Eine einzige Layout-Regel**, in `app/+layout.svelte`: `< md` Bereichs-Leiste unten (ausser auf einem Detail-Screen), `md`–`lg` Bereichs-Spalte links, `>= lg` nichts davon. Die Leisten verstecken sich **nicht selbst** — sonst gäbe es zwei Stellen mit derselben Bedingung. `GuildRail` ist `hidden lg:flex` (an EINER Stelle gegatet, nicht an den vier Routen, die sie rendern).
+- **Eine einzige Layout-Regel**, in `app/+layout.svelte`, nach Geräteklasse: `istHandy` → Bereichs-Leiste unten (ausser auf einem Detail-Screen, `MobileTabBar`), `isTablet` → Bereichs-Spalte links (`TabletNavRail`), Desktop → nichts davon. Die Leisten verstecken sich **nicht selbst** — sonst gäbe es zwei Stellen mit derselben Bedingung. `GuildRail` gatet an EINER Stelle über `viewport.isDesktop` (nicht an den vier Routen, die sie rendern).
 - **`lib/navigation/tabs.ts` ist importfrei** (Pflicht, s. `pnpm test:unit`-Falle oben) und die einzige Quelle für „welcher Bereich" und „ist das ein Detail-Screen". `aktiverBereich` prüft **mit Segmentgrenze** (`/app/roomsomething` ist kein Unterpfad) und listet `/app/@me` **vor** `/app/me` — die beiden unterscheiden sich nur im `@`.
-- **Der Drawer (`navDrawer`) ist auf `< lg` tot.** Er kam vom linken Bildschirmrand, wo Android/iOS ihre Zurück-Geste haben. Ersatz: Kanal-Wechsler als Blatt von unten (Titel antippen) plus die Vollbild-Liste unter `/app/rooms/[guildId]`. Folge, die leicht übersehen wird: ein **Sprachkanal** bekommt am Telefon jetzt seine eigene Ansicht — vorher blieb dort die Kanalliste stehen, was nur ging, WEIL sie als Drawer daneben lag.
+- **Der Drawer (`navDrawer`) ist auf Handy/Tablet tot.** Er kam vom linken Bildschirmrand, wo Android/iOS ihre Zurück-Geste haben. Ersatz: Kanal-Wechsler als Blatt von unten (Titel antippen) plus die Vollbild-Liste unter `/app/rooms/[guildId]`. Folge, die leicht übersehen wird: ein **Sprachkanal** bekommt am Telefon jetzt seine eigene Ansicht — vorher blieb dort die Kanalliste stehen, was nur ging, WEIL sie als Drawer daneben lag.
 - **Blätter von unten MÜSSEN durch ein `Portal`** (`bits-ui`). `position: fixed` bezieht sich nicht aufs Fenster, sobald ein Vorfahre `filter`/`backdrop-filter`/`transform` hat — und `glass-panel` hat `backdrop-filter`. Nachgemessen: ohne Portal saß das Profil-Blatt mit Unterkante bei 168 px statt 844. Betraf auch das bestehende `MessageActionSheet`.
 - **Sprechblasen nur in DMs.** Umgesetzt als austauschbare **Hülle** (`message/MessageRowLayout.svelte` ↔ `message/MessageBubbleLayout.svelte`), nicht als zweite Komponente: eine eigene `DMBubble` hätte Anhänge, Reaktionen, Bearbeiten, Melden und das Aktionsblatt stillschweigend verloren. `MessageList` zieht `isGroupEnd` **nachträglich** nach (`gruppenEndenNachziehen`) — ob eine Nachricht die letzte ihrer Gruppe ist, entscheidet die nächste, und der Anhänge-Cache baut die Liste nicht neu.
 - **`listed` ist NICHT `is_public`** (`chat.guilds`, Migration 0062). Öffentliche Adresse = „wer den Link kennt, kommt rein"; `listed` = „ich möchte im Verzeichnis gefunden werden". Zwei Zustimmungen, deshalb zweite Spalte, Vorgabe `false`, **kein Backfill**. `GET /c` filtert auf **beide** und **verlangt eine Anmeldung** — der chat-gateway hat keinen Ratenbegrenzer (`slowapi` nur im auth-svc). Ein Zurücknehmen von `is_public` räumt `listed` mit; nur ein *ausdrückliches* `listed: true` ohne `is_public` ist ein 400.
@@ -135,7 +135,7 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
 
 **Fernsteuerung + mehrere Host-Bildschirme** — **Voll-Doku: `docs/fernsteuerung.md`. Wer daran arbeitet, liest die zuerst.** Hier nur, was man auch ausserhalb wissen muss:
 - Bild und Eingabe sind **getrennte Wege**: das Bild läuft über HQ-Streaming, neu ist nur der Rückweg für Eingaben (WS-Op `remote_input`). **Kein P2P** im Serverweg; Protokoll: `docs/plans/2026-08-12-input-wire-protokoll-v2.md`.
-- **`REMOTE_CONTROL` = Bit 37, NICHT in `DEFAULT_EVERYONE_PERMISSIONS`** — wirkt als Gate: ohne Admin-Zuteilung sieht kein Nutzer etwas.
+- **`REMOTE_CONTROL` = Bit 37, seit 2026-09-09 in `DEFAULT_EVERYONE_PERMISSIONS`** (`dcc_shared/permissions.py`; Eigentümer-Entscheid „Anfragen erlaubt") — neue Communitys starten mit Fernsteuerungs-Anfragen, bestehende behalten den alten Stand.
 - **Koordinaten sind Anteile (0..65535), keine Pixel**; `slot` sitzt in der Hülle, nicht im Frame. Unbekannter Slot = still verwerfen (einzige Ausnahme von fail-closed).
 - **Der Gateway parst Frames nicht** (nur Sitzung/Rolle/Größe). Eine Grenzüberschreitung kostet eine Mausbewegung, nicht die Sitzung.
 - **Eine Gnadenfrist ist keine lokale Änderung** — sie verschiebt die Zeitachse des ganzen Verbindungsabbaus, und jede Stelle, die „beim Abriss ist sowieso alles vorbei" annahm, wird dadurch falsch. Kostete zwei Bughunt-Runden; die vier Einzelfälle stehen in der Voll-Doku.
@@ -146,17 +146,17 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
 - **Der Zustand (bereit/belegt/offline) kommt NICHT aus der Datenbank**, sondern aus lebenden Verbindungen (`device_registry.py`). Eine Spalte löge nach jedem Absturz, und zwar Richtung „bereit".
 - **Der Kanal ist der Rechteanker** (Sprachkanal, Pflichtfeld); Sehen folgt `VIEW_CHANNEL`, **zweifach geprüft** — Route UND Ereignisweg.
 - **Das Gerät meldet sich selbst** (`device_announce`); ein Erraten („erster Socket des Nutzers") machte den Laptop des Besitzers übernehmbar.
-**Desktop ↔ Sidecar-Bridge**: Electron-Main spawnt den Plattform-Sidecar **lazy** beim ersten `gsr:call`. Alle sprechen dasselbe **stdio-JSON-RPC** (voll in `streaming/README.md`). `desktop/electron/sidecar.ts` (`SidecarManager`-Singleton). Path-Resolver via `$PULSE_HQ_SIDECAR`/`$PULSE_LINUX_HQ_SIDECAR` → Walk-up → Flatpak/`%LOCALAPPDATA%`. **Der Name `gsr` ist ein Relikt** (`gsr:call`, `window.pulse.gsr.*`) und bedient heute alle drei Rust-Sidecars — nicht umbenennen, das kostet Renderer, Vorlader, drei Sidecars und Tests ohne Gegenwert. Renderer `window.pulse.gsr.*` (Shape `web/src/lib/platform/pulse.d.ts` — **mit `preload.ts` synchron halten**).
-- **Linux hat GENAU EINEN Sidecar** (seit 2026-08-27): den Rust-Sidecar. Fehlt sein Binary, wirft der Resolver — das führt zu `gsrAvailable=false` und die Oberfläche blendet den Übertragen-Knopf aus. **Der Wurf ist die Absicht**: der frühere automatische Rückfall auf den Python-Weg hat den Fall verschleiert statt behoben, der Nutzer streamte über ein anderes Verfahren, ohne es zu wissen, und jede Fehlersuche begann mit der falschen Annahme.
+**Desktop ↔ Sidecar-Bridge**: Electron-Main spawnt den Plattform-Sidecar **lazy** beim ersten `sidecar:call`. Alle sprechen dasselbe **stdio-JSON-RPC** (voll in `streaming/README.md`). `desktop/electron/sidecar.ts` (`SidecarManager`-Singleton). Path-Resolver via `$PULSE_HQ_SIDECAR`/`$PULSE_LINUX_HQ_SIDECAR` → Walk-up → Flatpak/`%LOCALAPPDATA%`. **Seit dem 2026-09-21 heisst der Name `sidecar`** (IPC `sidecar:call`, `window.pulse.sidecar.*`, Store `stream.sidecarAvailable`) — zuvor hiess er `gsr`, ein Relikt von gpu-screen-recorder, das dieselbe Stelle lange mit „nicht umbenennen, das kostet Renderer, Vorlader, drei Sidecars und Tests ohne Gegenwert" verteidigte. Renderer `window.pulse.sidecar.*` (Shape `web/src/lib/platform/pulse.d.ts` — **mit `preload.ts` synchron halten**).
+- **Linux hat GENAU EINEN Sidecar** (seit 2026-08-27): den Rust-Sidecar. Fehlt sein Binary, wirft der Resolver — das führt zu `sidecarAvailable=false` und die Oberfläche blendet den Übertragen-Knopf aus. **Der Wurf ist die Absicht**: der frühere automatische Rückfall auf den Python-Weg hat den Fall verschleiert statt behoben, der Nutzer streamte über ein anderes Verfahren, ohne es zu wissen, und jede Fehlersuche begann mit der falschen Annahme.
 - **Rust-Linux-Sidecar liegt im Repo** (`streaming/linux-hq-sidecar/`); Flatpak baut ihn per `type: dir` → Änderung löst Flatpak-Build aus. Dev braucht `$PULSE_LINUX_HQ_SIDECAR` (setzt `dev-up.fish` wenn gebaut). Bei `Cargo.lock`-Änderung `packaging/linux-hq-sidecar-cargo-sources.json` neu generieren (Flatpak baut Cargo offline). Messbegründungen zu Encoder-/Puffer-Werten: `docs/2026-07-30-linux-hq-sidecar-messbegruendungen.md`.
 - **Bild-Zeitbasis = 1/90000, nicht 1/fps** (seit 2026-08-14; seit 2026-08-20 als gemeinsame Kiste `streaming/pulse-zeitbasis` — alle drei Rust-Sidecars linken dagegen, die alten `src/zeitbasis.rs` sind Re-Export-Einzeiler. **Nicht wieder in die einzelnen Sidecars zurückkopieren** — „synchron halten" ist hier die falsche Anweisung, die Datei existiert nur noch einmal): ein Bildplatz-Raster rundet die echte Ungleichmäßigkeit der Abtastung weg (auf 143 Hz bei 60 fps entstehen Bilder im Muster 2-2-3 Schirmtakte = 13,9/13,9/20,8 ms, nicht dreimal 16,7) — sichtbar als Rest-Unruhe trotz gesunder Zahlen. 90 kHz ist die RTP-Uhr, damit wird die Umrechnung im WHIP-Weg zur Identität. **Zwei Fallen, beide gemessen:** Duplikate müssen am ZÄHLER hängen (`last_pts + takte_je_bild`) — an der stehenden Aufnahme-Uhr verankert lägen sie 11 µs auseinander und eine Sekunde Standbild schrumpfte auf Millisekunden; und die Lücken-Diagnose braucht `lueckenschwelle` = **zwei** Bildabstände (die echte Abtast-Schwankung reicht bis 2,0, wenn Zielrate und Schirm-Wiederholrate dicht beieinanderliegen — anderthalb meldeten Phantome). Messprotokoll beider Plattformen: `docs/2026-08-14-hq-60fps-glaettung-messanleitung.md`.
-- **Diagnose-Log-Upload** (`experimental-log-upload.ts`): **eigenes** Opt-in `uploadDiagnosticLogs` (default false).
+- **Diagnose-Log-Upload** (`experimental-log-upload.ts`): `uploadDiagnosticLogs` ist seit 2026-08-06 **default AN, Opt-out** (`!== false`, mit Migration auf „an"); gilt genauso für `web/src/lib/stream/diagnose-senden.ts` und die Player-Statistik.
 - **Testen ohne realen Stream**: `printf '{"op":"health","id":1}\n...' | <sidecar-binary>` — **KEIN `{"op":"start"}`** (öffnet Wayland-Portal + streamt wirklich); `build_argv` baut nur argv.
 - **Windows-HQ-Sidecar** (`streaming/win-hq-sidecar/`, Rust): WGC-Capture + wasapi, 3 Encode-Pfade (NVENC / AMD-D3D12VA / CPU-Fallback). Voll: `streaming/win-hq-sidecar/README.md` + `WINDOWS_HQ_SIDECAR.md`. Nicht-offensichtliche **Entscheidungen**: **HDR** (AV1 10 bit, PQ/BT.2020) nur Windows — `encode/hdr.rs`: **unerfüllbar = Startverweigerung**, statt still etwas Schwächeres unter demselben Etikett zu liefern; Aufnahme in `Rgba16F`/scRGB, eigener HLSL-Shader `encode/hdr_zeichner.rs` (AMD-Video-Prozessor kann kein PQ). **Getragen wird HDR von AV1 auf AMD *und* NVIDIA** (`av1_amf` seit 2026-08-06, `av1_nvenc` seit 2026-08-11 — bis dahin stand hier nur AMD). **Die Mastering-Metadaten sind auf beiden mangelhaft, verschieden:** AMD schreibt sie mit falschen Zahlen (AMF-Festkomma-Fehler, bewusst nicht vorkompensiert), NVENCs AV1-Encoder schreibt sie gar nicht (Treiber 610.47, belegt gegen `hevc_nvenc`, das es über dieselbe FFmpeg-Stelle tut) — der Start sagt das an. Die **Signalisierung** ist überall vollständig, und nur an ihr hängt die Bilddeutung. Details `docs/2026-08-06-hdr-windows-amd.md` + `docs/2026-08-11-hdr-windows-nvidia.md`. **10-bit-SDR muss BT.709 ausdrücklich setzen** (sonst gibt sich AMF als PQ aus; `encoder_hw.rs`). **Eigener WebRTC-Sendeweg** (`src/whip/`, AV1/SDP-Teil seit 2026-08-20 und der **Taktgeber seit 2026-08-22** in der gemeinsamen Kiste `streaming/pulse-whip` — nur noch `mod.rs` ist plattformeigen. Windows fuhr bis dahin einen eigenen Sendetakt; zusammengelegt **ohne** die ausstehende Leitungs-Messung, weil die beiden Zuschnitte sich nur bei kleinen Bildern unterschieden — also dort, wo ein Schwall am wenigsten schadet. **Wichtig für Windows: `timeBeginPeriod(1)` in `main.rs` gehört zum Taktgeber**, obwohl der woanders liegt — ohne diesen Aufruf liegen die tokio-Wartezeiten auf dem 15,6-ms-Raster und der Takt verfehlt sein Soll um ein Vielfaches) für `http(s)://`-Ziele + AV1 (RTCP-Rückkanal; ffmpegs Muxer trägt kein AV1); RTMPS + CPU/Intel-Weg bleiben beim Muxer.
 
 **Settings-Persistenz (Electron)**: `desktop/electron/store.ts` = hand-rolled KV-Store (**bewusst kein `electron-store`** — ESM-only → CJS-Friktion). `<userData>/pulse-stream.json`, sync read/write. Linux `chmod 700`/`600` (Custom-Server-Stream-Keys im Klartext). Renderer: `web/src/lib/stream/persistence.ts` → `window.pulse.store.*`, `localStorage`-Fallback im Browser.
 
-**Frontend-Plattform-Detection**: `web/src/lib/platform/runtime.ts` — `isElectron()`/`isDesktop()`/`isLinux()`/`isWindows()`/`isMac()`/`isCapacitorAndroid()`/`isMobile()`. Dev-Test-Route `/app/dev/stream` (nicht im Menü) = Sidecar-Op-Diagnose.
+**Frontend-Plattform-Detection**: `web/src/lib/platform/runtime.ts` — `isElectron()`/`isLinux()`/`isWindows()`/`isMac()`/`isCapacitorAndroid()`/`isMobile()`. Das Handy/Tablet-Gegenstück `isDesktop()` hängt seit dem Geräteklasse-Umbau am Viewport (`viewport.svelte.ts`). Die Dev-Test-Route `/app/dev/stream` ist gelöscht.
 
 ## Self-Host-Identität & Cert-Modell
 
@@ -227,20 +227,20 @@ verschlüsselten Verlaufs ins eigene Google-Laufwerk (`lib/sicherung`, an seit
 2026-08-31). Der letzte ist der einzige ohne Verlust-Fall dahinter: die lokale
 Verlaufs-Datenbank steht unabhängig, die Sicherung wäre nur die zweite Kopie.
 
-**Die Koexistenz-Regel ist seit dem 2026-08-29 überholt, der CODE setzt aber
-noch die alte um.** Beschlossen ist: **ohne App-Gerät keine
-Direktnachrichten** — womit jede DM verschlüsselt ist und der Klartext-Weg
-ersatzlos entfällt (Vorbild WhatsApp Web / Signal Desktop; ein gekoppelter
-Browser zählt mit, Etappe F). Die bestehenden unverschlüsselten DMs werden
-dabei **sofort gelöscht, ohne Frist** — ausdrücklich so entschieden. Diese
-Löschung ist ein **eigener, ausgelöster Schritt, nie eine Deploy-Nebenwirkung**,
-und setzt eine nachgewiesene frische Sicherung voraus. Wer die Regel umsetzt,
-liest zuerst §3a des Entwurfs; wer bis dahin am Koexistenz-Code arbeitet, weiss
-damit, dass er an etwas Abzuschaffendem arbeitet. Offen ist einzig, ob ein
-gekoppelter Browser dauerhaft zählt oder nach längerer Funkstille verfällt.
+**Die Koexistenz-Regel („ohne App-Gerät keine
+Direktnachrichten", 2026-08-29 beschlossen, Vorbild WhatsApp Web / Signal
+Desktop) wurde am 2026-09-12 wieder aufgehoben** — Eigentümer-Entscheid: auch
+reine Browser-Konten senden und empfangen (`web/src/lib/krypto/dmSendeSperre.ts`;
+der Schutz für beide Seiten war nie Krypto, sondern Haltbarkeit — er lebt als
+einmaliger Warnhinweis im Browser weiter, `krypto/dmBrowserWarnung.ts`).
+Geblieben ist die Stilllegung des Klartext-Altbestands: Migration
+`0083_legacy_readonly` friert bestehende Klartext-Kanäle lesbar ein, neue
+Klartext-Kanäle entstehen keine. **Die Lehre bleibt:** Wer an DM-Sende-Regeln
+arbeitet, prüft `dmSendeSperre.ts` gegen den Code, nicht diesen Absatz — er
+stand hier wochenlang auf dem Gegenteil.
 
 Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md` (§10 nennt alle
-Etappen und ihre Pläne). **Der ältere `plans/2026-08-28-e2e-dm-etappen.md` ist
+Etappen und ihre Pläne). **Der ältere `docs/superpowers/plans/2026-08-28-e2e-dm-etappen.md` ist
 überholt** — er beschreibt unter anderem einen nativen Android-Weg, den es
 nicht gibt.
 
@@ -271,7 +271,8 @@ an nur EINER Stelle korrigiert" weiter unten warnt.
 - **Rust schreibt Base64 OHNE Polsterung, Python verlangt sie.** vodozemac
   benutzt `STANDARD_NO_PAD`; `base64.b64decode()` wirft ohne `=`-Auffüllung.
   Jede Python-Stelle, die etwas vom Krypto-Kern entgegennimmt, muss `"=="`
-  anhängen (Muster: `schluessel_nachweis.py`, `routes/postfach.py`) — das ist
+  anhängen (Muster heute: `routes/_postfach_deps.py`, `routes/kopplung_umzug.py`;
+  `schluessel_nachweis.py` nimmt nichts mehr vom Krypto-Kern entgegen) — das ist
   gefahrlos, Python ist bei überzähliger Polsterung nachsichtig.
   **Die Fehlerklasse ist die eigentliche Lehre:** der Server wies eine Zeit
   lang JEDEN echten Umschlag mit 400 ab, und kein einziger Backend-Test sah
@@ -321,7 +322,8 @@ an nur EINER Stelle korrigiert" weiter unten warnt.
   den Kanal. `manager.publish(kanal)` erreicht nur Sockets, die den Kanal
   gerade anzeigen (`ctx.subs`) — wer die Unterhaltung nicht offen hatte,
   bekam bis dahin nichts bis zum Reload: kein Zähler, kein Ton. Der
-  Klartext-Weg hat dafür `dm_bump` an alle. Die Allowlist-Korrektur vom
+  Klartext-Weg hat dafür `dm_bump` — der geht an genau die zwei DM-Teilnehmer,
+  nicht an alle Sockets (Audit-Fix 2026-05-29, `pubsub_channel_guild.py`). Die Allowlist-Korrektur vom
   Morgen desselben Tages hatte nur den Fall „Kanal offen, Self-Host aktiv"
   geheilt, und der Zwei-Browser-Nachweis hält den Kanal offen — deshalb sah
   ihn kein Test (`test_einliefern_weckt_das_empfaengerkonto_auch_ohne_offenen_kanal`).
@@ -354,7 +356,7 @@ an nur EINER Stelle korrigiert" weiter unten warnt.
   keinem Gate gelaufen (17 Stück, Stand 2026-08-28 — die Zahl wächst, der
   Punkt bleibt).
 - **Vite trägt das WASM-Paket, aber Bau und Dev-Server sind zwei Fragen.**
-  `pnpm build` legt `pulse_krypto_bg.<hash>.wasm` (531 kB) unter
+  `pnpm build` legt `pulse_krypto_bg.<hash>.wasm` (541 kB) unter
   `build/_app/immutable/assets/` und schreibt den gehashten Pfad in die
   `new URL(…, import.meta.url)` der wasm-pack-Ausgabe — **kein zusätzliches
   Plugin**; die App liefert mit `rnnoise` längst ein `.wasm` nach demselben
@@ -376,7 +378,7 @@ Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (
 - **Prod-Discovery braucht `plugins/` in ZWEI Images**: `web/Dockerfile` (Frontend) + `Dockerfile.service` (chat-gateway, `discover_plugins_dir()` sucht `/app/plugins`). Ohne `COPY plugins/` → alle verwaist.
 - **Aktivierung zwei Ebenen**: Instanz-Allowlist `chat.instance_plugin_allowlist` (`/admin/plugins`, live) + Pro-Guild-Toggle `chat.guild_plugins` (`MANAGE_GUILD`, ≤60 s via `ws_op_gate`-Cache).
 - **`hello` Sonderfall**: immer allowlisted (Seed Migration 0020), nicht entfernbar (409); `hello:*` bypassen Membership + Toggle.
-- **Plugin-Ops brauchen `guild_id: SnowflakeId`** (außer `hello:*`). `ws_op_gate`-Codes: 4040 allowlist · 4041 guild_id fehlt · 4042 non-member · 4043 nicht aktiviert.
+- **Plugin-Ops brauchen `guild_id: SnowflakeId`** (außer `hello:*`). `ws_op_gate`-Codes: 4040 allowlist · 4041 guild_id fehlt · 4042 non-member · 4043 nicht aktiviert — **4043 wird nicht mehr gesendet**: Allowlist-Miss und Guild-Toggle-Miss antworten seit 2026-09-21 beide mit 4040 „unknown op", damit sich „installiert vs. fremd" nicht mehr von der Leitung ablesen lässt (`plugins/ws_op_gate.py`).
 - **DB-Session über `ctx.manager._session_factory`** (nicht `from …db import SessionLocal`) — sonst sehen ws_app-Tests die ungepatchte Memory-DB.
 - State-Scope: per-User → `chat.user_preferences`, per-Guild → `chat.guild_plugin_state` (Migration 0021, race-safe `state_store.py::apply_atomic_update`). **DMs/Friends = plugin-frei** (`guildId === ''`); Toggle-Änderung erst beim nächsten Guild-Mount sichtbar (kein Server-Push).
 
@@ -400,7 +402,7 @@ Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (
 - **Pflicht-Check auf `main`: nur `CLAAssistant`** (`cla.yml`). `backend`/`frontend` sind **keine Pflicht** — Test-Gate ist LOKAL (`scripts/ship.sh` erzwingt pytest+`pnpm check`+build bei Code-Änderung, **rot = kein Push**; Doku-only übersprungen; Notausgang `SKIP_TESTS=1`).
 - Build-Workflows mit `on.push.paths` (`win`/`mac`/`flatpak`/`allinone`). **`ci.yml`** hat `paths-ignore` (`**.md`/`docs/**`/`.claude/**`) auf **beiden** Triggern → reine Doku löst keinen Check/Deploy aus.
 - **`allinone.yml` = Self-Host-Image, Multi-Arch NATIV** (nicht QEMU): amd64 `ubuntu-24.04` / arm64 `ubuntu-24.04-arm`, 3 Jobs (`prepare`→`build`-Matrix→`merge` mit `imagetools` + `registry.howispulse.com`-Mirror), Kaltbau ~8 min. **Nicht auf QEMU zurückbauen** (war ~90 min).
-- **CI nur auf `main` real testbar** (kein PR-Check; triggern auf `main`-Push/Tag) — erster Lauf nach Merge beobachten.
+- **CI-Tests laufen AUSSCHLIESSLICH auf PRs** (`backend`/`frontend` tragen `if: github.event_name == 'pull_request'`) — ein direkter `main`-Push läuft ohne CI-Tests (nur changelog + images); Tag-Trigger nur `allinone.yml`. Das verbindliche Test-Gate bleibt deshalb lokal (`ship.sh`).
 - CI-only (`.github/**`) = NON_USER_FACING → kein Changelog-Eintrag.
 
 ## Port-Mapping (lokales Dev)
@@ -416,7 +418,7 @@ Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (
 | mediamtx-auth-hook | 8005 | MediaMTX `authHTTP` |
 | web (Vite dev) | 5173 | `http://127.0.0.1:5173` |
 | LiveKit | 7880 (+7881, 7882–7892/udp) | `network_mode: host` |
-| MediaMTX | 1935/1936/8888/8889/8890/8189/9997 | RTMP/RTMPS/HLS/WHEP/SRT/ICE/API — host-net, API (9997) nur localhost, Auth → :8005 |
+| MediaMTX | 1936/8888/8889/8890/8189/9997 | RTMPS/HLS/WHEP/SRT/ICE/API — host-net, API (9997) nur localhost, Auth → :8005 |
 
 ### Service-Start
 

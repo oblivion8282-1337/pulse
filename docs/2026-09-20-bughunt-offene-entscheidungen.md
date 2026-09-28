@@ -4,8 +4,8 @@
 > Umgesetzt: 6.1 (PCP-Renewal ½ Lifetime), 6.2 (Weiterreich-Antwort-Cap
 > 4 MiB), 6.3 (Kick/Ban-Rangfilter clientseitig + Kanal-Scope für Voice-
 > Knöpfe; 403-Toasts bestanden), 6.4 (Presence instance-lokal geseedet —
-> Intersect VOR dem MGET), 6.6 (alle sieben Kleinigkeiten), 2.5 (dev-up.
-> fish-Loops), 2b.2 (Zwischenlager unter with_quota_lock), 2b.3
+> Intersect VOR dem MGET), 6.6 (alle sieben Kleinigkeiten), 2b.2
+> (Zwischenlager unter with_quota_lock), 2b.3
 > (Festigungs-Grabsteine im Verzeichnis, Cap 200), 2c (tote Regler
 > entfernt, Dev-Port-Knobs korrigiert), 2d (ReportClosedEvent + Invite-
 > Push bleibt Doku, pushsubscriptionchange bleibt Doku), 3.1 (Gast-TTL
@@ -32,6 +32,10 @@
 > * **2e/2f Design-Rest**: Gast-Token-Refresh, DUPLICATE_IDENTITY-Teardown,
 >   Geräte-Bindung beim "Überall abmelden" bleiben Protokoll-Backlog
 >   (Force-Mute-Anzeige + die zwei Log-Härtungen aus 2f sind umgesetzt).
+> * **2.5 dev-up.fish-Loops** — *Korrektur 2026-09-28: stand oben fälschlich
+>   in der Umgesetzt-Liste. Die Warte-Loops brechen weiter still nach
+>   30×0,3 s ab und das Skript meldet trotzdem „Services up“
+>   (`scripts/dev-up.fish:225-233`). Weiter offen.*
 
 
 > **STAND 2026-09-21 (Entscheidungs-Umsetzung, siehe Teil 5 unten).**
@@ -244,6 +248,10 @@ Upgrade-Pfad meist schon nebengenannt.
   nicht mehr; Plugin-Op-Kollisionen laufen lautlos last-wins).
 * Mitschnitt/Clip-Stack: `player/client.ts` (startRecording/stopRecording/
   saveClip) + IPC + Rust-Recorder — komplett gebaut, kein Renderer-Aufruf.
+  *Erledigt (2026-09-28 verifiziert, mit Release 0.1.88): der Renderer ruft
+  inzwischen überall auf — `player/store.svelte.ts:367,378,395`,
+  `stream/shadowClip.ts:18`, Desktop-IPC `player:record`/`player:stopRecord`/
+  `player:clip` in `desktop/electron/main.ts:1181-1186`.*
 * `web/src/lib/api/recovery-package.ts::deleteRecoveryPackage` + Server-
   Endpoint existieren — keine UI, ein Nutzer kann ein Päckchen nie entfernen.
 * `web/src/lib/sicherung/googleClient.ts::sicherungClientKonfiguriert` —
@@ -257,6 +265,10 @@ Upgrade-Pfad meist schon nebengenannt.
   (Loader-Rollback fährt über _rollback_registrations), `settings-registry`
   `deleteServerSection`/`flushSection` (Policy-Option fehlt),
   `platformAuthenticatorAvailable` (Copy-Tailoring nie verdrahtet).
+  *(2026-09-28 verifiziert: diese Liste ist inzwischen komplett entfernt —
+  `deleteRecoveryPackage`, `sicherungClientKonfiguriert`, `anzahlBerechtigte`
+  (ohne `berechtigte.ts`) und `getDirectConnection` existieren nicht mehr,
+  ebenso alle genannten `shared`-Helfer.)*
 
 ## 3. Kosmetisch / UX — klein, aber nicht kostenlos
 

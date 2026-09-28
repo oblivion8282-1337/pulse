@@ -440,12 +440,14 @@ eingerichtet" card while the profile is off, so you don't silently forget.
 
 When enabled, the `backup` sidecar (built locally from `infra/prod/backup/
 Dockerfile`) runs restic-encrypted snapshots of Postgres + MinIO + avatars
-+ guild_icons into the `pulse_backups` Docker volume. Schedule (UTC):
++ guild_icons + config into the `pulse_backups` Docker volume. Schedule (UTC):
 
 - `pg`        — daily 04:00 (pg_dump | restic --stdin)
 - `minio`     — every 6h    (mc mirror → restic)
 - `avatars`   — daily 04:30
 - `icons`     — daily 04:35
+- `config`    — daily 04:40 (the whole `infra/prod/` dir: `.env`,
+              `secrets/jwt_*.pem`, `certs/` — see below)
 - `maintenance` — Sunday 05:00 (`forget --prune` 7d/4w/6m per tag + `check`)
 
 Schedule + script live in `infra/prod/backup/{crontab,backup.sh}`.
@@ -524,15 +526,24 @@ was end-to-end validated on a laptop drill — single-file cherry-pick, full
 Postgres, full MinIO bucket, and avatars/icons all confirmed byte-identical
 after a destroy+restore cycle.
 
-### What is NOT in restic
+### Config + secrets ARE in restic (group `config`)
 
-Restic captures the data layer only. These must be kept off-host separately
-(password manager, encrypted USB, second VPS):
+Restic no longer captures "the data layer only": since 2026-08-07 the sixth
+group `config` (daily 04:40) snapshots the whole `infra/prod/` directory,
+mounted read-only as `/snapshot/config` in `docker-compose.yml`. That covers:
 
 - `~/pulse/infra/prod/.env`               — passwords + `RESTIC_PASSWORD`
 - `~/pulse/infra/prod/secrets/jwt_*.pem`  — JWT signing keys (rotating these
                                             invalidates every issued token)
 - `~/pulse/infra/prod/certs/server.{crt,key}` — MediaMTX self-signed TLS
+
+Keep off-host copies anyway (password manager, encrypted USB, second VPS) —
+not because restic lacks them, but as a **second** copy: the restic repo
+itself lives only in the local `pulse_backups` Docker volume and dies with
+the disk (see the off-host TODO below).
+
+The one item still genuinely outside restic:
+
 - `~/.docker/config.json`                 — GHCR pull token
 
 ### TODO: off-host replica

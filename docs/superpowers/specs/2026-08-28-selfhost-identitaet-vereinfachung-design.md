@@ -1,6 +1,14 @@
 # Self-Host-Identität vereinfachen: Cloud-Ticket statt Geräte-Zertifikat
 
-Stand 2026-08-28. Entwurf, noch nicht umgesetzt.
+Stand 2026-08-28. **Stand 2026-09-28: umgesetzt.** Der Cloud-Ticket-Weg steht
+(`services/auth/src/dcc_auth/server_ticket.py`,
+`routes_server_ticket.py`; chat-gateway `ticket_pruefung.py`,
+`routes/session_ticket.py`). Die Löschliste unten ist weitgehend
+abgearbeitet — `routes/cert_login.py`, `routes_credentials.py`,
+`credential_revocation.py`, `crl_poller.py`, `api/cert-login.ts` und
+`DeviceManagement.svelte` sind entfernt; weiter im Baum:
+`models_credentials.py` und die identity-Helfer `keypair.svelte.ts`,
+`issue-flow.ts`, `idb-shared.ts` (`web/src/lib/identity/`).
 Anlass: der Vorfall um `pulse.all3media.de` (siehe „Ausgangslage").
 
 ## Ausgangslage
@@ -182,6 +190,13 @@ hingenommen; es hier als Gewinn zu verbuchen wäre eine Behauptung gewesen, die
 der Code nicht hält.
 
 ## Löschliste
+
+*(Korrektur 2026-09-28: weitgehend abgearbeitet — entfallen sind
+`cert.svelte.ts`, `cert-rotation.svelte.ts`, `api/cert-login.ts`,
+`DeviceManagement.svelte`, `routes/cert_login.py`,
+`routes_credentials.py`, `credential_revocation.py`, `crl_poller.py`.
+Noch im Baum: `models_credentials.py` sowie `identity/keypair.svelte.ts`,
+`identity/issue-flow.ts`, `identity/idb-shared.ts`.)*
 
 **Frontend:** `identity/keypair.svelte.ts`, `identity/cert.svelte.ts`,
 `identity/cert-rotation.svelte.ts`, `identity/issue-flow.ts`,

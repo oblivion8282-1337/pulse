@@ -22,7 +22,8 @@
 #
 # Die Images (`pulsetest-*:local`) sind damit nur noch ABHÄNGIGKEITS-TRÄGER:
 # sie liefern `/app/.venv`. Neu gebaut werden müssen sie ausschließlich, wenn
-# sich `uv.lock` ändert (zuletzt 2026-07-01).
+# sich `uv.lock` ändert (zuletzt 2026-09-18, Commit 23e2dff1 — die Images vom
+# 2026-08-16 sind damit veraltet, einmal neu bauen).
 #
 # ── Der Projektname ist nicht frei wählbar ───────────────────────────────────
 # An `name: pulsetest` hängen der Volume-Präfix (`pulsetest_pgdata` — der

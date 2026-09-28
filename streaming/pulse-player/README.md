@@ -80,7 +80,7 @@ nicht einsehbar.
   der Compositor den scRGB-Puffer auf den konkreten Schirm bringt.
   Sendeseitig ist alles am Bitstrom belegt:
   `docs/2026-08-06-hdr-windows-amd.md`.
-- **Bedienoberflaeche IM Fenster** (`src/overlay.rs`, egui): Lautstaerke samt
+- **Bedienoberflaeche IM Fenster** (`src/overlay/`, egui): Lautstaerke samt
   Verstaerkung ueber 100 %, Stumm, Aufnahme an/aus und Clip (Knöpfe neben der
   Lautstaerke — sie melden nur den Wunsch als `player:recordRequest`/`clipRequest`
   nach vorne; Zielpfad und Schalten liegen bei der App, der Knopfzustand liest

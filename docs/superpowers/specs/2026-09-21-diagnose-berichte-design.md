@@ -1,9 +1,16 @@
 # Diagnose-Berichte für alles: App, Server, Player — vom Streaming-Prototyp zum Produkt
 
-Stand 2026-09-21. **Entwurf, noch nicht umgesetzt.** Anlass und Grundzüge
+Stand 2026-09-21. Anlass und Grundzüge
 besprochen (Michael + Agent, nach zwei Supportfällen derselben Woche); alle
 Produktentscheidungen sind beschlossen (§11, beschieden am selben Tag).
 Umsetzung in drei Phasen (§10).
+
+**Stand 2026-09-28: Phase 1+2 umgesetzt.** Ringpuffer
+`web/src/lib/diagnose/app-diagnose.ts`, Käfer-Knopf
+`web/src/lib/components/diagnose/KaeferDialog.svelte` (Versand über
+`web/src/lib/api/diagnose.ts`), Admin-Ansicht `GET /admin/experimental-logs`
+samt Detail-GET (`services/auth/src/dcc_auth/routes_experimental_logs.py:360-396`).
+Phase 3 (Server-Paket, Player) hier nicht nachgeprüft.
 
 ## 1. Anlass
 
@@ -63,6 +70,13 @@ Es gibt bereits einen funktionierenden Prototyp — für HQ-Streaming:
   DB erreichbar), jeder Bericht über Nicht-Streaming-Probleme, der
   Server-Bericht, der Player-Bericht, ein manueller „jetzt melden"-
   Weg.
+
+  *Korrektur 2026-09-28:* der Admin-Lesezugriff existiert inzwischen
+  (`GET /admin/experimental-logs` + Detail-GET,
+  `routes_experimental_logs.py:360-396`) ebenso wie der manuelle
+  melden-Weg (Käfer-Knopf, `KaeferDialog.svelte`) — Phase 1+2 sind
+  gebaut. Server- und Player-Bericht (Phase 3) blieben hier
+  ungeprüft.
 
 ## 3. Grundsätze (beschlossen)
 

@@ -72,9 +72,16 @@ republish, and the authoritative list is the `paths:` filter in
 `.github/workflows/flatpak.yml` — do not reproduce it from memory, read it:
 
 - `desktop/electron/**`, `desktop/package.json` — the Electron bundle
+- `desktop/esbuild.mjs` — builds `electron/dist`, which the Flatpak copies in
 - `streaming/linux-hq-sidecar/**` — the **Rust** sidecar, the only Linux
   capture path since 2026-08-27 (default since 2026-07-17)
 - `streaming/pulse-player/**` — the player
+- the seven shared Rust crates
+  `streaming/pulse-{redact,zeitbasis,whip,zeigerbild,bildmarke,fernsteuerung,ablage}/**` —
+  both binaries link against them, but they live outside the two crate
+  directories, so a change there would silently skip the build without these
+  entries (`streaming/zwillinge/tests/bau_ausloeser.rs` counts this list as a
+  counter-check)
 - `packaging/*-cargo-sources.json` — the offline Cargo manifests for both Rust
   crates; a `Cargo.lock` change means regenerating these, or the Flatpak build
   fails offline
@@ -164,7 +171,7 @@ If those are missing, it's the `strip-components` bug (see below). Otherwise it'
 usually GPU/Wayland on NVIDIA → try `PULSE_OZONE=x11 flatpak run …`, or add
 `--disable-gpu` / `--disable-gpu-sandbox` to the `zypak-wrapper` line in `launcher.sh`.
 
-**The `strip-components` trap.** The Electron-42 binary is pulled from the GitHub
+**The `strip-components` trap.** The Electron-43 binary is pulled from the GitHub
 release as a flat tree with `locales/` + `resources/` at the top level. The
 flatpak-builder default `strip-components: 1` flattens those two directories →
 Electron can't find `resources/default_app.asar` → Exit 1 *before `main.cjs` even

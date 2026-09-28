@@ -177,8 +177,10 @@ dead disk's `/var/lib/docker/volumes/pulse_pulse_backups/`).
 1. Install Docker + Compose on the new host.
 2. Restore the volume: `mkdir -p /var/lib/docker/volumes/pulse_pulse_backups/_data && cp -a …`.
 3. Clone Pulse, restore `~/pulse/infra/prod/.env` (incl. `RESTIC_PASSWORD`!),
-   `secrets/jwt_*.pem`, and `certs/server.{crt,key}` from your **off-host**
-   secrets store (none of these are in restic — see DEPLOY.md).
+   `secrets/jwt_*.pem`, and `certs/server.{crt,key}`. These ARE in restic
+   (backup group `config`, see DEPLOY.md) — but the repo only becomes
+   readable in step 5, so at this step the off-host copy is the practical
+   source; cross-check afterwards with `restic snapshots --tag config`.
 4. Rebuild the backup image on the new host so it can read the repo:
    ```bash
    cd ~/pulse/infra/prod && docker compose build backup

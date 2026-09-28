@@ -86,8 +86,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"
 # und er kann kein AV1 (in ffmpeg 8.1 UND master geprueft, nur H.264).
 #
 # Die Abhaengigkeit ist im Projekt bereits angenommen: der native Player nutzt
-# dieselbe Fassung, und `streaming/pulse-remote-webrtc` (Fernsteuerung)
-# deklariert sie identisch. MIT/Apache-2.0, kein GPL.
+# dieselbe Fassung. MIT/Apache-2.0, kein GPL.
 #
 # Sie waechst den Sidecar spuerbar — auch fuer Nutzer, die den Weg nie waehlen.
 # Bewusst in Kauf genommen (2026-08-02), weil er Standard werden soll; ein

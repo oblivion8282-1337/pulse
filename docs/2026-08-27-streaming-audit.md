@@ -194,6 +194,10 @@ Windows gelesen, s. 2.2). Der Kommentar in `sdp.rs` ist dabei ungenau: er sagt,
 `register_default_interceptors` hänge seine Rückmeldungen an die Video-Fassungen
 — tatsächlich auch an Opus.
 
+*Korrektur 2026-09-28: der Klammerzusatz widerspricht §2.2 desselben
+Berichts — seit der Behbung vom 2026-08-27 (Zustandsmaschine in
+`pulse-whip/src/bandbreite.rs`) werten alle drei Sidecars REMB aus.*
+
 ### 2.4 Kein Sidecar merkte einen ICE-Abriss — BEHOBEN am 2026-08-27
 
 In keinem der drei `whip/mod.rs` gab es `on_ice_connection_state_change` oder
@@ -343,9 +347,17 @@ Damit das nicht untergeht — geprüft und in Ordnung befunden:
    repariert. Seit dem 2026-07-31 die offene Frage.
 3. **2.7 zu Ende bringen**: nach dem Bau von `1.19.1-pulse6` die drei
    compose-Dateien umstellen.
+   *Erledigt (2026-09-28 verifiziert): alle drei compose-Dateien stehen auf
+   `1.19.1-pulse7` (`infra/prod/docker-compose.yml:404`,
+   `streaming/server/docker-compose.yml:45`,
+   `infra/dev-remote/docker-compose.yml:289`).*
 4. **Den macOS-Quellverlust auf `reason: "source_closed"` heben** (s. 2.5), damit
    der Zuschauer denselben Text bekommt wie unter Windows.
 5. **Die Tests des Mac-Sidecars in ein Gate bringen.** `mac-build` baut nur;
    134 Tests laufen weiterhin nur, wenn jemand daran denkt. Dieselbe
    Fehlerklasse, die dieser Bericht unter 1.4 beschreibt.
+   *Größtenteils erledigt (2026-09-28 verifiziert): `scripts/gate-rust.sh`
+   (Z. 205-219) fährt die Mac-Sidecar-Tests auf macOS seit 2026-08-26
+   (Commit `0d21695a`). Rest: die CI in `mac-build.yml` baut weiterhin
+   ohne Tests.*
 6. 2.3 und 2.6 nach Bedarf.

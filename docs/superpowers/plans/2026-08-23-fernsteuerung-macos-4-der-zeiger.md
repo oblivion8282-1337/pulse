@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`streaming/pulse-player/src/zeigerbild.rs` + `streaming/pulse-zeigerbild`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Fernsteuerung macOS, Etappe 4: Der Zeiger — Umsetzungsplan
 
 Echo, Form, Bild, Rückfall. Grundlage: `docs/superpowers/specs/2026-08-22-fernsteuerung-macos-design.md` §6.

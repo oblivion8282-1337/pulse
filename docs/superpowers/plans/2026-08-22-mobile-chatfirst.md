@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`web/src/lib/components/mobile/` + `web/src/routes/app/+layout.svelte:411`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Mobile- und Tablet-Redesign „chat-first" — Arbeitsplan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

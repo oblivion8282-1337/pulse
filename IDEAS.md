@@ -6,13 +6,13 @@
 
 ## 1. Roadmap-Reste (in PLAN.md §10 / §17 schon erwähnt — „halb-zugesagt")
 
-- **Roles + Permissions-UI** — DB-Felder laut PLAN reserviert. Pro-Guild-Rollen sind der größte Discord-Parity-Sprung mit wenig Architektur-Neudesign.
-- **Push-Notifications (Web-Push + Service-Worker)** — ohne kommen wir auf Mobile nicht in den Hintergrund-Use-Case. ~2-3 Tage echt.
+- **Roles + Permissions-UI** — DB-Felder laut PLAN reserviert. Pro-Guild-Rollen sind der größte Discord-Parity-Sprung mit wenig Architektur-Neudesign. **[ERLEDIGT bis 2026-09-28: gebaut — `services/chat-gateway/src/dcc_chat_gateway/permissions.py` + `web/src/lib/permissions/`]**
+- **Push-Notifications (Web-Push + Service-Worker)** — ohne kommen wir auf Mobile nicht in den Hintergrund-Use-Case. ~2-3 Tage echt. **[ERLEDIGT bis 2026-09-28: gebaut — `services/chat-gateway/src/dcc_chat_gateway/vapid.py` + `web/src/lib/notifications/pushSubscribe.ts`]**
 - **Global-PTT auf Electron** via `uiohook-napi` — heute nur In-Window-PTT, was außerhalb des Fokus stört. CLAUDE.md flaggt es als bekannten Gap.
-- **Notifications-IPC in `desktop/electron/main.ts`** — native OS-Banner für DMs/Mentions, ~10 Zeilen.
-- **macOS + Windows Electron-Builds** — Web-First ist gut, aber HQ-Streaming ist Linux-only (siehe Memory `project_windows_capture_research`).
+- **Notifications-IPC in `desktop/electron/main.ts`** — native OS-Banner für DMs/Mentions, ~10 Zeilen. **[ERLEDIGT bis 2026-09-28: gebaut — `desktop/electron/notify.ts`]**
+- **macOS + Windows Electron-Builds** — Web-First ist gut, aber HQ-Streaming ist Linux-only (siehe Memory `project_windows_capture_research`). **[ERLEDIGT bis 2026-09-28: gebaut — `.github/workflows/{win,mac}-build.yml` + `streaming/win-hq-sidecar/` + `streaming/mac-hq-sidecar/`, HQ-Streaming nicht mehr Linux-only]**
 - **Mobile-PWA-Touch-Pass** — Sidebar als Drawer, Long-Press-Reactions, Virtual-Keyboard-Layout-Fixes.
-- **2FA (TOTP)** + Session-Management-UI („meine aktiven Geräte / abmelden") — Vorab-Schritte für das Identity-Konzept.
+- **2FA (TOTP)** + Session-Management-UI („meine aktiven Geräte / abmelden") — Vorab-Schritte für das Identity-Konzept. **[ERLEDIGT bis 2026-09-28: gebaut — `services/auth/src/dcc_auth/routes_totp.py` + Sicherheits-Einstellungs-UI]**
 
 ## 2. Chat-Polish (Discord-Parity-Schiene)
 
@@ -21,8 +21,8 @@
 - **Suche** — Postgres-FTS pro Guild reicht für v1; pgvector erst wenn jemand semantische Suche will.
 - **Pinned Messages + Bookmarks/Saved Messages.**
 - **Custom Emoji + Sticker pro Guild** — Emoji-Picker und S3-Upload existieren beide schon.
-- **Markdown-Renderer mit Sanitizer** — `marked` + `DOMPurify` (nicht `svelte-markdown` blind — siehe Anti-Patterns).
-- **Typing-Indicator** — günstig via Redis-Pub/Sub + WS-Frame.
+- **Markdown-Renderer mit Sanitizer** — `marked` + `DOMPurify` (nicht `svelte-markdown` blind — siehe Anti-Patterns). **[ERLEDIGT bis 2026-09-28: gebaut — `web/src/lib/components/messageRender.ts`]**
+- **Typing-Indicator** — günstig via Redis-Pub/Sub + WS-Frame. **[ERLEDIGT bis 2026-09-28: gebaut — `routes/ws_typing.py` + `web/src/lib/ws/handlers/chat.ts`]**
 - **Server-Discovery + öffentliche Invite-Listing.**
 - **User-Status (Online/Idle/DND/Custom)** — `MemberActivityHeader` existiert, das Datum dahinter müsste in `voicePresence`/`ws.py` ergänzt werden.
 - **„Spiel das ich gerade spiele"** als Custom-Status-Feld (Free-Text + Icon, kein Rich-Presence).
@@ -154,6 +154,7 @@
 
 ### Was Pulse heute hat
 TLS für alle Wire-Connections, Argon2id für Passwörter, RS256-JWT (Key in File `chmod 0644`), Session-Management mit Device-List + Revoke (commit `6fbe736`). **Postgres-Volume und MinIO-Volume liegen Klartext auf der VPS-Disk. Kein automatisiertes Backup-System. 2FA fehlt.**
+*(2026-09-28 nachgetragen: überholt — automatisierte Backups laufen über `infra/prod/backup/` (restic + Object-Storage-Mirror, täglich via crontab), 2FA/TOTP ist gebaut (`services/auth/src/dcc_auth/routes_totp.py` + UI); MinIO ist inzwischen durch Garage ersetzt.)*
 
 ### Full-E2EE für Chat — *jetzt verworfen*
 Tradeoffs zu massiv für ein Discord-artiges Produkt:
@@ -207,6 +208,8 @@ Optionen die's konkret gibt:
 
 ### Encrypted Backups — *konkretes Plan-Skelett, awaiting greenlight*
 
+*(2026-09-28: umgesetzt — `infra/prod/backup/` existiert mit `backup.sh`/`Dockerfile`/`crontab`/`restore.md`. Das folgende Skelett ist damit kein offener Plan mehr, nur noch Trail.)*
+
 Stand der Entscheidungen aus dem Gespräch:
 - **Tool:** `restic` (Dedup + Inkremental + Integrity + eigene Encryption integriert → kein `age` zusätzlich)
 - **Scope:** Postgres + MinIO + avatars + guild_icons — alles in einem Sidecar
@@ -214,7 +217,7 @@ Stand der Entscheidungen aus dem Gespräch:
 - **MinIO:** Snapshot via `mc mirror` → restic (konsistenter als Direct-Read am Volume-Layout)
 - **Frequenz:** PG täglich 04:00 UTC, MinIO alle 6h, avatars/icons täglich
 
-Phasen (ungestartet):
+Phasen (ungestartet): *(2026-09-28: gestartet und überwiegend umgesetzt — siehe `infra/prod/backup/`; Details weichen ab, z. B. Garage statt MinIO)*
 1. restic-Passphrase generieren (`openssl rand -base64 32`), in Password-Manager + Papier
 2. Service `pulse_backup` in `infra/prod/docker-compose.yml`
 3. `infra/prod/backup/Dockerfile`: alpine + restic + postgresql-client + mc + tini
@@ -277,7 +280,7 @@ Open für Personal/kleine Communities, kommerzielle Nutzung ab Seat-Count oder H
 - **BSL:** „4 Jahre nur ihr dürft hosten, danach Apache" — Sentry, CockroachDB, HashiCorp. Härter aber durchsetzbar.
 - **Commons Clause auf MIT:** „nutzbar, nicht für Verkauf der Software". Leichteste, juristisch grauer.
 
-Memory `project_pulse_license_status.md` sagt: keine LICENSE-Datei da. → Lizenz-Wahl jetzt = keinerlei Painful-Relicensing später (Elastic-Pain vermeiden).
+Memory `project_pulse_license_status.md` sagt: keine LICENSE-Datei da. *(2026-09-28 korrigiert: `LICENSE` existiert seit 2026-05-21; source-available ist Pulse seit 2026-07-25, mit den heutigen Pulse Client/Server Licenses 1.0 seit 2026-07-29 — die Lizenz-Wahl ist mit Phase 1 unten gefallen.)* → Lizenz-Wahl jetzt = keinerlei Painful-Relicensing später (Elastic-Pain vermeiden).
 
 ### Anti-Modelle für Pulse
 

@@ -1,7 +1,13 @@
 # Watch-Party Host-Handoff — Design
 
 **Datum:** 2026-06-02
-**Status:** Design abgenommen, bereit für Implementierungsplan
+**Status:** nicht umgesetzt — **Stand 2026-09-28** setzte sich stattdessen
+host-sticky durch: der Host verliert die Party nicht an den ältesten
+Watcher, und bei WS-Abbruch läuft eine Gnadenfrist statt sofortiger
+Promotion (`end_or_grace_if_host` in
+`services/chat-gateway/src/dcc_chat_gateway/routes/watch_handoff.py`,
+verdrahtet in `ws_watch.py`). Siehe Schwester-Spec
+`docs/specs/2026-06-02-watch-party-host-sticky-design.md`.
 **Betrifft:** Watch-Party-Schiene (chat-gateway + web)
 
 ## Problem

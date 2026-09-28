@@ -14,7 +14,8 @@ WebRTC/WHIP-Push, AV1-Paketierer, FEC), arbeitet **nicht hier**, sondern in
 ## Stack
 - **Capture**: xdg-desktop-portal ScreenCast → PipeWire-DMABUF, zero-copy in den Encoder.
 - **Encode**: VAAPI (AMD/Intel) / NVENC (Nvidia) via `ffmpeg-next` 8.1 gegen den
-  **unveränderten FFmpeg-Eigenbau n8.1.1** (`scripts/hq-bauen.sh`, per pkg-config gefunden,
+  **unveränderten FFmpeg-Eigenbau n8.1.1** (`scripts/hq-bauen.sh` im Repo-Wurzel,
+  per pkg-config gefunden,
   RPATH auf `~/.cache/pulse/ffmpeg/prefix`) — nicht gegen das der Distribution.
   Eigenbau, weil das Distributions-FFmpeg als Grundlage nicht taugt: Arch steht auf
   n9.0.1, und `ffmpeg-next = "8.1"` übersetzt dagegen nicht (14 Fehler, neue
@@ -22,12 +23,14 @@ WebRTC/WHIP-Push, AV1-Paketierer, FEC), arbeitet **nicht hier**, sondern in
   `~/.cache/pulse/ffmpeg-intra-refresh/prefix` — der Bau trug einen Pulse-Patch, der
   rollenden Intra-Refresh für die VAAPI-Encoder freilegte. Die Betriebsart ist aus Pulse
   entfernt, der Patch mit ihr; der Versionsgrund bleibt.)*
-  Codecs: **nur H264 + AV1** (kein HEVC). Die Encoder-Optionen gehen auf GSR
+  Codecs: H264 + AV1, **seit 2026-09-13 auch HEVC** als Kandidat
+  (`caps.rs::CANDIDATES` — die Hardware-Probe entscheidet je Karte). Die
+  Encoder-Optionen gehen auf GSR
   zurück, sind aber **nicht mehr 1:1** — maßgeblich ist `encode/opts.rs`, dort steht an
   jedem Wert die Messung (etwa VAAPI `async_depth=1` statt GSRs 3: der Vorlauf kostete
   zwei Bildabstände, 33,6 → 5,3 ms).
 - **Push**: FLV-Mux → RTMPS an MediaMTX (`tls_verify=0`, **OpenSSL**-Backend —
-  `--enable-openssl` im Eigenbau, der Sidecar meldet es als `health.gsr.tls_backend`). Viewer holen per WHEP.
+  `--enable-openssl` im Eigenbau, der Sidecar meldet es als `health.sidecar.tls_backend`). Viewer holen per WHEP.
 - **Threading**: `std::thread` + `mpsc`, kein Tokio im Main-Loop (nur scoped für die
   Portal-Verhandlung via `ashpd`).
 
@@ -40,21 +43,19 @@ zero-copy in den Encoder (NVENC via CUDA-GL-Interop, VAAPI via `hwmap`+`scale_va
 
 Zwei Dinge, die man beim Lesen der Ausgabe kennen muss:
 
-- **10 bit gibt es nur mit AV1.** Ein 10-bit-Wunsch mit H.264 wird still auf 8 bit
-  zurückgeschoben — `High 10` kann NVENC zwar, aber kein Browser dekodiert es, und der
-  WHEP-Rückfall im Web ist ein `<video>`.
-- **Dieser Sidecar sendet über WHIP kein AV1** — die Grenze liegt am ffmpeg-WHIP-Muxer,
-  nicht an WHIP oder WebRTC. `ops/start.rs` weicht deshalb auf H.264 aus, und damit
-  zugleich auf 8 bit. Betrifft app-gehostete Instanzen (`MEDIAMTX_PUSH_PROTOCOL=whip`);
-  der Cloud-Weg ist RTMPS und nicht betroffen.
-  **Mit eigenem Paketierer geht es sehr wohl:** `streaming/hq-labor/` sendet AV1 10 bit
-  über WHIP und war damit am 2026-07-28 gemessen 18,7 ms schneller als RTMPS, bei
-  achtmal kleinerer Streuung. Nur ist dieser Weg (noch) nichts, was ausgeliefert wird —
-  deshalb steht er dort und nicht hier.
+- **10 bit gibt es mit AV1 und (seit 2026-09-13) HEVC Main 10.** Ein 10-bit-Wunsch
+  mit H.264 wird still auf 8 bit zurückgeschoben — `High 10` kann NVENC zwar, aber
+  kein Browser dekodiert es, und der WHEP-Rückfall im Web ist ein `<video>`.
+- **WHIP-Ziele (app-gehostete Instanzen) laufen über den EIGENEN WebRTC-Sendeweg**
+  (`src/whip/`; der AV1/SDP-Teil liegt gemeinsam in `streaming/pulse-whip`) — der
+  Sidecar paketiert AV1 selbst, der frühere H.264-Rückfall am WHIP-Ziel ist seit
+  2026-08-02 entfallen (`ops/start.rs`). ffmpegs WHIP-Muxer, die alte Begrenzung,
+  ist damit aus dem Spiel.
 
 Offen: die **Aufnahme** selbst ist weiterhin 8 bit (der Compositor liefert `XRGB8888`);
 10-bit-Encode nutzt trotzdem etwas gegen Banding, ist aber keine echte 10-bit-Quelle.
-VAAPI hat keinen 10-bit-Zweig. „Desktop + Mikrofon" mischt bisher nur Desktop.
+VAAPI hat einen 10-bit-Zweig (`scale_vaapi=format=p010` bei `ten_bit`, `encode/va_import.rs`).
+„Desktop + Mikrofon" mischt bisher nur Desktop.
 
 Die Herleitung der Encoder- und Puffer-Werte mit den zugehörigen Messungen steht in
 `CLAUDE.md` in diesem Verzeichnis — dort ist auch festgehalten, welche Wege gemessen

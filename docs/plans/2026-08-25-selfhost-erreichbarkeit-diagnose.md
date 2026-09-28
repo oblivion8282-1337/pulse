@@ -11,6 +11,8 @@ WebSocket-Upgrade, UDP-Medienports — und geprüft wird davon heute genau eines
 einmal, als Ja/Nein. Reißt irgendein anderes, sagt jede Stelle im System
 dasselbe: „nicht erreichbar".
 
+> (2026-09-28: Diese Bestandsaufnahme ist überholt — die Ursachen-Unterscheidung ist gebaut (`'unreachable' | 'too-old' | 'bad-response' | 'bad-url' | 'cors'`, `web/src/lib/api/server-info.ts:61-62`, `no-cors`-Gegenprobe `:35`/`:111`), der Installer prüft die Medienports (`web/static/install.sh:119-127`), und Stufe 3 ist gebaut (`/health/setup`: `services/chat-gateway/src/dcc_chat_gateway/routes/health.py:265`, plus Diagnose-Paket `routes/admin_diagnose_paket.py`).)
+
 ## Was heute stillschweigend reißt
 
 Alles hier ist am Code belegt, nicht vermutet.
@@ -26,6 +28,8 @@ Alles hier ist am Code belegt, nicht vermutet.
    fängt DNS-Fehler, TLS-Fehler, CORS-Block, Timeout und Netz-aus in *einem*
    `catch` und gibt für alles `unreachable` zurück. Der Kommentar dort gibt es
    selbst zu.
+
+   > (2026-09-28: Überholt — `server-info.ts` unterscheidet heute `'unreachable' | 'too-old' | 'bad-response' | 'bad-url' | 'cors'` (`:61-62`) und trennt per `no-cors`-Gegenprobe (`:35`, `:111`) CORS-Block von totem Netz.)
 
 3. **Der WebSocket wird nie vorgeprüft** — die häufigste Proxy-Falle (nginx ohne
    `Upgrade`-Header, Nginx Proxy Manager ohne den Haken). `/health` antwortet,
@@ -56,6 +60,8 @@ Alles hier ist am Code belegt, nicht vermutet.
    Schritt 2, `docker run` erst in Schritt 4. Ein belegter Port 3478 lässt
    `docker run` unter `set -e` sterben — Token weg, neuer Antrag nötig.
    `port_busy` prüft nur 80/443, nicht die Medienports.
+
+   > (2026-09-28: Überholt — `install.sh:119-127` prüft heute auch die Medienports: 3478/tcp+udp, 1936/tcp, 8189/udp, plus 7882–7892/udp.)
 
 ## Was NICHT gebaut wird
 

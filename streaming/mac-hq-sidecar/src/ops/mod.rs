@@ -27,6 +27,7 @@
 //! | remote_input_end       | echt    | Fernsteuerung: Sitzung schliessen         |
 //! | direct_offer           | echt    | Direktpfad — Angebot des Players beantworten |
 //! | direct_stop            | echt    | Direktpfad — zurück in den Wartezustand   |
+//! | clip_save              | echt    | letzte Sekunden des Stroms sichern (`crate::clip`) |
 
 pub mod ablage;
 pub mod build_argv;

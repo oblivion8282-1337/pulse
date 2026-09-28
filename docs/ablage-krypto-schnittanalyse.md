@@ -24,6 +24,10 @@
 Alles liegt hinter drei Klienten-Schaltern (`web/src/lib/krypto/schalter.ts`, alle AUS)
 und dem Server-Schalter `private_groups_enabled`. Vorgabeverhalten unverändert.
 
+*Korrektur 2026-09-28: inzwischen VIER Klienten-Schalter (`E2E_DMS_ENABLED`,
+`PRIVATE_GRUPPEN_ENABLED`, `GERAETE_KOPPLUNG_ENABLED`, `SICHERUNG_ENABLED`
+in `schalter.ts`) — alle AN.*
+
 **Wichtige Konstruktionsdetails für die Ablage:**
 - Postfach = zwei Tabellen: `dm_nutzlasten` (Ciphertext, art 0/1/2, Base64) und
   `dm_zustellungen` (je Empfängergerät, `verfaellt_am`, Quittung = Zeilenlöschung).
@@ -93,6 +97,9 @@ Zwei Wege, das zurückzubringen, ohne das alte System komplett wiederzubauen:
 Weg A ist der kleinste gemeinsame Nenner und ändert an Etappe B/D/F/G nichts außer der
 Beglaubigungsquelle. **Diese Entscheidung braucht den Eigentümer**, bevor einer der
 Stränge in main landet.
+
+*Korrektur 2026-09-28: die Entscheidung ist längst gefallen und umgesetzt
+(Weg A) — beide Stränge sind inzwischen auf main.*
 
 ---
 

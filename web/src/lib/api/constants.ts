@@ -46,9 +46,14 @@ export const WS_PONG_TIMEOUT_MS = 90_000;
  */
 export const WS_CLOSE = {
   TOKEN_EXPIRED: 4001,
+  /** Verbindungslimit (pro IP) erreicht — der Server hat den Socket nicht
+   *  angenommen; faellt hier in den default-Zweig (neu verbinden). */
+  TOO_MANY_CONNECTIONS: 4009,
   SERVER_TOO_OLD: 4044,
+  /** Wird vom Server nicht mehr gesendet (Stand 2026-09-28). */
   SERVER_UPDATING: 4045,
   JWKS_NOT_READY: 4046,
+  /** Wird vom Server nicht mehr gesendet (Stand 2026-09-28). */
   MFA_REQUIRED: 4047,
   /** Instanz von der Cloud gesperrt/geloescht — umkehrbar, also weiter warten. */
   INSTANCE_SUSPENDED: 4070,

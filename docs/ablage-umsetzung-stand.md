@@ -44,9 +44,16 @@ Upload, `dev2` sieht das Bild als blob-URL, und in
    „eigene Ablage" auf Basis der privaten Gruppen (Etappe G1/G2),
    Megolm-Rahmen (Typ 2) im Ablage-Log, Postfach als Nachzieher-Quelle
    (Tausch gegen `quelle.ts`), verschlüsseltes Manifest.
+   *Erledigt (2026-09-28 verifiziert): gebaut —
+   `web/src/lib/ablage/kryptoBehaelter.ts` (verschluesselnderAdapter),
+   `kanalFestigung.ts:42,90`, `kanalLeseweg.ts:30-31`, E2E in
+   `web/tests/e2e/e2e-ablage-kanal.spec.ts`.*
 2. **Kopplungs-E2E** (Etappe F): Zwei-Geräte-Verlaufsumzug — Server-Routen
    sind montiert und rauchgeprüft (401/422), der Krypto-Durchlauf braucht
    ein eigenes Spec.
+   *Erledigt (2026-09-28 verifiziert): eigenes Spec existiert —
+   `web/tests/e2e/e2e-kopplung.spec.ts` plus
+   `web/tests/e2e/overnight-kopplung.spec.ts`.*
 3. **OneDrive-Anbindung**: Adapter + OAuth-Skript-Stecker sind gebaut und
    unit-geprüft; der echte Lauf braucht die Azure-Entscheidung
    (Kostenlos-Konto, Karte zur Identitätsprüfung).
