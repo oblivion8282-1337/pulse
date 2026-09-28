@@ -1,12 +1,7 @@
-// Läuft aus web/ heraus:  node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
-//   ../infra/self-host/tests/heim-server-webrtc.ts
-// (Pfad zum Playwright-Import ggf. anpassen; Vite auf :5273 muss gegen den
-//  lokalen Stack laufen.)
 import { chromium } from '../../web/node_modules/@playwright/test/index.mjs';
 import fs from 'node:fs';
 
 const state = JSON.parse(fs.readFileSync('/tmp/heim-komplett-state.json', 'utf8'));
-// heim-server-lauf.py muss den State zuletzt geschrieben haben (s. deren Ende).
 const HOST = state.hostname;
 const ts = Date.now();
 
@@ -40,21 +35,19 @@ const tb = await page.evaluate(async (iid) => {
 }, state.instance_id);
 console.log('[webrtc] telefonbuch online:', tb.candidates[0].ip + ':' + tb.candidates[0].port);
 
-const sess = await page.evaluate(async ({ hostname, code }) => {
+// Ticket von der Cloud holen (wie der echte Client) — die Einlösung passiert
+// unten ÜBER DIE DATACHANNEL-VERBINDUNG am Heim-Server selbst.
+const ticket = await page.evaluate(async ({ hostname, code }) => {
   const token = localStorage.getItem('dcc.tokens.access');
-  const t = await fetch('/api/auth/me/server-ticket', {
+  const r = await fetch('/api/auth/me/server-ticket', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ hostname, community_grant_code: code })
-  }).then(r => r.json());
-  const s = await fetch('/api/chat/session', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ticket: t.ticket, community_grant_code: code })
-  }).then(r => r.json());
-  return s.session_token;
+  });
+  if (!r.ok) throw new Error(`ticket → ${r.status}`);
+  return r.json();
 }, { hostname: HOST, code: state.code });
-console.log('[webrtc] session token erhalten');
+console.log('[webrtc] ticket von der Cloud erhalten');
 
 const result = await page.evaluate(async ({ iid, chan, sess }) => {
   const direct = await import('/src/lib/direct/connection.ts');
@@ -74,9 +67,32 @@ const result = await page.evaluate(async ({ iid, chan, sess }) => {
     iceServers: []
   });
   const dialMs = Date.now() - t0;
+  // 1. Session-Einlösung ÜBER DEN DATACHANNEL (wie im echten Client).
+  const sessRes = await conn.fetch('/api/chat/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticket: ticket.ticket, community_grant_code: state.code })
+  });
+  const sessBody = await sessRes.text();
+  if (sessRes.status !== 200) {
+    throw new Error(`session über datachannel → ${sessRes.status}: ${sessBody.slice(0, 120)}`);
+  }
+  const sessToken = JSON.parse(sessBody).session_token;
+
+  // 2. Community-Beitritt über den DataChannel.
+  const joinRes = await conn.fetch(`/api/chat/invites/${code}/accept`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${sessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({})
+  });
+  if (![200, 201, 204].includes(joinRes.status)) {
+    throw new Error(`invite accept → ${joinRes.status}`);
+  }
+
+  // 3. Kanal-Nachrichten mit der Session lesen.
   const r = await conn.fetch(`/api/chat/channels/${chan}/messages`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${sess}` }
+    headers: { Authorization: `Bearer ${sessToken}` }
   });
   const body = await r.text();
   conn.close();
