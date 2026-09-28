@@ -98,7 +98,7 @@ async function ueberTicket(serverId: string, server: ServerEntry): Promise<strin
     // hiesse, einem womöglich bösartigen Host die Wahl zu lassen, für WEN das
     // Ticket ausgestellt wird.
     const { ticket } = await holeTicket(server.hostname);
-    const sitzung = await loeseTicketEin(server.hostname, ticket);
+    const sitzung = await loeseTicketEin(server, ticket);
     sessionTokens.set(serverId, sitzung.session_token, Date.now() + sitzung.expires_in * 1000);
     return sitzung.session_token;
   } catch (err) {

@@ -101,7 +101,7 @@ export async function addServerWithCertLogin(args: {
   try {
     const { ticket, instanceId } = await holeTicket(args.hostname);
     instanzId = instanceId;
-    sitzung = await loeseTicketEin(args.hostname, ticket, {
+    sitzung = await loeseTicketEin(entry, ticket, {
       communityGrantCode: args.communityGrantCode,
       publicJoinHandle: args.publicJoinHandle,
     });

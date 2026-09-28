@@ -8,7 +8,14 @@
  *
  * Das Einlösen läuft bewusst NICHT über `request()`: Für den Self-Host gibt es
  * an dieser Stelle noch keinen Bearer, die Bearer-Logik aus `client.ts` griffe
- * also ins Leere. Gleiche Begründung wie beim alten `cert-login.ts`.
+ * also ins Leere. Gleiche Begründung wie beim alten `cert-login.ts`. Der
+ * TRANSPORT ist trotzdem die gemeinsame Weiche (`transportFetch`): App-Host-
+ * Instanzen (origin='app_host') haben keinen Relay-Hostnamen, den ein
+ * Hostname-Fetch erreichen könnte — ihr Ticket läuft durch den Direct-Tunnel;
+ * VPS-Server fallen im Fallback auf den Hostname-Fetch wie bisher durch
+ * (2026-09-28 im E2E gegen die Dev-Cloud gefunden: der Redeem dialte den
+ * Relay-Hostnamen, den Selbstbedienungs-Instanzen nie bekommen, und die
+ * Anmeldung loopte für immer im "network"-Zustand).
  *
  * NIEMALS loggen: ticket, session_token.
  */
@@ -17,6 +24,7 @@ import { request } from './client';
 import { renewSession } from './cookie-client';
 import { istAblehnungscode } from './anmelde-fehler-codes';
 import { melde } from '$lib/diagnose/app-diagnose';
+import { transportFetch, type DirectTransportServer } from '$lib/direct/transport';
 import type { Ablehnungscode } from './anmelde-fehler-codes';
 
 /**
@@ -83,15 +91,18 @@ export async function holeTicket(
   }
 }
 
-/** Legt das Ticket dem Self-Host vor und bekommt dessen Sitzung. */
+/** Legt das Ticket dem Self-Host vor und bekommt dessen Sitzung. Der Transport
+ *  ist die Direktpfad-Weche: App-Host-Instanzen ohne Relay-Hostnamen laufen
+ *  durch den Tunnel, alles andere per Hostname-Fetch wie bisher (s. Modulkopf). */
 export async function loeseTicketEin(
-  serverHostname: string,
+  server: DirectTransportServer,
   ticket: string,
   zugang: { communityGrantCode?: string; publicJoinHandle?: string } = {},
 ): Promise<SitzungAntwort> {
+  const serverHostname = server.hostname;
   let resp: Response;
   try {
-    resp = await fetch(`${serverHostname}/api/chat/session`, {
+    resp = await transportFetch(server, `${serverHostname}/api/chat/session`, {
       method: 'POST',
       mode: 'cors',
       credentials: 'omit',

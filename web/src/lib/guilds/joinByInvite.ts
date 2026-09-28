@@ -36,7 +36,7 @@ async function anmeldenMitZugang(
   // Hostname, nicht Kennung — die Cloud loest auf. Den fremden Server danach zu
   // fragen waere die Luecke, gegen die dieser Weg gebaut ist.
   const { ticket, instanceId } = await holeTicket(server.hostname);
-  const sitzung = await loeseTicketEin(server.hostname, ticket, zugang);
+  const sitzung = await loeseTicketEin(server, ticket, zugang);
   sessionTokens.set(server.id, sitzung.session_token, Date.now() + sitzung.expires_in * 1000);
   return instanceId;
 }

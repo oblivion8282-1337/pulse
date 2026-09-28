@@ -21,13 +21,25 @@ import type { DirectFailureReason, DirectPolicyServer } from './policy';
 import { CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
 
 /**
- * Telefonbuch + Offer-Signaling leben ausschließlich in der Cloud (die
- * Server-Container heartbeaten dorthin), daher IMMER die Cloud-Basis — nicht
- * `/api/auth` relativ zum eigenen Ursprung: Auf einem Self-Host-Origin wäre
- * das der lokale auth-Dienst, der keinen Telefonbuch-Eintrag kennt (404 →
- * Direktpfad still tot, siehe DirectPathCorsMiddleware im auth-svc).
+ * Telefonbuch + Offer-Signaling leben in der Cloud, bei der der Client
+ * eingeloggt ist — das ist der Origin, der die Web-App ausgeliefert hat
+ * (die Identity-Plane, s. `buildUrl`-Kommentar in `client.ts`).
+ *
+ * **Nicht** hart an howispulse.com: Ein Client gegen eine ANDERE Cloud (Dev,
+ * `pulse.unicutmedia.com`) fragte sonst das Telefonbuch der Falschen, fand
+ * seine Instanz nie und der Direktpfad blieb still tot — der Mac-E2E vom
+ * 2026-09-28 ist genau daran gelaufen (Tickets kamen von der Dev-Cloud, das
+ * Offer ging nie raus). Der alte feste Wert schützte gegen den Fall
+ * „App von einem Self-Host-Origin ausgeliefert" — dort wäre ein relatives
+ * `/api/auth` der lokale auth-Dienst; für ihn bleibt der Fallback unten. Auf
+ * einem solchen Origin braucht der Client den Direktpfad ohnehin nicht (der
+ * aktive Server ist dann der lokale), V1-Grenze wie bisher.
  */
-const CLOUD_AUTH_BASE = `${CLOUD_HOSTNAME}/api/auth`;
+function cloudAuthBasis(): string {
+  const hier = typeof location !== 'undefined' ? location.origin : '';
+  if (hier.startsWith('http')) return `${hier}/api/auth`;
+  return `${CLOUD_HOSTNAME}/api/auth`;
+}
 const RETRY_AFTER_MS = 60_000;
 /** Sperrfrist für einen Fehlschlag, der sich in dieser Sitzung nicht mehr
  *  ändern kann (VPS ohne Telefonbuch-Eintrag). Erneut versucht wird erst nach
@@ -96,7 +108,7 @@ async function lookup(
   instanceId: string,
   server: DirectPolicyServer | null | undefined,
 ): Promise<{ entry: DirectoryEntry | null; dauerhaft: boolean }> {
-  const r = await fetch(`${CLOUD_AUTH_BASE}/me/instances/${instanceId}/direct-endpoint`, {
+  const r = await fetch(`${cloudAuthBasis()}/me/instances/${instanceId}/direct-endpoint`, {
     credentials: 'include',
   });
   if (!r.ok) return { entry: null, dauerhaft: fehlenderEintragIstDauerhaft(r.status, server) };
@@ -107,7 +119,7 @@ async function lookup(
 }
 
 async function postOffer(instanceId: string, sdp: string): Promise<string> {
-  const r = await fetch(`${CLOUD_AUTH_BASE}/me/instances/${instanceId}/direct-offer`, {
+  const r = await fetch(`${cloudAuthBasis()}/me/instances/${instanceId}/direct-offer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
