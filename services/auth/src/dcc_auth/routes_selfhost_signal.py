@@ -55,11 +55,14 @@ async def directory_ws(ws: WebSocket, db: SessionDep) -> None:
         return
     instance_id = first.get("instance_id")
     token = first.get("token")
+    client_id = first.get("client_id")
     if not isinstance(instance_id, str) or not isinstance(token, str):
         await ws.close(code=4001)
         return
     try:
-        inst = await _authed_instance(db, instance_id, token)
+        # Heim-Server ohne Relay (2026-09-27): der Adapter weist sich wie beim
+        # Heartbeat mit den Pairing-Creds aus (client_id + client_secret).
+        inst = await _authed_instance(db, instance_id, token, client_id)
     except HTTPException:
         await ws.close(code=4001)
         return

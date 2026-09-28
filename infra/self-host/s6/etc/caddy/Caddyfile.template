@@ -6,301 +6,315 @@
     # 07-init-caddy.sh patcht den Site-Block entsprechend beim Container-Start.
 }
 
-{$PULSE_HOSTNAME} {
-    # ------------------------------------------------------------------ #
-    # Security-Headers (Plan §Phase 6, identisch Cloud-Production)       #
-    # ------------------------------------------------------------------ #
-    # CSP als reine Header-Policy (Security-Audit 2026-09-16): das Meta-CSP
-    # in app.html ist ENTFERNT (es trug 'unsafe-inline'+'unsafe-eval' für
-    # Scripte, und eine Meta-Policy lässt sich per Header nie wieder lockern).
-    # 'unsafe-eval' ist gestrichen; 'wasm-unsafe-eval' ist dafuer neu nötig —
-    # pulse-krypto läuft als WebAssembly, und CSP bindet WASM-Kompilierung an
-    # script-src (das schlanke CSP3-Schlüsselwort dafür, nicht eval).
-    # 'unsafe-inline' gilt nur für die Repo-Fassung: der Docker-Build
-    # (infra/self-host/Dockerfile, Stage web-build) templated per
-    # web/scripts/csp-hash.mjs die sha256-Hashes der Inline-Scripts (FOUC-
-    # Guard + SvelteKit-Bootstrap) des frischen Builds hier ein — im Image
-    # ist script-src ohne 'unsafe-inline'. Spiegel zu
-    # infra/prod/security-headers.inc — synchron halten.
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://www.youtube.com https://www.youtube-nocookie.com https://embed.twitch.tv; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https: stun: turn:; font-src 'self' data:; media-src 'self' blob: https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
-        X-Frame-Options DENY
-        X-Content-Type-Options nosniff
-        Referrer-Policy strict-origin-when-cross-origin
-        Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
-        -Server
-    }
+# Direktpfad-Brücke: der direct-adapter reicht DataChannel-HTTP an
+# http://127.0.0.1:8080 weiter — die Adresse http://:8080 hält diesen
+# Plain-HTTP-Eingang zusätzlich zum TLS-Hostnamen offen (VM-intern).
 
-    # ------------------------------------------------------------------ #
-    # CORS: NICHT hier setzen. Die FastAPI-Services (auth/chat/media/voice)
-    # haben jeweils CORSMiddleware (CORS_ALLOW_ORIGINS) und setzen
-    # Access-Control-Allow-Origin/-Credentials + beantworten OPTIONS-Preflights
-    # selbst — exakt wie in der Cloud (web-nginx.conf setzt ebenfalls kein CORS).
-    # Würde Caddy die Header zusätzlich setzen, kämen sie DOPPELT
-    # (zwei Access-Control-Allow-Origin) → der Browser verwirft die Antwort als
-    # CORS-Fehler ("Failed to fetch") und "Server hinzufügen" / Cert-Login bricht.
-    # MediaMTX (/whep) bringt sein eigenes CORS via mediamtx.yml mit.
-    # EINZIGE Ausnahme: /pulse-attachments/* (Garage) — dort unten im Block.
-    # ------------------------------------------------------------------ #
-
-    # ------------------------------------------------------------------ #
-    # Health (öffentlich, kein Auth) — für Monitoring/Uptime-Checks      #
-    # ------------------------------------------------------------------ #
-    # Erststart-Fortschritt (cont-init-Phasen + Zertifikat). Eigener Block,
-    # weil `handle /health` in Caddy GENAU diesen Pfad trifft und nicht das
-    # Unterverzeichnis — ohne diese Zeile fiele /health/setup auf die leere
-    # SPA-Antwort ganz unten durch und der Installer bekäme HTML statt JSON.
-    handle /health/setup {
-        reverse_proxy 127.0.0.1:8002 {
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-
-    handle /health {
-        reverse_proxy 127.0.0.1:8002 {
-            # Overwrite any client-supplied X-Forwarded-For with the real peer.
-            # Caddy is the edge here, so the per-IP rate limiters in auth-svc /
-            # chat-gateway (cert-login, login) must key on {remote_host}, not on
-            # a header the client could forge. Caddy APPENDS to an inbound XFF by
-            # default → without this, `X-Forwarded-For: 1.2.3.4` from the client
-            # would land first and let an attacker rotate buckets / spoof IPs.
-            # Mirror of the Cloud Caddyfile.pulse.snippet.
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-
-    # ------------------------------------------------------------------ #
-    # API-Routes                                                          #
-    # ------------------------------------------------------------------ #
-
-    # Interne Bäume von auth (mintet Gast-Tickets) und chat (löscht Accounts):
-    # `handle_path /api/auth/*` bzw. `/api/chat/*` unten lassen sie sonst 1:1
-    # durch, nur das INTERNAL_SERVICE_SECRET stünde zwischen Internet und
-    # Route. Handle-Blöcke sind exklusiv in Dateireihenfolge — deshalb stehen
-    # diese VOR den Weiterleitungen (Spiegel des @voice_restricted-Blocks
-    # unten und der Cloud-nginx-deny-Blöcke, Audit 2026-09).
-    @auth_chat_internal path /api/auth/internal/* /api/chat/internal/*
-    handle @auth_chat_internal {
-        respond 403
-    }
-    # FastAPI-Swagger/OpenAPI hinter den /api/*-Weiterleitungen: kompletter
-    # Recon-Katalog aller Routen (inkl. der internen oben) — kein öffentliches
-    # Inventar. Lokal bleibt /docs für die Entwicklung erreichbar.
-    @api_docs path_regexp ^/api/(auth|chat|voice)/(docs|redoc|openapi\.json)$
-    handle @api_docs {
-        respond 403
-    }
-
-    # auth-svc (8001) — login, MFA, identity-cert, /.well-known/jwks.json
-    handle_path /api/auth/* {
-        reverse_proxy 127.0.0.1:8001 {
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-    # Public identity well-known endpoints, served by auth-svc at the ROOT path.
-    # Exact paths (NOT /.well-known/*) so /.well-known/acme-challenge stays free
-    # for Let's Encrypt in PULSE_TLS_MODE=auto. Without these the SPA-Fallback
-    # (handle {} below) returns index.html → Clients/Cloud-Poller get HTML instead
-    # of JSON (JSONDecodeError, silent CRL/JWKS failure, broken "Server hinzufügen").
-    @wellknown_auth path /.well-known/jwks.json /.well-known/pulse-version-policy.json /.well-known/pulse-suspended-instances
-    handle @wellknown_auth {
-        reverse_proxy 127.0.0.1:8001 {
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-    # pulse-server-info is the "Server hinzufügen" pre-check — served by
-    # chat-gateway (8002), NOT auth-svc.
-    handle /.well-known/pulse-server-info {
-        reverse_proxy 127.0.0.1:8002 {
-            header_up Host {host}
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-    # pulse-owner-check beantwortet der Erreichbarkeitsprüfung, ob dieser
-    # Server den Fragenden als Betreiber kennt. Ohne diese Zeile greift der
-    # SPA-Rückfall unten und liefert HTML — die Prüfung sähe dann einen
-    # älteren Server statt einer fehlenden Route. Ebenfalls chat-gateway.
-    handle /.well-known/pulse-owner-check {
-        reverse_proxy 127.0.0.1:8002 {
-            header_up Host {host}
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-
-    # chat-gateway (8002)
-    handle_path /api/chat/* {
-        reverse_proxy 127.0.0.1:8002 {
-            header_up Host {host}
-            # cert-login is rate-limited per client IP (client_ip.py) — see the
-            # /health block above for why XFF must be the real peer here.
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-
-    # WebSocket — chat-gateway (8002)
-    handle /ws {
-        reverse_proxy 127.0.0.1:8002 {
-            header_up Host {host}
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-
-    # voice-signaling (8003) — Webhook + interne Endpoints sind NICHT öffentlich
-    # (Spiegel der Cloud-nginx `deny all`-Blocks): /webhook ist zwar LiveKit-
-    # signaturgeprüft und /internal/* fail-closed, aber öffentlich erreichbar
-    # wären sie ein Webhook-Flooding-/Defense-in-Depth-Gap. LiveKit ruft den
-    # Webhook containerintern auf 127.0.0.1:8003 auf, nie über Caddy.
-    @voice_restricted path /api/voice/webhook /api/voice/internal/*
-    handle @voice_restricted {
-        respond 403
-    }
-    handle_path /api/voice/* {
-        reverse_proxy 127.0.0.1:8003 {
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-
-    # media-svc (8004): bewusst KEINE öffentliche Route. Der einzige legitime
-    # Pfad läuft über chat-gateway (/api/chat/channels/{id}/stream-token bzw.
-    # /whep), das Membership + VIEW_CHANNEL prüft und den Bearer weiterreicht.
-    # Eine frühere direkte /api/media/*-Route exponierte GET /channels/{id}/whep
-    # (damals ohne Auth) → Stream-URLs für Nicht-Mitglieder. Das Frontend
-    # spricht /api/media nie direkt an.
-
-    # ------------------------------------------------------------------ #
-    # WHEP/WHIP für MediaMTX HQ-Streaming (8889)                         #
-    # ------------------------------------------------------------------ #
-    # handle_path strippt das /whep-Prefix (wie die Cloud-nginx mit
-    # ``proxy_pass …:8889/``) — MediaMTX erwartet den Pfad ohne /whep.
-    handle_path /whep/* {
-        reverse_proxy 127.0.0.1:8889
-    }
-
-    # WHIP/WHEP-Session-Ressourcen: MediaMTX baut die Location-URL des POSTs
-    # aus dem Pfad, den es selbst sieht — also OHNE /whep-Präfix. Das
-    # DELETE/PATCH des Publishers auf die Session-URL kommt deshalb präfixlos
-    # an und muss ebenfalls zu MediaMTX (sonst räumt die Session erst per
-    # ICE-Timeout ab). Lokal verifiziert 2026-07-12 (ffmpeg-WHIP → Dispose ok).
-    @mtxsession path_regexp ^/channel-[^/]+/(whip|whep)(/.*)?$
-    handle @mtxsession {
-        reverse_proxy 127.0.0.1:8889
-    }
-
-    # ------------------------------------------------------------------ #
-    # LiveKit WebSocket (7880)                                            #
-    # ------------------------------------------------------------------ #
-    # handle_path (NICHT handle) strippt /livekit → LiveKit sieht /rtc/v1.
-    # Die Cloud-nginx macht dasselbe via ``proxy_pass …:7880/`` (trailing slash).
-    # Ohne Strip bekäme LiveKit /livekit/rtc/v1 → Voice-Connect schlägt fehl (F15).
-    handle_path /livekit/* {
-        reverse_proxy 127.0.0.1:7880
-    }
-
-    # ------------------------------------------------------------------ #
-    # MinIO (S3-API) — Message-Attachments (Path-Style, Bucket = Prefix) #
-    # ------------------------------------------------------------------ #
-    # Presigned URLs, die der Browser PUTet/GETtet, zeigen auf
-    # /<bucket>/<key> = /pulse-attachments/... . MinIO kann NICHT unter einem
-    # Sub-Pfad laufen (MINIO_SERVER_URL mit /s3 verwirft das Prefix → kaputte
-    # Signaturen, in der Cloud empirisch verifiziert), darum leiten wir das
-    # Bucket-Prefix unverändert weiter — exakt wie die Cloud-nginx
-    # (location /pulse-attachments/). NUR das Bucket-Prefix ist öffentlich;
-    # MinIOs Admin-/Console-API bleibt unerreichbar (keine Caddy-Route dahin).
-    # `handle` (NICHT handle_path) — der Bucket-Name ist Teil des S3-Pfads.
-    # SigV4 signiert den Host-Header → Host auf den Public-Host zwingen, damit
-    # er zur vom chat-gateway signierten URL passt.
-    handle /pulse-attachments/* {
-        # CORS — die EINZIGE Ausnahme von der „niemals CORS am Proxy"-Regel
-        # oben: Garage bedient diesen Prefix und setzt selbst keine CORS-
-        # Header (die FastAPI-Services tun es, Storage nicht). Cross-Origin
-        # ist aber Alltag: die App läuft auf dem Cloud-Origin (Spiegel-
-        # Kanäle einer Self-Host-Instanz im Cloud-Fenster) und PUTet/GETtet
-        # Anhänge direkt hierher — ohne diese Header bricht der Browser den
-        # Upload schon im Preflight ab (gemeldet 2026-09-23: Bildversand auf
-        # pulse.atrium-sinsheim.de aus howispulse.com heraus). "*" ist hier
-        # keine Öffnung: die SigV4-Signatur IST die Zugriffskontrolle — wer
-        # die URL hat, darf sie auch mit curl nutzen; CORS regelt nur, ob
-        # ein Browser die Antwort lesen darf. Credentials sind nie im Spiel.
+# Routing einmal als Snippet — importiert von beiden Sites (TLS-Hostname
+# für Nutzer + Plain-HTTP :8080 als Eingang der Direktpfad-Brücke).
+(pulseconfig) {
+        # ------------------------------------------------------------------ #
+        # Security-Headers (Plan §Phase 6, identisch Cloud-Production)       #
+        # ------------------------------------------------------------------ #
+        # CSP als reine Header-Policy (Security-Audit 2026-09-16): das Meta-CSP
+        # in app.html ist ENTFERNT (es trug 'unsafe-inline'+'unsafe-eval' für
+        # Scripte, und eine Meta-Policy lässt sich per Header nie wieder lockern).
+        # 'unsafe-eval' ist gestrichen; 'wasm-unsafe-eval' ist dafuer neu nötig —
+        # pulse-krypto läuft als WebAssembly, und CSP bindet WASM-Kompilierung an
+        # script-src (das schlanke CSP3-Schlüsselwort dafür, nicht eval).
+        # 'unsafe-inline' gilt nur für die Repo-Fassung: der Docker-Build
+        # (infra/self-host/Dockerfile, Stage web-build) templated per
+        # web/scripts/csp-hash.mjs die sha256-Hashes der Inline-Scripts (FOUC-
+        # Guard + SvelteKit-Bootstrap) des frischen Builds hier ein — im Image
+        # ist script-src ohne 'unsafe-inline'. Spiegel zu
+        # infra/prod/security-headers.inc — synchron halten.
         header {
-            Access-Control-Allow-Origin "*"
-            Access-Control-Allow-Methods "GET, PUT, HEAD, OPTIONS"
-            Access-Control-Allow-Headers "*"
-            Access-Control-Expose-Headers "ETag, Content-Length, Content-Type"
-            Access-Control-Max-Age "86400"
+            Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+            Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://www.youtube.com https://www.youtube-nocookie.com https://embed.twitch.tv; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https: stun: turn:; font-src 'self' data:; media-src 'self' blob: https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+            X-Frame-Options DENY
+            X-Content-Type-Options nosniff
+            Referrer-Policy strict-origin-when-cross-origin
+            Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
+            -Server
         }
-        # Preflight selbst beantworten: Garage würde das unsignierte OPTIONS
-        # mit 403/404 OHNE CORS-Header quittieren → Browser bricht ab.
-        @preflight method OPTIONS
-        respond @preflight 204
-        reverse_proxy 127.0.0.1:9000 {
-            header_up Host {host}
-            # MinIO doesn't rate-limit on XFF, but keep every edge proxy block
-            # consistent: never forward a client-supplied X-Forwarded-For.
-            header_up X-Forwarded-For {remote_host}
-            # Hat der Betreiber eine Bucket-CORS-Regel gesetzt, schickt Garage
-            # eigene Access-Control-Header — zusammen mit unserem header{}-Block
-            # wären es ZWEI Allow-Origin-Werte, die der Browser verwirft.
-            header_down -Access-Control-Allow-Origin
-            header_down -Access-Control-Allow-Methods
-            header_down -Access-Control-Allow-Headers
+
+        # ------------------------------------------------------------------ #
+        # CORS: NICHT hier setzen. Die FastAPI-Services (auth/chat/media/voice)
+        # haben jeweils CORSMiddleware (CORS_ALLOW_ORIGINS) und setzen
+        # Access-Control-Allow-Origin/-Credentials + beantworten OPTIONS-Preflights
+        # selbst — exakt wie in der Cloud (web-nginx.conf setzt ebenfalls kein CORS).
+        # Würde Caddy die Header zusätzlich setzen, kämen sie DOPPELT
+        # (zwei Access-Control-Allow-Origin) → der Browser verwirft die Antwort als
+        # CORS-Fehler ("Failed to fetch") und "Server hinzufügen" / Cert-Login bricht.
+        # MediaMTX (/whep) bringt sein eigenes CORS via mediamtx.yml mit.
+        # EINZIGE Ausnahme: /pulse-attachments/* (Garage) — dort unten im Block.
+        # ------------------------------------------------------------------ #
+
+        # ------------------------------------------------------------------ #
+        # Health (öffentlich, kein Auth) — für Monitoring/Uptime-Checks      #
+        # ------------------------------------------------------------------ #
+        # Erststart-Fortschritt (cont-init-Phasen + Zertifikat). Eigener Block,
+        # weil `handle /health` in Caddy GENAU diesen Pfad trifft und nicht das
+        # Unterverzeichnis — ohne diese Zeile fiele /health/setup auf die leere
+        # SPA-Antwort ganz unten durch und der Installer bekäme HTML statt JSON.
+        handle /health/setup {
+            reverse_proxy 127.0.0.1:8002 {
+                header_up X-Forwarded-For {remote_host}
+            }
         }
-    }
 
-    # ------------------------------------------------------------------ #
-    # Internal Endpoints — JWT-validiert, nicht öffentlich dokumentiert  #
-    # ------------------------------------------------------------------ #
-
-    # Cloud-getriggerter Update-Webhook (JWT, rate-limited in chat-gateway)
-    handle /internal/trigger-update {
-        reverse_proxy 127.0.0.1:8002 {
-            header_up X-Forwarded-For {remote_host}
+        handle /health {
+            reverse_proxy 127.0.0.1:8002 {
+                # Overwrite any client-supplied X-Forwarded-For with the real peer.
+                # Caddy is the edge here, so the per-IP rate limiters in auth-svc /
+                # chat-gateway (cert-login, login) must key on {remote_host}, not on
+                # a header the client could forge. Caddy APPENDS to an inbound XFF by
+                # default → without this, `X-Forwarded-For: 1.2.3.4` from the client
+                # would land first and let an attacker rotate buckets / spoof IPs.
+                # Mirror of the Cloud Caddyfile.pulse.snippet.
+                header_up X-Forwarded-For {remote_host}
+            }
         }
-    }
 
-    # Cloud-Health-Probe nach Update (JWT, purpose=health-probe)
-    handle /internal/health-probe {
-        reverse_proxy 127.0.0.1:8002 {
-            header_up X-Forwarded-For {remote_host}
+        # ------------------------------------------------------------------ #
+        # API-Routes                                                          #
+        # ------------------------------------------------------------------ #
+
+        # Interne Bäume von auth (mintet Gast-Tickets) und chat (löscht Accounts):
+        # `handle_path /api/auth/*` bzw. `/api/chat/*` unten lassen sie sonst 1:1
+        # durch, nur das INTERNAL_SERVICE_SECRET stünde zwischen Internet und
+        # Route. Handle-Blöcke sind exklusiv in Dateireihenfolge — deshalb stehen
+        # diese VOR den Weiterleitungen (Spiegel des @voice_restricted-Blocks
+        # unten und der Cloud-nginx-deny-Blöcke, Audit 2026-09).
+        @auth_chat_internal path /api/auth/internal/* /api/chat/internal/*
+        handle @auth_chat_internal {
+            respond 403
         }
-    }
+        # FastAPI-Swagger/OpenAPI hinter den /api/*-Weiterleitungen: kompletter
+        # Recon-Katalog aller Routen (inkl. der internen oben) — kein öffentliches
+        # Inventar. Lokal bleibt /docs für die Entwicklung erreichbar.
+        @api_docs path_regexp ^/api/(auth|chat|voice)/(docs|redoc|openapi\.json)$
+        handle @api_docs {
+            respond 403
+        }
 
-    # ------------------------------------------------------------------ #
-    # Gast-Seite (Besprechungslinks): die EINZIGE Web-UI auf dem           #
-    # Self-Host. Der Gast-Link zeigt auf https://<host>/gast/<code> —      #
-    # ohne diesen Handle liefe der Gast in die leere Fallback-Seite        #
-    # unten, bevor irgendein API-Aufruf passiert. Es wird AUSSCHLIESSLICH  #
-    # /gast/* (plus der SPA-Fallback und die öffentlichen /_app-Bündel     #
-    # und Mark-Assets, die die Seite lädt) ausgeliefert — Login/Registrie- #
-    # rung bleiben hier unerreichbar, alles andere fällt in den leeren     #
-    # Fallback.                                                            #
-    # ------------------------------------------------------------------ #
-    handle /gast {
-        redir /gast/ 301
-    }
-    handle /gast/* {
-        root * /var/www/pulse
-        try_files {path} /index.html
-        file_server
-    }
-    handle /pulse-mark.svg {
-        root * /var/www/pulse
-        file_server
-    }
-    handle /_app/* {
-        root * /var/www/pulse
-        file_server
-    }
+        # auth-svc (8001) — login, MFA, identity-cert, /.well-known/jwks.json
+        handle_path /api/auth/* {
+            reverse_proxy 127.0.0.1:8001 {
+                header_up X-Forwarded-For {remote_host}
+            }
+        }
+        # Public identity well-known endpoints, served by auth-svc at the ROOT path.
+        # Exact paths (NOT /.well-known/*) so /.well-known/acme-challenge stays free
+        # for Let's Encrypt in PULSE_TLS_MODE=auto. Without these the SPA-Fallback
+        # (handle {} below) returns index.html → Clients/Cloud-Poller get HTML instead
+        # of JSON (JSONDecodeError, silent CRL/JWKS failure, broken "Server hinzufügen").
+        @wellknown_auth path /.well-known/jwks.json /.well-known/pulse-version-policy.json /.well-known/pulse-suspended-instances
+        handle @wellknown_auth {
+            reverse_proxy 127.0.0.1:8001 {
+                header_up X-Forwarded-For {remote_host}
+            }
+        }
+        # pulse-server-info is the "Server hinzufügen" pre-check — served by
+        # chat-gateway (8002), NOT auth-svc.
+        handle /.well-known/pulse-server-info {
+            reverse_proxy 127.0.0.1:8002 {
+                header_up Host {host}
+                header_up X-Forwarded-For {remote_host}
+            }
+        }
+        # pulse-owner-check beantwortet der Erreichbarkeitsprüfung, ob dieser
+        # Server den Fragenden als Betreiber kennt. Ohne diese Zeile greift der
+        # SPA-Rückfall unten und liefert HTML — die Prüfung sähe dann einen
+        # älteren Server statt einer fehlenden Route. Ebenfalls chat-gateway.
+        handle /.well-known/pulse-owner-check {
+            reverse_proxy 127.0.0.1:8002 {
+                header_up Host {host}
+                header_up X-Forwarded-For {remote_host}
+            }
+        }
 
-    # ------------------------------------------------------------------ #
-    # Kein weiteres Web-UI auf einem Self-Host. Identität + Client leben   #
-    # in der Cloud (howispulse.com); Nutzer verbinden sich von dort per    #
-    # cert-login zu den /api-, /ws-, /whep- und /livekit-Routen oben.      #
-    # Ein Browser, der die Server-Domain direkt aufruft, bekommt bewusst   #
-    # eine leere Seite — Login/Registrierung sind hier nicht möglich.      #
-    # ------------------------------------------------------------------ #
-    handle {
-        header Content-Type "text/html; charset=utf-8"
-        respond "<!doctype html><html><head></head><body></body></html>" 200
-    }
+        # chat-gateway (8002)
+        handle_path /api/chat/* {
+            reverse_proxy 127.0.0.1:8002 {
+                header_up Host {host}
+                # cert-login is rate-limited per client IP (client_ip.py) — see the
+                # /health block above for why XFF must be the real peer here.
+                header_up X-Forwarded-For {remote_host}
+            }
+        }
+
+        # WebSocket — chat-gateway (8002)
+        handle /ws {
+            reverse_proxy 127.0.0.1:8002 {
+                header_up Host {host}
+                header_up X-Forwarded-For {remote_host}
+            }
+        }
+
+        # voice-signaling (8003) — Webhook + interne Endpoints sind NICHT öffentlich
+        # (Spiegel der Cloud-nginx `deny all`-Blocks): /webhook ist zwar LiveKit-
+        # signaturgeprüft und /internal/* fail-closed, aber öffentlich erreichbar
+        # wären sie ein Webhook-Flooding-/Defense-in-Depth-Gap. LiveKit ruft den
+        # Webhook containerintern auf 127.0.0.1:8003 auf, nie über Caddy.
+        @voice_restricted path /api/voice/webhook /api/voice/internal/*
+        handle @voice_restricted {
+            respond 403
+        }
+        handle_path /api/voice/* {
+            reverse_proxy 127.0.0.1:8003 {
+                header_up X-Forwarded-For {remote_host}
+            }
+        }
+
+        # media-svc (8004): bewusst KEINE öffentliche Route. Der einzige legitime
+        # Pfad läuft über chat-gateway (/api/chat/channels/{id}/stream-token bzw.
+        # /whep), das Membership + VIEW_CHANNEL prüft und den Bearer weiterreicht.
+        # Eine frühere direkte /api/media/*-Route exponierte GET /channels/{id}/whep
+        # (damals ohne Auth) → Stream-URLs für Nicht-Mitglieder. Das Frontend
+        # spricht /api/media nie direkt an.
+
+        # ------------------------------------------------------------------ #
+        # WHEP/WHIP für MediaMTX HQ-Streaming (8889)                         #
+        # ------------------------------------------------------------------ #
+        # handle_path strippt das /whep-Prefix (wie die Cloud-nginx mit
+        # ``proxy_pass …:8889/``) — MediaMTX erwartet den Pfad ohne /whep.
+        handle_path /whep/* {
+            reverse_proxy 127.0.0.1:8889
+        }
+
+        # WHIP/WHEP-Session-Ressourcen: MediaMTX baut die Location-URL des POSTs
+        # aus dem Pfad, den es selbst sieht — also OHNE /whep-Präfix. Das
+        # DELETE/PATCH des Publishers auf die Session-URL kommt deshalb präfixlos
+        # an und muss ebenfalls zu MediaMTX (sonst räumt die Session erst per
+        # ICE-Timeout ab). Lokal verifiziert 2026-07-12 (ffmpeg-WHIP → Dispose ok).
+        @mtxsession path_regexp ^/channel-[^/]+/(whip|whep)(/.*)?$
+        handle @mtxsession {
+            reverse_proxy 127.0.0.1:8889
+        }
+
+        # ------------------------------------------------------------------ #
+        # LiveKit WebSocket (7880)                                            #
+        # ------------------------------------------------------------------ #
+        # handle_path (NICHT handle) strippt /livekit → LiveKit sieht /rtc/v1.
+        # Die Cloud-nginx macht dasselbe via ``proxy_pass …:7880/`` (trailing slash).
+        # Ohne Strip bekäme LiveKit /livekit/rtc/v1 → Voice-Connect schlägt fehl (F15).
+        handle_path /livekit/* {
+            reverse_proxy 127.0.0.1:7880
+        }
+
+        # ------------------------------------------------------------------ #
+        # MinIO (S3-API) — Message-Attachments (Path-Style, Bucket = Prefix) #
+        # ------------------------------------------------------------------ #
+        # Presigned URLs, die der Browser PUTet/GETtet, zeigen auf
+        # /<bucket>/<key> = /pulse-attachments/... . MinIO kann NICHT unter einem
+        # Sub-Pfad laufen (MINIO_SERVER_URL mit /s3 verwirft das Prefix → kaputte
+        # Signaturen, in der Cloud empirisch verifiziert), darum leiten wir das
+        # Bucket-Prefix unverändert weiter — exakt wie die Cloud-nginx
+        # (location /pulse-attachments/). NUR das Bucket-Prefix ist öffentlich;
+        # MinIOs Admin-/Console-API bleibt unerreichbar (keine Caddy-Route dahin).
+        # `handle` (NICHT handle_path) — der Bucket-Name ist Teil des S3-Pfads.
+        # SigV4 signiert den Host-Header → Host auf den Public-Host zwingen, damit
+        # er zur vom chat-gateway signierten URL passt.
+        handle /pulse-attachments/* {
+            # CORS — die EINZIGE Ausnahme von der „niemals CORS am Proxy"-Regel
+            # oben: Garage bedient diesen Prefix und setzt selbst keine CORS-
+            # Header (die FastAPI-Services tun es, Storage nicht). Cross-Origin
+            # ist aber Alltag: die App läuft auf dem Cloud-Origin (Spiegel-
+            # Kanäle einer Self-Host-Instanz im Cloud-Fenster) und PUTet/GETtet
+            # Anhänge direkt hierher — ohne diese Header bricht der Browser den
+            # Upload schon im Preflight ab (gemeldet 2026-09-23: Bildversand auf
+            # pulse.atrium-sinsheim.de aus howispulse.com heraus). "*" ist hier
+            # keine Öffnung: die SigV4-Signatur IST die Zugriffskontrolle — wer
+            # die URL hat, darf sie auch mit curl nutzen; CORS regelt nur, ob
+            # ein Browser die Antwort lesen darf. Credentials sind nie im Spiel.
+            header {
+                Access-Control-Allow-Origin "*"
+                Access-Control-Allow-Methods "GET, PUT, HEAD, OPTIONS"
+                Access-Control-Allow-Headers "*"
+                Access-Control-Expose-Headers "ETag, Content-Length, Content-Type"
+                Access-Control-Max-Age "86400"
+            }
+            # Preflight selbst beantworten: Garage würde das unsignierte OPTIONS
+            # mit 403/404 OHNE CORS-Header quittieren → Browser bricht ab.
+            @preflight method OPTIONS
+            respond @preflight 204
+            reverse_proxy 127.0.0.1:9000 {
+                header_up Host {host}
+                # MinIO doesn't rate-limit on XFF, but keep every edge proxy block
+                # consistent: never forward a client-supplied X-Forwarded-For.
+                header_up X-Forwarded-For {remote_host}
+                # Hat der Betreiber eine Bucket-CORS-Regel gesetzt, schickt Garage
+                # eigene Access-Control-Header — zusammen mit unserem header{}-Block
+                # wären es ZWEI Allow-Origin-Werte, die der Browser verwirft.
+                header_down -Access-Control-Allow-Origin
+                header_down -Access-Control-Allow-Methods
+                header_down -Access-Control-Allow-Headers
+            }
+        }
+
+        # ------------------------------------------------------------------ #
+        # Internal Endpoints — JWT-validiert, nicht öffentlich dokumentiert  #
+        # ------------------------------------------------------------------ #
+
+        # Cloud-getriggerter Update-Webhook (JWT, rate-limited in chat-gateway)
+        handle /internal/trigger-update {
+            reverse_proxy 127.0.0.1:8002 {
+                header_up X-Forwarded-For {remote_host}
+            }
+        }
+
+        # Cloud-Health-Probe nach Update (JWT, purpose=health-probe)
+        handle /internal/health-probe {
+            reverse_proxy 127.0.0.1:8002 {
+                header_up X-Forwarded-For {remote_host}
+            }
+        }
+
+        # ------------------------------------------------------------------ #
+        # Gast-Seite (Besprechungslinks): die EINZIGE Web-UI auf dem           #
+        # Self-Host. Der Gast-Link zeigt auf https://<host>/gast/<code> —      #
+        # ohne diesen Handle liefe der Gast in die leere Fallback-Seite        #
+        # unten, bevor irgendein API-Aufruf passiert. Es wird AUSSCHLIESSLICH  #
+        # /gast/* (plus der SPA-Fallback und die öffentlichen /_app-Bündel     #
+        # und Mark-Assets, die die Seite lädt) ausgeliefert — Login/Registrie- #
+        # rung bleiben hier unerreichbar, alles andere fällt in den leeren     #
+        # Fallback.                                                            #
+        # ------------------------------------------------------------------ #
+        handle /gast {
+            redir /gast/ 301
+        }
+        handle /gast/* {
+            root * /var/www/pulse
+            try_files {path} /index.html
+            file_server
+        }
+        handle /pulse-mark.svg {
+            root * /var/www/pulse
+            file_server
+        }
+        handle /_app/* {
+            root * /var/www/pulse
+            file_server
+        }
+
+        # ------------------------------------------------------------------ #
+        # Kein weiteres Web-UI auf einem Self-Host. Identität + Client leben   #
+        # in der Cloud (howispulse.com); Nutzer verbinden sich von dort per    #
+        # cert-login zu den /api-, /ws-, /whep- und /livekit-Routen oben.      #
+        # Ein Browser, der die Server-Domain direkt aufruft, bekommt bewusst   #
+        # eine leere Seite — Login/Registrierung sind hier nicht möglich.      #
+        # ------------------------------------------------------------------ #
+        handle {
+            header Content-Type "text/html; charset=utf-8"
+            respond "<!doctype html><html><head></head><body></body></html>" 200
+        }
+}
+
+{$PULSE_HOSTNAME} {
+    import pulseconfig
+}
+
+http://:8080 {
+    import pulseconfig
 }

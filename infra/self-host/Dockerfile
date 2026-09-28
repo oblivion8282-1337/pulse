@@ -117,13 +117,13 @@ COPY services/chat-gateway/pyproject.toml services/chat-gateway/pyproject.toml
 COPY services/voice-signaling/pyproject.toml services/voice-signaling/pyproject.toml
 COPY services/media-svc/pyproject.toml services/media-svc/pyproject.toml
 COPY services/mediamtx-auth-hook/pyproject.toml services/mediamtx-auth-hook/pyproject.toml
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN \
     uv sync --frozen --no-dev --no-install-workspace --all-packages
 
 # Source + install all workspace members editable
 COPY shared/ shared/
 COPY services/ services/
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN \
     uv sync --frozen --no-dev --all-packages
 
 # Drop the alembic configs into each service's package dir (uv editable
@@ -165,8 +165,7 @@ WORKDIR /build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY web/package.json web/package.json
 COPY desktop/package.json desktop/package.json
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+RUN     pnpm install --frozen-lockfile
 COPY web/ web/
 COPY plugins/ plugins/
 # WASM-Paket an die Stelle, die die vier krypto/*.ts-Importe erwarten
@@ -192,9 +191,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY infra/self-host/direct-adapter/ .
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/build/target \
-    cargo build --release --locked \
+RUN cargo build --release --locked \
     && cp target/release/direct-adapter /opt/pulse-direct-adapter
 
 # ── Stage 3 ────────────────────────────────────────────────────────────────

@@ -55,7 +55,18 @@ async fn connect_and_serve(
         .context("Signal-WS-Connect")?;
     let (mut sink, mut source) = stream.split();
 
-    let auth = serde_json::json!({ "instance_id": cfg.instance_id, "token": cfg.relay_token });
+    // Zwei Auth-Wege (wie heartbeat.rs): Tunnel-Token ODER — Heim-Server ohne
+    // Relay (2026-09-27) — client_id + client_secret (U+001F-verbunden).
+    let (token, client_id) = match cfg.relay_token.split_once('\u{1f}') {
+        Some((cid, secret)) => (secret.to_string(), Some(cid.to_string())),
+        None => (cfg.relay_token.clone(), None),
+    };
+    let auth = match client_id {
+        Some(ref cid) => serde_json::json!({
+            "instance_id": cfg.instance_id, "token": token, "client_id": cid
+        }),
+        None => serde_json::json!({ "instance_id": cfg.instance_id, "token": token }),
+    };
     sink.send(WsMessage::Text(auth.to_string().into())).await?;
     // Verbindung steht und ist authentifiziert — ab hier lohnt sofortiger
     // Reconnect nach dem nächsten Abriss wieder (siehe run()).

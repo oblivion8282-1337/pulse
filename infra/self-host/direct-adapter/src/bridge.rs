@@ -22,7 +22,13 @@ use webrtc::peer_connection::RTCPeerConnection;
 use crate::protocol::{BODY_CHUNK_BYTES, HttpFrameIn, HttpFrameOut};
 
 fn backend_base() -> String {
+    // Caddy bedient in JEDEM TLS-Modus zusätzlich http://:8080 (Caddyfile-
+    // Template, Direktpfad-Eingang des Adapters) — Routing inklusive.
     std::env::var("PULSE_DIRECT_BACKEND").unwrap_or_else(|_| "http://127.0.0.1:8080".into())
+}
+
+fn bridge_client() -> reqwest::Client {
+    reqwest::Client::new()
 }
 
 pub fn wire(pc: &Arc<RTCPeerConnection>) {
@@ -53,7 +59,7 @@ struct PendingReq {
 
 fn wire_http_channel(dc: Arc<RTCDataChannel>) {
     let pending: Arc<Mutex<HashMap<u64, PendingReq>>> = Arc::new(Mutex::new(HashMap::new()));
-    let http = reqwest::Client::new();
+    let http = bridge_client();
     let dc_for_handler = dc.clone();
     dc.on_message(Box::new(move |msg: DataChannelMessage| {
         let dc = dc_for_handler.clone();
