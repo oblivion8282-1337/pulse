@@ -44,8 +44,25 @@ async fn main() -> Result<()> {
     );
 
     let socket = UdpSocket::bind(("0.0.0.0", cfg.direct_port)).await?;
-    let initial = stun_probe::discover_public_addr(&socket, &cfg.stun_servers).await?;
-    println!("[direct-adapter] öffentliche Adresse: {initial}");
+    // Fail-open: EIN STUN-Timeout beim Start darf den ganzen Heim-Server nicht
+    // mitreissen — so kam es durch (das restart-gate hielt bei seinem Exit
+    // sogar Postgres/Redis an, Mac-E2E 2026-09-28). Der Heartbeat korrigiert
+    // IP binnen eines Intervalls; bis dahin tragen Host-/LAN-Kandidaten.
+    let initial = match stun_probe::discover_public_addr(&socket, &cfg.stun_servers).await {
+        Ok(a) => {
+            println!("[direct-adapter] öffentliche Adresse: {a}");
+            a
+        }
+        Err(e) => {
+            eprintln!(
+                "[direct-adapter] initiale STUN-Ermittlung fehlgeschlagen ({e:#}) — starte ohne, Heartbeat korrigiert nach"
+            );
+            std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                cfg.direct_port,
+            )
+        }
+    };
     if initial.port() != cfg.direct_port {
         // Kein Port-Preservation am Router — ICE (srflx durch den Mux) trägt
         // trotzdem die Wahrheit in der SDP; nur der Telefonbuch-Eintrag hinkt.
