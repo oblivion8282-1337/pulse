@@ -51,3 +51,13 @@ Diskutiert am 2026-09-27 mit Michael; diese Entscheide sind verbindlich.
   Ticket-Login (`session_ticket.py`), Direktpfad-Adapter + Telefonbuch.
 - `feat/win-server-app-v2` (Merge-Probe 2026-09-27): 6 Konfliktdateien, ~13
   Hunks — siehe Gesprächsnotizen; `docs/plans/2026-07-14-app-host-windows-status.md`.
+
+
+## Plattform-Einschränkung Fernsteuerung (2026-09-28)
+
+Ein Linux-Server-Rechner kann **nicht selbst** ferngesteuert werden — die
+Input-Injektion existiert nur im win-hq-sidecar (Windows). Ein Linux-Rechner
+KANN aber einen Windows-Rechner fernsteuern (die Fernsteuerung läuft im
+Browser des Steuerenden). Für Windows-Owner ist die Fernsteuerung voll
+verfügbar; für Linux-Owner eingeschränkt auf "steuern, nicht gesteuert
+werden". Das ist eine Platform-Grenze, kein Bug.
