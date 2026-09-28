@@ -197,11 +197,15 @@ export class ContainerBackendManager {
     return this.rt;
   }
 
-  /** IP der podman-machine-VM (Win/Mac) — Ziel des UDP-Relays. null auf
-   *  Linux/Docker oder wenn die Abfrage scheitert (fail-soft: kein Relay). */
+  /** IP der podman-machine-VM — Ziel der Host-Relays (nur Windows/WSL2).
+   *  null auf Linux/Docker/macOS oder wenn die Abfrage scheitert (fail-soft:
+   *  kein Relay). macOS seit 2026-09-28 bewusst AUS: applehv-Maschinen netzen
+   *  gvproxy-seitig (VM-IP vom Host aus unerreichbar, s. Kommentar beim
+   *  Netzwerk-Modus), der Container publiziert seine Ports direkt — ein Relay
+   *  aufs Nichts kollidierte sogar mit gvproxy auf 1936. */
   private async machineVmIp(rt: ContainerRuntime): Promise<string | null> {
     if (rt.kind !== 'podman') return null;
-    if (process.platform !== 'win32' && process.platform !== 'darwin') return null;
+    if (process.platform !== 'win32') return null;
     // Interface NICHT anfassen, ganze Ausgabe parsen: WSL2 heißt es eth0, aber
     // Podman 6 auf macOS (applehv-VM) nennt es enp0s1 — fixiert brach der Mac-
     // Erststart mit "VM-IP nicht ermittelbar" ab (E2E 2026-09-28). Die erste
@@ -288,15 +292,26 @@ export class ContainerBackendManager {
       }
     }
 
-    // 4. Netzwerk-Modus wählen. Win/Mac (podman machine): --network host, weil
-    //    rootless podman auf der WSL/Vfkit-VM eingehendes UDP NICHT über
+    // 4. Netzwerk-Modus wählen. Nur Windows (podman machine/WSL2): --network
+    //    host, weil rootless podman auf der WSL-VM eingehendes UDP NICHT über
     //    published Ports in den Container leitet (TCP schon) — Direktpfad +
     //    Voice bekämen nie ein Paket. Mit host-Networking bindet der Container
     //    direkt auf der VM-Host-IP; von dort trägt der UDP-Relay (ensureRelay)
-    //    das Paket vom Windows/Mac-Host in die VM. Linux/Docker: klassisches
-    //    Port-Publishing (dort funktioniert UDP-Forwarding nativ).
-    const hostNet = rt.kind === 'podman'
-      && (process.platform === 'win32' || process.platform === 'darwin');
+    //    das Paket vom Windows-Host in die VM. Das setzt voraus, dass der Host
+    //    die VM-IP erreicht — unter WSL2 tut er das.
+    //
+    //    **macOS NICHT mehr auf diesem Weg** (E2E 2026-09-28): Podman-Maschinen
+    //    auf arm-Macs sind applehv (5.8 wie 6.x, default) und netzen über
+    //    gvproxy im USERSPACE — die VM-IP (192.168.127.2, enp0s1) ist vom Host
+    //    aus grundsätzlich nicht erreichbar, rootful ändert daran nichts. Der
+    //    host-net-Weg mündete dort in "VM-IP nicht ermittelbar"/unerreichbare
+    //    Dienste. macOS fährt deshalb den klassischen Publish-Pfad (wie
+    //    Linux/Docker): gvproxy leitet published TCP UND UDP weiter, die
+    //    Medien-Ports stehen auf 0.0.0.0 (LAN-erreichbar), HTTP auf
+    //    127.0.0.1:55580. Ob Lande-Voice/Direktpfad-UDP über gvproxy in
+    //    Produktqualität läuft, muss ein Realgeräte-Test zeigen — offener
+    //    Punkt, nicht vom Boot-E2E gedeckt.
+    const hostNet = rt.kind === 'podman' && process.platform === 'win32';
     const vmIp = hostNet ? await this.machineVmIp(rt) : null;
     if (hostNet && !vmIp) {
       throw new Error('podman-machine-VM-IP nicht ermittelbar (host-Networking)');
