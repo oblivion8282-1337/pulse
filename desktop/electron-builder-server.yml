@@ -71,6 +71,12 @@ mac:
   extraResources:
     - from: resources-podman-mac
       to: podman
+      # NUR die drei Bausteine — sonst wandert der README des Ordners mit in
+      # die DMG (win-seits steht derselbe Filter auf "*.exe").
+      filter:
+        - podman
+        - gvproxy
+        - vfkit
 
 win:
   target: nsis
