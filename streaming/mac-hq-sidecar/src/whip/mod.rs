@@ -241,6 +241,14 @@ fn pacer_melder(soll_ms: f64, ist_ms: f64, pakete: usize) {
     eprintln!("[whip] Verteilung je Bild: soll {soll_ms:.2} ms, ist {ist_ms:.2} ms ({pakete} Pakete)");
 }
 
+/// Stau-Deckel des Taktgebers: Bild verworfen → sofort ein Vollbild anfordern
+/// (derselbe Ort, den auch PLI/FIR bedienen), sonst reisst der Verwurf die
+/// Bezugskette bis zum naechsten Vollbild-Takt auf.
+fn stau_vollbild() {
+    eprintln!("[whip] Sendestau: Bild verworfen — Vollbild angefordert");
+    crate::keyframe::request_keyframe();
+}
+
 /// Zustandswechsel der Verbindung ins Log bringen — s. [`pulse_whip::verbindung`].
 ///
 /// Bis zum 2026-08-27 sah hier niemand hin. **Beendet nichts**: der Abbau
@@ -361,7 +369,7 @@ impl WhipSender {
             // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
             // Gegenmess-Schalter.
             pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
-                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder)
+                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder, stau_vollbild)
             }),
             track: video_track,
         };

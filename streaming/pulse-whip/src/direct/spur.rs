@@ -44,6 +44,15 @@ pub(super) fn melde_verteilung(soll_ms: f64, ist_ms: f64, pakete: usize) {
     );
 }
 
+/// Stau-Deckel des Taktgebers: Bild verworfen. Anders als bei den WHIP-
+/// Sendern wird hier KEIN Vollbild angestossen — der Direktpfad hat seinen
+/// Vollbild-Weg im RTCP-Rueckkanal des Aufrufers, und der Zuschauer selbst
+/// reagiert auf die Sequenzluecke, die der Verwurf reisst: sein PLI kommt
+/// ueber `rueckkanal` zurueck und fordert das Vollbild an. Nur melden.
+pub(super) fn melde_verwurf() {
+    eprintln!("[direct] Sendestau: Bild verworfen");
+}
+
 /// Was der Aufbau über den Strom wissen muss. Die Maße sind die des ANGEBOTS
 /// (fmtp-Stufe), nicht die der Aufnahme — die steht beim Aushandeln noch
 /// nicht fest; eine zu HOCH angesetzte H.264-Stufe ist folgenlos, eine zu

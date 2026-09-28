@@ -56,34 +56,29 @@ webrtcEncryption: no
 webrtcLocalUDPAddress: :8189
 webrtcIPsFromInterfaces: no
 
-# HLS laeuft hier, ist aber von aussen fuer niemanden erreichbar: es gibt
-# keine Caddy-Route auf :8888 (nur /whep → :8889), und der Port wird weder
-# per EXPOSE noch von `build_run_args` veroeffentlicht. `hlsAlwaysRemux: yes`
-# laesst den Muxer zusaetzlich auch ohne Zuschauer durchlaufen.
+# HLS ist AUS — wie die Cloud (`hls: no` in infra/prod/mediamtx.yml).
 #
-# Die Cloud hat HLS abgeschaltet (`hls: no` in `infra/prod/mediamtx.yml`, mit
-# Begruendung). **Dieser Grund traegt hier NICHT**, und der Unterschied ist
-# leicht zu uebersehen: die Cloud faehrt den Pulse-eigenen MediaMTX-FORK und
-# setzt dort `PULSE_KEYFRAME_INTERVAL=0`, was den fest verdrahteten 2-s-Takt
-# abschaltet — erst dadurch fehlen dem HLS-Muxer die Vollbilder. Diese
-# Umgebungsvariable kennt nur der Fork (`infra/mediamtx-fork/patches/
-# 0002-forward-viewer-keyframe-requests.patch`). Der Self-Host-Container laedt
-# dagegen das UNGEPATCHTE Upstream-Binary von GitHub (Dockerfile, MEDIAMTX_
-# VERSION) — der 2-s-Takt bleibt hier also an, und die Absturzursache der Cloud
-# kann gar nicht eintreten.
-#
-# Was hier stattdessen zutrifft, ist UNGEMESSEN. Naheliegend waere das andere
-# in der Wurzel-`CLAUDE.md` beschriebene Problem (sichtbares Pumpen im
-# 2-s-Takt, weil der Takt dauernd Vollbilder anfordert), aber das ist auf
-# einem Self-Host niemand nachgefahren.
-#
-# Bewusst NICHT geaendert: HLS abzuschalten waere eine Verhaltensaenderung am
-# ausgelieferten Container und braucht einen eigenen Durchgang mit eigener
-# Messung. Wer hier vorbeikommt, entscheidet es — mit Zahlen, nicht mit dieser
-# Notiz.
-hls: yes
-hlsAddress: :8888
-hlsAlwaysRemux: yes
+# **Drei Gruende, gemessen 2026-09-25 an einem Self-Host** (AV1-Stream, vier
+# Sitzungen, Nutzer startete wegen wachsendem Lag neu):
+# 1. HLS kann nur an Vollbildern segmentieren → der Muxer fordert vom Sender
+#    ein Vollbild je Segment an. Der hier frueher laufende Takt lag bei ~2 s:
+#    1 293 Vollbild-Anforderungen in 35 Minuten (die Cloud: 5 in 27 min, nur
+#    Zuschauer-Eintritte). Jedes Vollbild ist ein Vielfaches eines normalen
+#    Bildes gross — auf knappen Strecken fuettert das den Sendestau.
+# 2. `hlsAlwaysRemux: yes` liess den Muxer ZUSATZLICH ohne einen einzigen
+#    Zuschauer durchlaufen.
+# 3. Es gab ohnehin keine Caddy-Route auf :8888 und der Port ist nicht
+#    veroeffentlicht — der Output war fuer niemanden erreichbar. Reine
+#    Verschwendung ohne Gegenleistung.
+hls: no
+
+# MoQ (Media over QUIC, Port 8892) ist bei MediaMTX 1.19.1 STANDARDMAESSIG an,
+# obwohl es hier niemand konfiguriert hat (2026-09-28 live verifiziert — auch
+# die Cloud hoerte unbemerkt auf 8892). Kein Pulse-Client spricht MoQ: Sender
+# kommen per WHIP, Zuschauer per WHEP. Aus — ein offener Port ohne Nutzer ist
+# Angriffsflaeche ohne Nutzen. (Der Dev-Stack streaming/server/mediamtx.yml
+# hat MoQ bewusst AN — dort wird es gelegentlich geprueft; nicht angleichen.)
+moq: no
 
 authMethod: http
 authHTTPAddress: http://127.0.0.1:8005

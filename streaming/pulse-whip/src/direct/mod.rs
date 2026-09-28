@@ -57,7 +57,7 @@ use crate::av1::{self, SpurZustand};
 use crate::h264::h264_ist_vollbild;
 use crate::hevc;
 use crate::pacer;
-use spur::{melde_verteilung, Bildspur, Paketierer};
+use spur::{melde_verteilung, melde_verwurf, Bildspur, Paketierer};
 pub use spur::{dauer_fuer_takte, Konfig};
 
 /// Ein Annex-B-Zeitabschnitt in RTP-Nutzlasten zerlegen — der Weg des
@@ -175,6 +175,7 @@ impl DirectSender {
                     Arc::clone(&video_track),
                     frame_dauer,
                     melde_verteilung,
+                    melde_verwurf,
                 )
             }),
             track: video_track,
