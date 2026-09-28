@@ -99,6 +99,11 @@ services:
       # GARAGE_RPC_SECRET OVERRIDES die gemountete toml (Garage-Env-Mapping);
       # Bestandswert in die .env ÜBERNEHMEN, nicht neu würfeln.
       GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?GARAGE_RPC_SECRET required (openssl rand -hex 32; Bestandswert aus garage.toml übernehmen)}
+      # 2026-09-28: Admin-API-Token — ohne ihn verweigert Garage /v1/health
+      # mit 403 („Admin token isn't configured"), und der chat-gateway kann
+      # die Cluster-Kapazität für den Admin-Übersicht-Tab nicht lesen
+      # (GARAGE_ADMIN_TOKEN-Override wie oben beim RPC_SECRET).
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?GARAGE_ADMIN_TOKEN required (openssl rand -hex 32)}
     # Bughunt Runde 42: hier stand ["-c", "/etc/garage.toml"] — das Image hat
     # KEINEN Entrypoint (CMD ist [/garage, server]), "-c" wurde als Programm
     # ausgeführt und der Container landete im Crash-Loop. Volle Befehlszeile.

@@ -307,16 +307,57 @@ async def guild_dropbox_bytes(guild_id: int) -> int | None:
 
 
 async def cluster_disk_info() -> tuple[int, int] | None:
-    """Query MinIO's admin API for total + available disk space, summed across
-    drives. Returns ``(total_bytes, free_bytes)`` or ``None`` if the call fails.
+    """Disk total + free for the admin Übersicht-Tab ("X of Y GB used").
 
-    Used by the admin Übersicht-Tab to render "X of Y GB used" instead of just
-    bucket-usage in isolation. MinIO's ``/minio/admin/v3/storageinfo`` is a
-    plain sigv4-signed GET (service name ``s3``), so we sign with botocore and
-    fire with httpx — no extra dep. Single-node FS backend has one drive;
-    multi-drive setups are summed.
+    With ``garage_admin_endpoint`` set, queries Garage's admin API
+    (``GET /v1/health`` → ``storageTotal``/``storageFree`` — Garage's own
+    view of its layout capacity). Otherwise falls back to MinIO's admin
+    ``storageinfo`` endpoint (legacy deployments). Returns ``None`` on any
+    failure; the UI degrades cleanly to the bucket-only number.
     """
     s = get_settings()
+    if s.garage_admin_endpoint:
+        return await _garage_disk_info(s)
+    return await _minio_disk_info(s)
+
+
+def parse_garage_health(data: dict) -> tuple[int, int] | None:
+    """Extract ``(total, free)`` from Garage's ``/v1/health`` JSON.
+
+    Garage reports its layout capacity, not the raw disk — that is the
+    honest ceiling for uploads, so it is what the UI should show. Missing
+    or zero ``storageTotal`` returns ``None``.
+    """
+    total = int(data.get("storageTotal", 0) or 0)
+    free = int(data.get("storageFree", 0) or 0)
+    if total <= 0:
+        return None
+    return total, free
+
+
+async def _garage_disk_info(s) -> tuple[int, int] | None:
+    headers = {}
+    if s.garage_admin_token:
+        headers["Authorization"] = f"Bearer {s.garage_admin_token}"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{s.garage_admin_endpoint}/v1/health", headers=headers
+            )
+            resp.raise_for_status()
+            return parse_garage_health(resp.json())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _minio_disk_info(s) -> tuple[int, int] | None:
+    """Query MinIO's admin API, summed across drives.
+
+    MinIO's ``/minio/admin/v3/storageinfo`` is a plain sigv4-signed GET
+    (service name ``s3``), so we sign with botocore and fire with httpx —
+    no extra dep. Single-node FS backend has one drive; multi-drive setups
+    are summed.
+    """
     url = f"{s.s3_internal_endpoint}/minio/admin/v3/storageinfo"
     creds = Credentials(s.s3_access_key, s.s3_secret_key)
     req = AWSRequest(method="GET", url=url, data=b"")

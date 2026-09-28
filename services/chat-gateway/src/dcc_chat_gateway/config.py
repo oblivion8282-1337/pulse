@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     s3_bucket: str = "pulse-attachments"
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
+    # Garage-Admin-API (Prod/Self-Host mit eigenem Garage): liefert die
+    # Cluster-Kapazität für den Admin-Übersicht-Tab. Leer = Pfad aus,
+    # cluster_disk_info() fällt auf die alte MinIO-Admin-API zurück. Ohne
+    # Token antwortet Garage auf /v1/health mit 403 (dann UI-Rückfall).
+    garage_admin_endpoint: str = ""
+    garage_admin_token: str = ""
     # Bughunt Runde 36: 10 min reichten bei 25-MB-Uploads auf schwachem
     # Uplink nicht (PUT läuft ins 403, obwohl die Bytes wohlbehalten
     # ankämen); 30 min decken auch Geduld-Uploads. Die Klienten
