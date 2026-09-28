@@ -1,9 +1,9 @@
-"""cluster_disk_info: Garage-Pfad vs. MinIO-Rückfall + /v1/health-Parser.
+"""cluster_disk_info: Garage-Pfad vs. MinIO-Rückfall + /v1/status-Parser.
 
 Die Admin-Übersicht zeigt „X von Y GB": seit dem Garage-Umzug kommt die
-Kapazität aus Garages Admin-API (/v1/health → storageTotal/storageFree),
-nicht mehr aus MinIOs storageinfo. Beide Wege müssen schaltbar bleiben
-(GARAGE_ADMIN_ENDPOINT leer = Alt-Deployment).
+Kapazität aus Garages Admin-API (/v1/status → nodes[].dataPartition —
+echte Datenträger-Werte), nicht mehr aus MinIOs storageinfo. Beide Wege
+müssen schaltbar bleiben (GARAGE_ADMIN_ENDPOINT leer = Alt-Deployment).
 """
 
 import asyncio
@@ -11,16 +11,30 @@ import asyncio
 from dcc_chat_gateway import s3
 
 
-def test_parse_garage_health_ok():
-    assert s3.parse_garage_health({"storageTotal": 10, "storageFree": 4}) == (10, 4)
+def test_parse_garage_status_single_node():
+    data = {
+        "nodes": [
+            {"id": "n1", "dataPartition": {"total": 539792977920, "available": 496652492800}},
+        ]
+    }
+    assert s3.parse_garage_status(data) == (539792977920, 496652492800)
 
 
-def test_parse_garage_health_ohne_kapazitaet_ist_none():
-    # Frisches Layout ohne zugewiesene Kapazität (storageTotal 0/fehlt) —
-    # die UI zeigt dann „noch nicht aktiv", nicht 0 von 0 GB.
-    assert s3.parse_garage_health({}) is None
-    assert s3.parse_garage_health({"storageTotal": 0, "storageFree": 1}) is None
-    assert s3.parse_garage_health({"storageTotal": None, "storageFree": None}) is None
+def test_parse_garage_status_summiert_und_ignoriert_ohne_rolle():
+    data = {
+        "nodes": [
+            {"id": "n1", "dataPartition": {"total": 100, "available": 60}},
+            {"id": "n2"},  # ohne Daten-Rolle — kein dataPartition
+            {"id": "n3", "dataPartition": {"total": 100, "available": 30}},
+        ]
+    }
+    assert s3.parse_garage_status(data) == (200, 90)
+
+
+def test_parse_garage_status_ohne_kapazitaet_ist_none():
+    assert s3.parse_garage_status({}) is None
+    assert s3.parse_garage_status({"nodes": [{"id": "n1"}]}) is None
+    assert s3.parse_garage_status({"nodes": [{"dataPartition": {"total": 0}}]}) is None
 
 
 def test_garage_pfad_wird_genommen_wenn_endpoint_gesetzt(monkeypatch):

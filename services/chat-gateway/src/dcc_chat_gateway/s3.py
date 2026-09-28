@@ -310,10 +310,11 @@ async def cluster_disk_info() -> tuple[int, int] | None:
     """Disk total + free for the admin Übersicht-Tab ("X of Y GB used").
 
     With ``garage_admin_endpoint`` set, queries Garage's admin API
-    (``GET /v1/health`` → ``storageTotal``/``storageFree`` — Garage's own
-    view of its layout capacity). Otherwise falls back to MinIO's admin
-    ``storageinfo`` endpoint (legacy deployments). Returns ``None`` on any
-    failure; the UI degrades cleanly to the bucket-only number.
+    (``GET /v1/status`` → ``nodes[].dataPartition.total/available`` — the
+    real data-disk numbers, summed across nodes). Otherwise falls back to
+    MinIO's admin ``storageinfo`` endpoint (legacy deployments). Returns
+    ``None`` on any failure; the UI degrades cleanly to the bucket-only
+    number.
     """
     s = get_settings()
     if s.garage_admin_endpoint:
@@ -321,15 +322,19 @@ async def cluster_disk_info() -> tuple[int, int] | None:
     return await _minio_disk_info(s)
 
 
-def parse_garage_health(data: dict) -> tuple[int, int] | None:
-    """Extract ``(total, free)`` from Garage's ``/v1/health`` JSON.
+def parse_garage_status(data: dict) -> tuple[int, int] | None:
+    """Sum ``nodes[].dataPartition`` total/available from ``GET /v1/status``.
 
-    Garage reports its layout capacity, not the raw disk — that is the
-    honest ceiling for uploads, so it is what the UI should show. Missing
-    or zero ``storageTotal`` returns ``None``.
+    ``dataPartition`` is absent on nodes without a data role; a cluster
+    with no capacity at all returns ``None``.
     """
-    total = int(data.get("storageTotal", 0) or 0)
-    free = int(data.get("storageFree", 0) or 0)
+    nodes = data.get("nodes") or []
+    total = 0
+    free = 0
+    for n in nodes:
+        part = n.get("dataPartition") or {}
+        total += int(part.get("total", 0) or 0)
+        free += int(part.get("available", 0) or 0)
     if total <= 0:
         return None
     return total, free
@@ -342,10 +347,10 @@ async def _garage_disk_info(s) -> tuple[int, int] | None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(
-                f"{s.garage_admin_endpoint}/v1/health", headers=headers
+                f"{s.garage_admin_endpoint}/v1/status", headers=headers
             )
             resp.raise_for_status()
-            return parse_garage_health(resp.json())
+            return parse_garage_status(resp.json())
     except Exception:  # noqa: BLE001
         return None
 
