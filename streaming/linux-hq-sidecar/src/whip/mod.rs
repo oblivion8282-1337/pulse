@@ -247,6 +247,18 @@ fn pacer_melder(soll_ms: f64, ist_ms: f64, pakete: usize) {
     );
 }
 
+/// Der Stau-Deckel des Taktgebers hat ein Bild fallen gelassen (Leitung laenger
+/// als der Deckel im Rueckstand). Der Verwurf reisst die Bezugskette — sofort
+/// ein Vollbild anfordern, exakt die Stelle, die auch eine PLI-Anforderung
+/// bedient, sonst kauchen die folgenden Bilder bis zum naechsten Takt.
+fn stau_vollbild() {
+    tracing::warn!(
+        target: "whip",
+        "Sendestau: Bild verworfen — Vollbild angefordert"
+    );
+    crate::encode::request_keyframe();
+}
+
 /// Zustandswechsel der Verbindung ins Log bringen.
 ///
 /// Bis zum 2026-08-27 sah hier niemand hin: ein Abriss nach dem Handschlag
@@ -390,7 +402,7 @@ impl WhipSender {
             // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
             // Gegenmess-Schalter.
             pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
-                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder)
+                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder, stau_vollbild)
             }),
             track: video_track,
         };
@@ -663,18 +675,17 @@ impl WhipSender {
 
     /// Ein encodiertes Ton-Paket senden.
     ///
-    /// `dauer` ist die Laenge des Opus-Pakets (heute 5 ms, s.
-    /// `encode::audio::opus_frame_ms`) — webrtc-rs leitet daraus den
-    /// RTP-Zeitstempel ab. Ein falscher Wert verschoebe den Ton gegen das Bild,
-    /// ohne dass irgendwo ein Fehler auftaucht.
+    /// `dauer` ist der PTS-SPRUNG seit dem letzten Paket, nicht die feste
+    /// Opus-Paketlaenge (Begruendung: `encode::audio::AudioEncoder::whip_dauer`)
+    /// — webrtc-rs summiert die Dauern zum RTP-Zeitstempel, und nur der Sprung
+    /// haelt die Ton-Zeitlinie auf der gemeinsamen Uhr mit dem Bild. Ein
+    /// falscher Wert verschoebe den Ton gegen das Bild, ohne dass irgendwo
+    /// ein Fehler auftaucht.
     ///
-    /// **Auch hier ueber [`dauer_fuer_takte`]**, obwohl der Ton die Falle heute
-    /// nicht trifft: 5 ms mal 48000 faellt in f64 zufaellig knapp UEBER 240 und
-    /// wird richtig abgeschnitten. Das ist ein Zufall der Darstellung, keine
-    /// Absicht — bei einer anderen Paketlaenge (`OPUS_FRAME_MS`) kann es
-    /// andersherum ausgehen, und dann liefe der TON weg statt des Bildes. Ein
-    /// gemessener Fehler an einer Stelle heisst, dieselbe Stelle ueberall zu
-    /// schliessen.
+    /// **Ueber [`dauer_fuer_takte`]**, weil die Rundung hier dieselbe Falle
+    /// hat wie beim Bild: Sample-Anzahl mal Takt in f64 kann knapp neben dem
+    /// ganzen Takt fallen, und dann liefe der TON schleichend weg (Beleg in
+    /// `dauer_fuer_takte`, Windows-Messung vom 2026-08-14).
     pub fn send_audio(&self, data: &[u8], dauer: Duration) -> Result<()> {
         let takte = (dauer.as_secs_f64() * 48_000.0).round() as u32;
         write_to_track(&self.audio, data, dauer_fuer_takte(takte, 48_000))

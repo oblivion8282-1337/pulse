@@ -2,6 +2,28 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-28.1",
+      "date": "2026-09-28",
+      "style": "Sachlich",
+      "title": "Stabilerer Stream: Schutz gegen wachsende Verzögerung",
+      "intro": "Blieb der Verbindungsweg dauerhaft knapp, konnte sich die Verzögerung eines Streams über Minuten aufbauen, statt konstant niedrig zu bleiben. Der Sender springt jetzt nach einer halben Sekunde Rückstand auf die Live-Position zurück — mit einem kurzen Bildsprung statt immer weiter wachsendem Nachlauf. Self-Host-Server fordern außerdem nicht mehr alle zwei Sekunden ein Großbild an, was knappe Leitungen zusätzlich belastete.",
+      "items": [
+        "Sender: Nach einer halben Sekunde Stau zurück auf Live — kurzer Ruckler statt wachsender Verzögerung.",
+        "Server: unnötige Dauer-Anforderungen von Großbildern entfernt; ein offener, ungenutzter Netzwerkport geschlossen — Haupt-Server und Self-Hosts."
+      ]
+    },
+    {
+      "id": "2026-09-27.2",
+      "date": "2026-09-27",
+      "style": "Sachlich",
+      "title": "Bild und Ton im Takt: echte Lippen-Synchronisation",
+      "intro": "Bei langen Streams konnten Bild und Ton mit der Zeit sichtbar auseinanderlaufen — der Ton lief auf einer eigenen Uhr, die niemand mit dem Bild verglich. Jetzt hängen beide an derselben Uhr: Der Sender versieht den Ton mit exakten Zeitmarken, und der Player gleicht Bild und Ton fortlaufend aufeinander ab. Gemessen bleibt der Versatz über lange Sitzungen im Bereich weniger Millisekunden.",
+      "items": [
+        "Gilt in allen Apps — Windows, Linux und macOS, beim Senden und Zuschauen gleichermaßen.",
+        "Der Versatz wird laufend gemessen und automatisch nachjustiert; Nutzer müssen nichts mehr einstellen."
+      ]
+    },
+    {
       "id": "2026-09-27.1",
       "date": "2026-09-27",
       "style": "Sachlich",

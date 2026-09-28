@@ -2,7 +2,7 @@
 //! Run: `cargo run --release --example encode_smoke -- /tmp/pulse_smoke.mp4`
 //! Needs Screen-Recording permission. Verify with `ffprobe` afterwards.
 
-use std::sync::mpsc::channel;
+use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -20,7 +20,7 @@ fn main() -> anyhow::Result<()> {
     let (w, h, fps) = (1280u32, 720u32, 30u32);
 
     let bildpost = Arc::new(Postfach::neu());
-    let (atx, arx) = channel::<AudioFrame>();
+    let (atx, arx) = sync_channel::<AudioFrame>(4);
     let cap = Capturer::start(
         1,
         None,

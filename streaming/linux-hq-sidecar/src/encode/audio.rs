@@ -370,6 +370,11 @@ pub struct AudioEncoder {
     stream_time_base: Rational,
     /// Output-pts-Zeitlinie (Samples, 1/sample_rate-Einheiten).
     timeline: PtsTimeline,
+    /// Sample-Rate für die WHIP-Dauer-Rechnung (s. [`AudioEncoder::whip_dauer`]).
+    sample_rate: u32,
+    /// pts des letzten auf den WHIP-Weg gesandten Pakets (Samples) — Bezug
+    /// fuer den Dauer-Sprung (s. [`AudioEncoder::whip_dauer`]).
+    letzte_whip_pts: Option<i64>,
 }
 
 impl AudioEncoder {
@@ -391,6 +396,8 @@ impl AudioEncoder {
             // (`set_stream_time_base`); auf dem WHIP-Weg wird nie umgerechnet.
             stream_time_base: tb,
             timeline: PtsTimeline::new(),
+            sample_rate,
+            letzte_whip_pts: None,
         }
     }
 
@@ -485,14 +492,16 @@ impl AudioEncoder {
                         packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
                         mux.send(packet)?;
                     }
-                    // Kein Umrechnen: die Spur bekommt die Bytes und die
-                    // PAKETDAUER. Die ist hier konstant (`opus_frame_ms`), weil
-                    // der Encoder mit `frame_duration` genau darauf festgelegt
-                    // wurde — waere sie es nicht, verschoebe sich der Ton
-                    // schleichend gegen das Bild, ohne dass ein Fehler auftaucht.
+                    // Die Spur bekommt die Bytes und die Dauer. Das ist der
+                    // PTS-SPRUNG seit dem letzten Paket, nicht die feste
+                    // Opus-Paketlaenge: webrtc-rs summiert die Dauern zum
+                    // RTP-Zeitstempel, und nur der Sprung traegt Luecken und
+                    // Re-Anker der Zeitlinie nach — die gemeinsame Uhr mit dem
+                    // Bild (Begruendung: [`AudioEncoder::whip_dauer`]).
                         TonSenke::Whip(w) => {
                             if let Some(d) = packet.data() {
-                                w.send_audio(d, Duration::from_millis(opus_frame_ms() as u64))?;
+                                let dauer = self.whip_dauer(packet.pts());
+                                w.send_audio(d, dauer)?;
                             }
                         }
                     }
@@ -512,5 +521,70 @@ impl AudioEncoder {
 
     pub fn stream_idx(&self) -> usize {
         self.stream_idx
+    }
+
+    /// Dauer eines Opus-Pakets fuer die WHIP-Spur: der PTS-SPRUNG seit dem
+    /// letzten Paket, nicht die feste Opus-Paketlaenge.
+    ///
+    /// webrtc-rs leitet den Ton-RTP-Zeitstempel aus der SUMME der Paketdauern
+    /// ab. Mit fester Paketlaenge lief die Ton-Zeitlinie als reiner
+    /// Paketzaehler: jede Capture-Luecke und jedes Nachfuehren der pts-Zeitlinie
+    /// (Re-Anker, Aufholen eines Rueckstands) fehlte ihr DAUERHAFT, waehrend
+    /// das Bild wanduhr-echte Zeitstempel traegt — Ton und Bild drifteten
+    /// unbegrenzt auseinander (47-Minuten-Stream 2026-09-23, Nutzermeldungen
+    /// zu Bild/Ton-Versatz). Der Sprung traegt beides: im ruhigen Lauf ist er
+    /// die Paketlaenge, bei einer Luecke springt er um die Luecke — genau die
+    /// gemeinsame Uhr mit dem Bild, und RTCP-Sender-Reports mappen sie fuer
+    /// Browser-Zuschauer auf Wandzeit.
+    fn whip_dauer(&mut self, pts: Option<i64>) -> Duration {
+        let ms = match pts {
+            Some(p) => match self.letzte_whip_pts.replace(p) {
+                Some(letzte) => whip_dauer_ms(p - letzte, self.sample_rate),
+                None => opus_frame_ms() as i64,
+            },
+            None => opus_frame_ms() as i64,
+        };
+        Duration::from_millis(ms as u64)
+    }
+}
+
+/// Millisekunden-Anteil eines Sample-Sprungs, aufgerundet und beidseitig
+/// gedeckelt (s. [`AudioEncoder::whip_dauer`]). Frei gestellt fuer den Test.
+fn whip_dauer_ms(sprung: i64, sample_rate: u32) -> i64 {
+    // ponytail: Deckel bei 1 s — ein groesserer Sprung ist kein Zeitstempel
+    // mehr, sondern ein kaputter Anker; dann 1 s senden und beim naechsten
+    // Paket weiterzaehlen. Untergrenze 1 ms haelt Stolperer (Null/Sprung
+    // rueckwaerts) davon ab, die Zeitlinie einfrieren zu lassen.
+    ((sprung.max(0) * 1000 + i64::from(sample_rate) - 1) / i64::from(sample_rate)).clamp(1, 1000)
+}
+
+#[cfg(test)]
+mod whip_dauer_tests {
+    use super::whip_dauer_ms;
+
+    /// Der Rueckgrat-Fall: 10-ms-Pakete sind 480 Samples — daraus muss
+    /// exakt 10 ms werden, sonst driftet der ruhige Lauf schon von selbst.
+    #[test]
+    fn ruhiger_lauf_trifft_die_paketlaenge() {
+        assert_eq!(whip_dauer_ms(480, 48_000), 10);
+        assert_eq!(whip_dauer_ms(240, 48_000), 5);
+    }
+
+    /// Eine Luecke muss IM GANZEN im Zeitstempel ankommen — der Sprung ist
+    /// die einzige Stelle, an der der Ton-Zeitstempel Luecken erfaehrt.
+    #[test]
+    fn luecke_traegt_die_ganze_luecke() {
+        assert_eq!(whip_dauer_ms(480 + 24_000, 48_000), 510);
+        assert_eq!(whip_dauer_ms(48_000, 48_000), 1000);
+    }
+
+    /// Stolperer duerfen die Zeitlinie nicht rueckwaerts drehen und nicht
+    /// auf Null einfrieren; ein kaputter Riese wird auf den Deckel gekappt.
+    #[test]
+    fn stolperer_bleiben_minimal_riesen_gedeckelt() {
+        assert_eq!(whip_dauer_ms(0, 48_000), 1);
+        assert_eq!(whip_dauer_ms(-960, 48_000), 1);
+        assert_eq!(whip_dauer_ms(72, 48_000), 2, "1,5 ms muessen aufrunden");
+        assert_eq!(whip_dauer_ms(480_000, 48_000), 1000);
     }
 }

@@ -75,6 +75,14 @@ rtmpServerKey: /certs/server.key
 # (Wurzel-`CLAUDE.md`, Abschnitt HQ-Streaming).
 hls: no
 
+# MoQ (Media over QUIC) ist bei MediaMTX 1.19.1 STANDARDMAESSIG an — diese
+# Zeile war bis 2026-09-28 nicht gesetzt, und der Server hoerte unbemerkt auf
+# :8892 (QUIC/HTTP3). Kein Pulse-Client spricht MoQ: Sender kommen per WHIP,
+# Zuschauer per WHEP. Aus — ein offener Port ohne Nutzer ist Angriffsflaeche
+# ohne Nutzen. (Der Dev-Stack streaming/server/mediamtx.yml hat MoQ bewusst
+# AN, um es gelegentlich zu pruefen; nicht angleichen.)
+moq: no
+
 # WebRTC / WHEP (reached via pulse_web → /whep/*; ICE on :8189/udp direct)
 webrtc: yes
 webrtcAddress: :8889

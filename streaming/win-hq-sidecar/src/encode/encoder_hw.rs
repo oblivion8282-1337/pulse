@@ -301,7 +301,17 @@ impl FfmpegHwEncoder {
                 // andere Frage. Genau diese Verwechslung hat auf der
                 // Linux-Seite am 2026-07-30 eine ganze Messreihe entwertet.
                 eprintln!("[encode] Ausgabe: angemeldeter Sendeweg (nicht der Muxer)");
-                Ausgabe::Extern(SenkenWriter::start(senke, super::audio::opus_frame_dauer())?)
+                Ausgabe::Extern(SenkenWriter::start(
+                    senke,
+                    super::audio::opus_frame_dauer(),
+                    // Die pts-Skala des Tons: nur damit kann der Writer die
+                    // Paketdauer aus dem PTS-SPRUNG rechnen statt fest
+                    // (s. `senke_writer::ton_dauer_aus_pts`).
+                    audio
+                        .as_ref()
+                        .map(|a| a.sample_rate())
+                        .unwrap_or(48_000),
+                )?)
             }
         };
 

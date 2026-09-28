@@ -241,6 +241,14 @@ fn pacer_melder(soll_ms: f64, ist_ms: f64, pakete: usize) {
     eprintln!("[whip] Verteilung je Bild: soll {soll_ms:.2} ms, ist {ist_ms:.2} ms ({pakete} Pakete)");
 }
 
+/// Stau-Deckel des Taktgebers: Bild verworfen → sofort ein Vollbild anfordern
+/// (derselbe Ort, den auch PLI/FIR bedienen), sonst reisst der Verwurf die
+/// Bezugskette bis zum naechsten Vollbild-Takt auf.
+fn stau_vollbild() {
+    eprintln!("[whip] Sendestau: Bild verworfen — Vollbild angefordert");
+    crate::keyframe::request_keyframe();
+}
+
 /// Zustandswechsel der Verbindung ins Log bringen — s. [`pulse_whip::verbindung`].
 ///
 /// Bis zum 2026-08-27 sah hier niemand hin. **Beendet nichts**: der Abbau
@@ -361,7 +369,7 @@ impl WhipSender {
             // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
             // Gegenmess-Schalter.
             pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
-                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder)
+                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder, stau_vollbild)
             }),
             track: video_track,
         };
@@ -621,18 +629,17 @@ impl WhipSender {
 
     /// Ein encodiertes Ton-Paket senden.
     ///
-    /// `dauer` ist die Laenge des Opus-Pakets (auf macOS konstant 20 ms, s.
-    /// `encode::audio::OPUS_FRAME_DURATION`) — webrtc-rs leitet daraus den
-    /// RTP-Zeitstempel ab. Ein falscher Wert verschoebe den Ton gegen das Bild,
-    /// ohne dass irgendwo ein Fehler auftaucht.
+    /// `dauer` ist der PTS-SPRUNG seit dem letzten Paket, nicht die feste
+    /// Opus-Paketlaenge (Begruendung: `encode::audio::AudioEncoder::whip_dauer`)
+    /// — webrtc-rs summiert die Dauern zum RTP-Zeitstempel, und nur der Sprung
+    /// haelt die Ton-Zeitlinie auf der gemeinsamen Uhr mit dem Bild. Ein
+    /// falscher Wert verschoebe den Ton gegen das Bild, ohne dass irgendwo ein
+    /// Fehler auftaucht.
     ///
-    /// **Auch hier ueber [`dauer_fuer_takte`]**, obwohl 20 ms mal 48000 exakt
-    /// 960 Takte ergibt (`OPUS_FRAME_SAMPLES`) und die Rundungsfalle deshalb
-    /// auf macOS heute gar nicht zuschlagen kann. Trotzdem ueber dieselbe
-    /// Funktion wie das Bild, statt eine feste Konstante hier hinzuschreiben:
-    /// aendert sich die Paketlaenge einmal, laeuft der Ton automatisch mit,
-    /// statt still wegzudriften. Ein gemessener Fehler an einer Stelle heisst,
-    /// dieselbe Stelle ueberall zu schliessen.
+    /// **Auch hier ueber [`dauer_fuer_takte`]**, weil die Rundung hier dieselbe
+    /// Falle hat wie beim Bild: Sample-Anzahl mal Takt in f64 kann knapp neben
+    /// dem ganzen Takt fallen, und dann liefe der TON schleichend weg (Beleg in
+    /// `dauer_fuer_takte`, Windows-Messung vom 2026-08-14).
     pub fn send_audio(&self, data: &[u8], dauer: Duration) -> Result<()> {
         let takte = (dauer.as_secs_f64() * 48_000.0).round() as u32;
         write_to_track(&self.audio, data, dauer_fuer_takte(takte, 48_000))

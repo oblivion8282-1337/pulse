@@ -56,12 +56,35 @@ webrtcEncryption: no
 webrtcLocalUDPAddress: :8189
 webrtcIPsFromInterfaces: no
 
-# HLS AUS (Cloud-Parität, 2026-09-28): Kein Pulse-Client spielt HLS, und
-# PULSE_KEYFRAME_INTERVAL=0 (wie in der Cloud) entzieht dem HLS-Muxer die
-# Vollbilder — `hlsAlwaysRemux: yes` würde sonst den Stream zum Einsturz
-# bringen (s. infra/prod/mediamtx.yml für die lange Begründung).
+# HLS ist AUS — wie die Cloud (`hls: no` in infra/prod/mediamtx.yml).
+#
+# **Drei Gruende, gemessen 2026-09-25 an einem Self-Host** (AV1-Stream, vier
+# Sitzungen, Nutzer startete wegen wachsendem Lag neu):
+# 1. HLS kann nur an Vollbildern segmentieren → der Muxer fordert vom Sender
+#    ein Vollbild je Segment an. Der hier frueher laufende Takt lag bei ~2 s:
+#    1 293 Vollbild-Anforderungen in 35 Minuten (die Cloud: 5 in 27 min, nur
+#    Zuschauer-Eintritte). Jedes Vollbild ist ein Vielfaches eines normalen
+#    Bildes gross — auf knappen Strecken fuettert das den Sendestau.
+# 2. `hlsAlwaysRemux: yes` liess den Muxer ZUSATZLICH ohne einen einzigen
+#    Zuschauer durchlaufen.
+# 3. Es gab ohnehin keine Caddy-Route auf :8888 und der Port ist nicht
+#    veroeffentlicht — der Output war fuer niemanden erreichbar. Reine
+#    Verschwendung ohne Gegenleistung.
+#
+# PULSE_KEYFRAME_INTERVAL=0 (Heim-Server 2026-09-28, Cloud-Paritaet): entzieht
+# dem HLS-Muxer die periodischen Vollbilder — `hlsAlwaysRemux: yes` würde den
+# Stream sonst zum Einsturz bringen (s. infra/prod/mediamtx.yml). Glatter
+# Strom nur mit Vollbildern on demand.
 PULSE_KEYFRAME_INTERVAL=0
 hls: no
+
+# MoQ (Media over QUIC, Port 8892) ist bei MediaMTX 1.19.1 STANDARDMAESSIG an,
+# obwohl es hier niemand konfiguriert hat (2026-09-28 live verifiziert — auch
+# die Cloud hoerte unbemerkt auf 8892). Kein Pulse-Client spricht MoQ: Sender
+# kommen per WHIP, Zuschauer per WHEP. Aus — ein offener Port ohne Nutzer ist
+# Angriffsflaeche ohne Nutzen. (Der Dev-Stack streaming/server/mediamtx.yml
+# hat MoQ bewusst AN — dort wird es gelegentlich geprueft; nicht angleichen.)
+moq: no
 
 authMethod: http
 authHTTPAddress: http://127.0.0.1:8005

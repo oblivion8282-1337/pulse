@@ -123,6 +123,40 @@ const MIN_PAKETE: usize = 3;
 /// Auseinanderlaufen zu spaet.
 const MELDE_ALLE: u64 = 120;
 
+/// Obergrenze des Sendestaus: so viel BILDZEIT darf ungesendet in der Schlange
+/// liegen, bevor neue Bilder fallen gelassen werden.
+///
+/// **Warum eine Grenze existieren muss.** Der Taktgeber ist das letzte Stueck
+/// vor der Leitung; alles davor (Capture, Encoder) tacktet unabhängig weiter
+/// und erzeugt wanduhr-echte Zeitstempel. Klemmt die Leitung anhaltend —
+/// knapper Uplink, schwacher Self-Host, Vollbild-Spitzen — laeuft die Schlange
+/// voll, OHNE dass irgendetwas den Rueckstand abbaut: der `eilig`-Pfad burstet
+/// nur, er verwirft nichts, und eine Absenkung der Bitrate gibt es nicht
+/// (bewusste Entscheidung, s. Sidecar-Kommentar zu `bandwidth_low`). Der
+/// Zuschauer sieht dann einen Versatz, der mit dem Defizit waechst und bis zum
+/// Streamende waechst — gemessen 2026-09-25 an einem Self-Host (AV1, 60 fps,
+/// vier Sitzungen, Nutzer startete wegen des wachsenden Lags neu).
+///
+/// **Warum 500 ms.** Der Player hat KEINEN Sprung zur Live-Kante — er zeigt
+/// den verspaetet ankommenden Inhalt treu an, die Grenze muss also im Sender
+/// liegen. Sichtbar ist ein Sprung ab einigen Hundert Millisekunden; die
+/// Neuverankerung des Players reagiert ihrerseits erst ab 250 ms. 500 ms
+/// begrenzt den Schaden auf eine Groesse, die als Stoerung auffaellt, statt
+/// als wachsende Verzoegerung unbemerkt stehen zu bleiben.
+///
+/// **Der Verwurf reisst die Bezugskette** — die folgenden Bilder bauen auf
+/// einem fehlenden auf, bis das naechste Vollbild kommt. Deshalb meldet der
+/// Rueckgeber [`bei_verwurf`] das Bild sofort an den Aufrufer, der ein
+/// Vollbild anfordert (dieselbe Stelle, die auch PLI bedient).
+const STAU_DECKEL: Duration = Duration::from_millis(500);
+
+/// Wie lange zwischen zwei `bei_verwurf`-Meldungen mindestens liegen muss.
+/// Bei anhaltendem Stau faellt JEDES Bild weg — ohne Sperrzeit wuerde der
+/// Aufrufer ein Vollbild je Bild anfordern und damit die Bitrate in die Hoehe
+/// treiben, genau falsch herum. Ein Vollbild je Sekunde heilt die Kette,
+/// mehr braucht es nicht.
+const VERWURF_SPERRZEIT: Duration = Duration::from_secs(1);
+
 /// In wie viele Gruppen `n` Pakete zerfallen: hoechstens so viele, wie
 /// `GRUPPEN_ABSTAND`-Schritte ins Fenster passen, nie mehr als Pakete da sind,
 /// nie weniger als eine.
@@ -173,22 +207,37 @@ async fn verteile(
 /// Argumente: Soll-Millisekunden je Bild, Ist-Millisekunden je Bild, Pakete.
 pub type Melder = fn(f64, f64, usize);
 
+/// Wird gerufen, wenn der Stau-Deckel ein Bild fallen gelassen hat (hoechstens
+/// einmal je [`VERWURF_SPERRZEIT`]). Der Aufrufer soll ein Vollbild anfordern —
+/// wie beim Melder gilt: gemeinsame Logik, plattform-eigene Ausfuehrung.
+pub type VerwurfMelder = fn();
+
 pub struct Pacer {
-    tx: mpsc::UnboundedSender<Vec<Packet>>,
+    tx: mpsc::Sender<Vec<Packet>>,
+    bei_verwurf: VerwurfMelder,
+    /// Zeit der letzten Verwurf-Meldung — fuer die Sperrzeit. Kein Atomic:
+    /// `send` laeuft auf dem einzelnen Encode-Faden jedes Sidecars.
+    letzte_verwurf_meldung: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 impl Pacer {
     /// Startet den Verteil-Faden auf der uebergebenen Laufzeit.
     ///
     /// `frame_duration` ist der Soll-Abstand zweier Bilder; daraus ergibt sich,
-    /// wieviel Zeit fuer ein Bild zur Verfuegung steht.
+    /// wieviel Zeit fuer ein Bild zur Verfuegung steht — und wie viele Bilder
+    /// der Stau-Deckel fasst.
     pub fn start(
         rt: &tokio::runtime::Runtime,
         track: Arc<TrackLocalStaticRTP>,
         frame_duration: Duration,
         melde: Melder,
+        bei_verwurf: VerwurfMelder,
     ) -> Self {
-        let (tx, mut rx) = mpsc::unbounded_channel::<Vec<Packet>>();
+        // Bildzeit im Deckel → Bildanzahl; mindestens 2, damit auch bei sehr
+        // niedrigen Bildraten (25 fps) kein Einzelbild-Ruckeln entsteht.
+        let kapazitaet =
+            ((STAU_DECKEL.as_secs_f64() / frame_duration.as_secs_f64()).ceil() as usize).max(2);
+        let (tx, mut rx) = mpsc::channel::<Vec<Packet>>(kapazitaet);
         let fenster = frame_duration.mul_f64(ANTEIL);
         rt.spawn(async move {
             // Soll gegen Ist je Bild, gemeldet alle MELDE_ALLE Bilder — die
@@ -200,7 +249,9 @@ impl Pacer {
                 // Faellt der Sender zurueck, weil die Leitung klemmt, liegen
                 // mehrere Bilder in der Schlange. Dann NICHT verteilen — sonst
                 // wuechse der Rueckstand weiter. Der Schwall ist in diesem Fall
-                // das kleinere Uebel.
+                // das kleinere Uebel. (Der Rueckstand selbst ist seit dem
+                // Stau-Deckel begrenzt: was laenger als STAU_DECKEL wartet,
+                // faellt bei `send` weg.)
                 let eilig = !rx.is_empty();
                 let n = pakete.len();
                 let fenster_bild =
@@ -221,14 +272,41 @@ impl Pacer {
                 }
             }
         });
-        Self { tx }
+        Self {
+            tx,
+            bei_verwurf,
+            letzte_verwurf_meldung: std::sync::Mutex::new(None),
+        }
     }
 
     /// Pakete eines Bildes zum Verteilen abgeben. Blockiert nie.
+    ///
+    /// Ist die Schlange voll (Leitung laenger als [`STAU_DECKEL`] im
+    /// Rueckstand), wird das Bild VERWORFEN und [`bei_verwurf`] gemeldet —
+    /// kein Fehler: der Strom laeuft weiter, der Zuschauer sieht einen Sprung
+    /// statt eines waechsenden Versatzes.
     pub fn send(&self, pakete: Vec<Packet>) -> anyhow::Result<()> {
-        self.tx
-            .send(pakete)
-            .map_err(|_| anyhow::anyhow!("WHIP-Verteilfaden ist beendet"))
+        match self.tx.try_send(pakete) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                let jetzt = std::time::Instant::now();
+                let mut letzte = self
+                    .letzte_verwurf_meldung
+                    .lock()
+                    .expect("Verwurf-Sperre vergiftet");
+                let faellig = letzte
+                    .map(|t| jetzt.duration_since(t) >= VERWURF_SPERRZEIT)
+                    .unwrap_or(true);
+                if faellig {
+                    *letzte = Some(jetzt);
+                    (self.bei_verwurf)();
+                }
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err(anyhow::anyhow!("WHIP-Verteilfaden ist beendet"))
+            }
+        }
     }
 }
 
@@ -316,5 +394,46 @@ mod tests {
                  (der Fehler der ersten Fassung)"
             );
         });
+    }
+
+    /// **Der Stau-Deckel** — der Fall vom 2026-09-25: klemmt die Leitung,
+    /// darf der Versatz nicht endlos wachsen, sondern Bilder muessen fallen.
+    ///
+    /// Deterministisch ohne Netz: die Laufzeit wird NICHT angetrieben, der
+    /// Verteil-Faden arbeitet also nicht — die Schlange laeuft sicher voll,
+    /// egal wie schnell die Testmaschine ist. Ohne Deckel (unbegrenzte
+    /// Schlange, die alte Fassung) wuerden alle Sends angenommen und die
+    /// Verwurf-Meldung bliebe bei null — genau das ist die Behauptung.
+    #[test]
+    fn stau_deckel_verwirft_statt_endlos_zu_wachsen() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static VERWURFE: AtomicUsize = AtomicUsize::new(0);
+        fn bei_verwurf() {
+            VERWURFE.fetch_add(1, Ordering::SeqCst);
+        }
+        fn kein_melder(_: f64, _: f64, _: usize) {}
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        let frame_duration = Duration::from_secs_f64(1.0 / 60.0);
+        let pacer = Pacer::start(
+            &rt,
+            Arc::new(leere_spur()),
+            frame_duration,
+            kein_melder,
+            bei_verwurf,
+        );
+        let kapazitaet =
+            ((STAU_DECKEL.as_secs_f64() / frame_duration.as_secs_f64()).ceil() as usize).max(2);
+        for _ in 0..kapazitaet + 10 {
+            pacer.send(pakete(2)).expect("Verwurf ist kein Fehler — Strom laeuft weiter");
+        }
+        assert_eq!(
+            VERWURFE.load(Ordering::SeqCst),
+            1,
+            "genau eine Verwurf-Meldung: alle weiteren unterliegen der Sperrzeit"
+        );
     }
 }

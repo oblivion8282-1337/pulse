@@ -206,6 +206,14 @@ fn melde_verteilung(soll_ms: f64, ist_ms: f64, pakete: usize) {
     );
 }
 
+/// Stau-Deckel des Taktgebers: Bild verworfen → sofort ein Vollbild anfordern
+/// (derselbe Ort, den auch PLI/FIR bedienen), sonst reisst der Verwurf die
+/// Bezugskette bis zum naechsten Vollbild-Takt auf.
+fn bei_stau_vollbild() {
+    eprintln!("[whip] Sendestau: Bild verworfen — Vollbild angefordert");
+    crate::keyframe::request_keyframe();
+}
+
 /// Die Bildspur: eigene RTP-Pakete fuer beide Codecs.
 struct Bildspur {
     /// Zeitstempel-/Sequenz-Zustand + Paketierer unter EINEM Lock — beides
@@ -413,6 +421,7 @@ impl WhipSender {
                     Arc::clone(&video_track),
                     frame_duration,
                     melde_verteilung,
+                    bei_stau_vollbild,
                 )
             }),
             track: video_track,
