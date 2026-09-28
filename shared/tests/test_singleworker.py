@@ -34,6 +34,10 @@ def test_idempotent_im_eigenen_prozess():
     singleworker.assert_single_worker(_SVC)
 
 
+@pytest.mark.skipif(
+    singleworker.fcntl is None,
+    reason="Guard ist auf Windows ein No-op (kein fcntl, s. singleworker.py) — es gibt nichts zu verweigern",
+)
 def test_zweiter_prozess_verweigert_den_start():
     """Der eigentliche Zweck: ein fremder Prozess mit dem Lock → RuntimeError,
     statt still alle Brute-Force-Budgets zu vervielfachen."""
