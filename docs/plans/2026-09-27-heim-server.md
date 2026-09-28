@@ -61,3 +61,14 @@ KANN aber einen Windows-Rechner fernsteuern (die Fernsteuerung läuft im
 Browser des Steuerenden). Für Windows-Owner ist die Fernsteuerung voll
 verfügbar; für Linux-Owner eingeschränkt auf "steuern, nicht gesteuert
 werden". Das ist eine Platform-Grenze, kein Bug.
+
+
+## MediaMTX HLS + Keyframe-Parität (2026-09-28)
+
+Der Self-Host-Container fuhr HLS (`hls: yes`) mit dem Standard-2s-Keyframe-Takt,
+während die Cloud HLS abgeschaltet hat (`hls: no`) und mit
+`PULSE_KEYFRAME_INTERVAL=0` smooth streamt (Vollbilder nur on-demand).
+
+Behoben: Der Self-Host setzt jetzt `PULSE_KEYFRAME_INTERVAL=0` (smooth
+streaming, wie die Cloud) und `hls: no` (kein Client spielt HLS; der Muxer
+kann ohne periodische Vollbilder nicht segmentieren). Cloud-Parität.

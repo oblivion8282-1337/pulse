@@ -56,34 +56,12 @@ webrtcEncryption: no
 webrtcLocalUDPAddress: :8189
 webrtcIPsFromInterfaces: no
 
-# HLS laeuft hier, ist aber von aussen fuer niemanden erreichbar: es gibt
-# keine Caddy-Route auf :8888 (nur /whep → :8889), und der Port wird weder
-# per EXPOSE noch von `build_run_args` veroeffentlicht. `hlsAlwaysRemux: yes`
-# laesst den Muxer zusaetzlich auch ohne Zuschauer durchlaufen.
-#
-# Die Cloud hat HLS abgeschaltet (`hls: no` in `infra/prod/mediamtx.yml`, mit
-# Begruendung). **Dieser Grund traegt hier NICHT**, und der Unterschied ist
-# leicht zu uebersehen: die Cloud faehrt den Pulse-eigenen MediaMTX-FORK und
-# setzt dort `PULSE_KEYFRAME_INTERVAL=0`, was den fest verdrahteten 2-s-Takt
-# abschaltet — erst dadurch fehlen dem HLS-Muxer die Vollbilder. Diese
-# Umgebungsvariable kennt nur der Fork (`infra/mediamtx-fork/patches/
-# 0002-forward-viewer-keyframe-requests.patch`). Der Self-Host-Container laedt
-# dagegen das UNGEPATCHTE Upstream-Binary von GitHub (Dockerfile, MEDIAMTX_
-# VERSION) — der 2-s-Takt bleibt hier also an, und die Absturzursache der Cloud
-# kann gar nicht eintreten.
-#
-# Was hier stattdessen zutrifft, ist UNGEMESSEN. Naheliegend waere das andere
-# in der Wurzel-`CLAUDE.md` beschriebene Problem (sichtbares Pumpen im
-# 2-s-Takt, weil der Takt dauernd Vollbilder anfordert), aber das ist auf
-# einem Self-Host niemand nachgefahren.
-#
-# Bewusst NICHT geaendert: HLS abzuschalten waere eine Verhaltensaenderung am
-# ausgelieferten Container und braucht einen eigenen Durchgang mit eigener
-# Messung. Wer hier vorbeikommt, entscheidet es — mit Zahlen, nicht mit dieser
-# Notiz.
-hls: yes
-hlsAddress: :8888
-hlsAlwaysRemux: yes
+# HLS AUS (Cloud-Parität, 2026-09-28): Kein Pulse-Client spielt HLS, und
+# PULSE_KEYFRAME_INTERVAL=0 (wie in der Cloud) entzieht dem HLS-Muxer die
+# Vollbilder — `hlsAlwaysRemux: yes` würde sonst den Stream zum Einsturz
+# bringen (s. infra/prod/mediamtx.yml für die lange Begründung).
+PULSE_KEYFRAME_INTERVAL=0
+hls: no
 
 authMethod: http
 authHTTPAddress: http://127.0.0.1:8005
