@@ -28,7 +28,8 @@ Zwei Sender stehen zur Wahl, und der Unterschied ist der Witz an der Sache:
 
 ## Wie die Messakten in `profiles/` zu lesen sind
 
-Es sind inzwischen **88 Stück**, und sie sind **append-only**: eine Akte wird
+Es sind inzwischen **119 Stück** (Stand 2026-09-28), und sie sind
+**append-only**: eine Akte wird
 nicht überschrieben, wenn sich herausstellt, dass ihr Schluss falsch war. Das
 ist Absicht — der Irrweg gehört zum Beleg —, aber es heißt auch: **eine Akte
 allein ist nicht der Stand der Dinge.** Ein Datum später kann alles umdrehen.

@@ -91,7 +91,7 @@ abgelehnten Paket, `decode.rs:446`) ist unabhängig davon aktiv.
 
 | Option | Vorgabe |
 |---|---|
-| `jitter_ms` | 20 |
+| `jitter_ms` | 100 |
 | `deband` | 0.6 |
 | `dither` | true |
 | `zoom` / `pan_x` / `pan_y` | 1.0 / 0.5 / 0.5 |
@@ -273,8 +273,11 @@ ist.
    **Hinfällig 2026-08-21** — die Betriebsart ist entfallen. Der
    MediaMTX-Fork-Patch für die PLI-Weiterleitung war davon unabhängig und ist
    gebaut, aber nicht committet.
-5. **Entscheidung RTMPS → WHIP** steht beim Nutzer aus (RTMPS ist strukturell
-   ruckelig, im TCP nicht behebbar).
+5. ~~**Entscheidung RTMPS → WHIP** steht beim Nutzer aus (RTMPS ist strukturell
+   ruckelig, im TCP nicht behebbar).~~ **Erledigt und umgesetzt** — die
+   Oberfläche fordert fest `whip` (`settings.svelte.ts`, Rückgabe ohne jeden
+   Zweig); RTMPS ist serverseitig vorhanden, aber nicht mehr die Wahl der
+   Oberfläche.
 6. **H.264 ist live ~15 ms langsamer als AV1** (41,0 gegen 25,8 ms bei
    1440p60) — unerklärt.
 7. **Echte A/V-Synchronisierung** fehlt (heute Puffer-Näherung).

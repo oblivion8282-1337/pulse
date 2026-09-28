@@ -434,9 +434,10 @@ gegen die Produktion statt gegen ein lokales MediaMTX.
       endete mit 422. — Ueberholt: WHIP ist seit dem 2026-08-18 der einzige
       Push-Weg der Oberflaeche. Der Intra-Refresh-Teil des Punktes ist mit dem
       2026-08-21 ohnehin gegenstandslos.
-- [ ] **Die Player-Oberflaeche ist Branch-only.** `web/src/lib/player/**` gibt es
-      auf `main` nicht — in der ausgelieferten App fehlen die Knoepfe schlicht.
-      (Das Intra-Refresh-Kaestchen stand hier ebenfalls; es ist am 2026-08-21
+- [x] **ERLEDIGT: die Player-Oberflaeche liegt auf `main`.** `web/src/lib/player/**`
+      gibt es dort seit dem 2026-07-26 (`cc6f254d`, nativer HQ-Player) — in der
+      ausgelieferten App fehlen die Knoepfe nicht mehr. (Das Intra-Refresh-Kaestchen
+      stand hier ebenfalls; es ist am 2026-08-21
       samt `ErweiterteOptionen.svelte` geloescht worden.) Und `PULSE_DEV_URL` wird in verpackten
       Builds bewusst ignoriert (Sicherheitsentscheidung), es gibt also keine
       Abkuerzung ueber den Dev-Stack.

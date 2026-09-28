@@ -32,6 +32,9 @@ landen auf `bughunt-2026-09-20`; `main` bleibt auf `origin/main`.
 * **Nicht gefixt / Entscheidungen:** s.
   `docs/2026-09-20-bughunt-offene-entscheidungen.md` (u. a. MinIO-Pin
   410 mit akutem Handlungsdruck).
+  *Korrektur 2026-09-28: der MinIO-Pin ist gegenstandslos — MinIO ist
+  komplett entfernt und durch Garage ersetzt (Garage-Stage ab
+  `infra/self-host/Dockerfile:311`). Kein Handlungsdruck mehr.*
 
 Neue Entscheidungsbedarfe wandern nach
 `docs/2026-09-20-bughunt-offene-entscheidungen.md`.
@@ -108,6 +111,8 @@ Anmerkung:
 * **Offene Entscheidungen:** s.
   `docs/2026-09-20-bughunt-offene-entscheidungen.md` (MinIO-Pin 410
   bleibt der akuteste Punkt).
+  *Korrektur 2026-09-28: MinIO ist seither komplett entfernt (Garage,
+  `infra/self-host/Dockerfile:311`) — kein akuter Punkt mehr.*
 
 ## Bekannt (Erweiterung: Runden 3–12 — NICHT wieder melden)
 
@@ -176,6 +181,8 @@ Kondensiert auf Fix-Klassen (Details je Commit im Log):
 ~107 Fixes, 66+ Commits auf `bughunt-09-20`. Offene Design-/Aufräum-
 Punkte: `docs/2026-09-20-bughunt-offene-entscheidungen.md` (MinIO-Pin
 410 = akut).
+*Korrektur 2026-09-28: MinIO ist seither komplett entfernt (Garage) —
+gegenstandslos.*
 
 ## Bekannt (Erweiterung: Runden 13–22)
 
@@ -227,6 +234,10 @@ Kondensiert je Fix (Details im Commit-Log):
 | 40 | CI-Workflows & Doku-Drift (Actions vs. Wirklichkeit) | offen |
 | 41 | Gerätekopplung & Backup-Restore-Roundtrip | offen |
 | 42 | Regression-Jagd über Runden 33–41 + Abschluss | offen |
+
+*(Diese Tabelle ist veraltet — maßgeblich ist die zweite Teil-4-Tabelle
+weiter unten („Runden 33–42 (Fortsetzung, gleicher Tag)“), in der alle
+Runden 33–42 als erledigt stehen. Korrektur 2026-09-28.)*
 
 ## Bekannt (Erweiterung: Runden 23–32)
 

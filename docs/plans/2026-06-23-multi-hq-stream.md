@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`services/media-svc/src/dcc_media_svc/streamkeys.py:9-29`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Plan: Mehrere HQ-Streams pro User gleichzeitig (z.B. zwei Monitore separat)
 
 **Status:** Idee / vertagt — „machen wir vielleicht irgendwann mal" (2026-06-23).
@@ -15,6 +17,8 @@ Kann ein einzelner User zwei (allgemein N) HQ-Screen-Streams gleichzeitig fahren
 z.B. zwei Monitore separat streamen, jeder als eigenes wählbares Viewer-Tile?
 
 ## Befund: heute **nein**
+
+> (2026-09-28: Dieser Befund ist überholt — das Slot-System ist gebaut. `services/media-svc/src/dcc_media_svc/streamkeys.py:9-29` definiert den Pfad `channel-<cid>-<uid>[-s<slot>]-<nonce>`; ein User kann mehrere HQ-Streams gleichzeitig fahren.)
 
 Die ganze HQ-Stream-Identität ist auf `(channel_id, user_id)` verdrahtet, **nicht**
 auf eine Stream-/Slot-Dimension. Vier Kollisionspunkte für einen zweiten Stream

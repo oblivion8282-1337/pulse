@@ -1,6 +1,16 @@
 # Backup-Crypto-Entscheidungen (Block 2.B)
 
+> **VERALTET (Stand 2026-09-28):** Dieses Dokument beschreibt das Account-Key-/Cloud-Backup-Modell
+> (`key-backup.svelte.ts` mit `encryptKeypair`/`decryptKeypair`/`BackupDecryptError`, JWK-Export,
+> JSON-Blob v=2, PBKDF2-v1-Kompatibilität) — dieses Modell wurde ersatzlos entfernt, die Datei
+> existiert nicht mehr. Sicherungs-Krypto ist heute `web/src/lib/sicherung/krypto.ts`:
+> PUSI-Binärformat (Fassung 1), Argon2id mit `ARGON_PARALLELITAET = 1`, KEK/DEK-Trennung;
+> `keypair.svelte.ts` erzeugt Keys ohne `forBackup`-Pfad und immer non-extractable. Die folgenden
+> Abschnitte stehen als historische Entscheidungs-Trail — nicht als Ist-Beschreibung.
+
 ## Update 2026-05-26: KDF-Switch auf Argon2id (Blob v=2)
+
+*(2026-09-28 veraltet: betraf den entfernten `key-backup.svelte.ts`-Blob; heute Binärformat „PUSI", siehe Kopfnotiz.)*
 
 **Dependency:** `hash-wasm ^4.12.0` (~50 KB gzipped, WASM-basiert).
 
@@ -42,6 +52,8 @@ Entschieden für Argon2id via hash-wasm. Siehe Update oben.
 
 ## Aktueller Stand: extractable: false im Standard-Keypair
 
+*(2026-09-28: Der erste Absatz trifft weiterhin zu — `keypairStore.generate()` ruft `generateKeypair()` ohne `forBackup` auf und die Keys sind non-extractable. Alles Weitere hier (Backup-Flow über `key-backup.svelte.ts`, JWK-Export) ist überholt, siehe Kopfnotiz.)*
+
 `keypairStore.generate()` (keypair.svelte.ts Z. 188) ruft `generateKeypair()` ohne
 `forBackup: true`. Das Keypair im normalen Flow ist damit `extractable: false`.
 
@@ -62,6 +74,8 @@ muss den JWK selbst vor dem Aufruf exportieren.
 ---
 
 ## Manueller Browser-Test (kein Vitest/Node-Test möglich ohne WASM-Polyfill)
+
+*(2026-09-28 veraltet: importiert `key-backup.svelte.ts`, das nicht mehr existiert — siehe Kopfnotiz.)*
 
 Im Browser-DevTools-Konsole auf einer laufenden Pulse-Instanz:
 

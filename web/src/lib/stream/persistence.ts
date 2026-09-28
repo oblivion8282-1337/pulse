@@ -5,8 +5,8 @@
  * (im Main-Prozess: ein hand-rolled JSON-Store, `<userData>/pulse-stream.json`,
  * auf Linux chmod 700 fürs Dir / chmod 600 fürs File — siehe
  * `desktop/electron/store.ts`; das war früher die Tauri-`plugin-store`- +
- * `harden_config_dir()`-Logik). Im reinen Browser (Dev-Route `/app/dev/stream`,
- * oder die SvelteKit-App ohne Electron-Shell) fällt der Code auf `localStorage`
+ * `harden_config_dir()`-Logik). Im reinen Browser (SvelteKit-App ohne
+ * Electron-Shell) fällt der Code auf `localStorage`
  * zurück (gleiche Keys, gleiche JSON-Form).
  *
  * Schreibverhalten: alle Mutations im Settings-Modul laufen über eine debouncede

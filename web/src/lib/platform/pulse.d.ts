@@ -216,13 +216,6 @@ export interface PulsePowerApi {
   keepAwake(on: boolean): Promise<boolean>;
 }
 
-/** Native clipboard image access (paste). The sandboxed remote renderer can't
- *  read a pasted image's bytes itself (size 0), so this returns the current
- *  clipboard image as PNG bytes via the main process. Null when the clipboard
- *  holds no image. Optional — only present under a current Electron shell. */
-export interface PulseClipboardApi {
-}
-
 /** Native dropped-file byte access (drag & drop). Resolves a genuinely dropped
  *  `File` to its OS path (via webUtils, in the preload) and reads the bytes in
  *  main — recovering the content the sandboxed renderer sees as 0 bytes.
@@ -435,7 +428,6 @@ export interface PulseApi {
   updates?: PulseUpdatesApi;
   power?: PulsePowerApi;
   shortcuts?: PulseShortcutsApi;
-  clipboard?: PulseClipboardApi;
   files?: PulseFilesApi;
   /** Netzdiagnose eines Self-Host-Servers (nur Electron). */
   netdiag?: PulseNetdiagApi;

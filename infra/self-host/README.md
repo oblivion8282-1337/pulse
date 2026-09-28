@@ -2,7 +2,7 @@
 
 `registry.howispulse.com/pulse-allinone:stable` — one container that bundles every
 Pulse-Backend-Service, an embedded Postgres + Redis, LiveKit (voice SFU),
-MediaMTX (HQ-stream relay), MinIO (S3 object store for message attachments),
+MediaMTX (HQ-stream relay), Garage (S3 object store for message attachments),
 coturn (TURN/STUN), and Caddy (reverse proxy + auto-TLS), supervised by
 [s6-overlay](https://github.com/just-containers/s6-overlay) v3 as PID 1.
 
@@ -74,6 +74,7 @@ docker run -d --name pulse \
     -p 443:443 -p 80:80 \
     -p 7882-7892:7882-7892/udp \
     -p 3478:3478 -p 3478:3478/udp \
+    -p 49160-49200:49160-49200/udp \
     -p 1936:1936 -p 8189:8189/udp \
     -e PULSE_HOSTNAME=chat.example.com \
     -e PULSE_INSTANCE_ID=... \
@@ -84,6 +85,12 @@ docker run -d --name pulse \
     registry.howispulse.com/pulse-allinone:stable
 ```
 
+Der `49160-49200/udp`-Range sind die TURN-Relay-Ports — er MUSS mit
+`min-port`/`max-port` in `04-init-coturn.sh` übereinstimmen (Defaults
+`PULSE_TURN_MIN_PORT=49160`/`PULSE_TURN_MAX_PORT=49200`). Fehlt das Publish,
+sind Relay-Allokationen von außen tot (Bughunt 2026-09-20, Runde 2; dieselbe
+Zeile steht in `docker-compose.yml`).
+
 Updates richtest du auf dem manuellen Pfad (Compose wie `docker run`) selbst
 ein — siehe [Auto-update](#auto-update).
 
@@ -92,7 +99,8 @@ The six `-e` vars are mandatory; cont-init aborts with a clear error otherwise.
 secret come from the Cloud approval — the ready-made `.env` under "Meine
 Instanzen" on howispulse.com carries all but the secret.
 All internal secrets (Postgres password, JWT keys, coturn shared-secret,
-LiveKit API key pair, MinIO root credentials) are **generated on first boot**
+LiveKit API key pair, Garage S3 credentials — still named `minio.*`
+internally) are **generated on first boot**
 in `/data/jwt_keys/` and persisted across container restarts.
 
 ## What's inside
@@ -103,7 +111,8 @@ in `/data/jwt_keys/` and persisted across container restarts.
 | Caddy | v2.8.4 | github.com/caddyserver/caddy | SHA-256 pinned per artifact |
 | LiveKit | v1.13.3 | github.com/livekit/livekit | SHA-256 pinned per artifact |
 | MediaMTX | 1.19.1-pulse7 (Pulse-Fork) | ghcr.io/oblivion8282-1337/pulse-mediamtx | Registry-Digest |
-| MinIO | RELEASE.2025-09-07T16-13-09Z | dl.min.io | SHA-256 pinned (upstream .sha256sum) |
+| Garage | v1.1.0 | dxflrs/garage (Docker Hub) | pinned image tag — the binary is copied into our image (`garage-upstream` stage) |
+| frp (frpc) | 0.69.1 | github.com/fatedier/frp | SHA-256 pinned per artifact |
 | Postgres | 15 (Debian Bookworm) | apt | — (Debian-signed package) |
 | Redis | 7 (Debian Bookworm) | apt | — (Debian-signed package) |
 | coturn | (Debian Bookworm) | apt | — (Debian-signed package) |
@@ -204,17 +213,21 @@ s6-overlay v3 (s6-rc.d):
 cont-init  (oneshot — runs cont-init-main.sh, blocks until all secrets/configs ready)
   ├── postgres            (waits for cont-init)
   ├── redis               (waits for cont-init)
+  ├── garage              (waits for cont-init; embedded S3 store, statt MinIO — dl.min.io ist 410)
+  ├── garage-init         (oneshot — waits for garage; Layout, Bucket pulse-attachments, Key-Import)
   ├── auth                (waits for postgres + redis)
-  ├── chat-gateway        (waits for postgres + redis)
+  ├── chat-gateway        (waits for postgres + redis + garage-init)
   ├── voice-signaling     (waits for redis)
   ├── media-svc           (waits for redis)
   ├── mediamtx-auth-hook  (waits for redis)
   ├── livekit             (waits for voice-signaling)
   ├── mediamtx            (waits for media-svc + mediamtx-auth-hook)
-  ├── garage              (waits for cont-init; embedded S3 store, statt MinIO — dl.min.io ist 410)
-  ├── garage-init         (oneshot — waits for garage; Layout, Bucket pulse-attachments, Key-Import)
   ├── coturn              (waits for cont-init; sleeps forever if PULSE_TURN_DISABLED=true)
-  └── caddy               (waits for chat-gateway/voice-signaling/media-svc/auth)
+  ├── backup              (waits for cont-init + postgres; periodische pg_dumps nach /data/backups,
+  │                        schläft bei PULSE_BACKUP_DISABLED=true)
+  ├── direct-adapter      (waits for cont-init; Direktpfad, schläft ohne PULSE_RELAY_TUNNEL_TOKEN)
+  ├── frpc                (waits for cont-init + caddy; Relay-Tunnel, schläft ohne gerenderte frpc.toml)
+  └── caddy               (waits for cont-init + chat-gateway/voice-signaling/media-svc)
 ```
 
 Each longrun unit has a `./finish` script that gates restarts: 5 or more
@@ -227,6 +240,8 @@ performs a clean restart, breaking any data-corruption-induced loop).
 infra/self-host/
 ├── Dockerfile                      # multi-stage build
 ├── README.md                       # (this file)
+├── garage-init.sh                  # → /usr/local/bin/garage-init; das garage-init-oneshot-exec'd es
+│                                   #   (Layout, Bucket, Key-Import per garage CLI)
 ├── scripts/
 │   └── refresh-checksums.sh        # SHA-256-pin maintenance for the bundled binaries
 ├── s6/                             # → / inside the image
@@ -246,6 +261,9 @@ infra/self-host/
 │       │   ├── garage/             # embedded S3 object store (message attachments)
 │       │   ├── garage-init/        # oneshot — Layout, Bucket, Key (statt MinIO)
 │       │   ├── coturn/             # turn server
+│       │   ├── backup/             # periodische pg_dumps nach /data/backups
+│       │   ├── direct-adapter/     # Direktpfad der Server-App (schläft ohne Relay-Token)
+│       │   ├── frpc/               # Steuerungs-Relay-Tunnel (schläft ohne frpc.toml)
 │       │   └── caddy/              # reverse proxy (Caddyfile aus etc/caddy/Caddyfile.template)
 │       ├── etc/caddy/
 │       │   └── Caddyfile.template  # auto-TLS, security headers, /api/* + WHEP + /pulse-attachments/* routing
@@ -260,11 +278,12 @@ infra/self-host/
 │           ├── 07-render-env.sh
 │           ├── 08-init-mediamtx.sh
 │           ├── 09-init-caddy.sh    # Caddyfile aus Template; auto + provided TLS-Modus
+│           ├── 11-render-frpc.sh   # frpc-Tunnel-Config (nur wenn PULSE_RELAY_* gesetzt)
 │           ├── 06-run-migrations.sh # LAST (Postgres muss erst hoch sein)
-│           ├── init-garage.sh        # garage-init oneshot: Layout, Bucket, Key-Import (garage CLI)
 │           └── restart-gate.sh
 └── usr/local/bin/
-    └── pulse-health                # Container HEALTHCHECK (bash /dev/tcp Probes)
+    ├── pulse-health                # Container HEALTHCHECK (bash /dev/tcp Probes)
+    └── pulse-doctor                # Innen/Außen-Diagnose (siehe Sektion „Diagnose")
 ```
 
 ## Volumes

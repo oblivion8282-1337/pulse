@@ -1,10 +1,11 @@
-Pulse client component — PolyForm Perimeter 1.0.0
+Pulse client component — Pulse Client License 1.0
 
-Everything in this directory is licensed under the PolyForm Perimeter
-License 1.0.0. Full text: ../LICENSE-CLIENT.md
+Everything in this directory is licensed under the Pulse Client License 1.0.
+Full text: ../LICENSE-CLIENT.md
 
-You may use, modify and redistribute it freely, including commercially. The
-only prohibited use is providing a product that competes with Pulse.
+You may use it freely, including commercially, and you may read and audit its
+source. You may NOT modify it, create derivative works from it, redistribute it,
+republish it, or reuse its code in another project.
 
 Using Pulse as an end user — connecting to howispulse.com or to any Pulse
 server — is unrestricted and free of charge.

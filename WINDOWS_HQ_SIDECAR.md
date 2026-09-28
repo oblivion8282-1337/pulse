@@ -50,9 +50,11 @@ Nicht weiter verfolgt in dieser Recherche.
 ### Stack (verifiziert per Recherche 2026-05-19, alles MIT/LGPL)
 
 > **Lizenz-Update 2026-07-25:** Pulse ist seit diesem Datum nicht mehr AGPL,
-> sondern source-available (Client unter PolyForm Perimeter, Server unter
-> PolyForm Free Trial — siehe `LICENSE`/`LICENSE-CLIENT.md`/`LICENSE-SERVER.md`
-> im Repo-Root). Die MIT/LGPL-Einordnung der unten gelisteten Drittanbieter-
+> sondern source-available (zunächst Client unter PolyForm Perimeter, Server unter
+> PolyForm Free Trial). **(2026-09-28 aktualisiert:** seit 2026-07-29 gelten
+> eigene, restriktivere Texte — Pulse Client License 1.0 / Pulse Server License 1.0,
+> siehe `LICENSE`/`LICENSE-CLIENT.md`/`LICENSE-SERVER.md` im Repo-Root; PolyForm nur
+> noch als Historie.**)** Die MIT/LGPL-Einordnung der unten gelisteten Drittanbieter-
 > Komponenten bleibt davon unberührt; Details + Nachweispflichten jetzt in
 > `THIRD-PARTY-NOTICES.md` + `web/src/lib/legal/drittanbieter.md`.
 
@@ -60,7 +62,7 @@ Nicht weiter verfolgt in dieser Recherche.
 - **Per-App-Audio:** `wasapi` 0.23 (HEnquist, MIT, v0.23 Apr 2026, 83★) — hat `AudioClient::new_application_loopback_client(pid, include_tree)` direkt im API plus `record_application.rs`-Beispiel (113 LOC) und `processes.rs`-Beispiel (20 LOC) für anti-cheat-sichere App-Enum via `IAudioSessionManager2`. **Korrigiert die alte „~500 Z. selber schreiben"-Annahme** — 80% geschenkt. Risiko: niedriger Bus-Faktor (83★, eventuell selber patchen+upstreamen müssen = ~1-2 PT Puffer).
 - **Encode:** `ffmpeg-next` 8.1 (WTFPL Wrapper, 1.9k★, maintenance-only aber stabil) + BtbN `ffmpeg-n8.x-latest-win64-lgpl-shared` DLLs (~50 MB). Encoder per Name (`h264_nvenc`/`h264_amf`/`h264_qsv` + AV1-Varianten). RustDesk-`hwcodec` ist Existenzbeweis dass der Weg trägt. Alternative `rsmpeg` (MIT, 870★, FFmpeg 8) wenn Zero-Copy-GPU-Pipelines wichtiger werden — beide gleichwertig produktionsreif.
 - **Mux+Push:** FFmpeg FLV-Mux + RTMPS frei Haus (`format::output("rtmps://…")` → FFmpeg macht TLS via SChannel selbst). Zum Zeitpunkt dieser Recherche unklar, ob Opus in FLV ohne Patch läuft — **inzwischen belegt: kein Patch nötig.** Der gebaute `win-hq-sidecar` muxt Opus direkt über den stock-BtbN-FFmpeg-Build (`profiles.rs:38-39`, `stream_controller.rs:408`) — kein Fallback auf AAC. `streaming/patches/` patcht ausschließlich `gpu-screen-recorder`-Quellcode (Linux/Flatpak), nicht FFmpeg — die ursprüngliche Annahme, der Patch müsse auf den FFmpeg-Build übertragen werden, hat sich als unnötig erwiesen (moderne FFmpeg-Versionen unterstützen Opus-in-FLV nativ).
-- **Protokoll:** `serde_json` + Tokio, port von `streaming/gsr-sidecar/control.py` 1:1. Selbe Ops (`health`/`gpu_info`/`list_application_audio`/`build_argv`/`start`/`stop`/`state`; `list_profiles` 2026-07-19 entfallen, siehe `streaming/README.md`) + Events (`state`/`fps`/`log`/`error`/`stopped`). `desktop/electron/sidecar.ts` braucht nur Plattform-Branch (PYTHON_BIN + scriptPath → BINARY_PATH).
+- **Protokoll:** `serde_json` + Tokio, port von `streaming/gsr-sidecar/control.py` 1:1 *(2026-09-28 veraltet: der Python-GSR-Sidecar wurde 2026-08-27 ersatzlos ausgebaut; heutige Referenz fürs stdio-Protokoll ist `streaming/linux-hq-sidecar/`)*. Selbe Ops (`health`/`gpu_info`/`list_application_audio`/`build_argv`/`start`/`stop`/`state`; `list_profiles` 2026-07-19 entfallen, siehe `streaming/README.md`) + Events (`state`/`fps`/`log`/`error`/`stopped`). `desktop/electron/sidecar.ts` braucht nur Plattform-Branch (PYTHON_BIN + scriptPath → BINARY_PATH).
 
 ### Cargo.toml-Skelett
 
@@ -103,7 +105,7 @@ Bus-Faktor verbessert sich deutlich: 4 von 6 Komponenten auf gewartete Upstream-
 ### Die zwei realen Risiko-Ecken
 
 1. **D3D11-Texture → NVENC ohne CPU-Roundtrip.** `ffmpeg-next` exposed `AV_PIX_FMT_D3D11` aber HW-Frames-Context-Verkabelung erfordert `unsafe`-Sprünge in `ffmpeg-sys-next`. RustDesk-`hwcodec` als Vorbild. Fallback: System-RAM-NV12 (-20-30% Encode-Perf, läuft aber).
-2. **Opus-in-FLV.** ~~Pulse's FLV-Whitelist-Patch (`streaming/patches/`) muss auf BtbN-Build mit~~ — hat sich in der Umsetzung als nicht nötig erwiesen. `streaming/patches/` patcht `gpu-screen-recorder` (Linux-only), nicht FFmpeg; der gebaute Windows-Sidecar muxt Opus direkt über den unveränderten BtbN-FFmpeg-Build.
+2. **Opus-in-FLV.** ~~Pulse's FLV-Whitelist-Patch (`streaming/patches/`) muss auf BtbN-Build mit~~ — hat sich in der Umsetzung als nicht nötig erwiesen. `streaming/patches/` patchte `gpu-screen-recorder` (Linux-only), nicht FFmpeg; der gebaute Windows-Sidecar muxt Opus direkt über den unveränderten BtbN-FFmpeg-Build. *(2026-09-28: `streaming/patches/` wurde mit dem GSR-Ausbau am 2026-08-27 ersatzlos entfernt.)*
 
 ### Weitere Edge-Cases die garantiert wehtun werden
 
@@ -120,9 +122,9 @@ Bus-Faktor verbessert sich deutlich: 4 von 6 Komponenten auf gewartete Upstream-
 
 CLAUDE.md's `❌ electron-builder` ist **Linux-Kontext-spezifisch** (Flatpak-Manifest bündelt Electron-Binary direkt → Builder redundant). Auf Windows existiert kein Pulse-Packaging → `electron-builder` oder `electron-forge` sind dort die naheliegenden Tools: NSIS/MSI, Squirrel.Windows-Auto-Updates, Code-Signing-Workflow. Würde sich nicht mit `.github/workflows/flatpak.yml` beißen (eigener Workflow). Code-Signing-Cert ab Beta sinnvoll (~150€/Jahr Sectigo).
 
-**Distribution-Pfad für ersten Wurf** (vor electron-builder-Integration): Zip + PowerShell-Bootstrap analog `streaming/bootstrap-gsr.fish`, entpackt nach `%LOCALAPPDATA%\Pulse\hq-sidecar\`. Minimaler Aufwand, gleiche mentale Map wie Linux.
+**Distribution-Pfad für ersten Wurf** (vor electron-builder-Integration): Zip + PowerShell-Bootstrap analog `streaming/bootstrap-gsr.fish` *(2026-09-28 veraltet: dieses Skript wurde am 2026-08-27 mit dem GSR-Ausbau entfernt)*, entpackt nach `%LOCALAPPDATA%\Pulse\hq-sidecar\`. Minimaler Aufwand, gleiche mentale Map wie Linux.
 
-**Lizenz-Modell:** Stand 2026-07-25 ist Pulse source-available (`LICENSE`/`LICENSE-CLIENT.md`/`LICENSE-SERVER.md`, PolyForm Perimeter/Free Trial) — die zum Zeitpunkt dieser Recherche noch gültige „Pulse bleibt closed (kein LICENSE-File)"-Annahme ist damit überholt. FFmpeg-DLLs werden weiterhin **getrennt** ausgeliefert (= LGPL-konform: User kann sie austauschen). Die geplante Drittanbieter-Lizenzseite existiert jetzt unter `/drittanbieter` (Quelle `web/src/lib/legal/drittanbieter.md`, Entwickler-Gegenstück `THIRD-PARTY-NOTICES.md` im Repo-Root) — sie verlinkt auf die unveränderte, öffentliche FFmpeg-Quelle statt einen eigenen Source-Mirror zu hosten. Binary-Größe: ~50 MB DLL-Overhead — relativ zu Electron (150 MB) egal.
+**Lizenz-Modell:** Pulse ist source-available — `LICENSE`/`LICENSE-CLIENT.md`/`LICENSE-SERVER.md` (seit 2026-07-29 Pulse Client License 1.0 / Pulse Server License 1.0; dazwischen 2026-07-25 bis 2026-07-29 PolyForm Perimeter/Free Trial) — die zum Zeitpunkt dieser Recherche noch gültige „Pulse bleibt closed (kein LICENSE-File)"-Annahme ist damit überholt. FFmpeg-DLLs werden weiterhin **getrennt** ausgeliefert (= LGPL-konform: User kann sie austauschen). Die geplante Drittanbieter-Lizenzseite existiert jetzt unter `/drittanbieter` (Quelle `web/src/lib/legal/drittanbieter.md`, Entwickler-Gegenstück `THIRD-PARTY-NOTICES.md` im Repo-Root) — sie verlinkt auf die unveränderte, öffentliche FFmpeg-Quelle statt einen eigenen Source-Mirror zu hosten. Binary-Größe: ~50 MB DLL-Overhead — relativ zu Electron (150 MB) egal.
 
 ## Linux-Build-vs-Test-Realität
 
@@ -140,7 +142,7 @@ Realistisch: echter End-to-End-Test braucht Windows-Hardware oder VM mit GPU-Pas
 Wenn an einem Windows-Rechner gesessen wird:
 
 1. `streaming/win-hq-sidecar/` anlegen, Cargo-Projekt mit obigem Skelett
-2. `streaming/gsr-sidecar/control.py` als 1:1-Spezifikation öffnen — das ist die Ziel-API
+2. ~~`streaming/gsr-sidecar/control.py` als 1:1-Spezifikation öffnen — das ist die Ziel-API~~ *(2026-09-28 veraltet: entfernt am 2026-08-27; heutige Referenz ist `streaming/linux-hq-sidecar/`)*
 3. `desktop/electron/sidecar.ts` lesen — das sind die Bridge-Erwartungen (Request-/Response-Format, Timeouts)
 4. Reihenfolge: stdio-Protokoll-Skelett (Tag 1, plattform-unabhängig) → `health`/`list_application_audio` mit `wasapi` (Tag 2) → `windows-capture`-Frames in NVENC pipen (Tag 3-5, Risiko-Ecke) → FLV+RTMPS gegen MediaMTX (Tag 6) → Edge-Cases (Tag 7-10) → Glue+Testing (Tag 11-12)
 

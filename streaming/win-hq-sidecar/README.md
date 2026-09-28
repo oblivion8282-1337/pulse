@@ -1,11 +1,11 @@
 # Windows-HQ-Sidecar
 
-Rust-Bin (Cargo, Edition 2024) — der Windows-Gegenpart zum Linux-GSR-Sidecar
-(`streaming/gsr-sidecar/`). Spricht **dasselbe stdio-JSON-RPC-Protokoll** (gleiche
-Ops/Events, gleiche Response-Shapes — auch wo's unter Windows keinen GSR gibt:
-`health.gsr.source="builtin"` statt Binary-Pfad). Protokoll-Details: `streaming/README.md`.
+Rust-Bin (Cargo, Edition 2024) — der Windows-Gegenpart zum Linux-HQ-Sidecar
+(`streaming/linux-hq-sidecar/`). Spricht **dasselbe stdio-JSON-RPC-Protokoll** (gleiche
+Ops/Events, gleiche Response-Shapes — auch wo's unter Windows kein Aufnahme-Binary gibt:
+`health.sidecar.source="builtin"` statt Binary-Pfad). Protokoll-Details: `streaming/README.md`.
 
-Electron spawnt ihn lazy beim ersten `gsr:call`; Path-Resolver in
+Electron spawnt ihn lazy beim ersten `sidecar:call`; Path-Resolver in
 `desktop/electron/sidecar.ts`: `$PULSE_HQ_SIDECAR` → Walk-up auf
 `target/release|debug/pulse-win-hq-sidecar.exe` → `%LOCALAPPDATA%\Pulse\hq-sidecar\pulse-win-hq-sidecar.exe`.
 Kein Python — die Rust-Bin ist standalone (FFmpeg-DLLs neben der exe).
@@ -47,7 +47,8 @@ vorbehalten, und dort ist der Rückkanal ohnehin nicht vorgesehen.
   v. a. die Wiedergabe der anderen Voice-Teilnehmer — nicht als Echo in den Stream
   läuft. `pid` = Electron-Main-PID via `PULSE_SELF_PID` (gesetzt in
   `desktop/electron/sidecar.ts`); fehlt sie, Fallback auf den simplen
-  Render-Loopback. Linux-Äquivalent: `-a app-inverse:Pulse` (`gsr-sidecar/profiles.py`).
+  Render-Loopback. Linux-Äquivalent: Desktop-Mix mit Exclude „Pulse"
+  (`linux-hq-sidecar/src/capture/audio.rs`, gefiltert in `audio_router.rs`).
 - **Encode/Mux:** `ffmpeg-next` 8.1, gelinkt gegen ein **unverändertes** LGPL-shared-
   Fertigpaket unter `ffmpeg-dist/n8.1-lgpl-shared/` (Pfad via `.cargo/config.toml`
   `FFMPEG_DIR`; `build.rs` kopiert die DLLs neben die exe) — s. „Das FFmpeg" unten.
@@ -56,7 +57,7 @@ vorbehalten, und dort ist der Rückkanal ohnehin nicht vorgesehen.
 ## Drei Encode-Pfade
 
 Dispatch über `VideoCodec::encode_path` (`encode/codec.rs` — die EINE Stelle für die
-Regel), ausgewertet in `src/stream_controller.rs::run_pipeline`: **`nvidia` und `amd` →
+Regel), ausgewertet in `src/stream_controller/mod.rs::run_pipeline`: **`nvidia` und `amd` →
 `pipeline_hw`** (D3D11-Zero-Copy, alle Codecs — NVENC bzw. AMF), sonst (Intel) →
 `run_cpu_pipeline`. `PULSE_HQ_DISABLE_ZERO_COPY=1` zwingt jeden Vendor auf den CPU-Pfad
 (für AMD = `h264_amf` mit Software-NV12), `PULSE_HQ_AMD_D3D12=1` holt für AMD-H.264/HEVC
@@ -83,7 +84,7 @@ die Lehre, am echten Encoder zu fragen, ist geblieben.)*
 
 ### HDR (seit 2026-08-06)
 
-`overrides.hdr` schaltet ihn ein, `health.gsr.hdr` meldet, ob diese Maschine ihn
+`overrides.hdr` schaltet ihn ein, `health.sidecar.hdr` meldet, ob diese Maschine ihn
 überhaupt liefern kann. Belegt ist er heute für **AV1 über AMF** (AMD,
 2026-08-06) und **AV1 über NVENC** (NVIDIA, 2026-08-11) — Tabelle je Encoder in
 `encode/hdr.rs`, Messungen in `docs/2026-08-06-hdr-windows-amd.md` und
@@ -133,7 +134,7 @@ mit falschen Zahlen an; der 10-bit-SDR-Weg hat sich bis dahin als PQ ausgegeben)
 `docs/2026-08-06-hdr-windows-amd.md`.
 
 ### D3D11 Zero-Copy (NVENC / AMF)
-`src/pipeline_hw.rs` + `src/capture/wgc_hw.rs` + `src/encode/encoder_hw.rs` + `src/encode/hwctx.rs`.
+`src/pipeline_hw/` + `src/capture/wgc_hw.rs` + `src/encode/encoder_hw.rs` + `src/encode/hwctx.rs`.
 
 WGC liefert `ID3D11Texture2D`-Frames; im Capture-Callback `CopySubresourceRegion`
 GPU-intern in einen D3D11VA-Pool (`av_hwframe_get_buffer`), NVENC liest

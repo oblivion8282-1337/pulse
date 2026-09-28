@@ -125,9 +125,12 @@ geladen werden sollen) kommt in Schritt 6.
   zur Build-Zeit eingelesen (`web/src/lib/plugins/loader.ts`). Ein
   `plugins.json`/`sync-plugins.mjs` ist NIE gebaut worden (Ponytail-
   Audit 2026-09-21: Plan-Reste aus Schritt 4).
-* **Server-Side Plugin-Activate-Status** (Schritt 6) wird in einer
-  `plugin_settings`-Tabelle persistiert; Schritt 4 hat *alle* gefundenen
-  Plugins automatisch aktiv.
+* **Server-Side Plugin-Activate-Status** wird nicht in einer eigenen
+  `plugin_settings`-Tabelle persistiert (die existiert nicht), sondern über
+  das Aktivierungsmodell: Instanz-Allowlist (`chat.instance_plugin_allowlist`,
+  Migration 0020) + Pro-Guild-Toggle (`chat.guild_plugins`); der Loader lädt
+  nur Allowlist-Plugins, der WS-Op-Gate (`plugins/ws_op_gate.py`) prüft den
+  Guild-Toggle — siehe „Aktivierungsmodell" unten.
 
 ### Versionierung
 

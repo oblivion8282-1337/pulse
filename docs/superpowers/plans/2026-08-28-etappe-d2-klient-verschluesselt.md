@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`web/src/lib/krypto/dmSendeSperre.ts` + `web/src/lib/krypto/senden.ts`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Etappe D2 — Der Klient verschlüsselt und liest — Umsetzungsplan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

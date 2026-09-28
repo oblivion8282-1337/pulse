@@ -6,8 +6,8 @@ Checked-in hooks. Enable them once per clone:
 git config core.hooksPath .githooks
 ```
 
-(This repo already has it set. If `git config --get core.hooksPath` ever points
-somewhere stale, re-run the line above.)
+(Verify with `git config --get core.hooksPath` — on some clones this still
+points at `.git/hooks`. If it doesn't say `.githooks`, re-run the line above.)
 
 ## Hooks
 
@@ -22,3 +22,9 @@ somewhere stale, re-run the line above.)
   a republish failure warns but doesn't abort the push. Skip for one push:
   `git push --no-verify`. Needs the signing key at `packaging/.gpg/` and `fish`;
   without either it skips with a warning.
+
+  **Superseded by CI:** `.github/workflows/flatpak.yml` now builds, signs and
+  rsyncs the Flatpak in the cloud (running both would race on the same rsync
+  path). Without `PULSE_FORCE_LOCAL_PUBLISH=1`, the hook only prints a hint
+  and exits — the publish run described above happens only with that env var
+  set.

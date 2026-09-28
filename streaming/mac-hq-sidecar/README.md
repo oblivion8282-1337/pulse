@@ -2,7 +2,7 @@
 
 Rust sidecar that drives **ScreenCaptureKit** (capture) + **VideoToolbox** (encode,
 via FFmpeg) + **RTMPS** push to MediaMTX, speaking the exact same
-newline-delimited stdio JSON-RPC protocol as the Linux (`streaming/gsr-sidecar/`)
+newline-delimited stdio JSON-RPC protocol as the Linux (`streaming/linux-hq-sidecar/`)
 and Windows (`streaming/win-hq-sidecar/`) sidecars. Because the protocol is
 identical, `desktop/electron/sidecar.ts` only needs a platform branch on which
 binary to spawn (already added — `resolveMacBinaryPath()`).
@@ -127,6 +127,9 @@ none.
 | `remote_input`           | real   | remote control: feed input frames                |
 | `remote_input_end`       | real   | remote control: close the session                |
 | `ablage`                 | real   | geteilte Zwischenablage (`crate::ablage`, Umsetzung in `pulse_ablage::plattform::macos`) |
+| `clip_save`              | real   | save the last seconds of the outgoing stream (`crate::clip` ring, no re-encode) |
+| `direct_offer`           | real   | direct path: answer the player's offer           |
+| `direct_stop`            | real   | direct path: back to the idle state              |
 
 **Platform difference vs Windows:** the mac sidecar does **not** exit after a
 successful `stop`. The Windows sidecar self-exits (a driver threadpool-timer AV)

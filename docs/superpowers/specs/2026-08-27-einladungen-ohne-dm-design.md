@@ -3,6 +3,14 @@
 Stand 2026-08-27. Etappe 1 des Vorhabens „Ende-zu-Ende-verschlüsselte
 Direktnachrichten" (Gesamtschnitt siehe unten, §9).
 
+**Stand 2026-09-28: umgesetzt.** Migrationen
+`0063_einladungen_ohne_dm` (2026-08-27) und — die hier geplante
+Folge-Migration — `0092_drop_community_invites` (2026-09-23) sind
+gelanded. Die Ist-Beschreibungen unten (§1 „wird heute als Nachricht
+im DM-Verlauf zugestellt", §2 `_send_invite_dm`, Zeile 120 ff.)
+beschreiben den Zustand davor: `_send_invite_dm` und
+`_find_prior_invite_dm` existieren nicht mehr.
+
 ## 1. Ziel
 
 Eine Community-Einladung wird heute als **Nachricht im DM-Verlauf** zugestellt.
@@ -136,6 +144,10 @@ und ändert am heutigen Vertrauensmodell nichts.
 
 - `api/community-invites.ts` und `api/communityInvites.ts` werden zu **einer**
   Datei zusammengeführt; der doppelte Export `communityInvitesApi` verschwindet.
+
+  *Korrektur 2026-09-28: offen, nicht passiert.* Beide Dateien liegen
+  weiter nebeneinander und exportieren beide `communityInvitesApi`
+  (`community-invites.ts:49`, `communityInvites.ts:45`).
 - `CommunityInviteCards.svelte` zeigt zusätzlich den Ziel-Host an und löst bei
   Self-Host-Zielen den bestehenden Beitrittsweg aus.
 - `InviteFriendPicker.svelte` und `InviteToServerSubmenu.svelte` rufen denselben

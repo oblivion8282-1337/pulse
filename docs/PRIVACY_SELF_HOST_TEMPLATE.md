@@ -60,14 +60,12 @@ Diese Instanz kommuniziert mit `howispulse.com` für folgende Zwecke:
 
 1. **JWKS-Fetch** (JSON Web Key Set): Öffentliche Schlüssel zur Verifikation von
    Session-Tokens. Kein User-Content wird dabei übertragen.
-2. **CRL-Fetch** (Certificate Revocation List): Liste widerrufener Zertifikate.
+2. **Version-Policy-Abfrage**: Versions-Kompatibilitätsdokument für Update-Banner.
    Kein User-Content wird dabei übertragen.
-3. **Version-Policy-Abfrage**: Versions-Kompatibilitätsdokument für Update-Banner.
-   Kein User-Content wird dabei übertragen.
-4. **Health-Probe nach Updates**: Cloud prüft Verfügbarkeit dieser Instanz nach
+3. **Health-Probe nach Updates**: Cloud prüft Verfügbarkeit dieser Instanz nach
    automatischen Updates. Kein User-Content wird dabei übertragen.
-5. **Instanz-Authentifizierung**: Bei jedem der vier oben genannten Calls (und
-   beim Cert-Login-Flow für Nutzer) sendet diese Instanz ihre öffentliche
+4. **Instanz-Authentifizierung**: Bei jedem der drei oben genannten Calls (und
+   beim Ticket-Login für Nutzer) sendet diese Instanz ihre öffentliche
    `PULSE_CLOUD_CLIENT_ID` mit — Pulse Cloud erkennt sie als "die Instanz X,
    die wir beim Approval-Prozess registriert haben". Es ist ein
    Identifikator-Token, kein Geheimnis und kein User-Content; aber die bloße

@@ -106,6 +106,23 @@ Streaming-Komponente (MediaMTX, auf den Servern des Hosters) verwendet. Die
 Streams werden zur Auslieferung an Zuschauer übertragen und **nicht dauerhaft
 gespeichert**. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.
 
+### Diagnose-Protokolle der Desktop-App
+
+Zur Fehlerdiagnose der Bildschirmübertragung kann die Desktop-App nach dem Ende
+oder bei einem Fehler einer Übertragungssitzung automatisch einen Auszug des
+Protokolls der Streaming-Komponente sowie einige Systeminformationen (z. B.
+Rechnername, GPU- und Codec-Fähigkeiten) an unseren Server howispulse.com
+übermitteln. Der Protokollauszug ist vor der Übermittlung von Zugangsdaten
+befreit; Stream-Tokens werden nicht übermittelt. Die Übermittlung dient allein
+der technischen Fehleranalyse und erfolgt auf Grundlage von Art. 6 Abs. 1 lit.
+f DSGVO (berechtigtes Interesse an einem stabilen Streaming-Betrieb). Empfangen
+werden die Daten ausschließlich von uns; eine Weitergabe an Dritte findet nicht
+statt.
+
+Seit dem 6. August 2026 ist diese Übermittlung standardmäßig aktiviert. Du
+kannst sie jederzeit in den Einstellungen der Desktop-App über den Schalter
+„**Diagnoseberichte senden**“ (Reiter „Experimental“) abschalten.
+
 ## 10. Profilbilder/Avatare
 
 Hochgeladene Profilbilder werden in einem selbst betriebenen Objektspeicher
@@ -224,7 +241,7 @@ Wir behalten uns vor, diese Datenschutzerklärung anzupassen, damit sie stets de
 aktuellen rechtlichen Anforderungen entspricht oder um Änderungen des Dienstes
 umzusetzen. Es gilt die jeweils aktuelle, hier veröffentlichte Fassung.
 
-Stand: 28. August 2026
+Stand: 28. September 2026
 
 ---
 

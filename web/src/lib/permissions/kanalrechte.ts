@@ -94,12 +94,13 @@ export function kanalrechte(): Kanalrecht[] {
       name: m.channel_overrides_perm_use_video(),
       satz: m.kanalrechte_satz_use_video()
     },
-    // Fernsteuerung gehört hierher, obwohl das Recht nicht in
-    // DEFAULT_EVERYONE_PERMISSIONS steht: der Gateway löst es KANALSKOPIERT auf
-    // (`resolve_permissions(..., cid_int)` in `ws_remote_handlers.py`), und der
-    // Anfrage-Knopf tut dasselbe. Ohne diesen Eintrag ließe sich ausgerechnet
-    // das empfindlichste Bit in keinem einzelnen Kanal erlauben oder entziehen
-    // — nur serverweit über die Rolle.
+    // Fernsteuerung gehört hierher, weil der Gateway das Recht KANALSKOPIERT
+    // auflöst (`resolve_permissions(..., cid_int)` in `ws_remote_handlers.py`),
+    // und der Anfrage-Knopf tut dasselbe. Ohne diesen Eintrag ließe sich
+    // ausgerechnet das empfindlichste Bit in keinem einzelnen Kanal erlauben
+    // oder entziehen — nur serverweit über die Rolle. (Das Bit ist seit
+    // 2026-09-09 auch in DEFAULT_EVERYONE_PERMISSIONS — Eigentümer-Entscheid;
+    // bestehende Communitys behalten dort ihren alten Stand.)
     {
       perm: Perm.REMOTE_CONTROL,
       name: m.channel_overrides_perm_remote_control(),

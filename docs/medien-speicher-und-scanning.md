@@ -29,16 +29,18 @@
 
 Kern: `services/chat-gateway/src/dcc_chat_gateway/s3.py` + `config.py`. (Verifiziert 2026-07-16.)
 
-- Der Speicher-Code spricht **Standard-S3** und redet mit **MinIO** (`pulse_minio`-Container auf netcup)
-  nur, weil MinIO ebenfalls S3 spricht. **Kein MinIO-spezifischer Code.**
+- Der Speicher-Code spricht **Standard-S3** und redet mit **Garage** (S3-kompatibler Objektspeicher;
+  dev `docker-compose.yml` / prod `pulse_garage` — Garage hat MinIO ersetzt) nur, weil Garage ebenfalls
+  S3 spricht. **Kein anbieterspezifischer Code.**
 - **Browser-Direkt-Upload über presigned URLs:** chat-gateway signiert einen Einmal-Link
-  (`presigned_put_url`), der Browser lädt die Datei **direkt** zu MinIO hoch. Die Bytes laufen
+  (`presigned_put_url`), der Browser lädt die Datei **direkt** zu Garage hoch. Die Bytes laufen
   **nicht** durch den FastAPI-Dienst. Beim Anzeigen dasselbe umgekehrt (`presigned_get_url`).
-- **Jeder Link ist frisch signiert und kurzlebig:** `s3_presigned_ttl_seconds`, **Default 600 s**.
+- **Jeder Link ist frisch signiert und kurzlebig:** `s3_presigned_ttl_seconds`, **Default 1800 s**
+  (Bughunt Runde 36: 10 min reichten bei 25-MB-Uploads auf schwachem Uplink nicht).
   Derselbe Anhang bekommt bei jedem Abruf eine **andere URL mit anderer Signatur**.
   → Für Teil B entscheidend, siehe §3d.
-- Prod-Auslieferung: Browser erreicht MinIO über nginx `/s3/*` → MinIO (Signatur enthält den Host,
-  darum signiert der Code mit dem **public** Endpoint = `s3_public_endpoint`).
+- Prod-Auslieferung: Browser erreicht Garage über nginx `/pulse-attachments/*` → garage:9000 (Signatur
+  enthält den Host, darum signiert der Code mit dem **public** Endpoint = `s3_public_endpoint`).
 - Betroffene Inhalte: **Nachrichten-Attachments** + **Dropbox-Dateien** + Guild-Sound-Overrides.
   (Guild-**Icons** liegen separat lokal via `guild_icon_upload_dir`, winzige Admin-Bilder — bleiben.)
 
@@ -71,7 +73,7 @@ je auf dem netcup-Server. Das ist genau das gewünschte Ergebnis.
 | `S3_REGION` | `us-east-1` | Region des Anbieters |
 | `S3_BUCKET` | `pulse-attachments` | Bucket-Name beim Anbieter |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | `minioadmin` | Anbieter-Credentials |
-| `S3_PRESIGNED_TTL_SECONDS` | `600` | bleibt |
+| `S3_PRESIGNED_TTL_SECONDS` | `1800` | bleibt |
 
 ### Stolpersteine (wichtig!)
 1. **`S3_PUBLIC_ENDPOINT` muss exakt der Host sein, den der Browser aufruft** — die S3-Signatur bettet

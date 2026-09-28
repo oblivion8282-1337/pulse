@@ -1,7 +1,11 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`services/auth/src/dcc_auth/routes_app_host_compat.py:1-4`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Plan: Ein Antragssystem für Self-Hosting (VPS + App-Host zusammenlegen)
 
 **Status:** Entschieden 2026-07-13 (User), noch nicht gebaut. · **Kontext-Gespräch:** Design-Review des
 kompletten Hosting-Klick-Flows + Monetarisierungs-Absicht.
+
+> (2026-09-28: „noch nicht gebaut" ist überholt — das Antragssystem ist vereint und gebaut: `services/auth/src/dcc_auth/routes_app_host_compat.py:1-4` („Das Antragssystem ist vereint (Migration 0044)").)
 
 ## Warum
 

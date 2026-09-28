@@ -1,4 +1,4 @@
-# Pulse — production stack (Hetzner VPS, lives in ~/pulse/ on the server).
+# Pulse — production stack (netcup VPS since 2026-05-28, lives in ~/pulse/ on the server).
 #
 #   docker compose -f ~/pulse/infra/prod/docker-compose.yml pull
 #   docker compose -f ~/pulse/infra/prod/docker-compose.yml up -d

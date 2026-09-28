@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`streaming/mac-hq-sidecar/src/capture/mod.rs:182-184`, zwei SCStreams). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # macOS: Bild und Ton entkoppeln (zwei SCStreams)
 
 > **Für agentische Bearbeiter:** ERFORDERLICHE UNTER-SKILL: `superpowers:subagent-driven-development` (empfohlen) oder `superpowers:executing-plans`. Schritte tragen Checkbox-Syntax (`- [ ]`).

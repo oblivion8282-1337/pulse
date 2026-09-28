@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`web/src/lib/krypto/empfangen.ts` + `empfangsbindung.ts`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Etappe C2 — Der Klient liest aus seinem eigenen Speicher — Umsetzungsplan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

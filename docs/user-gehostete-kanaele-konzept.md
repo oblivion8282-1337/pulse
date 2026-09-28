@@ -357,11 +357,12 @@ Verschlüsselung mit lesbaren Daten steht). Was das heißt:
   (K2 Sync-Ordner, später K5/K6), der Schreiber als Gerüst gegen den
   bestehenden Community-Kanal-Fluss (`GET /channels/{id}/messages` als Quelle
   statt später das Postfach) und der lokale Lese-Pfad. Alles in
-  `web/src/lib/ablage/`, alles hinter `ABLAGE_KANAL_ENABLED` (aus).
-- **Kein Produktzustand:** die Klartext-Phase wird nie ausgeliefert. Sobald
-  echte Kanäle als Klartext-Log im privaten Cloud-Konto des Owners lägen,
-  greift der Scan-/Haftungswall aus der Analyse (Wand 3). Der Schalter bleibt
-  zu, bis der Krypto-Nachzug gelandet ist.
+  `web/src/lib/ablage/`, anfangs alles hinter `ABLAGE_KANAL_ENABLED` (damals aus).
+- **Kein Produktzustand — Bedingung eingelöst:** die Klartext-Phase wurde nie
+  ausgeliefert. Sobald echte Kanäle als Klartext-Log im privaten Cloud-Konto
+  des Owners lägen, greift der Scan-/Haftungswall aus der Analyse (Wand 3).
+  Der Krypto-Nachzug ist gelandet; der Schalter steht seit dem 2026-09-01 auf
+  `true` (`web/src/lib/featureFlags.ts`) — Ablage-Kanäle sind freigeschaltet.
 - **Beim Krypto-Nachzug kein reiner Payload-Tausch:** die Zustellquelle des
   Schreibers wechselt (Postfach statt `messages`), das Manifest wird
   verschlüsselt, Schlüsselrotation und Zugangsdaten-im-Kanal kommen dazu.

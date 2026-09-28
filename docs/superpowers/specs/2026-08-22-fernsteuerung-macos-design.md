@@ -1,7 +1,9 @@
 # Fernsteuerung auf macOS — Entwurf
 
 Datum: 2026-08-22
-Zustand: abgestimmt, noch nicht umgesetzt
+Zustand: abgestimmt; **Stand 2026-09-28: umgesetzt** — die Host-Hälfte
+liegt in `streaming/mac-hq-sidecar/src/remote_input/` (u. a.
+`abbildung.rs`, `injektion.rs`, `injektion_spur.rs`, `klickzaehler.rs`).
 Verbindlich daneben: `docs/plans/2026-08-12-input-wire-protokoll-v2.md` (Frame-Format,
 Sicherheitszusagen). Dieses Dokument ergänzt es um die macOS-Seite und um die
 gemeinsame Kiste; es ersetzt nichts daraus.
@@ -33,6 +35,13 @@ Es fehlt also die **Host-Hälfte im mac-Sidecar** und zwei harte
 Plattformabfragen im Renderer (`web/src/lib/remote/darfStandplatzSein.ts` prüft
 `window.pulse.os === 'win32'`, `web/src/lib/remote/session.svelte.ts:346` prüft
 `isWindows()`).
+
+*Korrektur 2026-09-28:* beides ist gebaut — die Host-Hälfte im
+mac-Sidecar (`streaming/mac-hq-sidecar/src/remote_input/`) und das
+Health-Feld heißt nach der gsr→sidecar-Umbenennung
+`sidecar.remote_input` (`win-hq-sidecar/src/ops/health.rs`,
+`web/src/lib/stream/state.svelte.ts:235`), nicht mehr
+`health.gsr.remote_input`.
 
 Die Wire-Spezifikation hat den Fall vorgesehen: „Mac später: gleiche Frames, nur
 der Injektor ist plattformabhängig (`CGEventPost` statt `SendInput`). Scancode

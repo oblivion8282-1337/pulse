@@ -7,11 +7,12 @@ startet nur noch Vite und Electron.
 
 Seit 2026-08-25 liegt der Stack physisch auf dem Hetzner-Volume
 `/mnt/HC_Volume_106700849/` (30 GB): Compose-Projekt in
-`/mnt/HC_Volume_106700849/pulse-test`, Postgres-/MinIO-Daten als Bind-Mounts
-in `/mnt/HC_Volume_106700849/pulse-test-data/` (die Named Volumes `pgdata` /
-`miniodata` gibt es nicht mehr — bei einem `docker volume rm`-Deko sind die
-Daten damit sicherer). `~/pulse-test` ist ein Symlink dorthin, alle Skripte
-und `PULSE_DEV_DIR`-Defaults funktionieren unverändert.
+`/mnt/HC_Volume_106700849/pulse-test`. Die Daten liegen in Named Volumes —
+`pulsetest_pgdata` (Postgres) und `pulsetest_garagedata` (Garage, siehe
+§2b); nur das alte `miniodata` ist weg und bleibt als verwaistes Volume mit
+Test-Daten auf dem Host zurück (wird nicht migriert). `~/pulse-test` ist ein
+Symlink dorthin, alle Skripte und `PULSE_DEV_DIR`-Defaults funktionieren
+unverändert.
 
 | Teil | Wo | Warum |
 |---|---|---|
@@ -64,8 +65,9 @@ an der falschen Stelle:
 
 Die Images `pulsetest-*:local` sind seit dem Umbau nur noch
 Abhängigkeits-Träger: sie liefern `/app/.venv`, der Quellcode kommt von außen.
-`uv.lock` ist zuletzt am 2026-07-01 gewandert, die vorhandenen Images vom
-2026-08-16 sind also aktuell.
+`uv.lock` ist zuletzt am 2026-09-18 gewandert (Commit `23e2dff1`) — die
+vorhandenen Images vom 2026-08-16 sind damit **veraltet** und müssen nach dem
+Checkout-Update (unten) einmal neu gebaut werden.
 
 Wenn doch einmal nötig: `~/pulse-test/repo` ist ein **alter Git-Checkout**, den
 `dev-sync.sh` bewusst nicht anfasst (der Sync überträgt nur Quellcode, keine
@@ -80,11 +82,16 @@ cd ~/pulse-test/repo && git fetch && git checkout main && git pull
 
 ```sh
 cd ~/pulse-test
-for s in auth:dcc_auth chat-gateway:dcc_chat_gateway voice-signaling:dcc_voice_signaling \
-         media-svc:dcc_media_svc mediamtx-auth-hook:dcc_mediamtx_auth_hook; do
+# Format tag:svc-dir:import-pkg. Die TAGS müssen exakt dem Compose entsprechen
+# (pulsetest-auth/chat/voice/media/hook:local, siehe image:-Zeilen im
+# docker-compose.yml) — nicht den svc-Verzeichnisnamen. Nur auth decken beide ab.
+for s in auth:auth:dcc_auth chat:chat-gateway:dcc_chat_gateway \
+         voice:voice-signaling:dcc_voice_signaling media:media-svc:dcc_media_svc \
+         hook:mediamtx-auth-hook:dcc_mediamtx_auth_hook; do
+  tag=${s%%:*}; rest=${s#*:}; dir=${rest%%:*}; pkg=${rest#*:}
   docker build -f repo/Dockerfile.service repo \
-    --build-arg SVC_DIR=${s%%:*} --build-arg SVC_PKG=${s##*:} \
-    -t pulsetest-${s%%:*}:local
+    --build-arg SVC_DIR=$dir --build-arg SVC_PKG=$pkg \
+    -t pulsetest-$tag:local
 done
 ```
 
