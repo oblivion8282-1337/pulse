@@ -1328,15 +1328,16 @@ log "Pulse should now be at https://${SRV_HOST}"
 cat <<'EOF'
 
   ----------------------------------------------------------------
-  Optional — only worth it once many people watch at the same time:
-  raising the kernel's UDP buffer limits helps WebRTC (screen share
-  and voice). As root, once:
+  Recommended for streaming and voice quality: raise the kernel's UDP
+  buffer limits. Without this, the server itself can drop packets once
+  several people watch at the same time — visible as stutter even on a
+  clean connection. As root, once:
 
       printf 'net.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216\n' \
         > /etc/sysctl.d/99-pulse.conf && sysctl --system
 
   These are upper limits, not reservations — no memory is used until
-  a socket actually asks for it. Pulse runs fine without this.
+  a socket actually asks for it.
   ----------------------------------------------------------------
 EOF
 

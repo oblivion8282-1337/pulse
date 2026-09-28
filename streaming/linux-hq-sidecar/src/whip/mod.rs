@@ -247,6 +247,18 @@ fn pacer_melder(soll_ms: f64, ist_ms: f64, pakete: usize) {
     );
 }
 
+/// Der Stau-Deckel des Taktgebers hat ein Bild fallen gelassen (Leitung laenger
+/// als der Deckel im Rueckstand). Der Verwurf reisst die Bezugskette — sofort
+/// ein Vollbild anfordern, exakt die Stelle, die auch eine PLI-Anforderung
+/// bedient, sonst kauchen die folgenden Bilder bis zum naechsten Takt.
+fn stau_vollbild() {
+    tracing::warn!(
+        target: "whip",
+        "Sendestau: Bild verworfen — Vollbild angefordert"
+    );
+    crate::encode::request_keyframe();
+}
+
 /// Zustandswechsel der Verbindung ins Log bringen.
 ///
 /// Bis zum 2026-08-27 sah hier niemand hin: ein Abriss nach dem Handschlag
@@ -390,7 +402,7 @@ impl WhipSender {
             // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
             // Gegenmess-Schalter.
             pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
-                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder)
+                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder, stau_vollbild)
             }),
             track: video_track,
         };
