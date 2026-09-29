@@ -36,6 +36,7 @@ async fn main() -> Result<()> {
         .install_default()
         .map_err(|_| anyhow::anyhow!("rustls-CryptoProvider bereits installiert"))?;
 
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let cfg = config::Config::from_env()?;
     let ident = identity::load_or_create(&cfg.data_path)?;
     println!(

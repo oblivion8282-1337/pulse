@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 use tokio::net::UdpSocket;
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::{API, APIBuilder};
+use webrtc::ice::mdns::MulticastDnsMode;
 use webrtc::ice::udp_mux::{UDPMuxDefault, UDPMuxParams};
 use webrtc::ice::udp_network::UDPNetwork;
 use webrtc::ice_transport::ice_server::RTCIceServer;
@@ -67,6 +68,18 @@ impl RtcFactory {
         // Loopback-/Bridge-Adressen in die Answer drücken.
         extra_host_ips.retain(|ip| is_useful_candidate_ip(IpAddr::V4(*ip)));
         let mut se = SettingEngine::default();
+        // mDNS-Fernkandidaten AUSWERFEN (Linux-E2E 2026-09-29): Chrome bietet
+        // Host-Kandidaten als <uuid>.local an. Der Agent löst den Namen per
+        // System-Resolver auf — auf Linux-Heimserver mit Docker/Podman-Bridges
+        // liefert der BRIDGE-Adressen (z. B. 172.26.0.1), die UDPMux registriert
+        // genau diese falsche Route, und Chromes STUN-Responses (ohne USERNAME —
+        // Responses haben nie einen) werden von der Mux als nicht zuordenbar
+        // gedroppt → checking → disconnected, ohne eine Antwort. Disabled wirft
+        // entfernte .local-Kandidaten weg; die Paare laufen über srflx/host-
+        // Kandidaten mit echter Adresse, deren Checks die Mux per USERNAME
+        // zuordnen kann. Mac E2E fuhr zufällig durch (keine Bridges im
+        // mDNS-Record).
+        se.set_ice_multicast_dns_mode(MulticastDnsMode::Disabled);
         se.set_udp_network(UDPNetwork::Muxed(UDPMuxDefault::new(UDPMuxParams::new(socket))));
         se.set_ip_filter(Box::new(is_useful_candidate_ip));
         let api = APIBuilder::new().with_setting_engine(se).build();
