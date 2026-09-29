@@ -1,10 +1,10 @@
-# Heim-Server Linux-E2E — Übergabe (2026-09-29, abgebrochen auf halbem Weg)
+# Heim-Server Linux-E2E — Übergabe (2026-09-29)
 
 *Zweck: Fortsetzung des Mac-E2E (s. `2026-09-29-heim-server-mac-uebergabe.md`) auf
-Linux — die Server-App läuft hier NATIV (Host-Docker statt podman-VM). Stand:
-Kette bis zur ICE-Weiche verifiziert, zwei Fixes committed, der Direktpfad-ICE
-im Container ist als KERNBUG lokalisiert und hat eine belastbare
-Fehlerkette — Details unten, dort weitermachen.*
+Linux — die Server-App läuft hier NATIV (Host-Docker statt podman-VM). Stand
+(abends): **Direktpfad-ICE gefixt und live verifiziert**, Chat-E2E dev2/dev3
+komplett über den DataChannel grün (Fix-Commit `54c4e82b`). Offen: nur noch
+Voice — hart blockiert auf den Wildcard-DNS-Eintrag (unten, User-Aktion).*
 
 ## Was grün verifiziert ist (Reihenfolge der Kette)
 
@@ -55,57 +55,60 @@ prüfen: 401 = Route lebt, 404 = noch alter Stand.
 `env_logger::init()` (RUST_LOG wirkt jetzt; vorher verschwanden webrtc-Logs
 im Nirvana). `Cargo.toml`: env_logger-Dep. Begründungskommentar im Code.
 
-## Der offene Kernbug: Direktpfad-ICE im Container (HIER WEITERMACHEN)
+## GEFIXT (2026-09-29, `54c4e82b`): Direktpfad-ICE im Container
 
-**Symptom:** Client-Dial (Community erstellen / Ticket einlösen) →
-„Server nicht erreichbar". Browser-ICE gegen den Adapter: checking →
-disconnected.
+**Ursache (per webrtc-ice-0.17.1-Quellcode belegt):** `set_ip_filter` wirkt
+NUR aufs Gathering (`agent_gather.rs::gather_candidates_local_udp_mux`) — der
+Filter verwarf die Bridge-IP 172.17.0.2, `candidate_ips.is_empty()` →
+`ErrCandidateIpNotFound` → Abbruch VOR `udp_mux.get_conn(&ufrag)` → der Agent
+hat keine Verbindung in der Mux → „Dropping packet" für jeden Check.
 
-**Befundkette (alles belegt, Reihenfolge der Diagnose):**
-1. Telefonbuch/Heartbeat ok (Kandidat 62.46.226.39:7900, online:true), Signal-
-   weg ok (direct-offer → 200 mit Answer), container.env ok.
-2. TCPDUMP im Container-Netzns: Chromes Checks (112-Byte-STUN mit
-   USERNAME/INTEGRITY/FINGERPRINT) kommen mit ~8/s auf eth0 an. NICHTS geht
-   raus. Gleichzeitig antwortet coturn im SELBEN Container auf demselben
-   Published-Port-Weg problemlos → UDP-Pfad Host→Container ist heil
-   (DNAT + docker-proxy, checksums ok).
-3. Kontrollexperiment auf dem Host (/tmp/mux-test, gleiche webrtc-rs-Crate
-   0.17.1, minimaler Nachbau des Mux): Browser ↔ Mini-Mux → **VERBUNDEN**.
-   webrtc-rs↔webrtc-rs Loopback → VERBUNDEN. Crate-Kern und Chrome-Interop
-   sind grundsätzlich ok — ABER der erste „Mini-Mux scheitert"-Befund war ein
-   Harness-Artefakt (Prozess wurde nach der Answer gekillt).
-4. **Adapter-Trace mit RUST_LOG (der entscheidende Befund):**
-   - `remote mDNS candidate added, but mDNS is disabled` — Fix 2 greift.
-   - `ERROR agent_gather: Failed to gather local candidates using UDP mux:
-     Candidate IP could not be found` ← **DAS ist der Kern.**
-   - `pingAllCandidates called with no candidate pairs` endlos.
-   - `Dropping packet from 192.168.178.72:<port>` für JEDEN Chrome-Check.
+**Fix:** Filteraufteilung. `is_gatherable_ip` (Agent-intern: alle IPv4-
+Interfaces, kein Loopback) fürs `set_ip_filter`; `is_useful_candidate_ip`
+(bridges/CGNAT/IPv6 raus) nur noch fürs SDP — neu `sdp::strip_unusable_hosts`
+wirft die nativen Bridge-Kandidaten aus der Answer, `inject_extra_hosts` +
+`inject_srflx` laufen unverändert danach. Clients sehen wie bisher nur
+LAN-Host + srflx; der Agent behält die Bridge-IP intern. Der Schlüssel: die
+UDPMux routet Checks über den **ufrag im STUN-USERNAME**, nicht über die
+Kandidaten-IP (`udp_mux/mod.rs::conn_from_stun_message`) — die Bridge-IP ist
+intern also voll funktional.
 
-**Deutung:** Der Agent hat KEINE lokalen Kandidaten: im Container ist die
-einzige Interface-IP 172.17.0.2 — und `is_useful_candidate_ip` (rtc.rs)
-filtert 172.16-31 als Docker-Bridge weg → Gathering findet nichts und bricht
-mit „Candidate IP could not be found" ab → der Agent registriert sich nie an
-der UDPMux → alle Checks werden ungeroutet gedroppt. Die Kandidaten in der
-Answer (192.168.178.72 host + 62.46.226.39 srflx) sind reine SDP-Injektionen
-(`inject_extra_hosts`/`inject_srflx`) — es steht nichts dahinter. Warum das
-auf dem Mac (Sep 28) grün war: ungeklärt — plausibel, dass der Mac-Lauf mit
-einem älteren Registry-Image ohne das ip_filter-Setup fuhr oder die
-Direktpfad-ICE dort nie durch den Published-Port-Pfad ging (lokal getestet
-wurde der Adapter nur mit `--network host`, s. `heim-server-lauf.py`).
+**Live-Beweis (Reihenfolge der Kette, alles an EINEM Abend):**
+1. Server-App (Linux, `PULSE_BUILD_MODE=server`-Bundle) gegen Dev-Cloud →
+   Login dev2 → „Server einrichten" → Takeover-Overlay bestätigt → Container
+   `pulse-host` healthy in ~30 s. Env korrekt: `PULSE_DIRECT_EXTRA_HOST_IPS=
+   192.168.178.20` (echte LAN-IP via `hostLanIpv4s`), Relay-Triple komplett.
+2. Adapter-Startlog: öffentliche Adresse `46.128.161.204:7900` (STUN,
+   Port-Preservation), Telefonbuch online.
+3. ICE-Probe (Browser, Cloud-Origin, Telefonbuch → direct-offer → Answer):
+   **ICE CONNECTED nach 250 ms**, DataChannel offen. Answer enthält sauber
+   `host 192.168.178.20:7900` + `srflx 46.128.161.204:7900`, KEINE 172.17er.
+   Adapter-Log: `verbunden über LAN (Host-Kandidat): lokal 172.17.0.2:7900
+   [host] <-> Gegenstelle 192.168.178.20:47519 [prflx]` — genau die
+   beabsichtigte Form (Bridge intern, LAN-Pfad trägt).
+4. **Chat-E2E** (`infra/self-host/tests/heim-chat-cloud-e2e.mjs`, neu): dev2
+   Cloud-Ticket (Relay-Subdomain-Auflösung = Fix 1 in der echten Kette) →
+   Session/Community/Kanal/Invite über den DataChannel; dev3 Membership-
+   Merkhilfe → Grant-Ticket → Session → Invite-Accept → Nachricht, Owner liest
+   sie über seinen eigenen DC. **Grün.**
 
-**Nächste Schritte (Vorschlag, Reihenfolge):**
-1. Gathering im Container zum Erfolg bringen. Optionen: `is_useful_candidate_ip`
-   nur auf INJIZIERTE/gatherete SDP-Kandidaten anwenden und den Agenten intern
-   die 172.17er-IP behalten lassen (die Answer-Injektion überschreibt eh);
-   oder `set_nat_1to1_ips([public/lan-ip], Host)` statt Injektion. Ziel:
-   Agent hat ≥1 lokalen Kandidaten, Mux-Registrierung passiert, Checks werden
-   beantwortet.
-2. Verifizieren mit dem bewährten Protokoll: manual-ICE-Probe per Playwright
-   (offer → direct-offer → answer → ICE-State), `docker logs | grep webrtc_ice`
-   (RUST_LOG funktioniert jetzt), tcpdump im Netzns (`nsenter -t
-   $(docker inspect pulse-host --format '{{.State.Pid}}') -n tcpdump -i eth0…`).
-3. Danach Chat-E2E (dev2 Community + dev3 Beitritt, Chromium via
-   `scripts/cdp/launch.fish`), dann Voice-E2E.
+## Offen: Voice-E2E — hängt an EINEM DNS-Eintrag (User-Aktion)
+
+Die Signal-Strecke für Voice ist `wss://<relay-subdomain>/livekit` (Variante A
+aus `2026-09-29-voice-signal-varianten.md`, empfohlen und halb gebaut: unsere
+Instanz HAT das Relay-Triple, die Container-Caddy-Route `/livekit/*` steht).
+Es fehlt auf dem DNS der Zone `unicutmedia.com`:
+
+    *.relay.unicutmedia.com  →  77.42.71.166   (frps-Box)
+
+`dig` prüfen: `dig +short merry-meadow-adbe.relay.unicutmedia.com` (Stand
+29.09. leer; die Zone selbst lebt, nur der Relay-Wildcard fehlt). Danach zieht
+der Caddy am Relay-Eingang per on-demand TLS sein Cert (HTTP-01 erreicht ihn
+dann über den Namen), und der Zwei-Browser-Voice-Lauf kann wie im Memory
+(„VOICE LIVE BEWIESEN", Fake-Mikrofon-Muster) gegen `wss://<subdomain>/livekit`
+fahren. SSH auf 77.42.71.166 ist von dieser Maschine aus NICHT
+schlüssellos möglich (publickey denied) — Cert-/Caddy-Prüfung dort braucht
+entweder Passwort-Zugang oder läuft erst, wenn der DNS steht.
 
 ## Weitere Befunde / Fallstricke dieser Session
 
@@ -130,10 +133,17 @@ wurde der Adapter nur mit `--network host`, s. `heim-server-lauf.py`).
 - **`/invite/[code]`-Route fehlt im Web-Build weiterhin** (Baustelle 4) — der
   Beitritt läuft über das Join-Dialog-Pastefeld (`parseJoinInput`), deshalb
   nicht E2E-blockierend. Unangetastet.
-- Container auf DIESER Maschine läuft manuell erzeugt (mit `-e RUST_LOG=
-  webrtc_ice=trace,webrtc=info`) — für sauberen Zustand: `docker rm -f
-  pulse-host` und über die Server-App neu starten. Dev-Profil der Server-App:
-  `~/.config/Pulse Server`, CDP 9223; dev2/dev3-Chromiums auf 9225/9226
+- Container auf DIESER Maschine: läuft jetzt SAUBER über die Server-App
+  erzeugt (`pulse-host`, healthy, Restart-Policy unless-stopped) — nicht mehr
+  manuell. Dev-Profil der Server-App: `~/.config/Pulse Server`, CDP 9223;
+  dev2/dev3-Chromiums auf 9225/9226
   (`scripts/cdp/launch.fish <port> <suffix> https://pulse.unicutmedia.com`).
+- **Toolchain-Falle auf dieser Maschine:** Das ZCode-AppImage verbiegt
+  `argv[0]` — rustup-Proxies (`/usr/bin/cargo`, `rustup` selbst) sterben mit
+  „unknown proxy name: 'ZCode-…'". Direkt die Toolchain-Binaries nutzen:
+  `export PATH="$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin:$PATH"`.
+  (Gleiches Shadowing-Muster wie `pkill`, steht im AGENTS.md.)
+- Docker-Daemon startet hier nicht von allein: `sudo -n systemctl start docker`
+  (die `dcc_night_*`-Container kommen per Restart-Policy mit hoch).
 - Hetzner-Relay-Stack (pulsetest_frps/relay_plugin/auth) lebt und ist unangetastet;
   Prod-Rollout bleibt wie im Mac-Dok beschrieben „nur zwei Env-Vars".
