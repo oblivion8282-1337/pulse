@@ -23,17 +23,36 @@ use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
 
-/// Adressen, die als ICE-Kandidat nur Zeit kosten: Container-Bridges
-/// (Docker/Podman), CGNAT/Tailscale und **jedes IPv6** — ein IPv6-Leak aus
+/// Adressen, die in die ANSWER gehören (SDP-Filter): keine Container-Bridges
+/// (Docker/Podman), kein CGNAT/Tailscale, kein IPv6 — ein IPv6-Leak aus
 /// Docker-Bridges hat schon bei WHEP minutenlange Verbindungsaufbauten
 /// verursacht. Übrig bleibt der LAN-Host-Kandidat; die öffentliche Adresse
 /// kommt separat als srflx dazu.
+///
+/// Gilt NUR fürs, was Clients sehen — NICHT fürs Gathering des Agenten
+/// (`is_gatherable_ip`).
 fn is_useful_candidate_ip(ip: IpAddr) -> bool {
     let IpAddr::V4(v4) = ip else { return false };
     let [a, b, ..] = v4.octets();
     let docker_bridge = a == 172 && (16..=31).contains(&b);
     let cgnat_tailscale = a == 100 && (64..=127).contains(&b);
     !(docker_bridge || cgnat_tailscale || v4.is_loopback())
+}
+
+/// Filter fürs GATHERING (Agent-intern): Im Container ist die Docker-Bridge-
+/// IP die einzige Interface-Adresse. Verwirft man sie hier, gather der Agent
+/// NULL Kandidaten — webrtc-rs bricht ab („Candidate IP could not be found",
+/// Linux-E2E 2026-09-29), registriert sich nie an der UDPMux und droppt jeden
+/// eingehenden Check („Dropping packet from …"). Der Agent gather also ALLE
+/// IPv4-Interfaces; was daraus in die Answer geht, entscheiden
+/// `sdp::strip_unusable_hosts` + die Injektionen (`is_useful_candidate_ip`).
+///
+/// Die Mux routet eingehende Checks ohnehin über den ufrag im STUN-USERNAME,
+/// nicht über die Kandidaten-IP — die Bridge-IP als interner Kandidat ist
+/// also funktional, solange sie nur existiert.
+fn is_gatherable_ip(ip: IpAddr) -> bool {
+    let IpAddr::V4(v4) = ip else { return false };
+    !v4.is_loopback() && !v4.is_unspecified()
 }
 
 pub struct RtcFactory {
@@ -81,7 +100,7 @@ impl RtcFactory {
         // mDNS-Record).
         se.set_ice_multicast_dns_mode(MulticastDnsMode::Disabled);
         se.set_udp_network(UDPNetwork::Muxed(UDPMuxDefault::new(UDPMuxParams::new(socket))));
-        se.set_ip_filter(Box::new(is_useful_candidate_ip));
+        se.set_ip_filter(Box::new(is_gatherable_ip));
         let api = APIBuilder::new().with_setting_engine(se).build();
         let stun_urls = stun_servers.iter().map(|s| format!("stun:{s}")).collect();
         Self { api, certificate, stun_urls, public_ip, extra_host_ips, mux_port }
@@ -121,11 +140,15 @@ impl RtcFactory {
             .local_description()
             .await
             .context("keine local description nach Gathering")?;
-        // Reihenfolge zählt: erst die VM-Host-LAN-Kandidaten (stellen im
-        // VM-Fall überhaupt erst Host-Zeilen her), dann den srflx anhängen
-        // (der sich an Host-Zeilen verankert).
+        // Reihenfolge zählt: erst die nativ gegatherten, aber unbrauchbaren
+        // Host-Kandidaten (Container-Bridge, CGNAT) aus der Answer werfen — der
+        // Agent nutzt sie intern weiter (Mux-Registrierung), Clients sehen sie
+        // nicht (aus LAN/Internet unerreichbar). Dann die VM-Host-LAN-Kandidaten
+        // (stellen im VM-Fall überhaupt erst Host-Zeilen her), dann den srflx
+        // anhängen (der sich an Host-Zeilen verankert).
+        let usable = crate::sdp::strip_unusable_hosts(&local.sdp, is_useful_candidate_ip);
         let with_hosts =
-            crate::sdp::inject_extra_hosts(&local.sdp, &self.extra_host_ips, self.mux_port);
+            crate::sdp::inject_extra_hosts(&usable, &self.extra_host_ips, self.mux_port);
         Ok(crate::sdp::inject_srflx(&with_hosts, self.public_ip))
     }
 }
@@ -218,5 +241,23 @@ mod tests {
         for wan in ["100.64.12.7", "159.195.150.54", "8.8.8.8"] {
             assert!(!is_lan_address(wan), "{wan} sollte als Internet gelten");
         }
+    }
+
+    /// Der Linux-E2E-Kernbug (2026-09-29): im Container muss die Bridge-IP
+    /// gegathert werden dürfen, sonst hat der Agent null Kandidaten.
+    #[test]
+    fn gathering_nimmt_bridge_ip_nicht_loopback() {
+        assert!(is_gatherable_ip("172.17.0.2".parse().unwrap()));
+        assert!(is_gatherable_ip("192.168.178.72".parse().unwrap()));
+        assert!(!is_gatherable_ip("127.0.0.1".parse().unwrap()));
+        assert!(!is_gatherable_ip("::1".parse().unwrap()));
+    }
+
+    /// In die Answer gehören umgekehrt nur brauchbare Adressen.
+    #[test]
+    fn sdp_filter_verwirft_bridge_behaelt_lan() {
+        assert!(!is_useful_candidate_ip("172.17.0.2".parse().unwrap()));
+        assert!(!is_useful_candidate_ip("100.77.12.9".parse().unwrap()));
+        assert!(is_useful_candidate_ip("192.168.178.72".parse().unwrap()));
     }
 }

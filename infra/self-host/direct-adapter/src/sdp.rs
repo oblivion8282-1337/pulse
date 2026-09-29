@@ -53,12 +53,33 @@ fn host_components(sdp: &str) -> Vec<u32> {
     comps
 }
 
+/// IP aus einer Host-Kandidaten-Zeile (`a=candidate:<f> <c> udp <prio> <ip>
+/// <port> typ host`), sonst `None`.
+fn host_candidate_ip(line: &str) -> Option<IpAddr> {
+    if !line.starts_with("a=candidate:") || !line.contains(" typ host") {
+        return None;
+    }
+    line.split_whitespace().nth(4)?.parse().ok()
+}
+
+/// Entfernt nativ gegatherte Host-Kandidaten, die das `keep`-Filter verwerfen
+/// (Container-Bridges, CGNAT). Der Agent nutzt sie intern weiter (Mux-
+/// Registrierung), aber in die Answer gehören sie nicht: aus LAN/Internet
+/// unerreichbar, sie kosteten die Gegenstelle nur Checks.
+pub fn strip_unusable_hosts(sdp: &str, keep: fn(IpAddr) -> bool) -> String {
+    sdp.lines()
+        .filter(|l| match host_candidate_ip(l) {
+            Some(ip) => keep(ip),
+            None => true,
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n")
+        + "\r\n"
+}
+
 /// Host-IPs, die bereits als Kandidat in der SDP stehen (Dedup-Grundlage).
 fn existing_host_ips(sdp: &str) -> Vec<String> {
-    sdp.lines()
-        .filter(|l| l.starts_with("a=candidate:") && l.contains(" typ host"))
-        .filter_map(|l| l.split_whitespace().nth(4).map(str::to_string))
-        .collect()
+    sdp.lines().filter_map(host_candidate_ip).map(|ip| ip.to_string()).collect()
 }
 
 /// Synthetisiert Host-Kandidaten für die LAN-IPs des VM-Hosts (`extra_ips`,
@@ -240,5 +261,35 @@ mod tests {
     #[test]
     fn keine_extra_ips_ist_noop() {
         assert_eq!(inject_extra_hosts(SDP, &[], 7900), SDP);
+    }
+
+    /// Linux-Container-Fall (E2E 2026-09-29): der Agent gather die Bridge-IP
+    /// intern (Mux-Registrierung), aber sie darf nicht in die Answer.
+    #[test]
+    fn strip_entfernt_bridge_behaelt_lan() {
+        let sdp = "v=0\r\na=candidate:1 1 udp 2130706431 172.17.0.2 7900 typ host\r\na=candidate:2 1 udp 2130706430 192.168.178.87 7900 typ host\r\na=end-of-candidates\r\n";
+        let out = strip_unusable_hosts(sdp, |ip| ip.to_string() != "172.17.0.2");
+        assert!(!out.contains("172.17.0.2"), "{out}");
+        assert!(out.contains("192.168.178.87"), "{out}");
+        assert!(out.contains("end-of-candidates"), "{out}");
+    }
+
+    /// Komplettkette Container: Bridge-IP gegathert → gestrippt → Extras und
+    /// srflx verankern trotzdem (sonst wäre die Answer kandidatenlos).
+    #[test]
+    fn container_kette_bridge_raus_extras_und_srflx_rein() {
+        let bridge_only = "v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=ice-ufrag:abcd\r\na=ice-pwd:efgh1234\r\na=candidate:1 1 udp 2130706431 172.17.0.2 7900 typ host\r\na=end-of-candidates\r\n";
+        let stripped = strip_unusable_hosts(bridge_only, |ip| ip.to_string() != "172.17.0.2");
+        assert!(!stripped.contains("typ host"));
+        let lan: Ipv4Addr = "192.168.178.42".parse().unwrap();
+        let full = inject_srflx(
+            &inject_extra_hosts(&stripped, &[lan], 7900),
+            "46.128.100.64".parse().unwrap(),
+        );
+        assert!(full.contains("192.168.178.42 7900 typ host"), "{full}");
+        assert!(
+            full.contains("46.128.100.64 7900 typ srflx raddr 192.168.178.42 rport 7900"),
+            "{full}"
+        );
     }
 }
