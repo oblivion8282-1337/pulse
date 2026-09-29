@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-29.1",
+      "date": "2026-09-29",
+      "style": "Sachlich",
+      "title": "Bild und Ton wieder synchron beim Windows-Streaming",
+      "intro": "Nach dem Wochenend-Update liefen bei Streams von Windows-Rechnern Bild und Ton innerhalb kurzer Zeit immer weiter auseinander — betroffen waren alle Zuschauer, im Browser wie in der App. Die Ursache war eine zu langsam gezählte Ton-Uhr beim Sender; die zählt jetzt wieder richtig und hängt an derselben Uhr wie das Bild.",
+      "items": [
+        "Windows: Die Ton-Uhr wurde mit einem Zehntel der richtigen Geschwindigkeit gezählt — der Versatz wuchs mit jeder Streamminute. Behoben.",
+        "macOS und Linux: unverändert, dort trat der Fehler nicht auf."
+      ]
+    },
+    {
       "id": "2026-09-28.1",
       "date": "2026-09-28",
       "style": "Sachlich",
