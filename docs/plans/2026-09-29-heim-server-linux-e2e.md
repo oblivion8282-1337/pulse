@@ -119,6 +119,58 @@ intern also voll funktional.
    PARALLEL verbunden (439/421 ms), beidseitig Remote-Teilnehmer mit
    abonnierter Audiospur. Voice-Kanal ist `type: 1` (CHANNEL_TYPE_VOICE)!
 
+
+## Zweiter Testtag (2026-09-30): alles Allein-Machbare auf Linux getestet
+
+Neue Artefakte in `infra/self-host/tests/` — `heim-stream-cloud-e2e.mjs`,
+`heim-ws-cloud-e2e.mjs`, `heim-ext-ice-probe.cjs`, `heim-ext-voice-host.mjs`,
+`heim-ext-voice-gast.cjs`.
+
+1. **Streaming WHIP/WHEP über die ECHTE Cloud-Kette — GRÜN.** push_url trägt
+   `https://<relay>/whep/<path>/whip?token=…` (App-Host-Branch: MediaMTX
+   gathert srflx per STUN + LAN-Kandidaten). Publish-PC connected in 300 ms,
+   Viewer (dev3) per WHEP connected in 301 ms, **55 Frames in 4 s dekodiert**,
+   `remote_input`-Flag kommt im WHEP-Response an, MediaMTX loggt
+   `auth_publish_ok` + „is publishing“. (SDP-POSTs bewusst aus Node — WHIP/
+   WHEP-Endpoints sind Cross-Origin, Node kennt kein CORS.)
+2. **WS-Live-Chat über Relay-WS — GRÜN.** Self-Host-Gateway ist
+   `wss://<relay>/ws?token=<container-session>`; Ops-Sequenz
+   `hello,ready,message,channel_bump`, Abo-Modell (`{op:"subscribe"}`)
+   bestätigt. Pure-Node-Skript (Node 26 hat natives WebSocket).
+3. **EXTERN-ICE (Internet-Pfad) — GRÜN.** Chromium-Container auf der
+   Hetzner-Box spielt den Freund von außerhalb: ICE **CONNECTED nach 301 ms**,
+   gewähltes Paar `host 77.42.71.166 ↔ srflx 46.128.161.204:7900` — das
+   NAT-Loch trägt **ohne manuelle Portfreigabe** (Lochungs-Modus-Wette der
+   Server-App an einer echten Fritz!Box bestätigt). HARNESS-FALLE: der erste
+   Lauf lief in einem Docker-BRIDGE-Container auf der Box → deren Chrome sah
+   nur Bridge-IPs, inbound unmöglich (doppelt-NAT) → `--network host` ist
+   Pflicht. Erstlauf war also ein Harness-Artefakt, kein Produktbefund.
+4. **EXTERN-VOICE — GRÜN beidseitig.** Gast (Box) und Owner (LAN) sehen
+   einander mit abonnierter Audiospur; Signal via Relay-Tunnel, Medien-UDP
+   durchs Heim-NAT. Gast-Seite injiziert livekit-client per
+   `addScriptTag({path})` (kein Mixed-Content, kein CDN).
+5. **Backup → Restore — GRÜN.** Manueller pg_dump (custom, gzip) nach
+   `/data/backups`; im Wegwerf-Container (frisches Volume) pg_restore
+   `--clean --if-exists`: **0 Fehler, 10/10 Guilds** inkl. der heutigen
+   E2E-Communitys. Neustart-Resilienz: Container-Stop → Telefonbuch-Flag
+   `online:false` nach dem 300-s-Schwellwert
+   (`directory_online_threshold_seconds`), `docker start` → **healthy +
+   online nach ~18 s**.
+6. **Export-Payload — Kern bewiesen.** `docker run --entrypoint tar` über
+   `pulse-host-data` (exakt was exportVolume tut): 70 MB TAR mit
+   `./backups/*` + Postgres-Daten. Der UI-Knopf selbst öffnet einen NATIVEN
+   Save-Dialog (nicht automatisierbar) — manuell nachzuholen.
+7. **Autostart (Linux) — verifiziert auf Dateiebene.** Beim Pairing setzt die
+   Server-App den Default AN und schreibt
+   `~/.config/autostart/pulse-server.desktop` (XDG, Exec=Electron-Binary);
+   beim App-Boot zieht `syncLifecycleFromContainer` den laufenden Container
+   nach (heute live demonstriert).
+
+Damit ist auf Linux ALLES getestet, was ohne Windows-/Mac-Hardware und ohne
+Registry (Baustelle 2) machbar ist. Offen (unverändert): Windows-Klicktest,
+Mac-Re-Run nach dem ICE-Fix, Registry/Downloads ab main, Auto-Update-Design,
+Export-Dialog manuell, Security-Strang.
+
 ## Weitere Befunde / Fallstricke dieser Session
 
 - **Wildcard-DNS fehlt weiterhin:** `*.relay.unicutmedia.com → 77.42.71.166`
