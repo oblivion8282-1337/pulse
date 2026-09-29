@@ -72,3 +72,52 @@ während die Cloud HLS abgeschaltet hat (`hls: no`) und mit
 Behoben: Der Self-Host setzt jetzt `PULSE_KEYFRAME_INTERVAL=0` (smooth
 streaming, wie die Cloud) und `hls: no` (kein Client spielt HLS; der Muxer
 kann ohne periodische Vollbilder nicht segmentieren). Cloud-Parität.
+
+## Mac-E2E 2026-09-28/29: komplette Kette auf einem Mac belegt
+
+Setup: heim-server-Container lokal (podman machine, Branch-Image), Dev-Cloud
+(`pulse.unicutmedia.com`) per `dev-sync --pull feat/heim-server --migrate
+--web` auf Branch-Stand, dev2 (Owner, Electron) + dev3 (Mitglied, Electron-
+Zweitinstanz UND reiner Browser). Alle Commits der Befunde liegen auf dem
+Branch (812ffb35, d533b6ad, 6a7fa87e, 1f2f1a9e, c30dd9b5, 487d29fe,
+e630ea0c).
+
+**Grün belegt:**
+
+- Mac-Paket: DMG baut, App bootet; Selbstbedienungs-Provisionierung (Login →
+  Instanz angelegt → Bootstrap gemintet/eingelöst) → Container-Boot →
+  Health 200 → „Server läuft.", 8 Minuten stabil.
+- Owner-Flow im Client: Heim-Server erscheint account-basiert in der Liste,
+  Direkttunnel steht, Community + Kanäle werden auf dem heim-eigenen Backend
+  angelegt — die Cloud nur Vermittler (Ticket, Telefonbuch, Signaling).
+- Mitglied-Beitritt per Einladungslink: dev3 → Cloud-Ticket → Membership →
+  Telefonbuch → Tunnel → Redeem mit Invite-Code auf dem heim-eigenen Backend
+  → in der Community; Chat-Nachricht live beim Owner.
+- Dieselbe Strecke im **reinen Browser** (Chromium, ohne Desktop-App):
+  Login, Rail, Tunnel, Senden — Cross-Device-Sichtbarkeit Electron ↔ Browser.
+- RTMPS-Transport: TLS-Handshake auf dem publizierten 1936 mit dem
+  instanzspezifischen Self-Signed-Zertifikat.
+
+**Offene Baustellen, je mit lokalisierter Ursache:**
+
+1. **Voice (V1.1, Ports + TLS-Entscheidung):** drei gestapelte Ursachen —
+   LiveKit-Signal-Port 7880 ist nicht unter den publizierten Ports
+   (`MEDIA_PORT_ARGS`), das Backend verkündet
+   `wss://<Relay-Hostname>/livekit` (für Self-Service-Instanzen ohne Relay
+   unauflösbar), und ein `ws://`-Rückfall wäre Mixed Content auf
+   https-Seiten. Streaming-UI sitzt im Voice-Kontext und erbt die Lücke;
+   WHEP (8889) ist zusätzlich unveröffentlicht.
+2. **Registry-Parität:** Registry-Login mit Dev-Instanz-Creds scheitert an
+   `registry.howispulse.com` (exit 125 — die Prod-Registry validiert gegen
+   Prod-Auth). Lösung: eigene Registry je Cloud oder Ticket-Transfer.
+3. **Keychain-Signierung:** ad-hoc-signierte Mac-Builds bekommen bei jedem
+   neuen Binary den Safe-Storage-Schlüsselbund-Passwort-Dialog (keine
+   stabile Designated Requirement). Braucht Developer-ID-Signierung oder
+   ein anderes Cred-Ablage-Modell; betrifft auch den Mac-Client.
+4. **`/invite/[code]`-Route:** im Web-Build nicht vorhanden (404) — der
+   Client-Beitritt (Link ins Beitrittsfeld) funktioniert, der reine
+   Browser-Weg über die URL noch nicht.
+
+Testgrenzen ehrlich: keine Klang-/Latenzurteile, kein fremdes Netz (beide
+Clients teilen sich das LAN/NAT), MediaMTX im Testcontainer war
+upstream statt Fork.
