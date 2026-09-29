@@ -95,9 +95,12 @@ async function loadIdentity() {
 }
 
 // "Deine Daten": Größe + letztes Backup. Die Größenermittlung startet ggf.
-// einen Wegwerf-Container → nur einmal pro Pairing laden (dataInfoLoaded),
-// nicht bei jedem Phase-Event; Export/Reset setzen das Flag zurück.
+// einen Wegwerf-Container → nicht bei jedem Phase-Event laden; neu gemessen
+// wird bei jedem Übergang in 'live' (genau dann ändert sich die Größe, und
+// ein früh beim Container-Boot gemessener Wert wäre schlicht falsch) sowie
+// nach Export/Import (Flag-Reset durch die beiden Funktionen).
 let dataInfoLoaded = false;
+let letzteGesehenePhase = null;
 function formatBytes(n) {
   if (n == null) return null;
   if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(1) + ' GB';
@@ -109,7 +112,11 @@ async function loadDataInfo() {
   const info = await host.dataInfo().catch(() => null);
   const size = info ? formatBytes(info.sizeBytes) : null;
   $('dataSize').textContent = size ? 'Belegter Speicher: ' + size : 'Belegter Speicher: nicht ermittelbar.';
-  const last = info && info.lastBackupAt;
+  // Neuestes Backup: manueller Export ODER automatischer pg_dump des
+  // Backup-Services — wer jünger ist, gewinnt. Ohne die automatische Seite
+  // würde die Zeile fälschlich "Noch kein Backup erstellt" zeigen, obwohl
+  // täglich gesichert wird.
+  const last = Math.max(info?.lastBackupAt ?? 0, info?.lastAutoBackupAt ?? 0) || null;
   const backupEl = $('dataBackup');
   backupEl.classList.remove('warn');
   if (!last) {
@@ -183,6 +190,10 @@ async function refresh() {
   // ab hier reicht die abgeleitete `phase`, kein `st &&`-Guard mehr nötig.
   const st = await host.getStatus().catch(() => ({ phase: 'idle' }));
   const phase = st.phase || 'idle';
+  // Übergang in 'live' → Daten-Info ungültig machen (Größe/Backup-Zeit sind
+  // genau dann neu zu messen; s. Kommentar an dataInfoLoaded).
+  if (phase === 'live' && letzteGesehenePhase !== 'live') dataInfoLoaded = false;
+  letzteGesehenePhase = phase;
   setStatus(phase, st.detail);
   const running = ['preparing', 'going-live', 'live'].includes(phase);
   const superseded = phase === 'superseded';
@@ -297,7 +308,19 @@ function bind() {
     await host.start({}).catch((e) => alert('Start fehlgeschlagen: ' + e.message));
     $('btnStart').disabled = false; refresh();
   };
-  $('btnStop').onclick = async () => { await host.stop().catch(() => {}); refresh(); };
+  $('btnStop').onclick = async () => {
+    // Stoppen dauert (docker stop -t 20) — ehrlicher Zwischenstand, sonst
+    // sieht die UI bis zu 20 s "läuft" aus, und ein paralleler Start-Klick
+    // rennt gegen den laufenden Stopp.
+    $('btnStop').disabled = true;
+    $('btnStart').disabled = true;
+    $('statustext').textContent = 'Server wird gestoppt …';
+    $('dot').className = 'dot prep';
+    await host.stop().catch(() => {});
+    $('btnStop').disabled = false;
+    $('btnStart').disabled = false;
+    refresh();
+  };
   // "Abmelden": Session-Cookie löschen + zurück zum Login (Main-Prozess
   // navigiert das Fenster). Danach kann sich ein anderer Account anmelden;
   // diese server.html wird dabei verlassen, daher kein Button-Reset im Erfolg.

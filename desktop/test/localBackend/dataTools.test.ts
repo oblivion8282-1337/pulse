@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDuKb } from '../../electron/localBackend/dataTools.ts';
+import { parseDuKb, backupDateiZuMs } from '../../electron/localBackend/dataTools.ts';
 import { updateVerdict } from '../../electron/localBackend/containerBackendManager.ts';
 
 // Update-Entscheidung (Digest-Vergleich laufender Container vs. gepulltes Image)
@@ -35,4 +35,17 @@ test('parseDuKb: 0 KB → 0 Bytes', () => {
 test('parseDuKb: kaputte/leere Ausgabe → null', () => {
   assert.equal(parseDuKb(''), null);
   assert.equal(parseDuKb('du: cannot access'), null);
+});
+
+// Backup-Dateiname → Epoche (der Name ist der UTC-Zeitstempel)
+
+test('backupDateiZuMs: regulärer Backup-Name → korrekte UTC-Epoche', () => {
+  assert.equal(backupDateiZuMs('pulse-20260929T223006Z.dump'),
+    Date.UTC(2026, 8, 29, 22, 30, 6));
+});
+test('backupDateiZuMs: fremde Dateien im Verzeichnis → null', () => {
+  assert.equal(backupDateiZuMs('pulse-20260929T223006Z.dump.part'), null);
+  assert.equal(backupDateiZuMs('.bashrc'), null);
+  assert.equal(backupDateiZuMs('backup-old.dump'), null);
+  assert.equal(backupDateiZuMs(''), null);
 });

@@ -44,6 +44,38 @@ export async function volumeSizeBytes(
   return r?.code === 0 ? parseDuKb(r.stdout) : null;
 }
 
+/** Aus einer Backup-Datei `pulse-<UTC-Zeitstempel>.dump` die Epoche in ms.
+ *  Der Dateiname IST der Zeitstempel (der Backup-Service im Image schreibt
+ *  ihn so), also kein stat nötig. Fremde Namen → null. */
+export function backupDateiZuMs(name: string): number | null {
+  const m = /^pulse-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z\.dump$/.exec(name);
+  if (!m) return null;
+  const [, j, mo, tag, h, mi, s] = m;
+  return Date.UTC(+j, +mo - 1, +tag, +h, +mi, +s);
+}
+
+/** Zeitstempel (ms) des neuesten automatischen pg_dumps in /data/backups —
+ *  null, wenn keine da sind oder das Verzeichnis nicht lesbar ist. Gleiche
+ *  Zwei-Wege wie volumeSizeBytes: exec im laufenden Container, sonst
+ *  Wegwerf-Container. */
+export async function lastAutoBackupAt(
+  rt: ContainerRuntime,
+  image: string,
+  containerRunning: boolean,
+): Promise<number | null> {
+  const args = containerRunning
+    ? ['exec', CONTAINER_NAME, 'ls', '-1', '/data/backups']
+    : ['run', '--rm', '--entrypoint', 'ls', '-v', `${DATA_VOLUME}:/data:ro`, image, '-1', '/data/backups'];
+  const r = await rtExec(rt, args, { timeoutMs: 30_000 }).catch(() => null);
+  if (r?.code !== 0) return null;
+  let neueste = 0;
+  for (const zeile of r.stdout.split('\n')) {
+    const ms = backupDateiZuMs(zeile.trim());
+    if (ms && ms > neueste) neueste = ms;
+  }
+  return neueste || null;
+}
+
 /** Exportiert das Volume als tar nach targetPath. Der Aufrufer (main.ts)
  *  stoppt/startet den Container drumherum — hier nur der reine Datenstrom.
  *  Fehlschlag räumt die halb geschriebene Zieldatei weg. */

@@ -58,7 +58,7 @@ import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
 import { ContainerBackendManager, resolveImage } from './localBackend/containerBackendManager';
 import { wslReady, installWsl, inFlatpak } from './localBackend/containerRuntime';
-import { volumeSizeBytes, exportVolume, importVolume } from './localBackend/dataTools';
+import { volumeSizeBytes, exportVolume, importVolume, lastAutoBackupAt } from './localBackend/dataTools';
 import { applyAutostart } from './autostart';
 import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds,
@@ -853,12 +853,16 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:dataInfo', async () => {
     const lastBackupAt = (storeGet('pulse.host.lastBackupAt') as number | undefined) ?? null;
     let sizeBytes: number | null = null;
+    let lastAutoBackup: number | null = null;
     const rt = await manager.runtime().catch(() => null);
     if (rt && creds) {
       const running = await manager.isContainerRunning().catch(() => false);
       sizeBytes = await volumeSizeBytes(rt, resolveImage().image, running).catch(() => null);
+      // Automatische pg_dumps des Backup-Services — ohne sie würde die UI
+      // „Noch kein Backup erstellt" zeigen, obwohl täglich gesichert wird.
+      lastAutoBackup = await lastAutoBackupAt(rt, resolveImage().image, running).catch(() => null);
     }
-    return { sizeBytes, lastBackupAt };
+    return { sizeBytes, lastBackupAt, lastAutoBackupAt: lastAutoBackup };
   });
   // Export: Container stoppen (falls läuft) → Volume als tar in die vom User
   // gewählte Datei streamen → Container wieder starten (nur wenn er lief).
