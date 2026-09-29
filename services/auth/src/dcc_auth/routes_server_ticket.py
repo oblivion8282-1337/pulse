@@ -78,6 +78,19 @@ async def server_ticket(
             select(RegisteredInstance).where(RegisteredInstance.hostname == host)
         )
     ).scalars().first()
+    if inst is None:
+        # App-Host-Instanzen erreichen Clients unter ihrer Relay-Subdomain —
+        # genau diesen Namen meldet ``GET /me/instances`` für app_host und die
+        # Server-App als Teil-Adresse (Variant A, Relay-Signalweg). Unter dem
+        # Relay-Namen fragen ⇒ dieselbe Instanz. Zweiter Schritt, damit ein
+        # exakter Hostname-Treffer immer gewinnt.
+        inst = (
+            await db.execute(
+                select(RegisteredInstance).where(
+                    RegisteredInstance.relay_subdomain == host
+                )
+            )
+        ).scalars().first()
     # 404 sowohl für „gibt es nicht" als auch für „nicht aktiv": Ein Fremder soll
     # aus der Antwort nicht ablesen können, welche Instanz-Kennungen vergeben
     # sind. Dieselbe Linie wie in ``routes_selfhost_diagnose`` („wirft 404, nie 403").
