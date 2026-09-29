@@ -2,9 +2,11 @@
 
 *Zweck: Fortsetzung des Mac-E2E (s. `2026-09-29-heim-server-mac-uebergabe.md`) auf
 Linux — die Server-App läuft hier NATIV (Host-Docker statt podman-VM). Stand
-(abends): **Direktpfad-ICE gefixt und live verifiziert**, Chat-E2E dev2/dev3
-komplett über den DataChannel grün (Fix-Commit `54c4e82b`). Offen: nur noch
-Voice — hart blockiert auf den Wildcard-DNS-Eintrag (unten, User-Aktion).*
+(Nacht): **KOMPLETT GRÜN** — Direktpfad-ICE gefixt (`54c4e82b`), Chat-E2E
+dev2/dev3 über DataChannel, und (nach DNS-Freischaltung durch den User) auch
+**Voice über den Relay-Hostnamen** (`heim-voice-cloud-e2e.mjs`): LiveKit-Signal
+via Cloud-TLS → frps-Tunnel → Container, Medien UDP direkt, Audiospur
+beidseitig abonniert. Für die Linux-Plattform bleibt nur der Merge nach main.*
 
 ## Was grün verifiziert ist (Reihenfolge der Kette)
 
@@ -92,23 +94,30 @@ intern also voll funktional.
    Merkhilfe → Grant-Ticket → Session → Invite-Accept → Nachricht, Owner liest
    sie über seinen eigenen DC. **Grün.**
 
-## Offen: Voice-E2E — hängt an EINEM DNS-Eintrag (User-Aktion)
+## ERLEDIGT (2026-09-29 nachts): Voice-E2E über den Relay-Hostnamen
 
-Die Signal-Strecke für Voice ist `wss://<relay-subdomain>/livekit` (Variante A
-aus `2026-09-29-voice-signal-varianten.md`, empfohlen und halb gebaut: unsere
-Instanz HAT das Relay-Triple, die Container-Caddy-Route `/livekit/*` steht).
-Es fehlt auf dem DNS der Zone `unicutmedia.com`:
-
-    *.relay.unicutmedia.com  →  77.42.71.166   (frps-Box)
-
-`dig` prüfen: `dig +short merry-meadow-adbe.relay.unicutmedia.com` (Stand
-29.09. leer; die Zone selbst lebt, nur der Relay-Wildcard fehlt). Danach zieht
-der Caddy am Relay-Eingang per on-demand TLS sein Cert (HTTP-01 erreicht ihn
-dann über den Namen), und der Zwei-Browser-Voice-Lauf kann wie im Memory
-(„VOICE LIVE BEWIESEN", Fake-Mikrofon-Muster) gegen `wss://<subdomain>/livekit`
-fahren. SSH auf 77.42.71.166 ist von dieser Maschine aus NICHT
-schlüssellos möglich (publickey denied) — Cert-/Caddy-Prüfung dort braucht
-entweder Passwort-Zugang oder läuft erst, wenn der DNS steht.
+1. **DNS:** User hat `*.relay.unicutmedia.com → 77.42.71.166` im Hetzner-DNS
+   gesetzt (Zone liegt bei Hetzner, ns1.your-server.de/second-ns). `dig` grün.
+2. **Relay-Box (Hetzner, Hostname „Oblivion“, `michael@77.42.71.166`):** Der
+   Edge ist ein Docker-Caddy (`caddy`-Container, Config
+   `/home/michael/caddy/Caddyfile`). Der vorbereitete `*.relay`-Block scheiterte
+   am Wildcard-TLS (DNS-01 nötig, Stock-Image ohne Hetzner-Plugin → „tls
+   internal error“). Umgebaut auf **on-demand per Hostname (HTTP-01)**:
+   globaler `on_demand_tls { ask http://127.0.0.1:5566 }` + Loopback-Ask-Site
+   (statisch 200 — ponytail-Decke: erlaubt jede Domain, Upgrade-Pfad im
+   Kommentar) + `tls { on_demand }` im `*.relay`-Block (Upstream `frps:8080`
+   via Alias im geteilten Netz `pulse-selfhost-net`). Backup:
+   `Caddyfile.bak-20260929-relay-on-demand`. Erster Request zog das
+   Let's-Encrypt-Cert sofort; `curl https://merry-…relay…/api/chat/health`
+   → `{"status":"ok"}` (Kette TLS → frps vhost → Tunnel → Container-Caddy).
+3. **SSH-Zugang:** Michael hat den Public Key
+   `michael-desktop-pulse-dev` (id_ed25519 auf Michaels Rechner) in
+   `authorized_keys` eingetragen — BatchMode-SSH funktioniert jetzt.
+4. **Voice-E2E** (`infra/self-host/tests/heim-voice-cloud-e2e.mjs`): Tokens
+   kommen über den DataChannel vom Container (`ws_url` = 
+   `wss://merry-meadow-adbe.relay.unicutmedia.com/livekit`), beide Browser
+   PARALLEL verbunden (439/421 ms), beidseitig Remote-Teilnehmer mit
+   abonnierter Audiospur. Voice-Kanal ist `type: 1` (CHANNEL_TYPE_VOICE)!
 
 ## Weitere Befunde / Fallstricke dieser Session
 
