@@ -56,9 +56,10 @@ import { wireGlobalShortcuts } from './shortcuts';
 import { handleDeepLink, extractPulseUrl, takePendingInvite, isValidFqdn } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
-import { ContainerBackendManager, resolveImage } from './localBackend/containerBackendManager';
+import { ContainerBackendManager, resolveImage, HOST_HTTP_PORT } from './localBackend/containerBackendManager';
 import { wslReady, installWsl, inFlatpak } from './localBackend/containerRuntime';
 import { volumeSizeBytes, exportVolume, importVolume, lastAutoBackupAt } from './localBackend/dataTools';
+import { httpHealth } from './localBackend/health';
 import { applyAutostart } from './autostart';
 import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds,
@@ -863,6 +864,76 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       lastAutoBackup = await lastAutoBackupAt(rt, resolveImage().image, running).catch(() => null);
     }
     return { sizeBytes, lastBackupAt, lastAutoBackupAt: lastAutoBackup };
+  });
+
+  // "Verbindung prüfen" (server.html, Abschnitt Verbindungen): die lokalen
+  // Glieder — nur die App kann sie sehen — plus DIESELBE Cloud-Kette wie die
+  // Instance-Diagnose im Web. Auth als Weg 1 (Pairing-Creds, der Installer-
+  // Weg): das Fenster hält zwar einen Session-Cookie, aber Renderer-Fetches
+  // auf die Cloud rennen in CORS (server.html lebt auf file://) — der
+  // Main-Prozess authentifiziert sich stattdessen als die Instanz selbst.
+  ipcMain.handle('host:verbindungstest', async (e) => {
+    if (!localSenderOnly(e) || !creds) return { ok: false, error: 'forbidden' };
+    const lokal: {
+      schritt: string; titel: string; ok: boolean; was_ist: string; was_tun: string; einzelheit?: string;
+    }[] = [];
+    const push = (
+      schritt: string, titel: string, ok: boolean, was_ist: string, was_tun: string,
+      einzelheit?: string,
+    ): void => {
+      lokal.push({ schritt, titel, ok, was_ist, was_tun, ...(einzelheit ? { einzelheit } : {}) });
+    };
+
+    const rt = await manager.runtime().catch(() => null);
+    push(
+      'runtime', 'Container-Runtime', !!rt,
+      'Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
+      'Docker installieren und die Server-App neu starten.',
+    );
+    const laeuft = rt ? await manager.isContainerRunning().catch(() => false) : false;
+    push(
+      'container', 'Server-Container', laeuft,
+      'Der Server-Container ist gestoppt.',
+      'Knopf „Server starten" oben betätigen.',
+    );
+    let healthOk = false;
+    if (rt && laeuft) {
+      healthOk = await httpHealth(`http://127.0.0.1:${HOST_HTTP_PORT}/api/chat/health`)
+        .then(() => true).catch(() => false);
+    }
+    push(
+      'health', 'Innere Gesundheit', healthOk,
+      'Der Container antwortet am Verwaltungsport nicht.',
+      'Eine Minute warten. Bleibt der Schritt rot: Server stoppen und wieder starten.',
+    );
+    const backup = rt && laeuft
+      ? await lastAutoBackupAt(rt, resolveImage().image, true).catch(() => null)
+      : null;
+    push(
+      'backup', 'Automatisches Backup', !!backup,
+      'Es gibt noch keinen automatischen Datenbank-Snapshot.',
+      'Nichts zu tun — der Backup-Service sichert täglich selbst; nach der Erstinstallation dauert es bis zum ersten Lauf.',
+    );
+
+    let cloud: unknown = null;
+    let cloudFehler: string | null = null;
+    try {
+      const r = await fetch(
+        `${creds.cloudOrigin}/api/auth/selfhost/diagnose/${creds.instanceId}`,
+        {
+          method: 'POST',
+          headers: {
+            'x-pulse-client-id': creds.clientId,
+            'x-pulse-client-secret': creds.clientSecret,
+          },
+        },
+      );
+      if (r.ok) cloud = await r.json();
+      else cloudFehler = `HTTP ${r.status}`;
+    } catch (err) {
+      cloudFehler = (err as Error).message;
+    }
+    return { ok: true, lokal, cloud, cloudFehler };
   });
   // Export: Container stoppen (falls läuft) → Volume als tar in die vom User
   // gewählte Datei streamen → Container wieder starten (nur wenn er lief).

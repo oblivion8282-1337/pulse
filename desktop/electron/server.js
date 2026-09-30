@@ -107,6 +107,74 @@ function formatBytes(n) {
   if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(1) + ' MB';
   return Math.max(1, Math.round(n / 1024)) + ' kB';
 }
+// HTML-Ausbruch verhindern: alle Texte der Prüfung kommen zwar aus eigener
+// Cloud/eigener App, aber die Zeilen werden per innerHTML gebaut.
+function flucht(text) {
+  const d = document.createElement('div');
+  d.textContent = String(text ?? '');
+  return d.innerHTML;
+}
+
+// "Verbindungen": lokale Glieder (nur die App sieht sie) + dieselbe
+// Cloud-Kette wie die Instance-Diagnose im Web. Der ERSTE Fehlschlag bekommt
+// die volle Erklärung (was_ist + was_tun) — alles danach ist in aller Regel
+// nur Folge und wird abgedimmt.
+let verbindungLaeuft = false;
+async function doVerbindungstest() {
+  if (verbindungLaeuft || !host || !host.verbindungstest) return;
+  verbindungLaeuft = true;
+  $('btnVerbindungstest').disabled = true;
+  $('verbindungStatus').classList.remove('hidden');
+  $('verbindungStatus').textContent = 'Prüfe … (bis zu einer Minute)';
+  $('verbindungErgebnis').classList.add('hidden');
+  const r = await host.verbindungstest().catch((e2) => ({ ok: false, error: e2.message }));
+  verbindungLaeuft = false;
+  $('btnVerbindungstest').disabled = false;
+  $('verbindungStatus').classList.add('hidden');
+  const box = $('verbindungErgebnis');
+  box.classList.remove('hidden');
+  if (!r || !r.ok) {
+    box.innerHTML = '<div class="hint warn">Prüfung fehlgeschlagen: '
+      + flucht((r && r.error) || 'unbekannt') + '</div>';
+    return;
+  }
+  const alles = [
+    ...(r.lokal || []),
+    ...(((r.cloud && r.cloud.schritte) || []).map((s) => ({
+      schritt: s.schritt, titel: s.titel, ok: s.ok,
+      was_ist: s.was_ist || '', was_tun: s.was_tun || '', einzelheit: s.einzelheit,
+    }))),
+  ];
+  const erster = alles.findIndex((s) => !s.ok);
+  const zeilen = alles.map((s, i) => {
+    const klasse = s.ok ? 'vok' : (i === erster ? 'vschlimm' : 'vfolge');
+    let html = '<div class="vzeile ' + klasse + '"><span class="vhaken">'
+      + (s.ok ? '✓' : '✗') + '</span><span><b>' + flucht(s.titel || s.schritt) + '</b>';
+    if (s.einzelheit) html += ' <span class="hint">— ' + flucht(s.einzelheit) + '</span>';
+    if (!s.ok && i === erster && s.was_ist) {
+      html += '<br><span class="hint">' + flucht(s.was_ist) + '</span>';
+    }
+    if (!s.ok && i === erster && s.was_tun) {
+      html += '<span class="vtun">' + flucht(s.was_tun) + '</span>';
+    }
+    return html + '</span></div>';
+  }).join('');
+  let kopf;
+  if (erster === -1) {
+    kopf = '<div class="hint" style="color:#22c55e">Alles in Ordnung — alle Glieder grün.</div>';
+  } else {
+    kopf = '<div class="hint warn">Klemmt: ' + flucht(alles[erster].titel || alles[erster].schritt)
+      + ' — alles danach hängt daran.</div>';
+  }
+  let fuss = '';
+  if (r.cloudFehler) {
+    fuss = '<div class="hint warn">Cloud-Prüfung nicht erreichbar: ' + flucht(r.cloudFehler) + '</div>';
+  } else if (r.cloud && r.cloud.nicht_geprueft && r.cloud.nicht_geprueft.length) {
+    fuss = '<div class="hint">Nicht geprüft: ' + flucht(r.cloud.nicht_geprueft.join(', ')) + '</div>';
+  }
+  box.innerHTML = kopf + zeilen + fuss;
+}
+
 async function loadDataInfo() {
   if (!host || !host.dataInfo) return;
   const info = await host.dataInfo().catch(() => null);
@@ -217,6 +285,7 @@ async function refresh() {
   }
   $('autostartRow').classList.toggle('hidden', !paired || superseded);
   $('dataSection').classList.toggle('hidden', !paired || superseded);
+  $('verbindungenSection').classList.toggle('hidden', !paired || superseded);
   // Aufgeben nur gepairt; im superseded-Zustand übernimmt der Zweitknopf
   // "Lokale Daten löschen …" in der supersededRow denselben Flow.
   $('giveUpSection').classList.toggle('hidden', !paired || superseded);
@@ -270,6 +339,7 @@ function bind() {
   };
   $('btnTakeoverCancel').onclick = () => { $('takeoverOverlay').classList.add('hidden'); refresh(); };
   $('btnExport').onclick = () => doExport();
+  $('btnVerbindungstest').onclick = () => { void doVerbindungstest(); };
   // Import: erst das Bestätigungs-Overlay (Bestand wird ersetzt), dann Dateiwahl.
   $('btnImport').onclick = () => $('importOverlay').classList.remove('hidden');
   $('btnImportCancel').onclick = () => $('importOverlay').classList.add('hidden');

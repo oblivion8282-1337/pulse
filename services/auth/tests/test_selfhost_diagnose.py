@@ -22,7 +22,7 @@ import pytest_asyncio
 
 from dcc_auth import routes_selfhost_diagnose as diag
 from dcc_auth import selfhost_probe_dienst as dienst
-from dcc_auth.models_instances import RegisteredInstance
+from dcc_auth.models_instances import InstanceDirectEndpoint, RegisteredInstance
 from dcc_auth.security import hash_password
 from dcc_auth.selfhost_probe import Schritt, ist_oeffentlich
 
@@ -39,6 +39,7 @@ _REG_B = {
     "display_name": "Bob",
 }
 _INSTANCE_ID = 22000000000000001
+_APP_HOST_ID = 22000000000000002
 _SECRET = "s3cret-instance-secret"
 
 
@@ -534,3 +535,124 @@ async def test_http_schritte_loesen_den_namen_nicht_erneut_auf():
         assert url.startswith("https://203.0.113.7/")
         assert kopf["Host"] == "chat.firma.de"
         assert ext["sni_hostname"] == "chat.firma.de"
+
+# ---------------------------------------------------------------------------
+# app_host (Heim-Server): Telefonbuch vorneweg, VPS-Medientail weg
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def heim_instanz(session_factory, alice):
+    async with session_factory() as session:
+        session.add(
+            RegisteredInstance(
+                id=_APP_HOST_ID,
+                hostname="heim-test.relay.example.com",
+                client_id=f"ci_{secrets.token_hex(8)}",
+                client_secret=hash_password(_SECRET),
+                worker_id_chat=410,
+                worker_id_voice=411,
+                worker_id_media=412,
+                status="active",
+                registered_by=int(alice["id"]),
+                origin="app_host",
+            )
+        )
+        await session.commit()
+    return {"id": str(_APP_HOST_ID)}
+
+
+@pytest.fixture
+def heim_kette(monkeypatch):
+    """Ersetzt die Hostname-Kette und merkt, mit welchen Argumenten sie
+    gerufen wurde — kein echtes Netz im Test."""
+    aufgerufen: dict = {}
+
+    async def gefaelscht(*_a, **kwargs):
+        aufgerufen["medien"] = kwargs.get("medien")
+        return [Schritt("dns", True, "ok"), Schritt("websocket", True, "ok")]
+
+    monkeypatch.setattr(diag, "_fuehre_pruefung", gefaelscht)
+    return aufgerufen
+
+
+@pytest.fixture
+def telefonbuch_leer(session_factory, heim_instanz):
+    """Kein Heartbeat-Eintrag: die Heim-Instanz hat sich nie gemeldet."""
+    return heim_instanz
+
+
+async def test_app_host_prueft_telefonbuch_ohne_medientail(
+    client, alice, heim_instanz, heim_kette
+):
+    """Heim-Kette: telefonbuch zuerst (hier: kein Eintrag → rot), danach die
+    Hostname-Kette — aber OHNE die VPS-Medienschritte, die bei app_host nur
+    die Relay-Box anpingen würden."""
+    r = await client.post(
+        f"/selfhost/diagnose/{heim_instanz['id']}",
+        headers={"Cookie": alice["cookie"]},
+    )
+    assert r.status_code == 200, r.text
+    koerper = r.json()
+    assert koerper["schritte"][0]["schritt"] == "telefonbuch"
+    assert koerper["schritte"][0]["ok"] is False
+    assert koerper["schritte"][0]["befund"] == "kein-eintrag"
+    namen = [s["schritt"] for s in koerper["schritte"]]
+    assert "stun" not in namen and "rtmps" not in namen
+    assert heim_kette["medien"] is False
+
+
+async def test_telefonbuch_offline_bei_altem_heartbeat(
+    client, alice, heim_instanz, heim_kette, session_factory
+):
+    """Ein Eintrag, dessen letzte Meldung über der Online-Schwelle liegt,
+    meldet „offline“ — auch wenn er DA ist."""
+    from datetime import UTC, datetime, timedelta
+
+    async with session_factory() as session:
+        session.add(
+            InstanceDirectEndpoint(
+                instance_id=int(heim_instanz["id"]),
+                candidates=[{"ip": "46.128.161.204", "port": 7900, "protocol": "udp"}],
+                fingerprint="sha-256 AA:BB",
+                updated_at=datetime.now(UTC) - timedelta(hours=2),
+            )
+        )
+        await session.commit()
+
+    r = await client.post(
+        f"/selfhost/diagnose/{heim_instanz['id']}",
+        headers={"Cookie": alice["cookie"]},
+    )
+    erster = r.json()["schritte"][0]
+    assert erster["schritt"] == "telefonbuch"
+    assert erster["ok"] is False
+    assert erster["befund"] == "offline"
+
+
+async def test_telefonbuch_gruen_bei_frischem_heartbeat(
+    client, alice, heim_instanz, heim_kette, session_factory
+):
+    """Frischer Heartbeat → grün, und die einzelheit nennt die Adresse aus
+    dem Telefonbuch (der Nutzer soll sehen, WEN die Cloud erreicht hat)."""
+    from datetime import UTC, datetime
+
+    async with session_factory() as session:
+        session.add(
+            InstanceDirectEndpoint(
+                instance_id=int(heim_instanz["id"]),
+                candidates=[{"ip": "46.128.161.204", "port": 7900, "protocol": "udp"}],
+                fingerprint="sha-256 AA:BB",
+                updated_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+    r = await client.post(
+        f"/selfhost/diagnose/{heim_instanz['id']}",
+        headers={"Cookie": alice["cookie"]},
+    )
+    erster = r.json()["schritte"][0]
+    assert erster["ok"] is True
+    assert erster["befund"] == "ok"
+    assert erster["einzelheit"] == "46.128.161.204:7900"

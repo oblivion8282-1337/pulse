@@ -537,6 +537,8 @@ contextBridge.exposeInMainWorld('pulse', {
       ipcRenderer.invoke('host:setAutostart', enabled),
     // "Deine Daten": Volume-Größe + letztes Backup; Export mit Schritt-Events.
     dataInfo: (): Promise<unknown> => ipcRenderer.invoke('host:dataInfo'),
+    // "Verbindungen": lokale Glieder + Cloud-Kette (Instance-Diagnose).
+    verbindungstest: (): Promise<unknown> => ipcRenderer.invoke('host:verbindungstest'),
     exportData: (): Promise<unknown> => ipcRenderer.invoke('host:exportData'),
     importData: (): Promise<unknown> => ipcRenderer.invoke('host:importData'),
     onExportStep: (cb: (step: string) => void): (() => void) => {

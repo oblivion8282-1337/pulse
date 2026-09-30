@@ -52,6 +52,13 @@
     .addr:hover { border-color: #3d4552; }
     .addr .text { flex: 1; min-width: 0; }
     /* Kopier-Symbol als Inline-SVG — diese Datei zieht bewusst kein Icon-Paket. */
+    .vzeile { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid #262b33; font-size: 13px; align-items: baseline; }
+    .vzeile:last-child { border-bottom: none; }
+    .vhaken { flex-shrink: 0; width: 14px; text-align: center; }
+    .vok { color: #8b93a1; } .vok .vhaken { color: #22c55e; }
+    .vfolge { color: #6b7280; } .vfolge .vhaken { color: #ef4444; }
+    .vschlimm { color: #e5e9f0; } .vschlimm .vhaken { color: #ef4444; }
+    .vtun { color: #d6dae2; display: block; margin-top: 4px; }
     .addr .copy { flex-shrink: 0; width: 16px; height: 16px; stroke: #8b93a1; fill: none;
                   stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
     .addr:hover .copy { stroke: #d6dae2; }
@@ -158,6 +165,16 @@
         <button id="btnImport" class="secondary">Backup importieren …</button>
       </div>
       <div id="exportStatus" class="hint hidden"></div>
+    </div>
+
+    <div id="verbindungenSection" class="section hidden">
+      <h2>Verbindungen</h2>
+      <div class="hint" style="margin-top: 0">Prüft die ganze Kette von diesem Gerät über die Cloud zurück in den Server — und benennt das Glied, das klemmt.</div>
+      <div style="margin-top: 10px">
+        <button id="btnVerbindungstest" class="secondary">Verbindung prüfen</button>
+        <span id="verbindungStatus" class="hint hidden" style="margin-left: 8px"></span>
+      </div>
+      <div id="verbindungErgebnis" class="hidden"></div>
     </div>
 
     <div id="giveUpSection" class="section hidden">
