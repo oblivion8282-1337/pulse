@@ -107,6 +107,19 @@ test('vmIpAusIpAusgabe: erste globale IPv4, Loopback übersprungen — Interface
   // WSL2-Stand (Windows, bisheriger Fix-stand): eth0.
   const wsl = '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP>\n    inet 172.20.144.5/20 brd 172.20.159.255';
   assert.equal(vmIpAusIpAusgabe(wsl), '172.20.144.5');
+  // WSL2 mit DNS-Tunneling (echte Ausgabe, Windows-E2E 2026-10-01): auf `lo`
+  // liegt VOR eth0 eine zweite, GLOBALE Pseudo-Adresse (10.255.255.254) —
+  // die darf nicht gewinnen, sonst laufen Health-Poll/Relay ins Leere.
+  const wslDnsTunnel = [
+    '1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000',
+    '    inet 127.0.0.1/8 scope host lo',
+    '       valid_lft forever preferred_lft forever',
+    '    inet 10.255.255.254/32 brd 10.255.255.254 scope global lo',
+    '       valid_lft forever preferred_lft forever',
+    '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 1000',
+    '    inet 172.20.162.222/20 brd 172.20.175.255 scope global eth0',
+  ].join('\n');
+  assert.equal(vmIpAusIpAusgabe(wslDnsTunnel), '172.20.162.222');
   // Nur Loopback (VM ohne Netz) → null, kein Relay.
   assert.equal(vmIpAusIpAusgabe('1: lo:\n    inet 127.0.0.1/8'), null);
   assert.equal(vmIpAusIpAusgabe(''), null);

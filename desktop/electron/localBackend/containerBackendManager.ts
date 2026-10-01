@@ -190,13 +190,19 @@ export function updateVerdict(runningImageId: string, pulledImageId: string): 'u
 }
 
 /** Erste globale IPv4 aus einer `ip -4 addr show`-Ausgabe — die Adresse der
- *  podman-machine-VM. Loopback wird übersprungen; der Interface-Name spielt
- *  keine Rolle (WSL2: eth0, Podman 6/applehv auf macOS: enp0s1 — s.
- *  machineVmIp). null, wenn keine globale Adresse dabei ist. */
+ *  podman-machine-VM. Der Interface-Name spielt keine Rolle (WSL2: eth0,
+ *  Podman 6/applehv auf macOS: enp0s1 — s. machineVmIp), aber die ZUGEORDNETE
+ *  Schnittstelle zählt: neuere WSL2-Stände (DNS-Tunneling) legen auf `lo` eine
+ *  zweite, globale Pseudo-Adresse (10.255.255.254) — Windows-E2E 2026-10-01.
+ *  Loopback-Interfaces werden deshalb als ganze Blöcke übersprungen, nicht nur
+ *  127.x. null, wenn keine globale Adresse dabei ist. */
 export function vmIpAusIpAusgabe(ausgabe: string): string | null {
-  const treffer = ausgabe.matchAll(/inet (\d+\.\d+\.\d+\.\d+)[/\s]/g);
-  for (const m of treffer) {
-    if (!m[1].startsWith('127.')) return m[1];
+  let iface = '';
+  for (const zeile of ausgabe.split('\n')) {
+    const kopf = zeile.match(/^\s*\d+:\s+(\S+?):/);
+    if (kopf) iface = kopf[1].split('@')[0];
+    const inet = zeile.match(/inet (\d+\.\d+\.\d+\.\d+)[/\s]/);
+    if (inet && iface !== 'lo' && !inet[1].startsWith('127.')) return inet[1];
   }
   return null;
 }
@@ -270,6 +276,14 @@ export class ContainerBackendManager {
   /** Erkannte Runtime (lazy) — für Plattform-Prereq-Checks (WSL-Assistent). */
   async runtime(): Promise<ContainerRuntime | null> {
     return this.ensureRuntime();
+  }
+
+  /** IP der podman-machine-VM vom Host aus — Ziel des Health-Polls und der
+   *  Host-Relays, wenn der Container mit `--network host` IN der VM läuft
+   *  (Windows). null auf anderen Plattformen oder bei Abfrage-Fehler. */
+  async vmIp(): Promise<string | null> {
+    const rt = await this.runtime();
+    return rt ? await this.machineVmIp(rt) : null;
   }
 
   async start(opts: {
