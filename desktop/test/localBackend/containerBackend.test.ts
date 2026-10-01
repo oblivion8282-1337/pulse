@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { renderContainerEnv, hostLanIpv4s, vmIpAusIpAusgabe } from '../../electron/localBackend/containerBackendManager.ts';
+import { renderContainerEnv, hostLanIpv4s, vmIpAusIpAusgabe, RELAY_UDP_PORTS } from '../../electron/localBackend/containerBackendManager.ts';
 import { runtimeCandidates, inFlatpak, machineAction } from '../../electron/localBackend/containerRuntime.ts';
 import type { BootstrapCreds } from '../../electron/localBackend/pairing.ts';
 
@@ -59,6 +59,19 @@ test('renderContainerEnv: LAN-IPs → PULSE_DIRECT_EXTRA_HOST_IPS; ohne → Vari
   // Leere Liste → Variable komplett weglassen (leerer String gälte im
   // Adapter als "konfiguriert, aber kaputt").
   assert.equal(renderContainerEnv(CREDS).includes('PULSE_DIRECT_EXTRA_HOST_IPS'), false);
+});
+
+test('renderContainerEnv: vmAnnounceIp → PULSE_VM_ANNOUNCE_IP; ohne → Variable fehlt', () => {
+  const env = renderContainerEnv(CREDS, undefined, ['192.168.178.42'], '192.168.178.42');
+  assert.match(env, /^PULSE_VM_ANNOUNCE_IP=192\.168\.178\.42$/m);
+  // Nur im Win/VM-Betrieb gesetzt (Linux-App-Host: STUN/srflx läuft bewusst).
+  assert.equal(renderContainerEnv(CREDS, undefined, ['192.168.178.42']).includes('PULSE_VM_ANNOUNCE_IP'), false);
+});
+
+test('RELAY_UDP_PORTS: Voice-/WHEP-ICE komplett gespiegelt (Win-VM-Lücke 2026-10-01)', () => {
+  for (let p = 7882; p <= 7892; p++) assert.ok(RELAY_UDP_PORTS.includes(p), `LiveKit-ICE ${p} fehlt`);
+  assert.ok(RELAY_UDP_PORTS.includes(7900), 'Direktpfad-Mux 7900 fehlt');
+  assert.ok(RELAY_UDP_PORTS.includes(8189), 'WHEP-ICE 8189 fehlt');
 });
 
 test('hostLanIpv4s: filtert internal/IPv6/link-local/WSL-NAT, dedupliziert', () => {

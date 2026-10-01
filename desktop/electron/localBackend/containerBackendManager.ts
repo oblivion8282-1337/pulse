@@ -134,11 +134,22 @@ export function hostLanIpv4s(
 /** Rendert die kleine Container-Env: nur Pairing-Identität + Relay + TLS-Modus
  *  + Direktpfad-LAN-IPs. Alles Weitere (DB, Secrets, Keys) erzeugt das Image
  *  selbst in /data. `lanIps` kommt vom Aufrufer (hostLanIpv4s()) — als
- *  Parameter, damit die Funktion pur/testbar bleibt. */
+ *  Parameter, damit die Funktion pur/testbar bleibt.
+ *
+ *  `vmAnnounceIp` (nur Win/VM-Betrieb gesetzt): DIE Host-LAN-IP, die Dienste
+ *  im Container als ICE-Kandidaten ankündigen sollen (LiveKit `node_ip`,
+ *  MediaMTX `webrtcAdditionalHosts` — gerendert in 05-init-livekit.sh /
+ *  08-init-mediamtx.sh). Im VM-Netz nutzt STUN nichts: die srflx-Adresse
+ *  hängt hinter WSL-Doppel-NAT und Hairpin ist tot — der Medienweg läuft
+ *  über die Host-UDP-Relays (RELAY_UDP_PORTS). Bewusst EINE IP: LiveKit
+ *  nimmt in `node_ip` nur ein IPv4 (zweite → Config-Fehler, LiveKit startet
+ *  nicht). ponytail: [0] = erstes Nicht-Internal-Interface — bei mehreren
+ *  aktiven NICs kann das die falsche sein; der Verbindungs-Check zeigt es. */
 export function renderContainerEnv(
   creds: BootstrapCreds,
   adminEmail?: string,
   lanIps: string[] = [],
+  vmAnnounceIp?: string,
 ): string {
   const hostname = creds.relaySubdomain ?? creds.hostname;
   const lines = [
@@ -165,6 +176,10 @@ export function renderContainerEnv(
   // Stichtag ist der Container-START: ändert sich die LAN-IP (DHCP), greift
   // der nächste Start/Update-Recreate.
   if (lanIps.length) lines.push(`PULSE_DIRECT_EXTRA_HOST_IPS=${lanIps.join(',')}`);
+  // Medien-Ankündigung im VM-Betrieb (Win): ohne sie kündigt LiveKit nur die
+  // VM-interne Adresse und WAN/STUN-Adressen, an die kein LAN-/Internet-Gerät
+  // durchkommt (Windows-Voice-Fall 2026-10-01).
+  if (vmAnnounceIp) lines.push(`PULSE_VM_ANNOUNCE_IP=${vmAnnounceIp}`);
   // Relay-Zeilen nur, wenn ALLE drei Werte da sind (Bestandsinstanzen) —
   // leere PULSE_RELAY_*-Strings gälten im Image als "Relay konfiguriert";
   // das Erkennungsmuster ist FEHLENDE Variablen.
@@ -208,11 +223,19 @@ export function vmIpAusIpAusgabe(ausgabe: string): string | null {
 }
 
 /** UDP-Ports, die der Host-Relay in die VM spiegeln muss (Win/Mac, s.
- *  udpRelay.ts): 7900 = Direktpfad-ICE-Mux. Die LiveKit-Medienports
- *  (7882-7892 etc.) sind bewusst NICHT dabei — LiveKit announced keine
- *  Host-LAN-Kandidaten, ein Relay ohne Announce brächte nichts (Voice aus
- *  dem LAN auf Win-Hosts = eigener Folgeschritt). */
-const RELAY_UDP_PORTS = [7900];
+ *  udpRelay.ts): 7900 = Direktpfad-ICE-Mux (Chat), 7882-7892 = LiveKit-Voice-
+ *  ICE, 8189 = MediaMTX-WHEP-ICE (Stream-Wiedergabe). Bis 2026-10-01 war nur
+ *  7900 dabei — Voice/WHEP von ANDEREN Geräten an Win-Hosts blieb deshalb tot:
+ *  das Signal kam über den Relay-Tunnel durch, aber kein einziges Medienpaket
+ *  fand einen Weg Host→VM. Die Ankündigung der Host-LAN-IP passiert im Image
+ *  (PULSE_VM_ANNOUNCE_IP → livekit `node_ip` / mediamtx
+ *  `webrtcAdditionalHosts`) — Relay ohne Ankündigung brächte nichts. */
+const RELAY_UDP_PORTS = [
+  7900,
+  7882, 7883, 7884, 7885, 7886, 7887, 7888, 7889, 7890, 7891, 7892,
+  8189,
+];
+export { RELAY_UDP_PORTS };
 
 /** TCP-Ports Host→VM (Win/Mac, s. tcpRelay.ts): 1936 = RTMPS-Ingest. Der
  *  Instanz-Owner bekommt von media-svc bewusst eine `rtmps://localhost:1936`-
@@ -307,7 +330,12 @@ export class ContainerBackendManager {
     const dir = join(userData, weltVerzeichnis());
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const envFile = join(dir, 'container.env');
-    writeFileSync(envFile, renderContainerEnv(creds, adminEmail, hostLanIpv4s()), {
+    // Gleiche Bedingung wie der Netz-Modus in Schritt 4 (hostNet): nur im
+    // VM-Betrieb muss die Host-IP in den Container gerendert werden. Linux
+    // lässt STUN/srflx laufen — dort ist der Internetweg damit bewiesen.
+    const vmAnnounceIp =
+      process.platform === 'win32' && rt.kind === 'podman' ? hostLanIpv4s()[0] : undefined;
+    writeFileSync(envFile, renderContainerEnv(creds, adminEmail, hostLanIpv4s(), vmAnnounceIp), {
       encoding: 'utf8',
       mode: 0o600,
     });

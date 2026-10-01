@@ -119,3 +119,67 @@ bei laufender App — Serverseite + Relay + Sidecar health sind einzeln grün),
 Fernsteuerungs-Injektion interaktiv (bewegt den echten Zeiger — Klicktest),
 Extern-ICE von der Hetzner-Box (SSH-Key fehlt auf diesem Rechner; Linux-
 Referenz `54c4e82b`-Beweis steht, Container-Image identisch).
+
+## Übergabe-Paket (Abend 2026-10-01): Voice/WHEP aus dem LAN auf Win-Hosts
+
+**Befund live (Linux-Client `dev` → Win-Host `dev2`):** Voice-Beitritt hing im
+„Verbinden" — Signal kam über den Relay-Tunnel durch („connected to Livekit
+Server"), aber **kein einziges Medienpaket** fand einen Weg Host→VM. Ursache
+war doppelt und bewusst offen gewesene Lücke: das Host-UDP-Relay spiegelte nur
+den Chat-Port 7900, und LiveKit/MediaMTX in der VM kündigten nur VM-interne
+(172.x) bzw. WAN-hinter-Doppel-NAT-Adressen an — beide für fremde Geräte tot.
+
+**Umgesetzt (dieser Push):**
+
+1. `containerBackendManager.ts` — `RELAY_UDP_PORTS` spiegelt jetzt neben 7900
+   auch LiveKit-ICE 7882–7892 und WHEP-ICE 8189 in die VM; im Win-Betrieb
+   rendert die Env zusätzlich `PULSE_VM_ANNOUNCE_IP=<erste Host-LAN-IP>`.
+2. `05-init-livekit.sh` — bei gesetztem `PULSE_VM_ANNOUNCE_IP`: STUN aus
+   (`use_external_ip: false`) und die Host-LAN-IP als `node_ip` ankündigen.
+   pion schreibt damit die Kandidaten-IP um, Ports bleiben; der Medienweg
+   läuft über die UDP-Relays auf genau dieser Adresse. Linux-App-Hosts setzen
+   die Variable nicht → dort bleibt der bewiesene STUN/srflx-Weg unangetastet.
+3. `08-init-mediamtx.sh` — gleiche Logik für WHEP:
+   `webrtcAdditionalHosts: [<Host-LAN-IP>]` im App-Host-Zweig.
+4. Tests: `containerBackend.test.ts` deckt Relay-Portliste + Env-Rendering ab
+   (`pnpm test:unit` 250/250 grün); Template-Render beidseitig YAML-valide
+   geprüft (mit/ohne VM-Env).
+
+**Auf dem Windows-Rechner (Reihenfolge):**
+
+1. `git pull` im Checkout, dann **Image neu bauen** (die s6-Skripte sind im
+   Image gebacken), vom Repo-Root — Tag wie beim E2E-Lauf:
+   ```powershell
+   podman build -f infra/self-host/Dockerfile `
+     --build-arg PULSE_VERSION=$(git rev-parse --short HEAD) `
+     -t pulse-allinone:heim-test .
+   ```
+2. Server-App starten und Welt anlassen — `start()` rendert die Env neu und
+   **recreates** den Container, nimmt also neues Image + neue Env mit. Log-
+   zeichen: `[udp-relay] Host→VM … aktiv für UDP 7900, 7882, …, 8189` und
+   `[05-init-livekit] VM-Betrieb: node_ip=…`.
+3. **Firewall:** beim ersten UDP-Bind fragt Windows („Zulassen?" — private
+   Netzwerke → Ja). Kommt die Frage nicht, in einer Admin-Powershell:
+   ```powershell
+   netsh advfirewall firewall add rule name="Pulse Voice-ICE" dir=in action=allow protocol=UDP localport=7882-7892
+   netsh advfirewall firewall add rule name="Pulse Chat-ICE"  dir=in action=allow protocol=UDP localport=7900
+   netsh advfirewall firewall add rule name="Pulse WHEP-ICE"  dir=in action=allow protocol=UDP localport=8189
+   ```
+4. **Verifikation Cross-Gerät** (der eigentliche Beweis, den das Windows-E2E
+   noch nicht hatte): vom **Linux-Rechner** den Voice-E2E gegen die Win-Instanz
+   fahren — `heim-voice-cloud-e2e.mjs` (Vite 5273 mit Cloud-Proxy, wie im
+   Skriptkopf; Owner dev2, Gast dev3). Erwartung: GRÜN beidseitig mit
+   Audiospur. Danach der Klickweg: `dev` meldet sich im Linux-Client an und
+   betritt den Voice-Kanal; Ton muss stehen.
+
+**Bekannte Decken (bewusst so):**
+
+- `PULSE_VM_ANNOUNCE_IP` = **eine** IPv4 (`hostLanIpv4s()[0]`) — LiveKit nimmt
+  in `node_ip` nur ein IPv4 (zweite = Config-Fehler). Bei mehreren aktiven
+  NICs kann die falsche gewählt sein; der Verbindungs-Check zeigt es.
+- **Internet-Gäste** bleiben auf Win-Hosts außen vor: ohne srflx-Nutzung gibt
+  es nur LAN-/VM-Kandidaten. Der nächste Schritt dafür ist TURN (coturn läuft
+  im Image, wird aber noch an keinen Client gereicht) bzw. Router-Mapping —
+  eigenes Stück, erst LAN beweisen.
+- macOS unberührt (Publish-Pfad über gvproxy, eigener offener Punkt), Linux
+  unberührt (Verhalten bitidentisch, keine neue Env-Variable dort).

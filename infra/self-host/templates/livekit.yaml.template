@@ -15,6 +15,11 @@ rtc:
   # aus (nicht die interne Docker-Bridge-IP). Das ist der Standardweg hinter
   # NAT/Docker und macht ein manuelles PULSE_PUBLIC_IP für den direkten Media-
   # Pfad überflüssig.
+  #
+  # VM-App-Host (Windows/podman-machine): 05-init-livekit.sh dreht diese beiden
+  # Schalter bei gesetztem PULSE_VM_ANNOUNCE_IP um — `use_external_ip: false`
+  # + `node_ip: <Host-LAN-IP>`, denn STUN sieht aus der VM nur die WAN-Adresse
+  # hinter WSL-Doppel-NAT, an die kein fremdes Gerät herankommt.
   use_external_ip: true
   # Hinter hairpin-losem NAT (Fritz!Box + rootless-podman/pasta) scheitert
   # LiveKits Selbst-Validierung der STUN-IP ("could not validate external IP",
