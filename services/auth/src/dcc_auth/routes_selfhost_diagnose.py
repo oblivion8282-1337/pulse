@@ -295,9 +295,13 @@ async def diagnose(
     # VPS-Kette (bei app_host laufen sie bewusst nicht und erscheinen dort
     # ehrlich als ungeprüft).
     gelaufen = {s.schritt for s in schritte}
-    scope = SCHRITTE if inst.origin == "app_host" else tuple(
-        name for name in SCHRITTE if name != "telefonbuch"
-    )
+    # Scherspektive: app_host hat keine stun/rtmps-Glieder (die Medien-Glieder
+    # prueft die Server-App selbst — WHIP/WHEP-Rundtrip + LiveKit-Signal), und
+    # die VPS-Kette kennt kein telefonbuch.
+    if inst.origin == "app_host":
+        scope = tuple(name for name in SCHRITTE if name not in ("stun", "rtmps", "telefonbuch"))
+    else:
+        scope = tuple(name for name in SCHRITTE if name != "telefonbuch")
     nicht_geprueft = [titel(name, sprache) for name in scope if name not in gelaufen]
 
     ausgaben: list[SchrittAus] = []

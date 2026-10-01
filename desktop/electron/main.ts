@@ -60,6 +60,7 @@ import { ContainerBackendManager, resolveImage, HOST_HTTP_PORT, setzeContainerWe
 import { wslReady, installWsl, inFlatpak } from './localBackend/containerRuntime';
 import { volumeSizeBytes, exportVolume, importVolume, lastAutoBackupAt } from './localBackend/dataTools';
 import { httpHealth } from './localBackend/health';
+import { lebtLivekitSignalweg, medienRundtrip, type ProbeSchritt } from './localBackend/medienprobe';
 import { applyAutostart } from './autostart';
 import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds, loadCredsFuer, saveCredsFuer,
@@ -951,8 +952,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // Weg): das Fenster hält zwar einen Session-Cookie, aber Renderer-Fetches
   // auf die Cloud rennen in CORS (server.html lebt auf file://) — der
   // Main-Prozess authentifiziert sich stattdessen als die Instanz selbst.
-  ipcMain.handle('host:verbindungstest', async (e) => {
+  ipcMain.handle('host:verbindungstest', async (e, opts?: unknown) => {
     if (!localSenderOnly(e) || !creds) return { ok: false, error: 'forbidden' };
+    const angebote = (typeof opts === 'object' && opts !== null ? opts : {}) as
+      { whipSdp?: string; whepSdp?: string };
     const lokal: {
       schritt: string; titel: string; ok: boolean; was_ist: string; was_tun: string; einzelheit?: string;
     }[] = [];
@@ -993,6 +996,38 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       'Es gibt noch keinen automatischen Datenbank-Snapshot.',
       'Nichts zu tun — der Backup-Service sichert täglich selbst; nach der Erstinstallation dauert es bis zum ersten Lauf.',
     );
+
+    // Medien: Signalweg zu LiveKit + WHIP/WHEP-Rundtrip (nur mit laufendem
+    // Container undrelay-Adresse sinnvoll; dass echte Medien-Pakete auch von
+    // AUSSEN durchkommen, beweist der erste echte Teilnehmer im Heimnetz-Fall
+    // nicht — die Probe läuft im selben Netz wie der Server).
+    if (rt && laeuft && creds) {
+      const relay = creds.relaySubdomain ?? creds.hostname;
+      if (relay) {
+        const signalOk = await lebtLivekitSignalweg(relay);
+        push(
+          'livekit-signal', 'Sprache (Signalweg)', signalOk,
+          'Über die Relay-Adresse kommt kein Kontakt zum Sprachserver zustande.',
+          'Server läuft? Kurz warten und erneut prüfen. Bleibt es rot: Server stoppen und starten.',
+        );
+        // Sitzungs-Cookie des Fensters — der Cloud-Ticket braucht ihn.
+        const cookies = await session.defaultSession.cookies
+          .get({ name: 'pulse_session', url: creds.cloudOrigin }).catch(() => []);
+        const sessionCookie = cookies[0]?.value ? `pulse_session=${cookies[0].value}` : '';
+        const medien = await medienRundtrip({
+          relayHost: relay,
+          cloudOrigin: creds.cloudOrigin,
+          sessionCookie,
+        }).catch((err: Error) => ({
+          ok: false, befund: 'abgebrochen',
+          was_ist: 'Die Stream-Prüfung brach mit einem Fehler ab.',
+          was_tun: 'Erneut prüfen. Bleibt es rot: Server stoppen und starten.',
+          einzelheit: err.message,
+        } as ProbeSchritt));
+        push('medien', 'Streams (Senden + Empfangen)', medien.ok,
+          medien.was_ist, medien.was_tun, medien.einzelheit);
+      }
+    }
 
     let cloud: unknown = null;
     let cloudFehler: string | null = null;
