@@ -111,3 +111,17 @@ test('vmIpAusIpAusgabe: erste globale IPv4, Loopback übersprungen — Interface
   assert.equal(vmIpAusIpAusgabe('1: lo:\n    inet 127.0.0.1/8'), null);
   assert.equal(vmIpAusIpAusgabe(''), null);
 });
+
+// Benutzer-Welten: Namen schalten um, Legacy bleibt suffix-los
+
+import { setzeContainerWelt, containerName, datenVolume } from '../../electron/localBackend/containerBackendManager.ts';
+
+test('Benutzer-Welten: Suffix nur bei gesetzter Welt, Legacy bleibt nacktl', () => {
+  setzeContainerWelt(null);
+  assert.equal(containerName(), 'pulse-host');
+  assert.equal(datenVolume(), 'pulse-host-data');
+  setzeContainerWelt('u123');
+  assert.equal(containerName(), 'pulse-host-u123');
+  assert.equal(datenVolume(), 'pulse-host-data-u123');
+  setzeContainerWelt(null); // aufräumen für andere Tests
+});

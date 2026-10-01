@@ -42,6 +42,31 @@ export interface StoreLike {
 
 export const HOST_CREDS_KEY = 'pulse.host.creds';
 
+/** Pro-Benutzer-Creds (Benutzer-Welten, 2026-10-01): jedes Cloud-Konto hat
+ *  seine eigene Instanz und damit seine eigene Welt auf dem Gerät. */
+export function hostCredsSchluessel(userId: string | number): string {
+  return `pulse.host.creds.${userId}`;
+}
+
+/** Creds für EINEN Benutzer — mit Legacy-Rückfall: die suffix-lose Bestands-
+ *  Welt gehoert dem Besitzer der ursprünglichen Creds (nur für ihn gilt der
+ *  alte Container-/Volume-Name, seine Installation bleibt ohne Migration). */
+export function loadCredsFuer(
+  store: StoreLike, userId: string | number,
+): BootstrapCreds | null {
+  const eigene = store.get(hostCredsSchluessel(userId)) as BootstrapCreds | undefined;
+  if (eigene) return eigene;
+  const legacy = store.get(HOST_CREDS_KEY) as BootstrapCreds | undefined;
+  if (legacy && String(legacy.ownerId) === String(userId)) return legacy;
+  return null;
+}
+
+export function saveCredsFuer(
+  store: StoreLike, userId: string | number, c: BootstrapCreds,
+): void {
+  store.set(hostCredsSchluessel(userId), c);
+}
+
 export async function redeemBootstrap(
   token: string,
   cloudOrigin: string,

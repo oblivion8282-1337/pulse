@@ -81,12 +81,15 @@ async function loadIdentity() {
   if (!host || !host.me) return;
   const me = await host.me().catch(() => null);
   const loggedIn = !!(me && me.username);
-  // displayName kann leer/whitespace-only sein → auf username zurückfallen.
-  const name = loggedIn ? ((me.displayName || '').trim() || me.username) : '';
-  $('identityPrefix').textContent = loggedIn ? 'Angemeldet als' : 'Nicht angemeldet.';
-  $('identityName').textContent = name;
-  $('identityAvatar').textContent = loggedIn ? (name[0] || '?').toUpperCase() : '';
-  $('identityAvatar').classList.toggle('hidden', !loggedIn);
+  // Kein Namensschild mehr (2026-10-01): die Anmeldung am Anfang bestimmt die
+  // Welt — wer angemeldet ist, sieht man am Login-Zustand selbst. Wichtig ist
+  // nur: Abmelden kommt zurück zur Maske, Anmelden erscheint ohne Session.
+  // loadIdentity bleibt bewusst stehen: der /me-Aufruf treibt MAIN-seitig den
+  // Benutzer-Weltwechsel.
+  $('identityPrefix').textContent = '';
+  $('identityName').textContent = '';
+  $('identityAvatar').textContent = '';
+  $('identityAvatar').classList.toggle('hidden', true);
   $('btnLogout').classList.toggle('hidden', !loggedIn);
   // "Anmelden" nur zeigen, wenn keine Session da ist (gepairter Server ohne
   // durablen Login → damit sich die Identität überhaupt etablieren lässt).

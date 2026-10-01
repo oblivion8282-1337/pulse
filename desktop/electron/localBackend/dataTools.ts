@@ -22,7 +22,7 @@
 
 import { rmSync } from 'node:fs';
 
-import { CONTAINER_NAME, DATA_VOLUME } from './containerBackendManager.ts';
+import { containerName, datenVolume } from './containerBackendManager.ts';
 import { rtExec, rtExecFromFile, rtExecToFile, type ContainerRuntime } from './containerRuntime.ts';
 
 /** Erste Zahl aus `du -sk`-Ausgabe ("12345\t/data") → Bytes, sonst null. */
@@ -38,8 +38,8 @@ export async function volumeSizeBytes(
   containerRunning: boolean,
 ): Promise<number | null> {
   const args = containerRunning
-    ? ['exec', CONTAINER_NAME, 'du', '-sk', '/data']
-    : ['run', '--rm', '--entrypoint', 'du', '-v', `${DATA_VOLUME}:/data:ro`, image, '-sk', '/data'];
+    ? ['exec', containerName(), 'du', '-sk', '/data']
+    : ['run', '--rm', '--entrypoint', 'du', '-v', `${datenVolume()}:/data:ro`, image, '-sk', '/data'];
   const r = await rtExec(rt, args, { timeoutMs: 120_000 }).catch(() => null);
   return r?.code === 0 ? parseDuKb(r.stdout) : null;
 }
@@ -64,8 +64,8 @@ export async function lastAutoBackupAt(
   containerRunning: boolean,
 ): Promise<number | null> {
   const args = containerRunning
-    ? ['exec', CONTAINER_NAME, 'ls', '-1', '/data/backups']
-    : ['run', '--rm', '--entrypoint', 'ls', '-v', `${DATA_VOLUME}:/data:ro`, image, '-1', '/data/backups'];
+    ? ['exec', containerName(), 'ls', '-1', '/data/backups']
+    : ['run', '--rm', '--entrypoint', 'ls', '-v', `${datenVolume()}:/data:ro`, image, '-1', '/data/backups'];
   const r = await rtExec(rt, args, { timeoutMs: 30_000 }).catch(() => null);
   if (r?.code !== 0) return null;
   let neueste = 0;
@@ -97,7 +97,7 @@ export async function importVolume(
     const r = await rtExecFromFile(
       rt,
       [
-        'run', '--rm', '-i', '--entrypoint', 'sh', '-v', `${DATA_VOLUME}:/data`, image,
+        'run', '--rm', '-i', '--entrypoint', 'sh', '-v', `${datenVolume()}:/data`, image,
         '-c', 'find /data -mindepth 1 -delete && tar -xf - -C /data',
       ],
       sourcePath,
@@ -118,7 +118,7 @@ export async function exportVolume(
   try {
     const r = await rtExecToFile(
       rt,
-      ['run', '--rm', '--entrypoint', 'tar', '-v', `${DATA_VOLUME}:/data:ro`, image, '-cf', '-', '-C', '/data', '.'],
+      ['run', '--rm', '--entrypoint', 'tar', '-v', `${datenVolume()}:/data:ro`, image, '-cf', '-', '-C', '/data', '.'],
       targetPath,
       { timeoutMs: 60 * 60_000 },
     );

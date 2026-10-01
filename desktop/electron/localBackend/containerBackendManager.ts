@@ -32,6 +32,34 @@ import { startTcpRelay, type TcpRelay } from './tcpRelay.ts';
 
 export const CONTAINER_NAME = 'pulse-host';
 export const DATA_VOLUME = 'pulse-host-data';
+
+// ── Benutzer-Welten ─────────────────────────────────────────────────────────
+// Jedes Cloud-Konto bekommt auf diesem Gerät seine EIGENE Welt: eigener
+// Container-Name, eigenes Daten-Volume, eigene Env-Datei. Umgeschaltet wird
+// über die Anmeldung in der Server-App (`setzeContainerWelt`) — der Container
+// des abgemeldeten Benutzers wird gestoppt, sein Volume (und damit seine
+// Communities) bleibt unangetastet und ist bei der nächsten Anmeldung wieder
+// da. `null` = die Legacy-Welt (Suffix-los): der Bestands-Server der ersten
+// Stunde gehört dem Konto, das auch die unverschlüsselten Bestands-Creds
+// besitzt — so bleibt die bestehende Installation ohne Migration erhalten.
+let containerWelt: string | null = null;
+
+export function setzeContainerWelt(key: string | null): void {
+  containerWelt = key;
+}
+
+export function containerName(): string {
+  return CONTAINER_NAME + (containerWelt ? `-${containerWelt}` : '');
+}
+
+export function datenVolume(): string {
+  return DATA_VOLUME + (containerWelt ? `-${containerWelt}` : '');
+}
+
+/** Welt-Verzeichnisname für die Env-Datei (unter userData). */
+export function weltVerzeichnis(): string {
+  return CONTAINER_NAME + (containerWelt ? `-${containerWelt}` : '');
+}
 export const DEFAULT_IMAGE = 'registry.howispulse.com/pulse-allinone:edge';
 
 /** Dev/Test-Seam: `PULSE_HOST_IMAGE` zeigt auf ein lokal gebautes Image —
@@ -262,7 +290,7 @@ export class ContainerBackendManager {
     await ensureMachine(rt, progress);
 
     // 1. Env-Datei (0600) — einzige Stelle mit Klartext-Secrets auf der Platte.
-    const dir = join(userData, 'pulse-host');
+    const dir = join(userData, weltVerzeichnis());
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const envFile = join(dir, 'container.env');
     writeFileSync(envFile, renderContainerEnv(creds, adminEmail, hostLanIpv4s()), {
@@ -323,13 +351,13 @@ export class ContainerBackendManager {
     // 5. Alten Container ersetzen (Recreate statt Restart → nimmt frisch
     //    gepullte Images + Env-Änderungen mit; /data lebt im Named Volume).
     progress('run');
-    await rtExec(rt, ['rm', '-f', CONTAINER_NAME], { timeoutMs: 60_000 });
+    await rtExec(rt, ['rm', '-f', containerName()], { timeoutMs: 60_000 });
     const run = await rtExec(rt, [
       'run', '-d',
-      '--name', CONTAINER_NAME,
+      '--name', containerName(),
       '--restart', 'unless-stopped',
       '--env-file', envFile,
-      '-v', `${DATA_VOLUME}:/data`,
+      '-v', `${datenVolume()}:/data`,
       ...netArgs,
       image,
     ], { timeoutMs: 120_000 });
@@ -363,7 +391,7 @@ export class ContainerBackendManager {
     const rt = await this.ensureRuntime();
     if (!rt) return;
     // -t 20: Postgres im Container sauber runterfahren lassen.
-    await rtExec(rt, ['stop', '-t', '20', CONTAINER_NAME], {
+    await rtExec(rt, ['stop', '-t', '20', containerName()], {
       timeoutMs: 60_000,
     }).catch(() => {});
   }
@@ -382,7 +410,7 @@ export class ContainerBackendManager {
     const pull = await rtExec(rt, ['pull', image], { timeoutMs: 15 * 60_000 }).catch(() => null);
     if (pull?.code !== 0) return 'none';
     const running = await rtExec(
-      rt, ['inspect', CONTAINER_NAME, '--format', '{{.Image}}'], { timeoutMs: 15_000 },
+      rt, ['inspect', containerName(), '--format', '{{.Image}}'], { timeoutMs: 15_000 },
     ).catch(() => null);
     const pulled = await rtExec(
       rt, ['image', 'inspect', image, '--format', '{{.Id}}'], { timeoutMs: 15_000 },
@@ -400,7 +428,7 @@ export class ContainerBackendManager {
     if (!rt) return false;
     const r = await rtExec(
       rt,
-      ['inspect', CONTAINER_NAME, '--format', '{{.State.Running}}'],
+      ['inspect', containerName(), '--format', '{{.State.Running}}'],
       { timeoutMs: 15_000 },
     ).catch(() => null);
     return r?.code === 0 && r.stdout.trim() === 'true';
@@ -413,7 +441,7 @@ export class ContainerBackendManager {
     const rt = await this.ensureRuntime();
     if (!rt) return;
     await this.stop();
-    await rtExec(rt, ['rm', '-f', CONTAINER_NAME], { timeoutMs: 60_000 }).catch(() => {});
+    await rtExec(rt, ['rm', '-f', containerName()], { timeoutMs: 60_000 }).catch(() => {});
   }
 
   /** Daten-Volume löschen (nur nach removeContainer — sonst "volume in use").
@@ -421,10 +449,10 @@ export class ContainerBackendManager {
   async removeDataVolume(): Promise<boolean> {
     const rt = await this.ensureRuntime();
     if (!rt) return false;
-    const exists = await rtExec(rt, ['volume', 'inspect', DATA_VOLUME], { timeoutMs: 15_000 })
+    const exists = await rtExec(rt, ['volume', 'inspect', datenVolume()], { timeoutMs: 15_000 })
       .catch(() => null);
     if (exists?.code !== 0) return true; // schon weg — nichts zu tun
-    const r = await rtExec(rt, ['volume', 'rm', DATA_VOLUME], { timeoutMs: 60_000 })
+    const r = await rtExec(rt, ['volume', 'rm', datenVolume()], { timeoutMs: 60_000 })
       .catch(() => null);
     return r?.code === 0;
   }

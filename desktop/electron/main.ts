@@ -56,14 +56,14 @@ import { wireGlobalShortcuts } from './shortcuts';
 import { handleDeepLink, extractPulseUrl, takePendingInvite, isValidFqdn } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
-import { ContainerBackendManager, resolveImage, HOST_HTTP_PORT } from './localBackend/containerBackendManager';
+import { ContainerBackendManager, resolveImage, HOST_HTTP_PORT, setzeContainerWelt } from './localBackend/containerBackendManager';
 import { wslReady, installWsl, inFlatpak } from './localBackend/containerRuntime';
 import { volumeSizeBytes, exportVolume, importVolume, lastAutoBackupAt } from './localBackend/dataTools';
 import { httpHealth } from './localBackend/health';
 import { applyAutostart } from './autostart';
 import {
-  redeemBootstrap, loadCreds, saveCreds, clearCreds,
-  probeUrl, sanitize,
+  redeemBootstrap, loadCreds, saveCreds, clearCreds, loadCredsFuer, saveCredsFuer,
+  probeUrl, sanitize, type BootstrapCreds,
 } from './localBackend/pairing';
 import { provision, deleteInstanceRegistration, fetchCloudStatus, fetchMe } from './serverProvision';
 import {
@@ -540,12 +540,48 @@ function _openExternalIfWebUrl(url: string): void {
 function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   const manager = new ContainerBackendManager();
   const hostStore = { get: storeGet, set: (k: string, v: unknown) => storeSet(k, v) };
-  let creds = loadCreds(hostStore);
+  // Benutzer-Welten (2026-10-01): die Welt (Container/Volume/Creds) gehört dem
+  // Konto, das in der Server-App angemeldet ist. Beim Benutzerwechsel stoppt
+  // die alte Welt (Daten bleiben im Volume), die des neuen Kontos kommt dran.
+  const legacyCreds = loadCreds(hostStore);
+  let weltUser: string | null = (storeGet('pulse.host.weltUser') as string | undefined) ?? null;
+  let creds: BootstrapCreds | null;
+  if (weltUser && String(legacyCreds?.ownerId ?? '') !== weltUser) {
+    creds = loadCredsFuer(hostStore, weltUser);
+    setzeContainerWelt(`u${weltUser}`);
+  } else {
+    creds = legacyCreds; // Bestands-Welt: suffix-lose Namen, ohne Migration
+  }
   // Durabler Cloud-Login (serverAuth): liefert einen gültigen Bearer-Token für
   // die Cloud-Calls und refresht bei Ablauf (überlebt App-Neustarts). null →
   // keine/tote Tokens → die Calls fallen auf den 30-Min-Cookie zurück bzw.
   // melden "nicht eingeloggt".
   const getAccessToken = createTokenGetter(hostStore);
+
+  /** Die Container-Welt, die der Manager GERADE sieht ('null' = Legacy). */
+  let aktiveContainerWelt: string | null = weltUser && String(legacyCreds?.ownerId ?? '') !== weltUser
+    ? `u${weltUser}`
+    : null;
+
+  /** Benutzerwechsel: nur bei ECHTEM Weltwechsel anhalten (der erste /me auf
+   *  der eigenen Bestands-Welt darf den laufenden Server nicht anfassen).
+   *  Daten bleiben immer im Volume. */
+  async function wendeBenutzerAn(userId: string): Promise<void> {
+    const legacy = loadCreds(hostStore);
+    const gehoertLegacy = String(legacy?.ownerId ?? '') === userId;
+    const neueWelt: string | null = gehoertLegacy ? null : `u${userId}`;
+    if (weltUser === userId && aktiveContainerWelt === neueWelt) return;
+    if (neueWelt !== aktiveContainerWelt) {
+      const lief = await manager.isContainerRunning().catch(() => false);
+      if (lief) await manager.stop().catch(() => {});
+    }
+    weltUser = userId;
+    storeSet('pulse.host.weltUser', userId);
+    creds = gehoertLegacy ? legacy : loadCredsFuer(hostStore, userId);
+    setzeContainerWelt(neueWelt);
+    aktiveContainerWelt = neueWelt;
+    void syncLifecycleFromContainer().catch(() => {});
+  }
 
   const deps: HostDeps = {
     // Windows + Podman: podman machine braucht WSL2. Docker Desktop verwaltet
@@ -772,7 +808,14 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     const result = await provision(PROD_URL, { confirmTakeover }, () => getAccessToken(PROD_URL));
     if (result.ok) {
       creds = result.creds;
-      saveCreds(hostStore, result.creds);
+      // Bestands-Welt bleibt am Legacy-Schlüssel (suffix-lose Namen); jedes
+      // andere Konto bekommt eigene Creds + eine eigene Welt.
+      const legacyOwner = String(loadCreds(hostStore)?.ownerId ?? '');
+      if (legacyOwner === String(result.creds.ownerId)) saveCreds(hostStore, result.creds);
+      saveCredsFuer(hostStore, String(result.creds.ownerId), result.creds);
+      weltUser = String(result.creds.ownerId);
+      storeSet('pulse.host.weltUser', weltUser);
+      setzeContainerWelt(legacyOwner === weltUser ? null : `u${weltUser}`);
       ensureAutostartDefault();
       return { ok: true };
     }
@@ -798,7 +841,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:me', async (e) => {
     if (!localSenderOnly(e)) return null;
     const origin = creds?.cloudOrigin ?? PROD_URL;
-    return fetchMe(origin, () => getAccessToken(origin));
+    const me = await fetchMe(origin, () => getAccessToken(origin)).catch(() => null);
+    // Die Anmeldung bestimmt die Welt: beim ersten /me nach Login/Start auf
+    // den angemeldeten Benutzer umschalten (asynchron — der Aufruf kehrt
+    // sofort zurück, die Welt wechselt im Hintergrund).
+    if (me && me.id) void wendeBenutzerAn(String(me.id)).catch(() => {});
+    return me;
   });
   // "Abmelden": Session-Cookies der Cloud löschen und zurück zum Login
   // navigieren — danach kann sich ein ANDERER User anmelden. Das Pairing
@@ -833,6 +881,9 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     try {
       await session.defaultSession.clearStorageData({ origin, storages: ['cookies', 'localstorage'] });
     } catch { /* best effort */ }
+    // Benutzer-Welt stoppen (Daten bleiben im Volume) — der nächste Login
+    // startet die Welt des jeweiligen Kontos.
+    void manager.stop().catch(() => {});
     const win = getWin();
     if (win && !win.isDestroyed()) {
       await win.loadURL(PROD_URL);
