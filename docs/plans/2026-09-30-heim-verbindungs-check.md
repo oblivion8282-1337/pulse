@@ -79,3 +79,13 @@ Cert wurde aus dem Caddy-Speicher gelöscht (Speicher 0); ein In-Memory-Rest
 bedient noch bis zum Ablauf (Renewal scheitert am Gate) — ein Caddy-Restart
 auf der Box würde auch den sofort spülen, berührt aber die anderen Projekte
 darauf, deshalb bewusst nicht gemacht.
+
+## Offen: Zweisprachigkeit der Server-App (User-Frage 2026-10-01: „wichtig")
+
+Stand: Die Web-Diagnose („Meine Instanzen") ist vollständig zweisprachig
+(de/en, folgt Accept-Language, test-erzwungen). Die **Server-App** ist bisher
+rein Deutsch — die GESAMTE App (alle Knöpfe/Status), nicht nur der Check; sie
+hat kein Übersetzungssystem. Eine Entscheidung zum Vorgehen steht noch offen
+(Optionen: ganze App zweisprachig über eine Texttabelle + Browsersprache —
+empfohlen, da Check-allein eine Mischsprache erzeugen würde; oder Deutsch als
+bewusste Erstversion). Erst bauen, wenn der User entscheidet.
