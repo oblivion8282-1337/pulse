@@ -85,20 +85,14 @@ async function loadIdentity() {
   if (!host || !host.me) return;
   const me = await host.me().catch(() => null);
   const loggedIn = !!(me && me.username);
-  // Kein Namensschild mehr (2026-10-01): die Anmeldung am Anfang bestimmt die
-  // Welt — wer angemeldet ist, sieht man am Login-Zustand selbst. Wichtig ist
-  // nur: Abmelden kommt zurück zur Maske, Anmelden erscheint ohne Session.
-  // loadIdentity bleibt bewusst stehen: der /me-Aufruf treibt MAIN-seitig den
-  // Benutzer-Weltwechsel.
-  $('identityPrefix').textContent = '';
-  $('identityName').textContent = '';
-  $('identityAvatar').textContent = '';
-  $('identityAvatar').classList.toggle('hidden', true);
+  // Kein Namensschild (2026-10-01): die Anmeldung am Anfang bestimmt die Welt.
+  // Wichtig ist nur der Sitzungszustand — und der /me-Aufruf selbst, der
+  // MAIN-seitig den Benutzer-Weltwechsel treibt.
+  $('identRow').classList.remove('hidden');
   $('btnLogout').classList.toggle('hidden', !loggedIn);
   // "Anmelden" nur zeigen, wenn keine Session da ist (gepairter Server ohne
   // durablen Login → damit sich die Identität überhaupt etablieren lässt).
   $('btnLogin').classList.toggle('hidden', loggedIn);
-  $('identityRow').classList.remove('hidden');
 }
 
 // "Deine Daten": Größe + letztes Backup. Die Größenermittlung startet ggf.

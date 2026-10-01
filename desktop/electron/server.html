@@ -88,13 +88,6 @@
     <!-- Identität: entweder "Angemeldet als <Name> · Abmelden" (gültige Session)
          oder "Nicht angemeldet · Anmelden" (gepairt, aber Session/Token fehlen —
          z.B. vor der Erst-Etablierung des durablen Logins). -->
-    <div id="identityRow" class="ident hidden">
-      <span id="identityAvatar" class="avatar hidden"></span>
-      <span class="ident-text"><span id="identityPrefix"></span> <b id="identityName"></b></span>
-      <button id="btnLogin" class="linkbtn hidden">Anmelden</button>
-      <button id="btnLogout" class="linkbtn hidden">Abmelden</button>
-    </div>
-
     <div class="status"><span id="dot" class="dot"></span><span id="statustext">Initialisiere …</span></div>
 
     <div id="setupRow" class="row hidden">
@@ -173,6 +166,11 @@
         <span id="verbindungStatus" class="hint hidden" style="margin-left: 8px"></span>
       </div>
       <div id="verbindungErgebnis" class="hidden"></div>
+    </div>
+
+    <div id="identRow" class="section hidden">
+      <button id="btnLogout" class="secondary hidden" style="width: 100%">Abmelden</button>
+      <button id="btnLogin" class="secondary hidden" style="width: 100%">Anmelden</button>
     </div>
 
     <div id="giveUpSection" class="section hidden">
