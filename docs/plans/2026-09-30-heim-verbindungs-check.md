@@ -73,7 +73,7 @@ rate-limited, für den Prod-Einsatz gebaut) — die Dev-Box nutzte ihn nur nicht
 Fix (nur Infra, kein Code): Caddyfile `on_demand_tls { ask }` zeigt jetzt auf
 `http://auth:8000/selfhost/relay/tls-check` (Docker-Alias im geteilten Netz),
 die statische 5566-Site ist weg. Backup: `Caddyfile.bak-20261001-tls-ask`.
-Live bewiesen: neue Geister-Domain → TLS-Hands chlag verweigert (000);
+Live bewiesen: neue Geister-Domain → TLS-Handschlag verweigert (000);
 bekannte Instanz → weiterhin 200/health. Das beim Beweis gezogene ghost-971-
 Cert wurde aus dem Caddy-Speicher gelöscht (Speicher 0); ein In-Memory-Rest
 bedient noch bis zum Ablauf (Renewal scheitert am Gate) — ein Caddy-Restart
