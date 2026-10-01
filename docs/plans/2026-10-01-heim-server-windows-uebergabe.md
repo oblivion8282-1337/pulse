@@ -78,3 +78,44 @@ und gibt die Windows-Testreihenfolge vor.*
   Beitritts-Dialog; Muster: `heim-ext-ice-probe.cjs`).
 - Export-Dateidialog einmal von Hand klicken (Payload ist bewiesen).
 - Zweitinstanz-Client-Weltwechsel ungetestet (Server-App getestet).
+
+## Windows-E2E (2026-10-01, dieser Rechner) — KETTE GRÜN
+
+Abfolge live gelaufen: Dev-Lauf (`PULSE_BUILD_MODE` via `esbuild --server`,
+`PULSE_URL=https://pulse.unicutmedia.com`, `PULSE_HOST_IMAGE=
+pulse-allinone:heim-test`) → Login dev2 → Übernahme konsumiert →
+`needs-windows-setup`-Phase korrekt → WSL2-Assistent aus der App (UAC) →
+`podman machine init` → lokal gebautes Image → Container healthy →
+Host-Relays (7900/udp + 1936/tcp) → **Verbindungs-Check 16/16 grün**.
+
+E2E-Grün: Chat über DataChannel (`heim-chat-cloud-e2e.mjs`), Voice
+(`heim-voice-cloud-e2e.mjs`, Signal über Relay-TLS, Audiospur beidseitig),
+Streaming (`heim-stream-cloud-e2e.mjs`, 50 Frames dekodiert + MediaMTX-Logs),
+**RTMPS-Ingest über den Host-tcpRelay** (neu `heim-rtmps-relay-probe.mjs`:
+ffmpeg aus ffmpeg-dist, `h264_mf` — LGPL-Build hat kein libx264 — pusht auf
+127.0.0.1:1936; MediaMTX loggt die Verbindung von 172.20.160.1, dem Host-Ende
+des WSL-NAT). Sidecar-Smoke: health `available:true`, vendor amd,
+`remote_input:true`, h264/hevc/av1, 10-bit + HDR.
+
+**Produktive Bugs gefunden + gefixt:**
+- `f3d08ddd` — `vmIpAusIpAusgabe` nahm die WSL-DNS-Pseudoadresse
+  (10.255.255.254 auf `lo`, „scope global") als VM-IP → Health-Poll/Relays
+  ins Leere. Loopback-Blöcke werden jetzt ganz übersprungen.
+- `c24f53d5` — `eebf1230` (Zweisprachigkeit) hatte den
+  `host:verbindungstest`-Handler-Kopf samt Security-Guard gelöscht; der Body
+  hing tot im `dataInfo`-Handler (Check tot, Datenkarte `push is not
+  defined`). Rekonstruiert; `S`/`deutsch` definiert; Health-Glied auf Windows
+  jetzt gegen VM-IP:8080 statt den nie gebundenen 55580.
+
+**Umgebungs-Befunde:** Windows-Uhr ging 2 h nach (bremst den Image-Bau über
+Debian-Release-Files; `w32tm /resync` + VM-Uhr nachziehen), Image-Bau braucht
+ghcr-Login mit `read:packages` (MediaMTX-Fork), Checkout muss LF sein
+(`core.autocrlf=false` + Renormalize — s6-Scripts sonst `bad interpreter`),
+Autostart-Run-Key wird bei der Übernahme gesetzt (Produktverhalten, App startet
+beim Boot und fährt die Machine hoch), Login hielt Reboot via safeStorage.
+
+**Offen auf Windows:** echter Owner-Stream aus dem Client-UI (Sidecar-Klickweg
+bei laufender App — Serverseite + Relay + Sidecar health sind einzeln grün),
+Fernsteuerungs-Injektion interaktiv (bewegt den echten Zeiger — Klicktest),
+Extern-ICE von der Hetzner-Box (SSH-Key fehlt auf diesem Rechner; Linux-
+Referenz `54c4e82b`-Beweis steht, Container-Image identisch).
