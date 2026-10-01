@@ -224,7 +224,12 @@ async function proceedWithInstance(
   }
 }
 
-export interface MeInfo { username: string; displayName: string | null }
+export interface MeInfo {
+  /** Cloud-Kennung — treibt den Benutzer-Weltwechsel in main.ts. */
+  id?: string;
+  username: string;
+  displayName: string | null;
+}
 
 /** Der aktuell eingeloggte Cloud-User (GET /api/auth/me über den
  *  pulse_session-Cookie) — für die "Angemeldet als …"-Zeile der Server-App.
@@ -241,9 +246,13 @@ export async function fetchMe(
     if (!cookie) return null;
     const r = await netJson('GET', `${cloudOrigin}/api/auth/me`, cookie);
     if (r.status !== 200 || !r.json || typeof r.json !== 'object') return null;
-    const u = r.json as { username?: unknown; display_name?: unknown };
+    const u = r.json as { id?: unknown; username?: unknown; display_name?: unknown };
     if (typeof u.username !== 'string') return null;
-    return { username: u.username, displayName: typeof u.display_name === 'string' ? u.display_name : null };
+    return {
+      ...(u.id !== undefined && u.id !== null ? { id: String(u.id) } : {}),
+      username: u.username,
+      displayName: typeof u.display_name === 'string' ? u.display_name : null,
+    };
   } catch {
     return null;
   }

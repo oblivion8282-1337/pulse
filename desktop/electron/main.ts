@@ -580,7 +580,14 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     creds = gehoertLegacy ? legacy : loadCredsFuer(hostStore, userId);
     setzeContainerWelt(neueWelt);
     aktiveContainerWelt = neueWelt;
-    void syncLifecycleFromContainer().catch(() => {});
+    await syncLifecycleFromContainer().catch(() => {});
+    // Der Weltwechsel ändert ggf. NICHTS an der Phase (idle → idle), aber
+    // SEHR WOHL am Pairing-Sichtbild (creds der neuen Welt) — ohne dieses
+    // Event zeigte die UI weiter die Knöpfe der VORHERIGEN Welt.
+    getWin()?.webContents.send('host:phase', {
+      phase: hl.getStatus().phase,
+      detail: null,
+    });
   }
 
   const deps: HostDeps = {
@@ -800,12 +807,15 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // — kein manuelles Token-Einfügen. ("einloggen, dann starten".)
   ipcMain.handle('host:provision', async (e, opts?: unknown) => {
     if (!localSenderOnly(e)) return { ok: false, error: 'forbidden' };
+    console.log('[provision] begin, weltUser =', weltUser);
     // Übernahme-Bestätigung nur als exaktes true durchreichen — alles andere
     // aus dem Renderer bleibt der vorsichtige Kein-reset-Pfad.
     const confirmTakeover =
       typeof opts === 'object' && opts !== null &&
       (opts as { confirmTakeover?: unknown }).confirmTakeover === true;
+    console.log('[provision] cloud call …');
     const result = await provision(PROD_URL, { confirmTakeover }, () => getAccessToken(PROD_URL));
+    console.log('[provision] fertig:', JSON.stringify(result).slice(0, 200));
     if (result.ok) {
       creds = result.creds;
       // Bestands-Welt bleibt am Legacy-Schlüssel (suffix-lose Namen); jedes
@@ -882,8 +892,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       await session.defaultSession.clearStorageData({ origin, storages: ['cookies', 'localstorage'] });
     } catch { /* best effort */ }
     // Benutzer-Welt stoppen (Daten bleiben im Volume) — der nächste Login
-    // startet die Welt des jeweiligen Kontos.
-    void manager.stop().catch(() => {});
+    // startet die Welt des jeweiligen Kontos. Der Stopp geht bewusst AM
+    // Lifecycle vorbei (Logout navigiert sofort weiter) — deshalb hier den
+    // Zustand selbst geradeziehen, sonst hängt die UI auf 'live'.
+    await manager.stop().catch(() => {});
+    await syncLifecycleFromContainer().catch(() => {});
     const win = getWin();
     if (win && !win.isDestroyed()) {
       await win.loadURL(PROD_URL);
