@@ -152,10 +152,14 @@ async function doVerbindungstest() {
     let html = '<div class="vzeile ' + klasse + '"><span class="vhaken">'
       + (s.ok ? '✓' : '✗') + '</span><span><b>' + flucht(s.titel || s.schritt) + '</b>';
     if (s.einzelheit) html += ' <span class="hint">— ' + flucht(s.einzelheit) + '</span>';
-    if (!s.ok && i === erster && s.was_ist) {
+    // JEDER rote Schritt bekommt seine Begründung — die Liste mischt lokale
+    // Glieder und Cloud-Kette, da sind spätere Rots oft EIGENE Ursachen und
+    // keine Folgen (2026-10-01: Backup fehlt + Login abgelaufen = zwei
+    // unabhängige Dinge).
+    if (!s.ok && s.was_ist) {
       html += '<br><span class="hint">' + flucht(s.was_ist) + '</span>';
     }
-    if (!s.ok && i === erster && s.was_tun) {
+    if (!s.ok && s.was_tun) {
       html += '<span class="vtun">' + flucht(s.was_tun) + '</span>';
     }
     return html + '</span></div>';

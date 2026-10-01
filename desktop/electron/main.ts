@@ -1039,6 +1039,8 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
           headers: {
             'x-pulse-client-id': creds.clientId,
             'x-pulse-client-secret': creds.clientSecret,
+            // Die App ist deutsch — die Diagnose-Texte sollen es auch sein.
+            'Accept-Language': 'de',
           },
         },
       );
