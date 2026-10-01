@@ -569,6 +569,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   async function wendeBenutzerAn(userId: string): Promise<void> {
     const legacy = loadCreds(hostStore);
     const gehoertLegacy = String(legacy?.ownerId ?? '') === userId;
+    const alteWelt = aktiveContainerWelt;
     const neueWelt: string | null = gehoertLegacy ? null : `u${userId}`;
     if (weltUser === userId && aktiveContainerWelt === neueWelt) return;
     if (neueWelt !== aktiveContainerWelt) {
@@ -579,8 +580,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     storeSet('pulse.host.weltUser', userId);
     creds = gehoertLegacy ? legacy : loadCredsFuer(hostStore, userId);
     setzeContainerWelt(neueWelt);
+    const weltGewechselt = neueWelt !== alteWelt;
     aktiveContainerWelt = neueWelt;
     await syncLifecycleFromContainer().catch(() => {});
+    // Modell „Anmeldung startet die Welt": wechselt die Welt und das neue
+    // Konto hat einen eingerichteten Server, startet er von selbst.
+    if (weltGewechselt && creds) void hl.start().catch(() => {});
     // Der Weltwechsel ändert ggf. NICHTS an der Phase (idle → idle), aber
     // SEHR WOHL am Pairing-Sichtbild (creds der neuen Welt) — ohne dieses
     // Event zeigte die UI weiter die Knöpfe der VORHERIGEN Welt.
@@ -855,7 +860,17 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     // Die Anmeldung bestimmt die Welt: beim ersten /me nach Login/Start auf
     // den angemeldeten Benutzer umschalten (asynchron — der Aufruf kehrt
     // sofort zurück, die Welt wechselt im Hintergrund).
-    if (me && me.id) void wendeBenutzerAn(String(me.id)).catch(() => {});
+    if (me && me.id) {
+      void wendeBenutzerAn(String(me.id))
+        .then(async () => {
+          // Auch ohne Weltwechsel: gehört dem Konto ein Server und er läuft
+          // nicht (z. B. nach geordnetem Stoppen), startet die Anmeldung ihn.
+          if (creds && !(await manager.isContainerRunning().catch(() => false))) {
+            await hl.start().catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
     return me;
   });
   // "Abmelden": Session-Cookies der Cloud löschen und zurück zum Login
