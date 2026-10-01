@@ -60,3 +60,22 @@ nachimplementiert — ein Katalog bleibt im Server.
 Freund-Ansicht im Beitritts-Dialog: Direktpfad-Echtcheck (offer → direct-offer
 → ICE-State) + Voice-Probe aus dem Browser des Freundes; Muster steht in
 `infra/self-host/tests/heim-ext-ice-probe.cjs`.
+
+## Nachtrag (2026-10-01): M1 behoben — Ask-Endpunkt entscheidet jetzt echt
+
+Der Security-Scan fand: Die Dev-Box-Caddy fragte einen statischen 200-Ask
+(`ponytail:`-Decke), und das Wildcard-DNS machte daraus ein Loch —
+`https://<beliebig>.relay.unicutmedia.com` zog ein ECHTES Let's-Encrypt-Cert
+(live bewiesen mit `ghost-971`). Der richtige Endpunkt existierte schon im
+Code (`GET /selfhost/relay/tls-check`: 200 nur für aktive Relay-Subdomains,
+rate-limited, für den Prod-Einsatz gebaut) — die Dev-Box nutzte ihn nur nicht.
+
+Fix (nur Infra, kein Code): Caddyfile `on_demand_tls { ask }` zeigt jetzt auf
+`http://auth:8000/selfhost/relay/tls-check` (Docker-Alias im geteilten Netz),
+die statische 5566-Site ist weg. Backup: `Caddyfile.bak-20261001-tls-ask`.
+Live bewiesen: neue Geister-Domain → TLS-Hands chlag verweigert (000);
+bekannte Instanz → weiterhin 200/health. Das beim Beweis gezogene ghost-971-
+Cert wurde aus dem Caddy-Speicher gelöscht (Speicher 0); ein In-Memory-Rest
+bedient noch bis zum Ablauf (Renewal scheitert am Gate) — ein Caddy-Restart
+auf der Box würde auch den sofort spülen, berührt aber die anderen Projekte
+darauf, deshalb bewusst nicht gemacht.
