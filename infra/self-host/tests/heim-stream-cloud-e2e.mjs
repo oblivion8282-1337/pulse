@@ -265,12 +265,21 @@ const viewResult = await bob.evaluate(async (answer) => {
 console.log('Viewer-PC:', viewResult.zustand, '| dekodierte Frames in 4s:', viewResult.frames);
 
 // ── MediaMTX-Log als Gegenbeweis ──
+// Runtime-Agnostik: docker (Linux-E2E) ODER podman (Windows-E2E 2026-10-01),
+// Container-Name je Welt-Suffix aufgelöst (pulse-host-<welt>).
 const { execSync } = await import('node:child_process');
+const laufzeit = (() => {
+  try { execSync('docker ps', { stdio: 'ignore' }); return 'docker'; } catch { return 'podman'; }
+})();
+const containerName = execSync(`${laufzeit} ps --format '{{.Names}}'`, { encoding: 'utf8' })
+  .split('\n').map((n) => n.replace(/'/g, '').trim())
+  .find((n) => n.startsWith('pulse-host'));
+if (!containerName) throw new Error('kein pulse-host-Container läuft');
 const mtxLog = execSync(
-  `docker logs pulse-host --since 3m 2>&1 | grep -iE "whip|whep|publish|is publishing|reader" | tail -6`,
-  { encoding: 'utf8' }
+  `${laufzeit} logs ${containerName} --since 3m 2>&1 | grep -iE "whip|whep|publish|is publishing|reader" | tail -6`,
+  { encoding: 'utf8', shell: 'bash' }
 ).trim();
-console.log('--- MediaMTX-Log (Auszug) ---');
+console.log(`--- MediaMTX-Log (${laufzeit}, ${containerName}) ---`);
 console.log(mtxLog || '(keine Zeilen)');
 
 const gruen = String(pubState).startsWith('CONNECTED')
