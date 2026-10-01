@@ -936,47 +936,18 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     let sizeBytes: number | null = null;
     let lastAutoBackup: number | null = null;
     const rt = await manager.runtime().catch(() => null);
-    if (rt && creds) {
-      const running = await manager.isContainerRunning().catch(() => false);
-      sizeBytes = await volumeSizeBytes(rt, resolveImage().image, running).catch(() => null);
-      // Automatische pg_dumps des Backup-Services — ohne sie würde die UI
-      // „Noch kein Backup erstellt" zeigen, obwohl täglich gesichert wird.
-      lastAutoBackup = await lastAutoBackupAt(rt, resolveImage().image, running).catch(() => null);
-    }
-    return { sizeBytes, lastBackupAt, lastAutoBackupAt: lastAutoBackup };
-  });
-
-  // "Verbindung prüfen" (server.html, Abschnitt Verbindungen): die lokalen
-  // Glieder — nur die App kann sie sehen — plus DIESELBE Cloud-Kette wie die
-  // Instance-Diagnose im Web. Auth als Weg 1 (Pairing-Creds, der Installer-
-  // Weg): das Fenster hält zwar einen Session-Cookie, aber Renderer-Fetches
-  // auf die Cloud rennen in CORS (server.html lebt auf file://) — der
-  // Main-Prozess authentifiziert sich stattdessen als die Instanz selbst.
-  ipcMain.handle('host:verbindungstest', async (e, opts?: unknown) => {
-    if (!localSenderOnly(e) || !creds) return { ok: false, error: 'forbidden' };
-    const angebote = (typeof opts === 'object' && opts !== null ? opts : {}) as
-      { whipSdp?: string; whepSdp?: string };
-    const lokal: {
-      schritt: string; titel: string; ok: boolean; was_ist: string; was_tun: string; einzelheit?: string;
-    }[] = [];
-    const push = (
-      schritt: string, titel: string, ok: boolean, was_ist: string, was_tun: string,
-      einzelheit?: string,
-    ): void => {
-      lokal.push({ schritt, titel, ok, was_ist, was_tun, ...(einzelheit ? { einzelheit } : {}) });
-    };
-
-    const rt = await manager.runtime().catch(() => null);
     push(
-      'runtime', 'Container-Runtime', !!rt,
-      'Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
-      'Docker installieren und die Server-App neu starten.',
+      'runtime', S('Container-Runtime', 'Container runtime'), !!rt,
+      S('Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
+        'Docker or Podman was not found on this device.'),
+      S('Docker installieren und die Server-App neu starten.',
+        'Install Docker and restart the server app.'),
     );
     const laeuft = rt ? await manager.isContainerRunning().catch(() => false) : false;
     push(
-      'container', 'Server-Container', laeuft,
-      'Der Server-Container ist gestoppt.',
-      'Knopf „Server starten" oben betätigen.',
+      'container', S('Server-Container', 'Server container'), laeuft,
+      S('Der Server-Container ist gestoppt.', 'The server container is stopped.'),
+      S('Knopf „Server starten“ oben betätigen.', 'Press the "Start server" button above.'),
     );
     let healthOk = false;
     if (rt && laeuft) {
@@ -984,21 +955,25 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
         .then(() => true).catch(() => false);
     }
     push(
-      'health', 'Innere Gesundheit', healthOk,
-      'Der Container antwortet am Verwaltungsport nicht.',
-      'Eine Minute warten. Bleibt der Schritt rot: Server stoppen und wieder starten.',
+      'health', S('Innere Gesundheit', 'Inner health'), healthOk,
+      S('Der Container antwortet am Verwaltungsport nicht.',
+        'The container does not answer on its management port.'),
+      S('Eine Minute warten. Bleibt der Schritt rot: Server stoppen und wieder starten.',
+        'Wait a minute. If it stays red: stop and start the server again.'),
     );
     const backup = rt && laeuft
       ? await lastAutoBackupAt(rt, resolveImage().image, true).catch(() => null)
       : null;
     push(
-      'backup', 'Automatisches Backup', !!backup,
-      'Es gibt noch keinen automatischen Datenbank-Snapshot.',
-      'Nichts zu tun — der Backup-Service sichert täglich selbst; nach der Erstinstallation dauert es bis zum ersten Lauf.',
+      'backup', S('Automatisches Backup', 'Automatic backup'), !!backup,
+      S('Es gibt noch keinen automatischen Datenbank-Snapshot.',
+        'There is no automatic database snapshot yet.'),
+      S('Nichts zu tun — der Backup-Service sichert täglich selbst; nach der Erstinstallation dauert es bis zum ersten Lauf.',
+        'Nothing to do — the backup service backs up daily on its own; after first setup the first run takes a while.'),
     );
 
     // Medien: Signalweg zu LiveKit + WHIP/WHEP-Rundtrip (nur mit laufendem
-    // Container undrelay-Adresse sinnvoll; dass echte Medien-Pakete auch von
+    // Container und Relay-Adresse sinnvoll; dass echte Medien-Pakete auch von
     // AUSSEN durchkommen, beweist der erste echte Teilnehmer im Heimnetz-Fall
     // nicht — die Probe läuft im selben Netz wie der Server).
     if (rt && laeuft && creds) {
@@ -1006,9 +981,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       if (relay) {
         const signalOk = await lebtLivekitSignalweg(relay);
         push(
-          'livekit-signal', 'Sprache (Signalweg)', signalOk,
-          'Über die Relay-Adresse kommt kein Kontakt zum Sprachserver zustande.',
-          'Server läuft? Kurz warten und erneut prüfen. Bleibt es rot: Server stoppen und starten.',
+          'livekit-signal', S('Sprache (Signalweg)', 'Voice (signaling)'), signalOk,
+          S('Über die Relay-Adresse kommt kein Kontakt zum Sprachserver zustande.',
+            'No contact with the voice server via the relay address.'),
+          S('Server läuft? Kurz warten und erneut prüfen. Bleibt es rot: Server stoppen und starten.',
+            'Server running? Wait a moment and check again. If it stays red: stop and start the server.'),
         );
         // Sitzungs-Cookie des Fensters — der Cloud-Ticket braucht ihn.
         const cookies = await session.defaultSession.cookies
@@ -1018,13 +995,16 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
           relayHost: relay,
           cloudOrigin: creds.cloudOrigin,
           sessionCookie,
+          sprache: deutsch ? 'de' : 'en',
         }).catch((err: Error) => ({
           ok: false, befund: 'abgebrochen',
-          was_ist: 'Die Stream-Prüfung brach mit einem Fehler ab.',
-          was_tun: 'Erneut prüfen. Bleibt es rot: Server stoppen und starten.',
+          was_ist: S('Die Stream-Prüfung brach mit einem Fehler ab.',
+            'The stream check aborted with an error.'),
+          was_tun: S('Erneut prüfen. Bleibt es rot: Server stoppen und starten.',
+            'Check again. If it stays red: stop and start the server.'),
           einzelheit: err.message,
         } as ProbeSchritt));
-        push('medien', 'Streams (Senden + Empfangen)', medien.ok,
+        push('medien', S('Streams (Senden + Empfangen)', 'Streams (send + receive)'), medien.ok,
           medien.was_ist, medien.was_tun, medien.einzelheit);
       }
     }
@@ -1039,8 +1019,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
           headers: {
             'x-pulse-client-id': creds.clientId,
             'x-pulse-client-secret': creds.clientSecret,
-            // Die App ist deutsch — die Diagnose-Texte sollen es auch sein.
-            'Accept-Language': 'de',
+            'Accept-Language': deutsch ? 'de' : 'en',
           },
         },
       );

@@ -63,12 +63,77 @@ export interface MedienRundtripOptionen {
   cloudOrigin: string;
   /** pulse_session-Cookie des angemeldeten Benutzers (für den Cloud-Ticket). */
   sessionCookie: string;
+  /** Textsprache des Prüfschritts (default 'de'). */
+  sprache?: 'de' | 'en';
+}
+
+/** Schritttexte je Befund — (deutsch, englisch). */
+const TEXTE: Record<string, { was_ist: [string, string]; was_tun: [string, string] }> = {
+  'kein-ticket': {
+    was_ist: ['Die Cloud hat kein Zugangsticket ausgestellt — die Anmeldung ist vermutlich abgelaufen.',
+      'The cloud did not issue an access ticket — the sign-in has probably expired.'],
+    was_tun: ['In der Server-App neu anmelden.', 'Sign in again in the server app.'],
+  },
+  'keine-sitzung': {
+    was_ist: ['Der Server hat das Zugangsticket über die Relay-Adresse nicht angenommen.',
+      'The server did not accept the access ticket via the relay address.'],
+    was_tun: ['Server läuft? Kurz warten und erneut prüfen. Bleibt es rot: Server stoppen und starten.',
+      'Server running? Wait a moment and check again. If it stays red: stop and start the server.'],
+  },
+  'kein-testkanal': {
+    was_ist: ['Der Test-Kanal konnte auf dem Server nicht angelegt werden.',
+      'The test channel could not be created on the server.'],
+    was_tun: ['Erneut prüfen; bleibt es rot: Server stoppen und starten.',
+      'Check again; if it stays red: stop and start the server.'],
+  },
+  'kein-stream-token': {
+    was_ist: ['Der Server hat keinen Stream-Zugang ausgestellt.',
+      'The server did not issue a stream access grant.'],
+    was_tun: ['Erneut prüfen; bleibt es rot: Server stoppen und starten.',
+      'Check again; if it stays red: stop and start the server.'],
+  },
+  'whip-abgelehnt': {
+    was_ist: ['Der Stream-Server hat den Probe-Stream nicht angenommen.',
+      'The stream server did not accept the probe stream.'],
+    was_tun: ['Eine Minute warten und erneut prüfen; bleibt es rot: Server stoppen und starten.',
+      'Wait a minute and check again; if it stays red: stop and start the server.'],
+  },
+  'whep-fehlt': {
+    was_ist: ['Der Auslieferungsweg für Zuschauer wurde nicht ausgestellt.',
+      'The playback path for viewers was not issued.'],
+    was_tun: ['Erneut prüfen; bleibt es rot: Server stoppen und starten.',
+      'Check again; if it stays red: stop and start the server.'],
+  },
+  'whep-abgelehnt': {
+    was_ist: ['Der Auslieferungsweg für Zuschauer hat den Probe-Anruf abgelehnt.',
+      'The playback path for viewers rejected the probe call.'],
+    was_tun: ['Erneut prüfen; bleibt es rot: Server stoppen und starten.',
+      'Check again; if it stays red: stop and start the server.'],
+  },
+  'rundtrip': {
+    was_ist: ['Probe-Stream angenommen und der Auslieferungsweg geprüft.',
+      'Probe stream accepted and the delivery path verified.'],
+    was_tun: ['', ''],
+  },
+  'abgebrochen': {
+    was_ist: ['Die Stream-Prüfung brach mit einem Fehler ab.',
+      'The stream check aborted with an error.'],
+    was_tun: ['Erneut prüfen; bleibt es rot: Server stoppen und starten.',
+      'Check again; if it stays red: stop and start the server.'],
+  },
 }
 
 function schritt(
-  ok: boolean, befund: string, was_ist: string, was_tun: string, einzelheit?: string,
+  ok: boolean, befund: string, sprache: 'de' | 'en' = 'de', einzelheit?: string,
 ): ProbeSchritt {
-  return { ok, befund, was_ist, was_tun, ...(einzelheit ? { einzelheit } : {}) };
+  const t = TEXTE[befund];
+  const i = sprache === 'de' ? 0 : 1;
+  return {
+    ok, befund,
+    was_ist: t ? t.was_ist[i] : '',
+    was_tun: t ? t.was_tun[i] : '',
+    ...(einzelheit ? { einzelheit } : {}),
+  };
 }
 
 /** Der ganze Strompfad im Schnelldurchlauf: Cloud-Ticket → Container-Sitzung
@@ -76,6 +141,7 @@ function schritt(
  *  → WHEP-Auslieferungsweg. Räumt den Test-Kanal selbst wieder weg.
  *  Rückgabe ist EIN Prüfschritt für die Checkliste. */
 export async function medienRundtrip(opt: MedienRundtripOptionen): Promise<ProbeSchritt> {
+  const sprache = opt.sprache ?? 'de';
   const basis = `https://${opt.relayHost}`;
 
   let ticket = '';
@@ -89,9 +155,7 @@ export async function medienRundtrip(opt: MedienRundtripOptionen): Promise<Probe
     if (r.ok) ticket = ((await r.json()) as { ticket?: string }).ticket ?? '';
   } catch { /* Ticket-Falle unten */ }
   if (!ticket) {
-    return schritt(false, 'kein-ticket',
-      'Die Cloud hat kein Zugangsticket ausgestellt — die Anmeldung ist vermutlich abgelaufen.',
-      'In der Server-App neu anmelden.');
+    return schritt(false, 'kein-ticket', sprache,);
   }
 
   let sitzungsToken = '';
@@ -128,19 +192,17 @@ export async function medienRundtrip(opt: MedienRundtripOptionen): Promise<Probe
   const g = await anfrage('POST', '/api/chat/guilds', { name: 'Verbindungs-Test' });
   const gid = (g.json as { id?: string }).id;
   if (!g.status || g.status >= 400 || !gid) {
-    return schritt(false, 'kein-testkanal', 'Der Test-Kanal konnte auf dem Server nicht angelegt werden.',
-      'Erneut prüfen; bleibt es rot: Server stoppen und starten.');
+    return schritt(false, 'kein-testkanal', sprache,);
   }
   try {
     const c = await anfrage('POST', `/api/chat/guilds/${gid}/channels`, { name: 'pruefung', type: 1, position: 0 });
     const cid = (c.json as { id?: string }).id;
-    if (!cid) return schritt(false, 'kein-testkanal', 'Der Sprach-Test-Kanal konnte nicht angelegt werden.', 'Erneut prüfen.');
+    if (!cid) return schritt(false, 'kein-testkanal', sprache,);
 
     const t = await anfrage('POST', `/api/chat/channels/${cid}/stream-token`, { protocol: 'whip', slot: 0 });
     const pushUrl = (t.json as { push_url?: string }).push_url;
     if (t.status !== 200 || !pushUrl) {
-      return schritt(false, 'kein-stream-token', 'Der Server hat keinen Stream-Zugang ausgestellt.',
-        'Erneut prüfen; bleibt es rot: Server stoppen und starten.');
+      return schritt(false, 'kein-stream-token', sprache,);
     }
 
     const whip = await fetch(pushUrl, {
@@ -150,17 +212,13 @@ export async function medienRundtrip(opt: MedienRundtripOptionen): Promise<Probe
       signal: AbortSignal.timeout(10_000),
     });
     if (whip.status !== 201) {
-      return schritt(false, 'whip-abgelehnt',
-        'Der Stream-Server hat den Probe-Stream nicht angenommen.',
-        'Eine Minute warten und erneut prüfen; bleibt es rot: Server stoppen und starten.',
-        `HTTP ${whip.status}`);
+      return schritt(false, 'whip-abgelehnt', sprache, `HTTP ${whip.status}`);
     }
 
     const wr = await anfrage('GET', `/api/chat/channels/${cid}/whep?user_id=${(g.json as { owner_id?: string }).owner_id ?? ''}`);
     const whepUrl = (wr.json as { whep_url?: string }).whep_url;
     if (wr.status !== 200 || !whepUrl) {
-      return schritt(false, 'whep-fehlt', 'Der Auslieferungsweg für Zuschauer wurde nicht ausgestellt.',
-        'Erneut prüfen; bleibt es rot: Server stoppen und starten.');
+      return schritt(false, 'whep-fehlt', sprache,);
     }
     const whep = await fetch(whepUrl, {
       method: 'POST',
@@ -174,10 +232,9 @@ export async function medienRundtrip(opt: MedienRundtripOptionen): Promise<Probe
     const wegSteht = whep.status === 200 || whep.status === 201 ||
       (whep.status === 404 && (await whep.text()).includes('no stream is available'));
     if (!wegSteht) {
-      return schritt(false, 'whep-abgelehnt', 'Der Auslieferungsweg für Zuschauer hat den Probe-Anruf abgelehnt.',
-        'Erneut prüfen; bleibt es rot: Server stoppen und starten.', `HTTP ${whep.status}`);
+      return schritt(false, 'whep-abgelehnt', sprache, `HTTP ${whep.status}`);
     }
-    return schritt(true, 'rundtrip', 'Probe-Stream angenommen und der Auslieferungsweg geprüft.');
+    return schritt(true, 'rundtrip', sprache);
   } finally {
     // Wegwerf-Community löschen (kanalisiert MediaMTX-Reste mit ab).
     await anfrage('DELETE', `/api/chat/guilds/${gid}`).catch(() => undefined);

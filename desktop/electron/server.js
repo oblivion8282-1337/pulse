@@ -16,6 +16,70 @@ const PHASE_TEXT = {
 const PREP = ['checking-network', 'opening-door', 'preparing', 'going-live'];
 const ERR = ['needs-your-help', 'not-possible-here', 'something-paused', 'needs-windows-setup', 'superseded'];
 
+// ── Zweisprachigkeit: Deutsch ist der Quelltext, Englisch kommt aus der
+// Tabelle (Schlüssel = der deutsche Text). Alles dynamisch Erzeugte läuft
+// durch ui().
+const SPRACHE = (navigator.language || 'de').toLowerCase().startsWith('de') ? 'de' : 'en';
+const UI_EN = {
+  'Bereit.': 'Ready.',
+  'Server läuft.': 'Server is running.',
+  'Server wird gestoppt …': 'Server is stopping …',
+  'Server wird gestartet …': 'Server is starting …',
+  'Einrichten …': 'Setting up …',
+  'Bereit zum Einrichten.': 'Ready to set up.',
+  'Automatische Einrichtung fehlgeschlagen — Token-Fallback.': 'Automatic setup failed — token fallback.',
+  'Kein Podman/Docker erkannt — Container-Runtime wird benötigt.': 'No Podman/Docker detected — a container runtime is required.',
+  'Server nicht mehr registriert.': 'Server is no longer registered.',
+  'Auf ein anderes Gerät umgezogen.': 'Moved to another device.',
+  'Update wird installiert …': 'Installing update …',
+  'Kopiert': 'Copied',
+  'Noch kein Backup erstellt.': 'No backup created yet.',
+  'Letztes Backup: ': 'Last backup: ',
+  'Belegter Speicher: ': 'Disk usage: ',
+  'Belegter Speicher: nicht ermittelbar.': 'Disk usage: cannot be determined.',
+  ' — über 30 Tage her.': ' — more than 30 days ago.',
+  'Prüfe … (bis zu einer Minute)': 'Checking … (up to a minute)',
+  'Alles in Ordnung — alle Glieder grün.': 'All good — every link is green.',
+  'Nicht geprüft: ': 'Not checked: ',
+  'Prüfung fehlgeschlagen: ': 'Check failed: ',
+  'Klemmt: ': 'Blocked by: ',
+  ' — alles danach hängt daran.': ' — everything after this depends on it.',
+  'Cloud-Prüfung nicht erreichbar: ': 'Cloud check unreachable: ',
+  'Einrichten …': 'Setting up …',
+  'Einrichtung fehlgeschlagen: ': 'Setup failed: ',
+  'Verbinden fehlgeschlagen: ': 'Pairing failed: ',
+  'Start fehlgeschlagen: ': 'Start failed: ',
+  'Export fehlgeschlagen: ': 'Export failed: ',
+  'Backup gespeichert.': 'Backup saved.',
+  'Backup importiert.': 'Backup imported.',
+  'Zieldatei wählen …': 'Choose target file …',
+  'Backup-Datei wählen …': 'Choose backup file …',
+  'Prüfung fehlgeschlagen': 'Check failed',
+  'Container-Runtime': 'Container runtime',
+  'Docker oder Podman wurde auf diesem Gerät nicht gefunden.': 'Docker or Podman was not found on this device.',
+  'Docker installieren und die Server-App neu starten.': 'Install Docker and restart the server app.',
+  'Server-Container': 'Server container',
+  'Der Server-Container ist gestoppt.': 'The server container is stopped.',
+  'Knopf „Server starten“ oben betätigen.': 'Press the "Start server" button above.',
+  'Innere Gesundheit': 'Inner health',
+  'Der Container antwortet am Verwaltungsport nicht.': 'The container does not answer on its management port.',
+  'Eine Minute warten. Bleibt der Schritt rot: Server stoppen und wieder starten.': 'Wait a minute. If it stays red: stop and start the server again.',
+  'Automatisches Backup': 'Automatic backup',
+  'Es gibt noch keinen automatischen Datenbank-Snapshot.': 'There is no automatic database snapshot yet.',
+  'Nichts zu tun — der Backup-Service sichert täglich selbst; nach der Erstinstallation dauert es bis zum ersten Lauf.': 'Nothing to do — the backup service backs up daily on its own; after first setup the first run takes a while.',
+  'Sprache (Signalweg)': 'Voice (signaling)',
+  'Über die Relay-Adresse kommt kein Kontakt zum Sprachserver zustande.': 'No contact with the voice server via the relay address.',
+  'Server läuft? Kurz warten und erneut prüfen. Bleibt es rot: Server stoppen und starten.': 'Server running? Wait a moment and check again. If it stays red: stop and start the server.',
+  'Streams (Senden + Empfangen)': 'Streams (send + receive)',
+  'Die Stream-Prüfung brach mit einem Fehler ab.': 'The stream check aborted with an error.',
+  'Erneut prüfen. Bleibt es rot: Server stoppen und starten.': 'Check again. If it stays red: stop and start the server.',
+};
+const ui = (s) => {
+  if (SPRACHE === 'de') return s;
+  const e = UI_EN[String(s).trim()];
+  return e !== undefined ? e : s;
+};
+
 function dotClass(phase) {
   if (phase === 'live') return 'dot live';
   if (PREP.includes(phase)) return 'dot prep';
@@ -29,14 +93,14 @@ function setStatus(phase, detail) {
   // Der blande graue Punkt (Leerlauf) sagt nichts aus — nur grün/gelb/rot
   // darf man sehen.
   $('dot').classList.toggle('hidden', klasse === 'dot');
-  let text = PHASE_TEXT[phase] ?? phase;
+  let text = ui(PHASE_TEXT[phase] ?? phase);
   if (phase === 'superseded' && detail && detail.reason === 'deleted') {
-    text = 'Server nicht mehr registriert.';
+    text = ui('Server nicht mehr registriert.');
   }
   if (phase === 'preparing' && detail && detail.step) {
     // 'update' kommt vom 24h-Update-Check des Main-Prozesses — eigener Text
     // statt eines generischen Neustarts.
-    text = detail.step === 'update' ? 'Update wird installiert …' : text + ' (' + detail.step + ')';
+    text = detail.step === 'update' ? ui('Update wird installiert …') : text + ' (' + detail.step + ')';
   }
   $('statustext').textContent = text;
   // Live zeigt immer den Einladungs-Wegweiser + Cloud-Status; die kopierbare
@@ -126,7 +190,7 @@ async function doVerbindungstest() {
   verbindungLaeuft = true;
   $('btnVerbindungstest').disabled = true;
   $('verbindungStatus').classList.remove('hidden');
-  $('verbindungStatus').textContent = 'Prüfe … (bis zu einer Minute)';
+  $('verbindungStatus').textContent = ui('Prüfe … (bis zu einer Minute)');
   $('verbindungErgebnis').classList.add('hidden');
   const r = await host.verbindungstest().catch((e2) => ({ ok: false, error: e2.message }));
   verbindungLaeuft = false;
@@ -135,8 +199,7 @@ async function doVerbindungstest() {
   const box = $('verbindungErgebnis');
   box.classList.remove('hidden');
   if (!r || !r.ok) {
-    box.innerHTML = '<div class="hint warn">Prüfung fehlgeschlagen: '
-      + flucht((r && r.error) || 'unbekannt') + '</div>';
+    box.innerHTML = '<div class="hint warn">' + flucht(ui('Prüfung fehlgeschlagen: ') + ((r && r.error) || 'unbekannt')) + '</div>';
     return;
   }
   const alles = [
@@ -166,16 +229,15 @@ async function doVerbindungstest() {
   }).join('');
   let kopf;
   if (erster === -1) {
-    kopf = '<div class="hint" style="color:#22c55e">Alles in Ordnung — alle Glieder grün.</div>';
+    kopf = '<div class="hint" style="color:#22c55e">' + flucht(ui('Alles in Ordnung — alle Glieder grün.')) + '</div>';
   } else {
-    kopf = '<div class="hint warn">Klemmt: ' + flucht(alles[erster].titel || alles[erster].schritt)
-      + ' — alles danach hängt daran.</div>';
+    kopf = '<div class="hint warn">' + flucht(ui('Klemmt: ') + (alles[erster].titel || alles[erster].schritt) + ui(' — alles danach hängt daran.')) + '</div>';
   }
   let fuss = '';
   if (r.cloudFehler) {
-    fuss = '<div class="hint warn">Cloud-Prüfung nicht erreichbar: ' + flucht(r.cloudFehler) + '</div>';
+    fuss = '<div class="hint warn">' + flucht(ui('Cloud-Prüfung nicht erreichbar: ') + r.cloudFehler) + '</div>';
   } else if (r.cloud && r.cloud.nicht_geprueft && r.cloud.nicht_geprueft.length) {
-    fuss = '<div class="hint">Nicht geprüft: ' + flucht(r.cloud.nicht_geprueft.join(', ')) + '</div>';
+    fuss = '<div class="hint">' + flucht(ui('Nicht geprüft: ') + r.cloud.nicht_geprueft.join(', ')) + '</div>';
   }
   box.innerHTML = kopf + zeilen + fuss;
 }
@@ -184,7 +246,7 @@ async function loadDataInfo() {
   if (!host || !host.dataInfo) return;
   const info = await host.dataInfo().catch(() => null);
   const size = info ? formatBytes(info.sizeBytes) : null;
-  $('dataSize').textContent = size ? 'Belegter Speicher: ' + size : 'Belegter Speicher: nicht ermittelbar.';
+  $('dataSize').textContent = size ? ui('Belegter Speicher: ') + size : ui('Belegter Speicher: nicht ermittelbar.');
   // Neuestes Backup: manueller Export ODER automatischer pg_dump des
   // Backup-Services — wer jünger ist, gewinnt. Ohne die automatische Seite
   // würde die Zeile fälschlich "Noch kein Backup erstellt" zeigen, obwohl
@@ -194,12 +256,12 @@ async function loadDataInfo() {
   backupEl.classList.remove('warn');
   if (!last) {
     backupEl.classList.add('warn');
-    backupEl.textContent = 'Noch kein Backup erstellt.';
+    backupEl.textContent = ui('Noch kein Backup erstellt.');
   } else {
     const dateText = new Date(last).toLocaleDateString('de-DE');
     const over30d = Date.now() - last > 30 * 24 * 60 * 60 * 1000;
     if (over30d) backupEl.classList.add('warn');
-    backupEl.textContent = 'Letztes Backup: ' + dateText + (over30d ? ' — über 30 Tage her.' : '');
+    backupEl.textContent = ui('Letztes Backup: ') + dateText + (over30d ? ui(' — über 30 Tage her.') : '');
   }
 }
 
@@ -251,7 +313,7 @@ async function doImport() {
 }
 
 async function refresh() {
-  if (!host) { $('statustext').textContent = 'Fehler: Host-Bridge nicht verfügbar.'; $('dot').className = 'dot err'; return; }
+  if (!host) { $('statustext').textContent = ui('Fehler: Host-Bridge nicht verfügbar.'); $('dot').className = 'dot err'; return; }
   // Zustands-Abgleich zuerst: hebt die Phase auf 'live', falls der
   // Container (--restart unless-stopped) über einen App-Neustart hinweg
   // weiterlief — ohne das zeigt die UI fälschlich "Bereit"/"Server starten".
@@ -305,10 +367,10 @@ async function refresh() {
   }
 
   if (!paired && !running && phase === 'idle') {
-    $('statustext').textContent = provisionFailed ? 'Automatische Einrichtung fehlgeschlagen — Token-Fallback.' : 'Bereit zum Einrichten.';
+    $('statustext').textContent = provisionFailed ? ui('Automatische Einrichtung fehlgeschlagen — Token-Fallback.') : ui('Bereit zum Einrichten.');
   }
   if (!runtimeOk && !running && !superseded) {
-    $('statustext').textContent = 'Kein Podman/Docker erkannt — Container-Runtime wird benötigt.';
+    $('statustext').textContent = ui('Kein Podman/Docker erkannt — Container-Runtime wird benötigt.');
     $('dot').className = 'dot err';
   }
 }
@@ -334,7 +396,7 @@ function bind() {
     $('btnSetup').disabled = false;
     if (r && r.needsTakeoverConfirm) { $('takeoverOverlay').classList.remove('hidden'); }
     else if (r && r.ok) { provisionFailed = false; }
-    else { provisionFailed = true; alert('Einrichtung fehlgeschlagen: ' + ((r && r.error) || 'unbekannt')); }
+    else { provisionFailed = true; alert(ui('Einrichtung fehlgeschlagen: ') + ((r && r.error) || 'unbekannt')); }
     refresh();
   };
   $('btnSetup').onclick = () => doProvision();
@@ -362,8 +424,8 @@ function bind() {
     const t = $('token').value.trim();
     if (!t) return;
     $('btnPair').disabled = true;
-    try { const r = await host.pair(t); if (r && r.error) alert('Verbinden fehlgeschlagen: ' + r.error); }
-    catch (e) { alert('Verbinden fehlgeschlagen: ' + e.message); }
+    try { const r = await host.pair(t); if (r && r.error) alert(ui('Verbinden fehlgeschlagen: ') + r.error); }
+    catch (e) { alert(ui('Verbinden fehlgeschlagen: ') + e.message); }
     finally { $('btnPair').disabled = false; refresh(); }
   };
   $('btnStart').onclick = async () => {
@@ -380,7 +442,7 @@ function bind() {
       if (!wsl || wsl.ok !== true) return;
     }
     $('btnStart').disabled = true;
-    await host.start({}).catch((e) => alert('Start fehlgeschlagen: ' + e.message));
+    await host.start({}).catch((e) => alert(ui('Start fehlgeschlagen: ') + e.message));
     $('btnStart').disabled = false; refresh();
   };
   $('btnStop').onclick = async () => {
@@ -389,7 +451,7 @@ function bind() {
     // rennt gegen den laufenden Stopp.
     $('btnStop').disabled = true;
     $('btnStart').disabled = true;
-    $('statustext').textContent = 'Server wird gestoppt …';
+    $('statustext').textContent = ui('Server wird gestoppt …');
     $('dot').className = 'dot prep';
     await host.stop().catch(() => {});
     $('btnStop').disabled = false;
@@ -474,3 +536,61 @@ function bind() {
 bind();
 refresh();
 loadIdentity();
+
+
+// ── Statische Markup-Texte auf Englisch (Zweisprachigkeit 2026-10-01):
+// Deutsch steht im Markup; bei nicht-deutscher Browsersprache werden die
+// Textknoten aus dieser Tabelle ersetzt. Läuft einmalig nach dem DOM-Aufbau —
+// als externe Datei, weil die CSP Inline-Scripts verbietet.
+if (SPRACHE !== 'de') {
+  const STATISCH_EN = {
+    'Selbst-gehosteter Pulse-Server auf diesem Gerät.': 'Your self-hosted Pulse server on this device.',
+    'Initialisiere …': 'Initializing …',
+    'Server einrichten': 'Set up server',
+    'Du bist eingeloggt. Die Einrichtung findet deine freigegebene Instanz und verbindet dieses Gerät automatisch.': 'You are signed in. Setup will find your provisioned instance and connect this device automatically.',
+    'Bootstrap-Token (Fallback)': 'Bootstrap token (fallback)',
+    'Automatische Einrichtung fehlgeschlagen — minte das Token manuell in deinem Konto und füge es ein.': 'Automatic setup failed — mint the token manually in your account and paste it here.',
+    'Gerät verbinden': 'Connect device',
+    'Server starten': 'Start server',
+    'Server stoppen': 'Stop server',
+    'Dieser Server wurde auf ein anderes Gerät umgezogen.': 'This server was moved to another device.',
+    'Neu einrichten': 'Set up again',
+    'Verstanden — Gerät zurücksetzen': 'Understood — reset this device',
+    'Lokale Daten löschen …': 'Delete local data …',
+    'Server-Adresse (zum Teilen)': 'Server address (to share)',
+    'Kopiert': 'Copied',
+    'Beim Anmelden automatisch starten': 'Start automatically on sign-in',
+    'Dauerbetrieb einrichten': 'Set up always-on operation',
+    'Den Schalter oben aktivieren — die Server-App startet dann mit deiner Anmeldung.': 'Turn on the switch above — the server app will then start with your sign-in.',
+    'Automatische Anmeldung deines Benutzerkontos in den Systemeinstellungen aktivieren, damit das Gerät ohne Zutun hochkommt.': 'Enable automatic sign-in of your user account in the system settings, so the device starts up without any input.',
+    'Im BIOS/UEFI (bzw. bei Macs in den Energieeinstellungen) „Nach Stromausfall automatisch einschalten“ aktivieren.': 'In the BIOS/UEFI (on Macs: energy settings), enable "Start up automatically after a power failure".',
+    'Deine Daten': 'Your data',
+    'Alle Nachrichten und Dateien deines Servers liegen auf diesem Gerät — nichts davon in der Cloud.': 'All messages and files of your server live on this device — none of it in the cloud.',
+    'Alles exportieren': 'Export everything',
+    'Backup importieren …': 'Import backup …',
+    'Verbindungen': 'Connections',
+    'Verbindung prüfen': 'Check connection',
+    'Abmelden': 'Sign out',
+    'Anmelden': 'Sign in',
+    'Server aufgeben …': 'Shut down server …',
+    'Server übernehmen?': 'Take over server?',
+    'Für dieses Konto läuft bereits ein eingerichteter Server. Übernehmen? Der bisherige Server verliert dauerhaft den Zugang.': 'A set up server is already running for this account. Take over? The previous server permanently loses access.',
+    'Übernehmen': 'Take over',
+    'Abbrechen': 'Cancel',
+    'Backup importieren?': 'Import backup?',
+    'Ersetzt alle aktuellen Serverdaten auf diesem Gerät durch den Inhalt der Backup-Datei (Nachrichten, Dateien — unwiderruflich). Der Server wird dafür kurz gestoppt.': 'Replaces all current server data on this device with the contents of the backup file (messages, files — irreversible). The server will be stopped briefly for this.',
+    'Backup-Datei wählen und importieren': 'Choose backup file and import',
+    'Server aufgeben?': 'Shut down server?',
+    'Dein Server wird dauerhaft gelöscht. Mitglieder verlieren den Zugang und der Server verschwindet aus ihren Listen.': 'Your server will be permanently deleted. Members lose access and the server disappears from their lists.',
+    'Auch die lokalen Serverdaten auf diesem Gerät löschen (Nachrichten, Dateien — unwiderruflich)': 'Also delete the local server data on this device (messages, files — irreversible)',
+    'Server dauerhaft aufgeben': 'Shut down server permanently',
+  };
+  const wanderer = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const knoten = [];
+  while (wanderer.nextNode()) knoten.push(wanderer.currentNode);
+  for (const k of knoten) {
+    const t = k.textContent.replace(/\s+/g, ' ').trim();
+    const en = STATISCH_EN[t];
+    if (en) k.textContent = k.textContent.replace(t, en);
+  }
+}
