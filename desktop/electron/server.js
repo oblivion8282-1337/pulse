@@ -24,7 +24,11 @@ function dotClass(phase) {
 }
 
 function setStatus(phase, detail) {
-  $('dot').className = dotClass(phase);
+  const klasse = dotClass(phase);
+  $('dot').className = klasse;
+  // Der blande graue Punkt (Leerlauf) sagt nichts aus — nur grün/gelb/rot
+  // darf man sehen.
+  $('dot').classList.toggle('hidden', klasse === 'dot');
   let text = PHASE_TEXT[phase] ?? phase;
   if (phase === 'superseded' && detail && detail.reason === 'deleted') {
     text = 'Server nicht mehr registriert.';
