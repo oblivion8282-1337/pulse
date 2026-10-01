@@ -936,6 +936,36 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     let sizeBytes: number | null = null;
     let lastAutoBackup: number | null = null;
     const rt = await manager.runtime().catch(() => null);
+    if (rt && creds) {
+      const running = await manager.isContainerRunning().catch(() => false);
+      sizeBytes = await volumeSizeBytes(rt, resolveImage().image, running).catch(() => null);
+      // Automatische pg_dumps des Backup-Services — ohne sie würde die UI
+      // „Noch kein Backup erstellt" zeigen, obwohl täglich gesichert wird.
+      lastAutoBackup = await lastAutoBackupAt(rt, resolveImage().image, running).catch(() => null);
+    }
+    return { sizeBytes, lastBackupAt, lastAutoBackupAt: lastAutoBackup };
+  });
+  // Verbindungs-Check (Stufe 2, Plan 2026-09-30): lokale Glieder — nur die
+  // App kann sie sehen — plus DIESELBE Cloud-Kette wie die Instance-Diagnose
+  // im Web. Auth als Weg 1 (Pairing-Creds, der Installer-Weg): das Fenster
+  // hält zwar einen Session-Cookie, aber Renderer-Fetches auf die Cloud
+  // rennen in CORS (server.html lebt auf file://) — der Main-Prozess
+  // authentifiziert sich stattdessen als die Instanz selbst.
+  ipcMain.handle('host:verbindungstest', async (e) => {
+    if (!localSenderOnly(e) || !creds) return { ok: false, error: 'forbidden' };
+    const deutsch = app.getLocale().toLowerCase().startsWith('de');
+    const S = (de: string, en: string): string => (deutsch ? de : en);
+    const lokal: {
+      schritt: string; titel: string; ok: boolean; was_ist: string; was_tun: string; einzelheit?: string;
+    }[] = [];
+    const push = (
+      schritt: string, titel: string, ok: boolean, was_ist: string, was_tun: string,
+      einzelheit?: string,
+    ): void => {
+      lokal.push({ schritt, titel, ok, was_ist, was_tun, ...(einzelheit ? { einzelheit } : {}) });
+    };
+
+    const rt = await manager.runtime().catch(() => null);
     push(
       'runtime', S('Container-Runtime', 'Container runtime'), !!rt,
       S('Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
@@ -951,7 +981,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     );
     let healthOk = false;
     if (rt && laeuft) {
-      healthOk = await httpHealth(`http://127.0.0.1:${HOST_HTTP_PORT}/api/chat/health`)
+      // host-Networking (Windows: Container in der podman-VM) bindet 8080 an
+      // die VM-IP; sonst am veröffentlichten 127.0.0.1-Port — wie in start().
+      const vmIp = rt.kind === 'podman' && process.platform === 'win32'
+        ? await manager.vmIp().catch(() => null)
+        : null;
+      healthOk = await httpHealth(`http://${vmIp ?? '127.0.0.1'}:${vmIp ? 8080 : HOST_HTTP_PORT}/api/chat/health`)
         .then(() => true).catch(() => false);
     }
     push(
