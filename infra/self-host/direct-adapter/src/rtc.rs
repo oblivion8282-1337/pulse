@@ -33,10 +33,17 @@ use webrtc::peer_connection::RTCPeerConnection;
 /// (`is_gatherable_ip`).
 fn is_useful_candidate_ip(ip: IpAddr) -> bool {
     let IpAddr::V4(v4) = ip else { return false };
-    let [a, b, ..] = v4.octets();
+    let [a, b, c, ..] = v4.octets();
     let docker_bridge = a == 172 && (16..=31).contains(&b);
     let cgnat_tailscale = a == 100 && (64..=127).contains(&b);
-    !(docker_bridge || cgnat_tailscale || v4.is_loopback())
+    // WSL2-DNS-Tunneling legt auf lo eine GLOBALE Pseudo-Adresse (10.255.255.254)
+    // — der gather nimmt sie (kein 127.x), aber aus dem LAN ist sie tot, und ihr
+    // Kandidat in der Answer multiplizierte den srflx mit identischer Foundation
+    // — Firefox's strikter Parser verweigert darauf die ICE-Checks (Windows-E2E
+    // 2026-10-01). ponytail: Interface-Namen kommen am IP-Filter nicht an; wird
+    // WSL die Range je Version ändern, hier nachziehen.
+    let wsl_dns_pseudo = a == 10 && b == 255 && c == 255;
+    !(docker_bridge || cgnat_tailscale || wsl_dns_pseudo || v4.is_loopback())
 }
 
 /// Filter fürs GATHERING (Agent-intern): Im Container ist die Docker-Bridge-
@@ -259,5 +266,15 @@ mod tests {
         assert!(!is_useful_candidate_ip("172.17.0.2".parse().unwrap()));
         assert!(!is_useful_candidate_ip("100.77.12.9".parse().unwrap()));
         assert!(is_useful_candidate_ip("192.168.178.72".parse().unwrap()));
+    }
+
+    /// WSL2-DNS-Tunneling (Windows-E2E 2026-10-01): auf lo liegt eine GLOBALE
+    /// Pseudo-Adresse — gather-tauglich (intern nötig), aber nie in die Answer.
+    #[test]
+    fn sdp_filter_verwirft_wsl_dns_pseudoadresse() {
+        assert!(is_gatherable_ip("10.255.255.254".parse().unwrap()));
+        assert!(!is_useful_candidate_ip("10.255.255.254".parse().unwrap()));
+        // Echtes 10/8-LAN bleibt brauchbar (manche Heimnetze fahren 10.x).
+        assert!(is_useful_candidate_ip("10.0.0.5".parse().unwrap()));
     }
 }

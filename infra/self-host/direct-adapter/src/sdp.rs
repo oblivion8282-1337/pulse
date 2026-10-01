@@ -132,9 +132,15 @@ pub fn inject_extra_hosts(sdp: &str, extra_ips: &[Ipv4Addr], port: u16) -> Strin
     out.join("\r\n") + "\r\n"
 }
 
-/// Hängt hinter die vorhandenen Host-Kandidaten je Komponente einen
-/// srflx-Kandidaten auf `public_ip` an. No-op, wenn die öffentliche Adresse
-/// bereits als Host-Kandidat auftaucht (Server mit echter Public-IP).
+/// Hängt hinter die vorhandenen Host-Kandidaten JE KOMPONENTE genau einen
+/// srflx-Kandidaten auf `public_ip` an (der erste Host-Zeile der Komponente als
+/// raddr-Anker). Mehrere srflx je Komponente mit identischer Foundation — so
+/// wie mehrere Host-Basen sie erzeugen würden — verletzen RFC 8445 §5.1.1.1
+/// (gleiche Foundation nur bei gleicher Basis) und lassen Firefox' SDP-Parser
+/// die ICE-Checks verweigern (Windows-E2E 2026-10-01). Die Mux routet über den
+/// ufrag — welcher interne Base-Anker in der Zeile steht, ist funktional egal.
+/// No-op, wenn die öffentliche Adresse bereits als Host-Kandidat auftaucht
+/// (Server mit echter Public-IP).
 pub fn inject_srflx(sdp: &str, public_ip: IpAddr) -> String {
     let IpAddr::V4(public_v4) = public_ip else {
         return sdp.to_string(); // IPv6-Außenadressen: kein NAT, kein srflx nötig
@@ -142,10 +148,11 @@ pub fn inject_srflx(sdp: &str, public_ip: IpAddr) -> String {
     let public = public_v4.to_string();
 
     let mut out: Vec<String> = Vec::with_capacity(sdp.lines().count() + 2);
-    let mut appended = false;
+    let mut bediente_komponenten: std::collections::BTreeSet<u32> = Default::default();
+    let mut oeffentlich_ohne_nat = false;
     for line in sdp.lines() {
         out.push(line.to_string());
-        if appended || !line.starts_with("a=candidate:") || !line.contains(" typ host") {
+        if !line.starts_with("a=candidate:") || !line.contains(" typ host") {
             continue;
         }
         let f: Vec<&str> = line.split_whitespace().collect();
@@ -158,8 +165,10 @@ pub fn inject_srflx(sdp: &str, public_ip: IpAddr) -> String {
             continue;
         };
         if *host_ip == public {
-            appended = true; // öffentlich erreichbar ohne NAT
-            continue;
+            oeffentlich_ohne_nat = true; // öffentlich erreichbar → gar kein srflx
+        }
+        if oeffentlich_ohne_nat || !bediente_komponenten.insert(component) {
+            continue; // kein NAT am Server, oder srflx für die Komponente steht schon
         }
         // Foundation: stabil pro (typ, ip, proto) und verschieden von der des
         // Host-Kandidaten — daher aus der öffentlichen IP abgeleitet.
@@ -201,6 +210,23 @@ mod tests {
         let sdp = SDP.replace("192.168.178.87", "46.128.100.64");
         let out = inject_srflx(&sdp, "46.128.100.64".parse().unwrap());
         assert!(!out.contains("typ srflx"));
+    }
+
+    /// Mehrere Host-Basen je Komponente (VM-Fall: injected LAN + restlicher
+    /// interner Kandidat) dürfen NICHT zu srflx-Zwillingen mit identischer
+    /// Foundation führen — Firefox' SDP-Parser verweigert dann die Checks
+    /// (RFC 8445 §5.1.1.1, Windows-E2E 2026-10-01).
+    #[test]
+    fn srflx_einmal_je_komponente_trotz_mehrerer_host_basen() {
+        let zwei_basen = "v=0\r\na=candidate:1 1 udp 2130706431 10.255.255.254 7900 typ host\r\na=candidate:1 2 udp 2130706431 10.255.255.254 7900 typ host\r\na=candidate:2 1 udp 2130706175 192.168.178.20 7900 typ host\r\na=candidate:2 2 udp 2130706174 192.168.178.20 7900 typ host\r\n";
+        let out = inject_srflx(zwei_basen, "46.128.161.204".parse().unwrap());
+        let srflx: Vec<&str> = out.lines().filter(|l| l.contains("typ srflx")).collect();
+        assert_eq!(srflx.len(), 2, "genau je Komponente einer:\n{out}");
+        assert!(srflx.iter().all(|l| l.contains(" 46.128.161.204 7900 typ srflx")));
+        // Die Foundation ist trotzdem über alle Zeilen gleich (gleiche Basis,
+        // gleiche öffentliche Adresse) — dedupliziert ist sie eindeutig je
+        // Komponente, und die Komponenten unterscheiden sich in der Prio.
+        assert!(srflx[0].contains(" 1 udp ") && srflx[1].contains(" 2 udp "));
     }
 
     #[test]
