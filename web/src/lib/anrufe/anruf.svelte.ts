@@ -35,6 +35,7 @@ import {
   type AnrufArt
 } from '$lib/api/anrufe';
 import { sounds } from '$lib/sounds/engine';
+import { setVoiceActive } from '$lib/platform/audioRoute';
 import { toast } from 'svelte-sonner';
 import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
 import { m } from '$lib/paraglide/messages.js';
@@ -496,6 +497,14 @@ class AnrufStore {
           }
         });
 
+      // Android: MODE_IN_COMMUNICATION VOR room.connect() erzwingen — derselbe
+      // Grund wie in `voice/livekit.svelte.ts`: Android pinnt ein laufendes
+      // AudioTrack auf seinen Stream; kommt der Modus erst nach dem Handschlag,
+      // laufen die Stimmen auf dem Medien-Kanal (falscher Lautstärkeregler,
+      // im Auto leises A2DP). So läuft der Anruf über die Anruf-Lautstärke und
+      // der Mic-Dienst hält die Verbindung bei gesperrtem Bildschirm am Leben.
+      await setVoiceActive(true);
+
       await room.connect(resp.ws_url, resp.token);
       if (gen !== this.#abbauGen) {
         void room.disconnect();
@@ -549,6 +558,9 @@ class AnrufStore {
     // bleiben als Medienreste im DOM — hier weg damit.
     for (const element of this.#ferneStimmen) element.remove();
     this.#ferneStimmen = [];
+    // Android: Ruf-Modus + Mic-Dienst freigeben (No-op außerhalb des Wrappers) —
+    // sonst bleibt das Telefon im Call-Modus hängen (falscher Lautstärkeregler).
+    void setVoiceActive(false);
   }
 }
 
