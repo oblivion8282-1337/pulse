@@ -25,6 +25,7 @@
     LINUX_FLATPAKREF_URL,
     LINUX_INSTALL_COMMAND,
     WINDOWS_SERVER_INSTALLER_URL,
+    MAC_SERVER_DMG_URL,
     LINUX_SERVER_FLATPAKREF_URL,
     LINUX_SERVER_INSTALL_COMMAND
   } from '$lib/downloads/appDownloads';
@@ -173,6 +174,15 @@
         data-testid="download-server-windows"
       >
         <WindowsIcon class="size-3.5" />
+        {m.downloads_server()}
+      </a>
+      <a
+        href={MAC_SERVER_DMG_URL}
+        class={linkClass}
+        title={m.downloads_server_mac_hint()}
+        data-testid="download-server-mac"
+      >
+        <AppleIcon class="size-3.5" />
         {m.downloads_server()}
       </a>
       <DropdownMenu.Root>

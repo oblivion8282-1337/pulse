@@ -1019,6 +1019,7 @@
   "downloads_linux_title": "Pulse for Linux (Flatpak)",
   "downloads_server": "Pulse Server",
   "downloads_server_hint": "Your own server on your machine — download for Windows. First launch shows a Windows SmartScreen prompt — “More info” → “Run anyway”.",
+  "downloads_server_mac_hint": "Your own server on your Mac — download the DMG. Not yet notarized — on first launch, right-click the app → “Open”.",
   "downloads_server_linux_title": "Pulse Server for Linux (Flatpak)",
   "downloads_server_row": "Self-host:",
   "downloads_mac": "macOS",

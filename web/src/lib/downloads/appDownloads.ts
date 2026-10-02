@@ -33,8 +33,10 @@ export const LINUX_INSTALL_COMMAND = `flatpak install --from ${LINUX_FLATPAKREF_
 // Eigenes Server-Hosting aus der App heraus. Windows hat einen EIGENEN
 // Auto-Update-Feed (/updates/win-server/, CI win-build-server.yml schreibt
 // Pulse-Server-Setup-latest.exe dort hin); Linux teilt sich das Flatpak-Repo,
-// eigene App-ID com.howispulse.PulseServer. KEIN macOS-Link, solange keine
-// CI-Straße die Server-DMG baut — ein toter Link ist schlimmer als keiner.
+// eigene App-ID com.howispulse.PulseServer; macOS zieht der build-server-Job
+// in mac-build.yml als unsigniertes DMG nach /downloads/ (gleiches Muster wie
+// der Client).
 export const WINDOWS_SERVER_INSTALLER_URL = `${BASE}/updates/win-server/Pulse-Server-Setup-latest.exe`;
+export const MAC_SERVER_DMG_URL = `${BASE}/downloads/Pulse-Server-latest.dmg`;
 export const LINUX_SERVER_FLATPAKREF_URL = `${BASE}/flatpak/com.howispulse.PulseServer.flatpakref`;
 export const LINUX_SERVER_INSTALL_COMMAND = `flatpak install --from ${LINUX_SERVER_FLATPAKREF_URL}`;

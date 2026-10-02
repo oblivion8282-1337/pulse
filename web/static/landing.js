@@ -28,9 +28,10 @@ export const ANDROID_APK_URL = `${BASE}/downloads/pulse-latest.apk`;
 export const MAC_DMG_URL = `${BASE}/downloads/Pulse-latest.dmg`;
 export const LINUX_FLATPAKREF_URL = `${BASE}/flatpak/com.howispulse.Pulse.flatpakref`;
 export const LINUX_INSTALL_COMMAND = `flatpak install --from ${LINUX_FLATPAKREF_URL}`;
-// Pulse Server (App-Hosting) — s. appDownloads.ts; macOS folgt mit eigener
-// CI-Straße, bis dahin dort bewusst kein toter Link.
+// Pulse Server (App-Hosting) — s. appDownloads.ts; macOS-DMG baut der
+// build-server-Job in mac-build.yml (seit dem Heim-Server-Merge 2026-10-02).
 export const WINDOWS_SERVER_INSTALLER_URL = `${BASE}/updates/win-server/Pulse-Server-Setup-latest.exe`;
+export const MAC_SERVER_DMG_URL = `${BASE}/downloads/Pulse-Server-latest.dmg`;
 export const LINUX_SERVER_FLATPAKREF_URL = `${BASE}/flatpak/com.howispulse.PulseServer.flatpakref`;
 export const LINUX_SERVER_INSTALL_COMMAND = `flatpak install --from ${LINUX_SERVER_FLATPAKREF_URL}`;
 
