@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-10-02.1",
+      "date": "2026-10-02",
+      "style": "Sachlich",
+      "title": "Pulse Server: der eigene Server wird zur App",
+      "intro": "Eigener Server war bisher eine Sache für die Kommandozeile. Jetzt gibt es dafür eine eigene Anwendung: Pulse Server führt in wenigen Schritten durch die Einrichtung auf dem eigenen Rechner — unter Windows als Installer, unter Linux als Flatpak, auf dem Mac als Diskimage. Der Server läuft abgeschottet in einem Container, ist verschlüsselt über die Cloud erreichbar und prüft auf Knopfdruck selbst, ob alle Verbindungen stehen. Zusätzlich sprechen Heimserver unter Windows jetzt auch Sprachkanäle mit anderen Geräten im Heimnetzwerk.",
+      "items": [
+        "Neu: Pulse Server — eigene Server-Instanz direkt aus der App einrichten (Windows, Linux, macOS); Updates zieht die Anwendung selbst.",
+        "Windows-Heimserver: Sprach- und Stream-Verbindungen von anderen Geräten im Heimnetzwerk repariert — vorher blieben sie beim Verbinden hängen.",
+        "Server-App: Verbindungs-Check prüft alle Glieder von der Cloud bis zu Sprache und Streams, auf Deutsch und Englisch."
+      ]
+    },
+    {
       "id": "2026-09-28.1",
       "date": "2026-09-28",
       "style": "Sachlich",
