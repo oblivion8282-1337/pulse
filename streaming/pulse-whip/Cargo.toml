@@ -3,6 +3,7 @@ name = "pulse-whip"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "AGPL-3.0-only"
 
 # anyhow und webrtc stehen bereits in allen drei Sidecars in genau diesen
 # Fassungen — es kommt nichts Neues hinzu. pulse-zeitbasis dagegen ist ein

@@ -2,6 +2,7 @@
 name = "semaphor-kopplung"
 version = "0.0.0"
 edition = "2021"
+license = "AGPL-3.0-only"
 
 # Machbarkeitsnachweis, KEIN Repo-Bauziel und KEIN Workspace-Mitglied — wie die
 # drei Proben daneben. Ein Fehlschlag hier kann nichts brechen.

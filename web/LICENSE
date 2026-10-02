@@ -1,13 +1,7 @@
-Pulse client component — Pulse Client License 1.0
+Part of Pulse — GNU Affero General Public License, Version 3 (AGPL-3.0-only)
 
-Everything in this directory is licensed under the Pulse Client License 1.0.
-Full text: ../LICENSE-CLIENT.md
+Everything in this directory is licensed under the GNU AGPL v3.0.
+Full text: ../LICENSE
 
-You may use it freely, including commercially, and you may read and audit its
-source. You may NOT modify it, create derivative works from it, redistribute it,
-republish it, or reuse its code in another project.
-
-Using Pulse as an end user — connecting to howispulse.com or to any Pulse
-server — is unrestricted and free of charge.
-
-Repository-wide licensing overview: ../LICENSE
+Third-party components keep their own licenses
+(overview: THIRD-PARTY-NOTICES.md in the repository root).

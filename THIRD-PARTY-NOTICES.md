@@ -1,9 +1,9 @@
 # Third-Party Notices
 
-Pulse's own client code is licensed under `LICENSE-CLIENT.md` (Pulse Client
-License 1.0), the server code under `LICENSE-SERVER.md` (Pulse Server License
-1.0) — see `LICENSE` for which parts fall under which license. Both permit use
-and reading the source, but not modification, redistribution or reuse. The
+Pulse's own code is licensed under the GNU Affero General Public License v3.0
+(`LICENSE`, AGPL-3.0-only; from 2026-07-25 to 2026-10-01 it ran under
+proprietary source-available licenses instead, and since 2026-10-02 it is back
+under the AGPL). The
 HQ-screen-streaming path additionally bundles or dynamically links a small
 number of third-party open-source components. This file is the developer/
 distributor-facing counterpart to the user-facing page at
@@ -13,7 +13,7 @@ the same facts, this one adds repo-internal pointers for maintainers.
 This is not a full Software Bill of Materials (SBOM) of every transitive Rust
 crate — it covers the components that are separately bundled/dynamically
 linked or that carry their own copyleft obligations distinct from Pulse's own
-client license.
+license.
 
 A full sweep **has** been run on 2026-08-05 — this paragraph used to say it
 had not been. `cargo metadata` over all three shipped Rust trees (native
@@ -36,7 +36,7 @@ tree changes; it is the only way this file stays true.
 | Component | Version / pin | License | Declared in |
 |---|---|---|---|
 | FFmpeg — BtbN prebuilt, **unmodified** | frozen self-hosted mirror of BtbN's `n8.1` LGPL-shared build, dated 2026-06-16 | LGPL (that distribution's own licence text is **v3**, shipped as `LICENSE.txt` at the package root) | `scripts/fetch-ffmpeg.ps1` (`$Url`/`$ExpectedSha`, SHA256-pinned), `.cargo/config.toml` (`FFMPEG_DIR`), `Cargo.toml` (`ffmpeg-next` binding), `.github/workflows/win-build.yml` (CI fetch step) |
-| pulse-player (native HQ player) | shipped in the Windows installer since app version `0.1.42`, in the macOS DMG since `0.1.69` | Pulse's own client code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`win.extraResources` → `resources/hq-sidecar/pulse-player.exe`), `.github/workflows/win-build.yml` (build steps) |
+| pulse-player (native HQ player) | shipped in the Windows installer since app version `0.1.42`, in the macOS DMG since `0.1.69` | Pulse's own code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`win.extraResources` → `resources/hq-sidecar/pulse-player.exe`), `.github/workflows/win-build.yml` (build steps) |
 | nv-codec-headers | `n13.0.19.0` (build-time only, not redistributed as a file) | MIT | Referenced alongside the Linux FFmpeg module, `packaging/com.howispulse.Pulse.yml:169-179` |
 
 **Windows ships an unmodified FFmpeg.** From 2026-08-05 to 2026-08-21 it did
@@ -76,7 +76,7 @@ named.
 |---|---|---|---|
 | FFmpeg (self-built) | `8.0.1` (`FFMPEG_VERSION` default) | LGPL (no `--enable-gpl`/libx264/libx265) | `streaming/mac-hq-sidecar/scripts/build-ffmpeg.sh:9-42`, `Cargo.toml:46-53`, `.cargo/config.toml`, `.github/workflows/mac-build.yml:14-22,58-81` |
 | dav1d | since 2026-08-20 | BSD-2-Clause | `streaming/mac-hq-sidecar/scripts/build-ffmpeg.sh` (`--enable-libdav1d`) |
-| pulse-player (native HQ player) | shipped in the macOS DMG since app version `0.1.69` | Pulse's own client code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`mac.extraResources` → `Resources/hq-sidecar/`), `.github/workflows/mac-build.yml` (build steps) |
+| pulse-player (native HQ player) | shipped in the macOS DMG since app version `0.1.69` | Pulse's own code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`mac.extraResources` → `Resources/hq-sidecar/`), `.github/workflows/mac-build.yml` (build steps) |
 
 Built from the unmodified official `ffmpeg.org` source tarball with
 `--enable-openssl --disable-securetransport --enable-videotoolbox
@@ -108,8 +108,8 @@ availability applies equally to the player binary, not just the sidecar.
 | Electron | `43.0.0` | MIT | `com.howispulse.Pulse.yml:267` (official release zip), bundled unmodified into `/app/electron/` |
 | FFmpeg — **unmodified** | git tag `n8.1.1`, commit `239f2c733de417201d7ad3b3b8b0d9b63285b2b1` | LGPLv3 (`--enable-version3`, no `--enable-gpl`/libx264) | `com.howispulse.Pulse.yml` (ffmpeg module) |
 | nv-codec-headers | git tag `n13.0.19.0`, commit `e844e5b26f46bb77479f063029595293aa8f812d` | MIT (headers only, build-time) | `com.howispulse.Pulse.yml:169-179` |
-| pulse-linux-hq-sidecar (Rust) | in-tree at `streaming/linux-hq-sidecar/`, built via `type: dir` | Pulse's own client code (not third-party) | `com.howispulse.Pulse.yml` (linux-hq-sidecar module) |
-| pulse-player (native HQ player, Rust) | in-tree at `streaming/pulse-player/`, built to `/app/bin/pulse-player` | Pulse's own client code; third-party tree in its own section below | `com.howispulse.Pulse.yml` (pulse-player module) |
+| pulse-linux-hq-sidecar (Rust) | in-tree at `streaming/linux-hq-sidecar/`, built via `type: dir` | Pulse's own code (not third-party) | `com.howispulse.Pulse.yml` (linux-hq-sidecar module) |
+| pulse-player (native HQ player, Rust) | in-tree at `streaming/pulse-player/`, built to `/app/bin/pulse-player` | Pulse's own code; third-party tree in its own section below | `com.howispulse.Pulse.yml` (pulse-player module) |
 
 The sidecar row used to point at a **separate repository** and a pinned commit
 (`1afe5f11…`). That repo moved in-tree on 2026-07-29 and was **deleted** on
@@ -157,7 +157,7 @@ declared track — where the FlexFEC parity packets sit) and the NACK generator
 under `interceptor/src/nack/generator/`. The patches live in
 `streaming/pulse-player/patches/` with their own `LICENSE` file; that file was
 missing until 2026-08-05, which left MIT/Apache-derived material looking as if
-it fell under the Pulse Client License.
+it were Pulse-proprietary.
 
 FFmpeg for this target is built from an unmodified pinned upstream commit; the
 `--enable-version3` flag is an explicit LGPLv3 opt-in (documented at
@@ -175,8 +175,8 @@ The patches and their carve-out in the Pulse licenses have been removed with
 it. Nothing GPL-licensed ships any more.
 
 `pulse-linux-hq-sidecar` is in-tree at `streaming/linux-hq-sidecar/` (moved in
-2026-07-29 — see the Linux section above) and is Pulse's own client-side code
-(falls under the Pulse Client License, not this notice file); its transitive
+2026-07-29 — see the Linux section above) and is Pulse's own code
+(AGPL-3.0, not this notice file); its transitive
 Cargo dependency tree was part of the 2026-08-05 sweep described at the top.
 
 ## Native HQ player — statically linked Rust dependencies
@@ -274,4 +274,4 @@ outstanding audit.
 
 ---
 
-Stand / last updated: 28. September 2026
+Stand / last updated: 2. Oktober 2026 (Lizenz-Rückkehr zu AGPL-3.0)

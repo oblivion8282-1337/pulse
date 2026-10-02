@@ -10,39 +10,32 @@ Monorepo: FastAPI-Services (`services/`), SvelteKit-Web (`web/`), Electron-Deskt
 
 Copyright (C) 2026 Oblivion Pictures — Michael de Meyer
 
-Pulse ist **source-available, nicht Open Source**. Der Quellcode ist
-veröffentlicht, damit ihn jeder lesen und prüfen kann — die Nutzung
-ist aber eingeschränkt. Je nach Repository-Bereich gelten zwei Lizenzen:
+Pulse ist freie Software: Du kannst es unter den Bedingungen der **GNU Affero
+General Public License**, Version 3 (**AGPL-3.0-only**), weitergeben und/oder
+verändern — veröffentlicht von der Free Software Foundation. Den vollständigen
+Lizenztext findest du in [`LICENSE`](LICENSE). Wer Pulse betreibt — auch als
+Web-Dienst — muss den Nutzern den Quellcode anbieten (AGPL §13).
 
-| Bereich | Lizenz | |
-|---|---|---|
-| `services/`, `shared/`, `infra/` | **Pulse Server License 1.0** | Quelle einsehbar; Server-Betrieb über 32 Tage hinaus braucht eine kommerzielle Lizenz |
-| `web/`, `desktop/`, `mobile/`, `streaming/`, `krypto/`, `plugins/`, `packaging/`, `Logo/`, `scripts/` | **Pulse Client License 1.0** | Frei nutzbar, Quelle einsehbar; Ändern, Weitergeben und Wiederverwenden verboten |
+Die Veröffentlichung erfolgt in der Hoffnung, dass sie nützlich ist, jedoch
+**ohne jede Gewährleistung** — sogar ohne die implizite Gewährleistung der
+Marktreife oder der Eignung für einen bestimmten Zweck. Siehe die GNU Affero
+General Public License für Details.
 
-**Pulse zu benutzen kostet nichts.** Wer sich per Web-, Desktop- oder Mobile-App
-mit einem Pulse-Server verbindet — auch mit howispulse.com — braucht keine
-Lizenz. Kostenpflichtig ist ausschließlich das **Selbst-Betreiben eines
-Servers**; Self-Hosting wird freigeschaltet und als Dienst mit laufenden Updates
-angeboten.
+Ausgenommen sind die **Marken-Assets** unter [`Logo/`](Logo) (alle Rechte
+vorbehalten) sowie die Drittkomponenten, die ihre eigenen Lizenzen behalten
+(Übersicht: [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)).
 
-Vollständige Aufteilung inklusive Drittkomponenten: [`LICENSE`](LICENSE).
-Lizenztexte: [`LICENSE-SERVER.md`](LICENSE-SERVER.md) ·
-[`LICENSE-CLIENT.md`](LICENSE-CLIENT.md).
-
-Die Veröffentlichung erfolgt **ohne jede Gewährleistung** — sogar ohne die
-implizite Gewährleistung der Marktreife oder der Eignung für einen bestimmten
-Zweck.
-
-Versionen, die vor dem 25.07.2026 veröffentlicht wurden, standen unter der **GNU
-Affero General Public License v3.0** und bleiben unter diesen Bedingungen
-verfügbar.
+Lizenz-Historie: bis 24.07.2026 AGPL-3.0 · 25.07.–28.07.2026 PolyForm ·
+29.07.2026–01.10.2026 Pulse Client/Server License 1.0 (source-available) ·
+seit 02.10.2026 wieder AGPL-3.0. Bereits veröffentlichte Versionen bleiben
+unter der jeweils veröffentlichten Lizenz verfügbar.
 
 ### Beiträge
 
 Beiträge erfordern einen Contributor License Agreement (CLA, Lizenz-Grant nach
-Apache-ICLA-Vorbild). Der CLA räumt dem Copyright-Halter das Recht ein, das
-Projekt inklusive der Beiträge unter mehreren Lizenzen anzubieten — darunter die
-obigen source-available-Lizenzen und separate kommerzielle Lizenzen.
+Apache-ICLA-Vorbild). Pulse bleibt für alle unter der AGPL verfügbar; der CLA
+ermöglicht dem Copyright-Halter zusätzlich eine optionale kommerzielle
+Lizenzierung.
 
 ### Drittsoftware
 

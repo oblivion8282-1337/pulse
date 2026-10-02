@@ -412,12 +412,13 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
    redeemen → rotiert das `client_secret`. Danach Health-Check
    (`https://pulse.unicutmedia.com/api/chat/health`).
 
-> **Phase 3 (aufgeschoben):** Stripe-Billing + ein cloud-seitiger Lizenzcheck über
-> den bestehenden cert/phone-home-Kanal werden später an den `status=="active"`-Check
-> im Realm-Endpoint gekoppelt (Stelle im Code markiert). Diese Registry ist Verteilung
-> + Honest-User-Gate, **kein** Kopierschutz — Image/Code bleiben technisch extrahierbar.
-> Der Schutz ist lizenzrechtlich: Server-Betrieb über die 32-Tage-Evaluierung hinaus
-> braucht eine kommerzielle Lizenz (Pulse Server License 1.0, siehe `LICENSE`).
+> **Phase 3 (aufgeschoben):** Stripe-Billing wird später an den
+> `status=="active"`-Check im Realm-Endpoint gekoppelt (Stelle im Code markiert).
+> Diese Registry ist Verteilung + Honest-User-Gate, **kein** Kopierschutz —
+> Image/Code bleiben technisch extrahierbar. Seit dem 2026-10-02 steht Pulse
+> unter der AGPL-3.0 (`LICENSE`): Selbst-Hosting ist lizenzrechtlich frei:
+> Das bezahlte Angebot ist der von Pulse geführte Server-Betrieb
+> (Freischaltung, Hostnamen, laufende Updates) — kein Lizenz-Zwang mehr.
 
 ## Operating
 

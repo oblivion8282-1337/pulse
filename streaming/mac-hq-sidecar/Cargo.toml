@@ -3,6 +3,7 @@ name = "pulse-mac-hq-sidecar"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "AGPL-3.0-only"
 description = "Pulse macOS HQ-streaming sidecar — stdio JSON-RPC over newline-delimited JSON, mirrors streaming/gsr-sidecar/control.py and streaming/win-hq-sidecar/"
 
 [[bin]]

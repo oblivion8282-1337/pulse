@@ -8,7 +8,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-only",
   "type": "commonjs",
   "dependencies": {
     "@capacitor/android": "^8.4.0",

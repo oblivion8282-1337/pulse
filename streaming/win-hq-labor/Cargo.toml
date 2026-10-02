@@ -3,8 +3,7 @@ name = "pulse-win-hq-labor"
 version = "0.1.0"
 edition = "2024"
 publish = false
-# Kein `license`-Feld — es gilt `streaming/LICENSE` (Pulse Client License 1.0),
-# wie bei allen Crates unter `streaming/`.
+license = "AGPL-3.0-only"
 description = "Messstand für den experimentellen HQ-Sendeweg unter Windows (eigener WebRTC/WHIP-Push, AV1-Paketierer, Intra-Refresh über Vulkan). Protokoll-gleich mit dem ausgelieferten Sidecar, aber ein EIGENES Binary — nichts hiervon geht in einen Nutzer-Build."
 
 # Absichtlich anders benannt als das ausgelieferte `pulse-win-hq-sidecar`.

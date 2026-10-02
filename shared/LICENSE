@@ -1,14 +1,7 @@
-Pulse server component — Pulse Server License 1.0
+Part of Pulse — GNU Affero General Public License, Version 3 (AGPL-3.0-only)
 
-Everything in this directory is licensed under the Pulse Server License 1.0.
-Full text: ../LICENSE-SERVER.md
+Everything in this directory is licensed under the GNU AGPL v3.0.
+Full text: ../LICENSE
 
-You may evaluate it for up to 32 consecutive days and you may read and audit
-its source. Operating a Pulse server beyond that requires a commercial
-licence from the copyright holder, regardless of whether the deployment is
-commercial, private or non-profit.
-
-Self-hosting is offered as a paid, activated service.
-Enquiries: https://howispulse.com
-
-Repository-wide licensing overview: ../LICENSE
+Third-party components keep their own licenses
+(overview: THIRD-PARTY-NOTICES.md in the repository root).

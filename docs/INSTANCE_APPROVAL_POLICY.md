@@ -85,8 +85,9 @@ Beispiele:
 
 **Rote Flags:**
 - Leeres Notes-Feld ohne schlüssige Erklärung
-- "Reselling", "für Kunden", "öffentlicher Service" — Self-Host-Lizenz gilt nur
-  für eigene Community, nicht als Reselling-Plattform
+- "Reselling", "für Kunden", "öffentlicher Service" — die Pulse-Freischaltung
+  (Server-Betrieb durch Pulse als Service) gilt nur für eigene Communitys,
+  nicht als Reselling-Plattform
 - Unklare oder widersprüchliche Angaben
 
 ---
