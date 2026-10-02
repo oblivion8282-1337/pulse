@@ -151,11 +151,10 @@
           </div>
           <!-- Ob der Server von draussen ankommt, kann er selbst nicht sagen —
                und die Statusmarke oben sagt nur, ob die CLOUD ihn gesperrt hat.
-               Nur für VPS: ein App-Host hat keine eigene Adresse, gegen die
-               eine Prüfung von aussen etwas aussagen würde. -->
-          {#if inst.origin !== 'app_host'}
-            <InstanceDiagnose instanceId={inst.id} />
-          {/if}
+               Seit dem Verbindungs-Check (2026-09-30) gilt das auch für
+               App-Hosts: die Kette läuft gegen die Relay-Adresse (Telefonbuch
+               → Tunnel → Live-WebSocket), nicht gegen eine fehlende eigene. -->
+          <InstanceDiagnose instanceId={inst.id} />
           <div class="flex flex-wrap gap-2 mt-1">
             {#if inst.origin !== 'app_host'}
               <!-- Nur VPS: App-Hosts pairen über die Server-App, nicht über

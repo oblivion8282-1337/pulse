@@ -67,59 +67,18 @@ async def owner_auth(client, session_factory):
 
 
 @pytest.mark.asyncio
-async def test_submit_app_host_via_unified_path(client, bob_cookie):
-    r = await client.post(
-        "/me/instance-applications",
-        json={
-            "origin": "app_host",
-            "purpose": "privat",
-            "notes": "vom Handy",
-            "network_check": "ok",
-        },
-        headers={"Cookie": bob_cookie},
-    )
-    assert r.status_code == 201, r.text
-    data = r.json()
-    assert data["origin"] == "app_host"
-    assert data["status"] == "pending"
-    # Platzhalter-Hostname im App-Host-Instanz-Muster (NOT-NULL-Spalte).
-    assert data["hostname"].startswith(f"app-{data['id']}.")
-    assert data["notes"] == "vom Handy"
-    # contact_email aus dem eingeloggten User abgeleitet.
-    assert data["contact_email"] == "uni_bob@dcc-test.example.com"
-    # Anschluss-Check-Ergebnis wird gespeichert und zurückgegeben (beratend).
-    assert data["network_check"] == "ok"
-
-
-@pytest.mark.asyncio
-async def test_submit_app_host_duplicate_pending_409(client, bob_cookie):
-    body = {"origin": "app_host", "purpose": "privat"}
-    r1 = await client.post(
-        "/me/instance-applications", json=body, headers={"Cookie": bob_cookie}
-    )
-    assert r1.status_code == 201, r1.text
-    r2 = await client.post(
-        "/me/instance-applications", json=body, headers={"Cookie": bob_cookie}
-    )
-    assert r2.status_code == 409, r2.text
-
-
-@pytest.mark.asyncio
-async def test_submit_app_host_already_enabled_422(client, bob_cookie, session_factory):
-    async with session_factory() as s:
-        await s.execute(
-            update(User).where(User.username == "uni_bob").values(self_host_enabled=True)
-        )
-        await s.commit()
+async def test_submit_app_host_is_gone_410(client, bob_cookie):
+    """Heim-Server-Entscheid 2026-09-27: App-Host-Anträge sind abgeschafft —
+    die Server-App registriert sich selbst (POST /me/instances)."""
     r = await client.post(
         "/me/instance-applications",
         json={"origin": "app_host", "purpose": "privat"},
         headers={"Cookie": bob_cookie},
     )
-    assert r.status_code == 422, r.text
+    assert r.status_code == 410, r.text
+    assert "Selbst" in r.json()["detail"] or "Server-App" in r.json()["detail"]
 
 
-@pytest.mark.asyncio
 async def test_submit_vps_still_requires_hostname(client, bob_cookie):
     """VPS-Regression: ohne Hostname bleibt der vps-Antrag 422."""
     r = await client.post(
@@ -136,13 +95,10 @@ async def test_submit_vps_still_requires_hostname(client, bob_cookie):
 
 
 @pytest.mark.asyncio
-async def test_user_list_default_hides_app_host(client, bob_cookie):
-    """Alt-Client-Kompatibilität: ohne ?origin sieht die Liste nur VPS-Anträge."""
-    await client.post(
-        "/me/instance-applications",
-        json={"origin": "app_host", "purpose": "privat"},
-        headers={"Cookie": bob_cookie},
-    )
+async def test_user_list_default_hides_app_host(client, bob_cookie, session_factory):
+    """Alt-Client-Kompatibilität: ohne ?origin sieht die Liste nur VPS-Anträge
+    (app_host-Zeile per DB-Seed — der POST-Weg ist zu, s. _seed_app_host_db)."""
+    await _seed_app_host_db(session_factory, client, bob_cookie)
     await client.post(
         "/me/instance-applications",
         json={"hostname": "pulse.uni-bob.example.com"},
@@ -167,65 +123,48 @@ async def test_user_list_default_hides_app_host(client, bob_cookie):
 # ---------------------------------------------------------------------------
 
 
-async def _submit_app_host(client, cookie: str) -> str:
-    r = await client.post(
-        "/me/instance-applications",
-        json={"origin": "app_host", "purpose": "privat"},
-        headers={"Cookie": cookie},
-    )
-    assert r.status_code == 201, r.text
-    return r.json()["id"]
+async def _seed_app_host_db(session_factory, cookie_client, cookie: str) -> int:
+    """Legt eine app_host-Antragszeile DIREKT in die DB — der POST-Weg ist seit
+    dem Heim-Server-Entscheid 2026-09-27 zu (410); Legacy-Zeilen (und damit
+    Admin-Liste/Ablehnen) bleiben funktional."""
+    from dcc_auth.models_instances import InstanceApplication
+    from dcc_auth.snowflake import next_id as _next_id
+
+    r = await cookie_client.get("/me", headers={"Cookie": cookie})
+    uid = int(r.json()["id"])
+    app_id = _next_id()
+    async with session_factory() as s:
+        s.add(
+            InstanceApplication(
+                id=app_id,
+                applicant_user_id=uid,
+                origin="app_host",
+                hostname=f"app-{app_id}.relay.howispulse.com",
+                purpose="privat",
+                expected_users=1,
+                contact_email="legacy@dcc-test.example.com",
+                status="pending",
+            )
+        )
+        await s.commit()
+    return app_id
 
 
 @pytest.mark.asyncio
-async def test_admin_approve_app_host_via_unified_path(
+async def test_admin_approve_app_host_is_gone_410(
     client, bob_cookie, owner_auth, session_factory
 ):
-    app_id = await _submit_app_host(client, bob_cookie)
-
-    # Pending-Liste liefert origin.
-    r = await client.get("/admin/instance-applications", headers=owner_auth)
-    assert r.status_code == 200, r.text
-    entry = next(a for a in r.json() if a["id"] == app_id)
-    assert entry["origin"] == "app_host"
-    # network_check erscheint in der Admin-Liste (hier nicht mitgesendet → None).
-    assert entry["network_check"] is None
-
+    """Legacy-Pending-Zeile: Approve antwortet 410 (Selbstbedienung), die
+    Zeile bleibt unberührt — Ablehnen ist der einzige Weg."""
+    app_id = await _seed_app_host_db(session_factory, client, bob_cookie)
     r = await client.post(
         f"/admin/instance-applications/{app_id}/approve", headers=owner_auth
     )
-    assert r.status_code == 200, r.text
-    data = r.json()
-    # App-Host-Shape: kein client_secret, dafür Flag + Instanz-ID.
-    assert data["self_host_enabled"] is True
-    assert data["instance_id"] is not None
-    assert "client_secret" not in data
-
-    async with session_factory() as s:
-        inst = await s.get(RegisteredInstance, int(data["instance_id"]))
-        assert inst is not None and inst.origin == "app_host" and inst.status == "active"
-        bob_id = (
-            await s.execute(select(User.id).where(User.username == "uni_bob"))
-        ).scalar_one()
-        membership = await s.get(UserInstanceMembership, (bob_id, inst.id))
-        assert membership is not None and membership.role == "owner"
-        bob = await s.get(User, bob_id)
-        assert bob.self_host_enabled is True
-
-    # Die Admin-Liste liefert approved_instance_id — der „Aktiv"-Tab mappt
-    # darüber die app_host-Instanz auf ihren Antrag (Revoke braucht die
-    # Antrags-ID, nicht die Instanz-ID).
-    r = await client.get(
-        "/admin/instance-applications?status=approved&origin=app_host", headers=owner_auth
-    )
-    assert r.status_code == 200, r.text
-    entry = next(a for a in r.json() if a["id"] == app_id)
-    assert entry["approved_instance_id"] == data["instance_id"]
+    assert r.status_code == 410, r.text
 
 
-@pytest.mark.asyncio
-async def test_admin_reject_app_host_via_unified_path(client, bob_cookie, owner_auth):
-    app_id = await _submit_app_host(client, bob_cookie)
+async def test_admin_reject_app_host_via_unified_path(client, bob_cookie, owner_auth, session_factory):
+    app_id = await _seed_app_host_db(session_factory, client, bob_cookie)
     r = await client.post(
         f"/admin/instance-applications/{app_id}/reject",
         json={"rejection_reason": "kein Bedarf"},
@@ -271,32 +210,3 @@ async def test_admin_approve_vps_regression(client, bob_cookie, owner_auth, sess
         # VPS-Approve setzt self_host_enabled NICHT (Gate nur für env-file).
         bob = await s.get(User, bob_id)
         assert bob.self_host_enabled is False
-
-
-# ---------------------------------------------------------------------------
-# DEPRECATED User-Wrapper
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_user_wrapper_paths_still_work(client, bob_cookie):
-    r = await client.post(
-        "/me/app-host-application",
-        json={"purpose": "privat", "message": "alter Client"},
-        headers={"Cookie": bob_cookie},
-    )
-    assert r.status_code == 201, r.text
-    data = r.json()
-    # Alte Shape: message statt notes, user_id statt applicant_user_id.
-    assert data["message"] == "alter Client"
-    assert "user_id" in data and "hostname" not in data
-
-    r = await client.get("/me/app-host-applications", headers={"Cookie": bob_cookie})
-    assert r.status_code == 200, r.text
-    assert [a["status"] for a in r.json()] == ["pending"]
-
-    # Wrapper und vereinter Pfad sehen denselben Antrag.
-    r = await client.get(
-        "/me/instance-applications?origin=app_host", headers={"Cookie": bob_cookie}
-    )
-    assert len(r.json()) == 1

@@ -36,6 +36,7 @@ async fn main() -> Result<()> {
         .install_default()
         .map_err(|_| anyhow::anyhow!("rustls-CryptoProvider bereits installiert"))?;
 
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let cfg = config::Config::from_env()?;
     let ident = identity::load_or_create(&cfg.data_path)?;
     println!(
@@ -44,8 +45,25 @@ async fn main() -> Result<()> {
     );
 
     let socket = UdpSocket::bind(("0.0.0.0", cfg.direct_port)).await?;
-    let initial = stun_probe::discover_public_addr(&socket, &cfg.stun_servers).await?;
-    println!("[direct-adapter] öffentliche Adresse: {initial}");
+    // Fail-open: EIN STUN-Timeout beim Start darf den ganzen Heim-Server nicht
+    // mitreissen — so kam es durch (das restart-gate hielt bei seinem Exit
+    // sogar Postgres/Redis an, Mac-E2E 2026-09-28). Der Heartbeat korrigiert
+    // IP binnen eines Intervalls; bis dahin tragen Host-/LAN-Kandidaten.
+    let initial = match stun_probe::discover_public_addr(&socket, &cfg.stun_servers).await {
+        Ok(a) => {
+            println!("[direct-adapter] öffentliche Adresse: {a}");
+            a
+        }
+        Err(e) => {
+            eprintln!(
+                "[direct-adapter] initiale STUN-Ermittlung fehlgeschlagen ({e:#}) — starte ohne, Heartbeat korrigiert nach"
+            );
+            std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                cfg.direct_port,
+            )
+        }
+    };
     if initial.port() != cfg.direct_port {
         // Kein Port-Preservation am Router — ICE (srflx durch den Mux) trägt
         // trotzdem die Wahrheit in der SDP; nur der Telefonbuch-Eintrag hinkt.
@@ -57,11 +75,22 @@ async fn main() -> Result<()> {
     }
 
     // Ab hier gehört der Socket dem WebRTC-Mux.
+    if !cfg.extra_host_ips.is_empty() {
+        // Win/Mac (podman machine): der Container sieht nur die VM-Adresse —
+        // diese Host-LAN-IPs kommen von der Server-App und werden als
+        // Host-Kandidaten in jede Answer injiziert (LAN-Clients).
+        println!(
+            "[direct-adapter] zusätzliche Host-Kandidaten (VM-Host-LAN): {}",
+            cfg.extra_host_ips.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ")
+        );
+    }
     let factory = Arc::new(rtc::RtcFactory::new(
         socket,
         ident.certificate.clone(),
         &cfg.stun_servers,
         initial.ip(),
+        cfg.extra_host_ips.clone(),
+        cfg.direct_port,
     ));
 
     let hb_cfg = cfg.clone();

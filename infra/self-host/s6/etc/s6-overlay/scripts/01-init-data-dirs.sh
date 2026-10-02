@@ -23,7 +23,7 @@ mkdir -p \
 
 chown -R pulse:pulse "${DATA}"
 chmod 0700 "${DATA}"
-chmod 0700 "${DATA}/pg" "${DATA}/redis" "${DATA}/jwt_keys" "${DATA}/coturn" "${DATA}/minio"
+chmod 0700 "${DATA}/pg" "${DATA}/redis" "${DATA}/jwt_keys" "${DATA}/coturn" "${DATA}/garage"
 chmod 0750 "${DATA}/uploads"
 
 # Also chown runtime state dirs (recreated empty on container restart)

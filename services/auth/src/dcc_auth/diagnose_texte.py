@@ -41,6 +41,10 @@ from dcc_auth import diagnose_texte_betreiber as _betreiber
 #: Die Kette in ihrer Reihenfolge. ``gesamt`` ist kein Glied, sondern der
 #: Sammelbefund, wenn die ganze Prüfung in ihre Frist läuft.
 SCHRITTE: tuple[str, ...] = (
+    # Nur app_host (Heim-Server): ohne frischen Heartbeat ist der Adapter tot,
+    # während die Relay-Kette (alles Folgende) auch bei totem Heim-Server grün
+    # bleiben kann — deshalb steht der Schritt an erster Stelle.
+    "telefonbuch",
     "dns",
     "tcp443",
     "tls",
@@ -64,6 +68,7 @@ SPRACHEN: tuple[str, ...] = ("de", "en")
 #: „tcp443" sagt einem Server-Admin etwas, „Erreichbarkeit (Port 443)" auch dem
 #: Betreiber, der die Prüfung nur liest.
 _TITEL: dict[str, tuple[str, str]] = {
+    "telefonbuch": ("Meldung des Servers", "Server check-in"),
     "dns": ("Namensauflösung", "Name lookup"),
     "tcp443": ("Erreichbarkeit (Port 443)", "Reachability (port 443)"),
     "tls": ("Verschlüsselung", "Encryption"),
@@ -83,6 +88,7 @@ _TITEL_UNBEKANNT = ("Weiterer Schritt", "Further step")
 #: Was ein gelungener Schritt bedeutet — für die Checkliste im Terminal, damit
 #: hinter einem Haken nicht nur ein Stichwort steht.
 _GELUNGEN: dict[str, tuple[str, str]] = {
+    "telefonbuch": ("Der Server meldet sich bei der Cloud.", "The server reports to the cloud."),
     "dns": ("Der Name zeigt auf eine öffentliche Adresse.", "The name points at a public address."),
     "tcp443": ("Port 443 ist von aussen offen.", "Port 443 is open from the outside."),
     "tls": ("Das Zertifikat ist gültig und wird anerkannt.", "The certificate is valid and trusted."),
@@ -105,6 +111,18 @@ _GELUNGEN_UNBEKANNT = ("In Ordnung.", "Fine.")
 #: ``selfhost_probe_dienst.py``; ein Test hält beide Seiten gegeneinander, damit
 #: kein Befund ohne Satz auf die Leitung geht.
 _BEFUNDE: dict[tuple[str, str], tuple[tuple[str, str], tuple[str, str]]] = {
+    ("telefonbuch", "kein-eintrag"): (
+        ("Der Server hat sich noch nie bei der Cloud gemeldet — er läuft vermutlich gar nicht.",
+         "Öffne die Server-App und starte den Server. Er meldet sich innerhalb weniger Minuten; danach kannst du die Prüfung wiederholen."),
+        ("The server has never reported to the cloud — it is probably not running at all.",
+         "Open the server app and start the server. It reports within a few minutes; then run this check again."),
+    ),
+    ("telefonbuch", "offline"): (
+        ("Die letzte Meldung des Servers ist länger her als ein paar Minuten — er ist vermutlich aus oder hat kein Internet.",
+         "Öffne die Server-App und schau auf den Status. Steht dort „läuft“, prüfe die Internetverbindung des Geräts und starte den Server neu."),
+        ("The server's last report is more than a few minutes old — it is probably off or has no internet.",
+         "Open the server app and check the status. If it says 'running', check the device's internet connection and restart the server."),
+    ),
     ("dns", "name_unbekannt"): (
         ("Der Name lässt sich nicht auflösen — es gibt für ihn keinen Eintrag im Internet.",
          "Trage beim Domain-Anbieter einen A-Eintrag für diesen Namen auf die öffentliche IP-Adresse deines Servers ein. Neue Einträge brauchen bis zu einer Stunde, bis sie überall gelten."),

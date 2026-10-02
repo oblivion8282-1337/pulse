@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.103"
+anyhow = "1"
+env_logger = "0.11"
 base64 = "0.22.1"
 bytes = "1.12.1"
 futures-util = "0.3.32"

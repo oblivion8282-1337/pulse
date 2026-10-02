@@ -25,14 +25,11 @@
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
   import ServerIcon from '@lucide/svelte/icons/server';
   import { m } from '$lib/paraglide/messages.js';
-  import { APP_HOSTING_ENABLED } from '$lib/featureFlags';
-  import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
 
   // Der User ist da, wohin ihn der rote Punkt führen sollte → Punkt löschen.
   // (Gegenstück zu MyInstances, das den Self-Host-Punkt quittiert.)
   // Wandert mit dem Inhalt mit: bliebe das Quittieren am alten Ort, zeigte
   // der Punkt auf eine Fläche, die ihn nicht mehr löschen kann.
-  onMount(() => myAppHostApplications.acknowledge());
 
   const SECTION_CLASS =
     'border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4';
@@ -76,12 +73,10 @@
   <!-- App-Hosting (Stufe 2): gehostet wird in der separaten Server-App, hier
        steht nur Antrag + Download. Der Schalter blendet den ganzen Weg aus,
        solange kein Paket für die gängigen Systeme existiert. -->
-  {#if APP_HOSTING_ENABLED}
-    <section class={SECTION_CLASS} data-testid="self-host-app-section">
-      {@render cardHeader(AppWindowIcon, m.local_host_title(), m.self_host_app_subtitle())}
-      {@render appBody()}
-    </section>
-  {/if}
+  <section class={SECTION_CLASS} data-testid="self-host-app-section">
+    {@render cardHeader(AppWindowIcon, m.local_host_title(), m.self_host_app_subtitle())}
+    {@render appBody()}
+  </section>
 
   <!-- Eigener Server (Stufe 3): dauerhafter VPS, braucht Cloud-Freischaltung. -->
   <section class={SECTION_CLASS} data-testid="self-host-server-section">

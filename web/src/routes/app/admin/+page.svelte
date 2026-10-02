@@ -24,12 +24,10 @@
   import AdminCommunities from '$lib/components/admin/AdminCommunities.svelte';
   import AdminSettingsTab from '$lib/components/admin/AdminSettingsTab.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
-  import { pendingAppHostApplications } from '$lib/stores/pendingAppHostApplications.svelte';
   import { adminInstancesApi } from '$lib/api/instances';
   import { adminComplaintsApi } from '$lib/api/complaints';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import { m } from '$lib/paraglide/messages.js';
-  import { APP_HOSTING_ENABLED } from '$lib/featureFlags';
 
   // Self-Host-Instanzen verwalten (Anträge genehmigen/sperren) ist eine reine
   // Cloud-Funktion — nur howispulse.com entscheidet, wer self-hosten darf. Auf
@@ -67,7 +65,7 @@
   // gerade NICHT offen ist — also hier auf Panel-Ebene mitzählen.
   let instancesPending = $state(0);
   let complaintsNew = $state(0);
-  let applicationsBadge = $derived(instancesPending + pendingAppHostApplications.count);
+  let applicationsBadge = $derived(instancesPending);
 
   // Reihenfolge: Übersicht → Einstellungen → Nutzer → (Cloud: Anträge,
   // Meldungen) → Protokoll. Cloud-only-Reiter bleiben vor dem Protokoll.
@@ -103,8 +101,6 @@
   async function refreshBadges() {
     if (!isCloud || !isAdminHere) return;
     try {
-      // origin='vps': der App-Host-Anteil steckt in pendingAppHostApplications
-      // (eigener Badge) — sonst zählte der Anträge-Badge doppelt.
       instancesPending = (await adminInstancesApi.listApplications('pending', 'vps')).length;
     } catch {
       /* still — Badge bleibt einfach aus */
@@ -114,20 +110,10 @@
     } catch {
       /* still */
     }
-    if (APP_HOSTING_ENABLED) {
-      try {
-        pendingAppHostApplications.count = (
-          await adminInstancesApi.listApplications('pending', 'app_host')
-        ).length;
-      } catch {
-        /* still */
-      }
-    }
   }
 
   $effect(() => {
     if (!ready || !isAdminHere) return;
-    if (APP_HOSTING_ENABLED) pendingAppHostApplications.start();
     void refreshBadges();
     return () => {
       // Bedingungslos stoppen — der Cleanup läuft nur, wenn der Body oben
@@ -135,7 +121,6 @@
       // `if (!ready)`-Bedingung war unerreichbar, der 60-s-Poller lief
       // nach dem Verlassen der Seite für die ganze Sitzung weiter
       // (Bughunt 2026-09-20, Runde 2).
-      pendingAppHostApplications.stop();
     };
   });
 </script>

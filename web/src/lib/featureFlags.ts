@@ -19,7 +19,6 @@
  * die gängigen Systeme existiert (aktuell nur Linux/Flatpak).
  * Self-Hosting (eigener VPS) ist davon UNBERÜHRT.
  */
-export const APP_HOSTING_ENABLED = false;
 
 /**
  * Kanäle mit eigener Ablage: verschlüsselte Textkanäle, deren Bytes als Log

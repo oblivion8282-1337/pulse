@@ -28,6 +28,7 @@ import { errText } from '$lib/utils/errText';
 import { sidecar, type SidecarStartArgs } from './sidecar';
 import { stream } from './state.svelte';
 import { isWindows, isMac } from '$lib/platform/runtime';
+import { activeServer } from '$lib/stores/active-server.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { effectiveHqLimits } from '$lib/stream/guildLimits';
 import {
@@ -343,6 +344,16 @@ export function pushProtokoll(_uebersteuerung?: OverrideSet): 'rtmp' | 'whip' {
   // je wieder eine Unterscheidung, haengt sie genau an diesem Satz — dass sie
   // frueher am FALSCHEN Satz hing (global statt Profil), war der Bughunt-Fund
   // vom 2026-08-16.
+  //
+  // Windows + Self-Host: RTMP(S). Der win-hq-sidecar pusht mit Schannel-TLS,
+  // und Schannel kann KEIN DTLS-SRTP — jeder WHIP-Push stirbt im Handshake
+  // (SEC_E_ALGORITHM_MISMATCH, docs/plans/2026-07-14-app-host-windows-status.md).
+  // RTMPS läuft über TCP 1936 (auf dem Host per tcpRelay in den Container
+  // überbrückt) und ist vom selben ffmpeg problemlos. Der Server honoriert den
+  // RTMP-Wunsch für den Owner ohnehin (media-svc-Owner-Exemption).
+  if (isWindows() && activeServer.current && !activeServer.current.isCloud) {
+    return 'rtmp';
+  }
   //
   // Der Rueckgabetyp behaelt `'rtmp'` bewusst: RTMPS ist serverseitig nicht
   // abgeschafft, nur nicht mehr die Wahl der Oberflaeche (Begruendung oben).

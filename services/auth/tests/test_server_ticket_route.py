@@ -174,6 +174,55 @@ async def test_der_hostname_bestimmt_das_publikum_nicht_der_anfragende(
 
 
 @pytest.mark.asyncio
+async def test_relay_subdomain_loest_auf_die_instanz_auf(client, session_factory):
+    """App-Host-Instanzen werden unter ihrer RELAY-SUBDOMAIN gefragt.
+
+    ``GET /me/instances`` meldet für app_host die Relay-Subdomain (sobald eine
+    alloziert ist) und die Server-App teilt genau diese Adresse — der Client
+    hat den synthetischen ``hostname`` nie in der Hand. Vor dem Relay-Prophe-
+    ting fielen beide Namen zusammen, deshalb fiel der Gap erst im Linux-E2E
+    (2026-09-29) auf: Ticket unter Relay-Namen → 404 „not found".
+    """
+    from dcc_auth.models_instances import RegisteredInstance
+
+    cookie, user_id = await _reg_and_login(client)
+    async with session_factory() as s:
+        s.add(
+            RegisteredInstance(
+                id=900013,
+                hostname="app-900013.relay.example.com",
+                relay_subdomain="stiller-hain-1a2b.relay.example.com",
+                client_id="client-900013",
+                client_secret="argon2-hash-egal",
+                worker_id_chat=1,
+                worker_id_voice=2,
+                worker_id_media=3,
+                status="active",
+                registered_by=user_id,
+            )
+        )
+        await s.commit()
+
+    for name in (
+        "stiller-hain-1a2b.relay.example.com",
+        "HTTPS://stiller-hain-1a2b.relay.example.com/",
+    ):
+        r = await client.post(
+            "/me/server-ticket", json={"hostname": name}, headers={"Cookie": cookie}
+        )
+        assert r.status_code == 200, f"{name}: {r.text}"
+        assert r.json()["instance_id"] == "900013"
+
+    # Der synthetische Name bleibt daneben gültig (exakter Treffer gewinnt).
+    r = await client.post(
+        "/me/server-ticket",
+        json={"hostname": "app-900013.relay.example.com"},
+        headers={"Cookie": cookie},
+    )
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
 async def test_hostname_wird_normalisiert(client, session_factory):
     """Ein Schema oder Grossbuchstaben duerfen die Aufloesung nicht scheitern lassen."""
     cookie, user_id = await _reg_and_login(client)

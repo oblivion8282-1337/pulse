@@ -70,6 +70,13 @@ webrtcIPsFromInterfaces: no
 # 3. Es gab ohnehin keine Caddy-Route auf :8888 und der Port ist nicht
 #    veroeffentlicht — der Output war fuer niemanden erreichbar. Reine
 #    Verschwendung ohne Gegenleistung.
+#
+# Keyframe-Takt (Heim-Server 2026-09-28, Cloud-Paritaet): der Fork wird mit
+# PULSE_KEYFRAME_INTERVAL=0 gefahren (s. s6-rc.d/mediamtx/run) — der
+# periodische Vollbild-Takt ist aus, glatter Strom nur mit Vollbildern on
+# demand. STEHT HIER NUR ALS KOMMENTAR: eine Env-Zuweisung im YAML ist keine —
+# sie liest MediaMTX als Dokument-Skalar und bricht mit "non-map value" ab
+# (Erststart im Mac-E2E 2026-09-28, der Container restart-loopte davon).
 hls: no
 
 # MoQ (Media over QUIC, Port 8892) ist bei MediaMTX 1.19.1 STANDARDMAESSIG an,
@@ -138,6 +145,14 @@ EOF
                 printf '  - url: stun:%s\n' "${stun}"
             done
         } >> /etc/mediamtx/mediamtx.yml
+        # VM-Betrieb (Win/podman-machine): Interfaces = VM-intern (172.x),
+        # srflx = WAN hinter WSL-Doppel-NAT — beides für fremde Geräte tot
+        # (gleiches Bild wie bei LiveKit, s. 05-init-livekit.sh). Die Host-
+        # LAN-IP kommt als zusätzlicher Kandidat dazu; die Pakete erreichen
+        # den :8189-Socket über das Host-UDP-Relay auf genau dieser Adresse.
+        if [ -n "${PULSE_VM_ANNOUNCE_IP:-}" ]; then
+            printf 'webrtcAdditionalHosts: [%s]\n' "${PULSE_VM_ANNOUNCE_IP}" >> /etc/mediamtx/mediamtx.yml
+        fi
     else
         # ---- VPS-Self-Host: öffentlich erreichbar, der Hostname IST der Server ----
         # Der einzige brauchbare Host-Kandidat ist der öffentliche Hostname —

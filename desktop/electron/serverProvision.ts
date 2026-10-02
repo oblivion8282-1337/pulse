@@ -10,6 +10,7 @@
 // auch der howispulse.com-Login stattfand → Cookie ist dort gespeichert.
 import { net, session } from 'electron';
 import { classifyMintStatus, redeemBootstrap, type BootstrapCreds } from './localBackend/pairing';
+import { aktiveAppHostInstanz, bewerteAnlage } from './serverAnlage';
 import { classifyDeleteStatus, type CloudDeleteVerdict } from './serverGiveUp';
 import { classifyCloudStatus } from './serverCloudStatus';
 
@@ -24,6 +25,40 @@ async function sessionCookie(cloudOrigin: string): Promise<string> {
 // schweigt/tröpfelt, NIE — ohne Frist hing "Server einrichten" für immer
 // (Spinner, kein Fehlerpfad). 30 s decken selbst zähe Cloud-Runden.
 const NET_FRIST_MS = 30_000;
+
+/** POST /session/renew mit dem durablen Bearer-Token → die Cloud setzt einen
+ *  frischen 30-Min-`pulse_session`-Cookie (Set-Cookie landet automatisch im
+ *  net-Cookie-Jar der Default-Session). Die Instanz-Endpoints sind cookie-only
+ *  (`_require_user` in routes_instance_applications.py — kein Bearer-Pfad),
+ *  deshalb prägen wir den Cookie neu, statt den Bearer direkt zu schicken. */
+function renewSessionCookie(cloudOrigin: string, bearer: string): Promise<void> {
+  return new Promise((resolve) => {
+    const req = net.request({ method: 'POST', url: `${cloudOrigin}/api/auth/session/renew` });
+    req.setHeader('Authorization', `Bearer ${bearer}`);
+    req.on('response', (res) => { res.on('data', () => {}); res.on('end', () => resolve()); });
+    req.on('error', () => resolve());
+    req.end();
+  });
+}
+
+/** Gültigen `pulse_session`-Cookie besorgen: ist einer da, direkt nutzen; sonst
+ *  per durablem Bearer-Token neu prägen (renewSessionCookie). '' = nicht
+ *  eingeloggt (kein Cookie + kein Token). `getBearer` kommt aus serverAuth
+ *  (createTokenGetter) und refresht den Access-Token bei Bedarf. */
+async function ensureSessionCookie(
+  cloudOrigin: string,
+  getBearer?: () => Promise<string | null>,
+): Promise<string> {
+  const existing = await sessionCookie(cloudOrigin);
+  if (existing) return existing;
+  if (!getBearer) return '';
+  const bearer = await getBearer();
+  if (!bearer) return '';
+  await renewSessionCookie(cloudOrigin, bearer);
+  // Nach dem Set-Cookie erneut lesen; schlug der Renew fehl, ist es weiter ''
+  // → der Aufrufer meldet dann "nicht eingeloggt".
+  return sessionCookie(cloudOrigin);
+}
 
 function netJsonOnce(
   method: string,
@@ -107,9 +142,10 @@ export type ProvisionResult =
 export async function provision(
   cloudOrigin: string,
   opts: { confirmTakeover?: boolean } = {},
+  getBearer?: () => Promise<string | null>,
 ): Promise<ProvisionResult> {
   try {
-    const cookie = await sessionCookie(cloudOrigin);
+    const cookie = await ensureSessionCookie(cloudOrigin, getBearer);
     if (!cookie) return { ok: false, error: 'Nicht eingeloggt — bitte zuerst einloggen.' };
 
     // 1. Aktive App-Host-Instanz des Users finden. NUR origin=app_host — das
@@ -120,14 +156,47 @@ export async function provision(
     if (list.status !== 200 || !Array.isArray(list.json)) {
       return { ok: false, error: `Instanzen nicht ladbar (HTTP ${list.status}). Eingeloggt + freigegeben?` };
     }
-    const inst = (list.json as InstanceOut[]).find((i) => i.status === 'active' && i.origin === 'app_host');
-    if (!inst) {
-      return { ok: false, error: 'Keine aktive App-Host-Instanz. Beantrage App-Hosting-Freigabe in der Pulse-App.' };
+    const liste = list.json as InstanceOut[];
+    const gefunden = aktiveAppHostInstanz(liste);
+    if (gefunden) {
+      const inst = liste.find((i) => i.id === gefunden.id) as InstanceOut;
+      return proceedWithInstance(inst, cookie, cloudOrigin, opts);
     }
 
-    // 2. Bootstrap-Token minten (Endpoint antwortet 201) + redeemen. reset nur
-    //    nach bestätigter Übernahme (s. Docstring) — der frühere Immer-reset-Pfad
-    //    ließ ein bestehendes Gerät kommentarlos sterben.
+    // Selbstbedienung (Heim-Server 2026-09-27): keine Instanz da → selbst
+    // eine anlegen. Kein Antrag, keine Freischaltung — der Endpoint nimmt das
+    // Cloud-Konto als Identität und Owner; das client_secret aus der Antwort
+    // braucht die Server-App nicht, weil der Bootstrap-Redeem unten das
+    // Secret ohnehin rotiert. 409 = parallel doch eine entstanden (Race) →
+    // Liste neu lesen; alles andere ist ein echter Fehler.
+    const create = await netJson('POST', `${cloudOrigin}/api/auth/me/instances`, cookie, {});
+    const anlage = bewerteAnlage(create.status, create.json);
+    if (anlage.art === 'ok') {
+      return proceedWithInstance({ id: anlage.instanzId } as InstanceOut, cookie, cloudOrigin, opts);
+    }
+    if (anlage.art === 'konflikt') {
+      const relist = await netJson('GET', `${cloudOrigin}/api/auth/me/instances`, cookie);
+      const again = aktiveAppHostInstanz(relist.json);
+      if (!again) return { ok: false, error: 'Instanz-Anlage widersprüchlich — erneut versuchen.' };
+      const againFull = (relist.json as InstanceOut[]).find((i) => i.id === again!.id) as InstanceOut;
+      return proceedWithInstance(againFull, cookie, cloudOrigin, opts);
+    }
+    return { ok: false, error: `Server-Registrierung fehlgeschlagen (HTTP ${anlage.status}).` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Schritt 2+3 der Provisionierung für eine gefundene Instanz: Bootstrap-Token
+ *  minten + einlösen. Ausgelagert, weil der Instanz-Weg (gefunden vs. gerade
+ *  selbst angelegt) oben verzweigt, der Mint-Weg aber identisch ist. */
+async function proceedWithInstance(
+  inst: InstanceOut,
+  cookie: string,
+  cloudOrigin: string,
+  opts: { confirmTakeover?: boolean },
+): Promise<ProvisionResult> {
+  try {
     const reset = opts.confirmTakeover === true;
     const mint = await netJson(
       'POST',
@@ -155,6 +224,40 @@ export async function provision(
   }
 }
 
+export interface MeInfo {
+  /** Cloud-Kennung — treibt den Benutzer-Weltwechsel in main.ts. */
+  id?: string;
+  username: string;
+  displayName: string | null;
+}
+
+/** Der aktuell eingeloggte Cloud-User (GET /api/auth/me über den
+ *  pulse_session-Cookie) — für die "Angemeldet als …"-Zeile der Server-App.
+ *  Wie provision() über die Electron-Default-Session, in der der
+ *  howispulse.com-Login stattfand. null bei fehlender Session (gepairter Server
+ *  ohne frischen Login / abgelaufener Cookie) oder Netz-/Serverfehler → die UI
+ *  blendet die Zeile dann einfach aus. */
+export async function fetchMe(
+  cloudOrigin: string,
+  getBearer?: () => Promise<string | null>,
+): Promise<MeInfo | null> {
+  try {
+    const cookie = await ensureSessionCookie(cloudOrigin, getBearer);
+    if (!cookie) return null;
+    const r = await netJson('GET', `${cloudOrigin}/api/auth/me`, cookie);
+    if (r.status !== 200 || !r.json || typeof r.json !== 'object') return null;
+    const u = r.json as { id?: unknown; username?: unknown; display_name?: unknown };
+    if (typeof u.username !== 'string') return null;
+    return {
+      ...(u.id !== undefined && u.id !== null ? { id: String(u.id) } : {}),
+      username: u.username,
+      displayName: typeof u.display_name === 'string' ? u.display_name : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** "In der Cloud registriert & auffindbar": fragt den Directory-Heartbeat der
  *  Instanz ab (GET /me/instances/{id}/direct-endpoint, online-Feld). Wie
  *  provision() über den pulse_session-Cookie. Liefert true (online), false
@@ -163,9 +266,10 @@ export async function provision(
 export async function fetchCloudStatus(
   cloudOrigin: string,
   instanceId: string,
+  getBearer?: () => Promise<string | null>,
 ): Promise<boolean | null> {
   try {
-    const cookie = await sessionCookie(cloudOrigin);
+    const cookie = await ensureSessionCookie(cloudOrigin, getBearer);
     if (!cookie) return null;
     const r = await netJson('GET', `${cloudOrigin}/api/auth/me/instances/${instanceId}/direct-endpoint`, cookie);
     return classifyCloudStatus(r.status, r.json);
@@ -181,9 +285,10 @@ export async function fetchCloudStatus(
 export async function deleteInstanceRegistration(
   cloudOrigin: string,
   instanceId: string,
+  getBearer?: () => Promise<string | null>,
 ): Promise<CloudDeleteVerdict> {
   try {
-    const cookie = await sessionCookie(cloudOrigin);
+    const cookie = await ensureSessionCookie(cloudOrigin, getBearer);
     if (!cookie) return 'unauthorized';
     const r = await netJson('DELETE', `${cloudOrigin}/api/auth/me/instances/${instanceId}`, cookie);
     return classifyDeleteStatus(r.status);

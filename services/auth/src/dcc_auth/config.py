@@ -151,6 +151,10 @@ class Settings(BaseSettings):
     rate_limit_server_ticket: str = "60/minute"
     rate_limit_bootstrap_mint: str = "20/minute"
     rate_limit_bootstrap_redeem: str = "10/minute"
+    # Selbstbedienungs-Registrierung (Heim-Server, Entscheidung 2026-09-27):
+    # pro Konto hart auf 1 Instanz gedeckelt, das Limit schuetzt nur vor
+    # Create/Delete-Churn.
+    rate_limit_instance_create: str = "5/hour"
     rate_limit_relay_tls_check: str = "60/minute"
     rate_limit_reachability_probe: str = "10/minute"
     # Eine Prüfung dauert bis zu 40 s und öffnet ein Dutzend Verbindungen zu
@@ -323,6 +327,7 @@ class Settings(BaseSettings):
         "rate_limit_user_search",
         "rate_limit_bootstrap_mint",
         "rate_limit_bootstrap_redeem",
+        "rate_limit_instance_create",
         "rate_limit_relay_tls_check",
         "rate_limit_reachability_probe",
         "rate_limit_selfhost_diagnose",

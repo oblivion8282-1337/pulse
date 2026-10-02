@@ -1,7 +1,14 @@
 # Der Direktweg fragt die falsche Liste — Befund und die drei Wege
 
 Gefunden am 2026-09-07 in einem Bughunt, gegengeprüft am Code. **Behoben am
-2026-09-23 mit Weg 1** (die Direktrouten fragen `role == "owner"`, zusätzlich
+2026-09-23 mit Weg 1** — und am **2026-09-27 mit dem Heim-Server-Entscheid
+wieder geöffnet**: V1 des Heim-Servers hat keinen Relay-Rückfall, damit ist
+der Direktweg der EINZIGE Zugang für Mitglieder; beide Direktrouten nehmen
+Owner- UND Merkhilfe-Mitgliedschaft an. Die echte Schranke ist das
+Sitzungs-Ticket + Beitritts-Gate (Invite-Codes) auf dem Server selbst; das
+Restrisiko (Merkhilfe → Heim-IP-Erkenntnis, s. Abwägung unten) ist als
+Produktentscheid akzeptiert, Weg 2 (echter Grant) bleibt der dokumentierte
+Upgrade-Pfad. (die Direktrouten fragen `role == "owner"`, zusätzlich
 `status == "active"`; der Admin-Suspend löscht den Telefonbuch-Eintrag mit) —
 Nicht-Owner laufen wie beschrieben über den Relay-Rückfall. Die Abwägung unten
 bleibt relevant, falls der Direktpfad wieder für Mitglieder geöffnet werden

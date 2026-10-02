@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 use tokio::net::UdpSocket;
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::{API, APIBuilder};
+use webrtc::ice::mdns::MulticastDnsMode;
 use webrtc::ice::udp_mux::{UDPMuxDefault, UDPMuxParams};
 use webrtc::ice::udp_network::UDPNetwork;
 use webrtc::ice_transport::ice_server::RTCIceServer;
@@ -22,17 +23,43 @@ use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
 
-/// Adressen, die als ICE-Kandidat nur Zeit kosten: Container-Bridges
-/// (Docker/Podman), CGNAT/Tailscale und **jedes IPv6** — ein IPv6-Leak aus
+/// Adressen, die in die ANSWER gehören (SDP-Filter): keine Container-Bridges
+/// (Docker/Podman), kein CGNAT/Tailscale, kein IPv6 — ein IPv6-Leak aus
 /// Docker-Bridges hat schon bei WHEP minutenlange Verbindungsaufbauten
 /// verursacht. Übrig bleibt der LAN-Host-Kandidat; die öffentliche Adresse
 /// kommt separat als srflx dazu.
+///
+/// Gilt NUR fürs, was Clients sehen — NICHT fürs Gathering des Agenten
+/// (`is_gatherable_ip`).
 fn is_useful_candidate_ip(ip: IpAddr) -> bool {
     let IpAddr::V4(v4) = ip else { return false };
-    let [a, b, ..] = v4.octets();
+    let [a, b, c, ..] = v4.octets();
     let docker_bridge = a == 172 && (16..=31).contains(&b);
     let cgnat_tailscale = a == 100 && (64..=127).contains(&b);
-    !(docker_bridge || cgnat_tailscale || v4.is_loopback())
+    // WSL2-DNS-Tunneling legt auf lo eine GLOBALE Pseudo-Adresse (10.255.255.254)
+    // — der gather nimmt sie (kein 127.x), aber aus dem LAN ist sie tot, und ihr
+    // Kandidat in der Answer multiplizierte den srflx mit identischer Foundation
+    // — Firefox's strikter Parser verweigert darauf die ICE-Checks (Windows-E2E
+    // 2026-10-01). ponytail: Interface-Namen kommen am IP-Filter nicht an; wird
+    // WSL die Range je Version ändern, hier nachziehen.
+    let wsl_dns_pseudo = a == 10 && b == 255 && c == 255;
+    !(docker_bridge || cgnat_tailscale || wsl_dns_pseudo || v4.is_loopback())
+}
+
+/// Filter fürs GATHERING (Agent-intern): Im Container ist die Docker-Bridge-
+/// IP die einzige Interface-Adresse. Verwirft man sie hier, gather der Agent
+/// NULL Kandidaten — webrtc-rs bricht ab („Candidate IP could not be found",
+/// Linux-E2E 2026-09-29), registriert sich nie an der UDPMux und droppt jeden
+/// eingehenden Check („Dropping packet from …"). Der Agent gather also ALLE
+/// IPv4-Interfaces; was daraus in die Answer geht, entscheiden
+/// `sdp::strip_unusable_hosts` + die Injektionen (`is_useful_candidate_ip`).
+///
+/// Die Mux routet eingehende Checks ohnehin über den ufrag im STUN-USERNAME,
+/// nicht über die Kandidaten-IP — die Bridge-IP als interner Kandidat ist
+/// also funktional, solange sie nur existiert.
+fn is_gatherable_ip(ip: IpAddr) -> bool {
+    let IpAddr::V4(v4) = ip else { return false };
+    !v4.is_loopback() && !v4.is_unspecified()
 }
 
 pub struct RtcFactory {
@@ -40,6 +67,13 @@ pub struct RtcFactory {
     certificate: RTCCertificate,
     stun_urls: Vec<String>,
     public_ip: IpAddr,
+    /// LAN-IPs des VM-Hosts (Win/Mac podman machine) — als Host-Kandidaten in
+    /// jede Answer injiziert (`sdp::inject_extra_hosts`); ohne sie enthielte
+    /// die Answer im VM-Fall gar keine Kandidaten (ip_filter verwirft alles).
+    extra_host_ips: Vec<std::net::Ipv4Addr>,
+    /// Der gemuxte UDP-Port — Ziel-Port der injizierten Host-Kandidaten
+    /// (podman published ihn 1:1 auf dem VM-Host).
+    mux_port: u16,
 }
 
 impl RtcFactory {
@@ -52,13 +86,31 @@ impl RtcFactory {
         certificate: RTCCertificate,
         stun_servers: &[String],
         public_ip: IpAddr,
+        mut extra_host_ips: Vec<std::net::Ipv4Addr>,
+        mux_port: u16,
     ) -> Self {
+        // Defense-in-Depth: für injizierte Kandidaten gilt derselbe Filter wie
+        // fürs Gathering — ein Bug im Zulieferer (Server-App) darf keine
+        // Loopback-/Bridge-Adressen in die Answer drücken.
+        extra_host_ips.retain(|ip| is_useful_candidate_ip(IpAddr::V4(*ip)));
         let mut se = SettingEngine::default();
+        // mDNS-Fernkandidaten AUSWERFEN (Linux-E2E 2026-09-29): Chrome bietet
+        // Host-Kandidaten als <uuid>.local an. Der Agent löst den Namen per
+        // System-Resolver auf — auf Linux-Heimserver mit Docker/Podman-Bridges
+        // liefert der BRIDGE-Adressen (z. B. 172.26.0.1), die UDPMux registriert
+        // genau diese falsche Route, und Chromes STUN-Responses (ohne USERNAME —
+        // Responses haben nie einen) werden von der Mux als nicht zuordenbar
+        // gedroppt → checking → disconnected, ohne eine Antwort. Disabled wirft
+        // entfernte .local-Kandidaten weg; die Paare laufen über srflx/host-
+        // Kandidaten mit echter Adresse, deren Checks die Mux per USERNAME
+        // zuordnen kann. Mac E2E fuhr zufällig durch (keine Bridges im
+        // mDNS-Record).
+        se.set_ice_multicast_dns_mode(MulticastDnsMode::Disabled);
         se.set_udp_network(UDPNetwork::Muxed(UDPMuxDefault::new(UDPMuxParams::new(socket))));
-        se.set_ip_filter(Box::new(is_useful_candidate_ip));
+        se.set_ip_filter(Box::new(is_gatherable_ip));
         let api = APIBuilder::new().with_setting_engine(se).build();
         let stun_urls = stun_servers.iter().map(|s| format!("stun:{s}")).collect();
-        Self { api, certificate, stun_urls, public_ip }
+        Self { api, certificate, stun_urls, public_ip, extra_host_ips, mux_port }
     }
 
     /// Beantwortet einen Client-Offer: PeerConnection + Brücke verdrahten,
@@ -95,7 +147,16 @@ impl RtcFactory {
             .local_description()
             .await
             .context("keine local description nach Gathering")?;
-        Ok(crate::sdp::inject_srflx(&local.sdp, self.public_ip))
+        // Reihenfolge zählt: erst die nativ gegatherten, aber unbrauchbaren
+        // Host-Kandidaten (Container-Bridge, CGNAT) aus der Answer werfen — der
+        // Agent nutzt sie intern weiter (Mux-Registrierung), Clients sehen sie
+        // nicht (aus LAN/Internet unerreichbar). Dann die VM-Host-LAN-Kandidaten
+        // (stellen im VM-Fall überhaupt erst Host-Zeilen her), dann den srflx
+        // anhängen (der sich an Host-Zeilen verankert).
+        let usable = crate::sdp::strip_unusable_hosts(&local.sdp, is_useful_candidate_ip);
+        let with_hosts =
+            crate::sdp::inject_extra_hosts(&usable, &self.extra_host_ips, self.mux_port);
+        Ok(crate::sdp::inject_srflx(&with_hosts, self.public_ip))
     }
 }
 
@@ -187,5 +248,33 @@ mod tests {
         for wan in ["100.64.12.7", "159.195.150.54", "8.8.8.8"] {
             assert!(!is_lan_address(wan), "{wan} sollte als Internet gelten");
         }
+    }
+
+    /// Der Linux-E2E-Kernbug (2026-09-29): im Container muss die Bridge-IP
+    /// gegathert werden dürfen, sonst hat der Agent null Kandidaten.
+    #[test]
+    fn gathering_nimmt_bridge_ip_nicht_loopback() {
+        assert!(is_gatherable_ip("172.17.0.2".parse().unwrap()));
+        assert!(is_gatherable_ip("192.168.178.72".parse().unwrap()));
+        assert!(!is_gatherable_ip("127.0.0.1".parse().unwrap()));
+        assert!(!is_gatherable_ip("::1".parse().unwrap()));
+    }
+
+    /// In die Answer gehören umgekehrt nur brauchbare Adressen.
+    #[test]
+    fn sdp_filter_verwirft_bridge_behaelt_lan() {
+        assert!(!is_useful_candidate_ip("172.17.0.2".parse().unwrap()));
+        assert!(!is_useful_candidate_ip("100.77.12.9".parse().unwrap()));
+        assert!(is_useful_candidate_ip("192.168.178.72".parse().unwrap()));
+    }
+
+    /// WSL2-DNS-Tunneling (Windows-E2E 2026-10-01): auf lo liegt eine GLOBALE
+    /// Pseudo-Adresse — gather-tauglich (intern nötig), aber nie in die Answer.
+    #[test]
+    fn sdp_filter_verwirft_wsl_dns_pseudoadresse() {
+        assert!(is_gatherable_ip("10.255.255.254".parse().unwrap()));
+        assert!(!is_useful_candidate_ip("10.255.255.254".parse().unwrap()));
+        // Echtes 10/8-LAN bleibt brauchbar (manche Heimnetze fahren 10.x).
+        assert!(is_useful_candidate_ip("10.0.0.5".parse().unwrap()));
     }
 }

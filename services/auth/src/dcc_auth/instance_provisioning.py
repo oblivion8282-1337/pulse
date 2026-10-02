@@ -67,7 +67,9 @@ async def user_has_active_owner_instance(session: AsyncSession, user_id: int) ->
     return row is not None
 
 
-async def provision_app_host_instance(session: AsyncSession, owner_user_id: int) -> int:
+async def provision_app_host_instance(
+    session: AsyncSession, owner_user_id: int, plain_secret: str | None = None
+) -> int:
     """Legt eine Relay-Instanz für App-Hosting an und gibt die Instanz-ID zurück.
 
     Läuft INNERHALB der Transaktion des Callers. Worker-ID-/client_id-Kollisionen
@@ -76,9 +78,17 @@ async def provision_app_host_instance(session: AsyncSession, owner_user_id: int)
     am Ende alles gemeinsam.
 
     Der Caller MUSS vorher idempotent prüfen
-    (:func:`user_has_active_owner_instance`), dass noch keine Instanz existiert."""
+    (:func:`user_has_active_owner_instance`), dass noch keine Instanz existiert.
+
+    ``plain_secret``: Mitgeben, wenn der Caller das client_secret EINMAL im
+    Klartext zurückgeben will (Selbstbedienung 2026-09-27 — die Server-App
+    stopft es in die Container-Env-Datei); in der DB landet nur der Hash.
+    Ohne das Argument wird wie bisher ein Zufalls-Secret verworfen (Pairing
+    rotiert es ohnehin)."""
     settings = get_settings()
-    secret_hash = await asyncio.to_thread(hash_password, secrets.token_urlsafe(32))
+    secret_hash = await asyncio.to_thread(
+        hash_password, plain_secret if plain_secret is not None else secrets.token_urlsafe(32)
+    )
     for _attempt in range(5):
         try:
             async with session.begin_nested():  # SAVEPOINT

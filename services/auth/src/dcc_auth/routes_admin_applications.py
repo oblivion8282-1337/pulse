@@ -169,75 +169,6 @@ async def list_applications(
     ]
 
 
-async def _approve_app_host(
-    app_id: int,
-    request: Request,
-    session: SessionDep,
-    actor: User,
-) -> AppHostApprovalOut:
-    """App-Host-Zweig: Flag + auto-provisionierte Relay-Instanz im selben Tx.
-
-    Übernommen aus dem früheren ``routes_admin_app_host.py`` — Verhalten
-    identisch, nur die Antrags-Tabelle ist jetzt die vereinte.
-    """
-    app_row = await session.get(InstanceApplication, app_id, with_for_update=True)
-    if app_row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="application not found")
-    if app_row.status != "pending":
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail=f"Antrag ist bereits '{app_row.status}'",
-        )
-
-    target_user = await session.get(User, app_row.applicant_user_id)
-    if target_user is None:
-        # User wurde gelöscht, während der Antrag offen war — CASCADE hätte den
-        # Antrag mitnehmen sollen. Defensive 404.
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User nicht gefunden")
-
-    app_row.status = "approved"
-    app_row.reviewed_at = datetime.now(UTC)
-    app_row.reviewed_by = actor.id
-
-    was_enabled = target_user.self_host_enabled
-    target_user.self_host_enabled = True
-
-    # Relay-Instanz provisionieren, damit der User sofort aus der App hosten
-    # kann. Idempotent: besitzt er schon eine aktive App-Host-Instanz, nichts tun.
-    provisioned_instance_id: int | None = None
-    if not await user_has_active_owner_instance(session, target_user.id):
-        provisioned_instance_id = await provision_app_host_instance(session, target_user.id)
-        app_row.approved_instance_id = provisioned_instance_id
-
-    _audit(
-        session,
-        actor_id=actor.id,
-        action="app_host_application.approve",
-        target_id=target_user.id,
-        payload={
-            "application_id": app_row.id,
-            "was_enabled": was_enabled,
-            "instance_id": provisioned_instance_id,
-        },
-    )
-    await session.commit()
-    await session.refresh(app_row)
-
-    # Erst nach dem Commit: der Antragsteller darf nichts erfahren, was ein
-    # zurückgerollter Vorgang nie war.
-    await publish_application_decided(
-        request, user_id=target_user.id, kind="app_host", status="approved"
-    )
-    return AppHostApprovalOut(
-        id=str(app_row.id),
-        user_id=str(target_user.id),
-        self_host_enabled=target_user.self_host_enabled,
-        instance_id=(
-            str(provisioned_instance_id) if provisioned_instance_id is not None else None
-        ),
-    )
-
-
 async def _approve_vps(
     app_id: int,
     request: Request,
@@ -400,7 +331,14 @@ async def approve_application(
     if origin is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="application not found")
     if origin == "app_host":
-        return await _approve_app_host(app_id, request, session, actor)
+        # Heim-Server-Entscheid 2026-09-27: App-Host-Anträge sind obsolet
+        # (Selbstbedienung, POST /me/instances). Alte Pending-Zeilen können
+        # nur noch abgelehnt werden — der Antragsteller registriert sich über
+        # die Server-App selbst.
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail="App-Hosting-Anträge sind abgeschafft (Selbstbedienung)",
+        )
     return await _approve_vps(app_id, request, session, actor)
 
 

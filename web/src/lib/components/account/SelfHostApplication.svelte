@@ -14,43 +14,21 @@ import { currentLocale } from '$lib/i18n';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
-  import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
   import { instancesApi, type InstanceApplication } from '$lib/api/instances';
-  import {
-    networkCheckWireValue,
-    type HostingVerdict
-  } from '$lib/hosting/connectivityCheck';
-  import ConnectivityCheckPanel from './ConnectivityCheckPanel.svelte';
   import { isMobile } from '$lib/platform/runtime';
-  import { APP_HOSTING_ENABLED } from '$lib/featureFlags';
   import ServerIcon from '@lucide/svelte/icons/server';
-  import HouseIcon from '@lucide/svelte/icons/house';
   import CloudIcon from '@lucide/svelte/icons/cloud';
   import { m } from '$lib/paraglide/messages.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
   import FieldLabel from '$lib/components/form/FieldLabel.svelte';
-  import Select from '$lib/components/form/Select.svelte';
 
-  type Mode = 'vps' | 'app_host';
   const mobile = isMobile();
 
-  const zweckOptionen = $derived([
-    { value: 'privat', label: m.app_host_apply_purpose_privat() },
-    { value: 'verein', label: m.app_host_apply_purpose_verein() },
-    { value: 'firma', label: m.app_host_apply_purpose_firma() },
-    { value: 'sonst', label: m.app_host_apply_purpose_sonst() },
-  ]);
 
-  let mode = $state<Mode>('vps');
   let hostname = $state('');
-  let purpose = $state<'privat' | 'verein' | 'firma' | 'sonst'>('privat');
-  let message = $state('');
   // null = Probe läuft noch / kein Ergebnis (Submit erlaubt). 'cannot-host'
-  // blockt den Submit + zeigt die Warn-Box (im ConnectivityCheckPanel).
-  let netCheck = $state<HostingVerdict | null>(null);
   let submitting = $state(false);
   let formError = $state<string | null>(null);
 
@@ -81,34 +59,17 @@ import { currentLocale } from '$lib/i18n';
 
   async function submit() {
     formError = null;
-    if (mode === 'vps') {
-      if (!hostname.trim()) {
-        formError = m.self_host_application_hostname_required();
-        return;
-      }
-    } else if (netCheck === 'cannot-host') {
-      // Defensiv — der Submit-Button ist in diesem Fall ohnehin disabled;
-      // die Warn-Box im Panel erklärt den Grund + die VPS-Alternative.
+    if (!hostname.trim()) {
+      formError = m.self_host_application_hostname_required();
       return;
     }
     submitting = true;
     try {
-      const created =
-        mode === 'vps'
-          ? await instancesApi.submitApplication({ hostname: hostname.trim() })
-          : await instancesApi.submitApplication({
-              origin: 'app_host',
-              purpose,
-              notes: message.trim() || null,
-              network_check: netCheck ? networkCheckWireValue(netCheck) : null
-            });
+      const created = await instancesApi.submitApplication({ hostname: hostname.trim() });
       // Antrag beobachten → Owner-Toast, sobald genehmigt/abgelehnt wird.
-      if (mode === 'vps') myInstanceApplications.register(created.id);
-      else myAppHostApplications.register(created);
+      myInstanceApplications.register(created.id);
       toast.success(m.self_host_application_submitted_toast());
       hostname = '';
-      message = '';
-      netCheck = null;
       await reload();
     } catch (e) {
       formError = errText(e);
@@ -143,15 +104,14 @@ import { currentLocale } from '$lib/i18n';
 <div class="flex flex-col gap-5" data-testid="self-host-application">
   <form onsubmit={(e) => { e.preventDefault(); void submit(); }}
         class="border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4">
-    <!-- Wo soll der Server laufen? Links "Auf eigenem Server" (aktiv), rechts
-         "Von Pulse gehostet" als ausgegrauter Teaser für ein künftiges Feature
-         (Pulse hostet den Server). Die App-Host-Kachel (eigenes Gerät) ist
-         geparkt und erscheint nur, wenn App-Hosting wieder aktiviert wird
-         (APP_HOSTING_ENABLED); mode bleibt sonst auf 'vps'. -->
+    <!-- Wo soll der Server laufen? "Auf eigenem Server" (VPS-Antrag) und
+         rechts "Von Pulse gehostet" als ausgegrauter Teaser. Der Heim-Server
+         (eigenes Gerät) braucht keinen Antrag mehr: die Server-App
+         registriert sich beim ersten Login selbst (Entscheid 2026-09-27). -->
     <p class="text-text-bright text-xs font-medium">{m.hosting_apply_mode_label()}</p>
     <div class="flex flex-col gap-2 sm:flex-row">
-      <button type="button" onclick={() => (mode = 'vps')}
-        class="{MODE_BTN} {modeBtnState(mode === 'vps')}"
+      <button type="button" disabled
+        class="{MODE_BTN} {modeBtnState(true)}"
         data-testid="hosting-mode-vps">
         <ServerIcon class="text-text-muted mt-0.5 size-4 shrink-0" />
         <span class="flex flex-col gap-0.5">
@@ -159,17 +119,7 @@ import { currentLocale } from '$lib/i18n';
           <span class="text-text-muted text-xs">{m.hosting_apply_mode_vps_desc()}</span>
         </span>
       </button>
-      {#if APP_HOSTING_ENABLED && !mobile}
-        <button type="button" onclick={() => (mode = 'app_host')}
-          class="{MODE_BTN} {modeBtnState(mode === 'app_host')}"
-          data-testid="hosting-mode-app-host">
-          <HouseIcon class="text-text-muted mt-0.5 size-4 shrink-0" />
-          <span class="flex flex-col gap-0.5">
-            <span class="text-text-bright text-sm font-medium">{m.hosting_apply_mode_app_title()}</span>
-            <span class="text-text-muted text-xs">{m.hosting_apply_mode_app_desc()}</span>
-          </span>
-        </button>
-      {/if}
+
       <!-- Teaser: von Pulse gehostet — noch nicht implementiert, daher
            ausgegraut + nicht klickbar. -->
       <div class="{MODE_BTN} border-border bg-bg-input/20 cursor-not-allowed opacity-60"
@@ -184,11 +134,8 @@ import { currentLocale } from '$lib/i18n';
         </span>
       </div>
     </div>
-    {#if APP_HOSTING_ENABLED && mobile}
-      <p class="text-text-muted text-xs">{m.hosting_apply_mobile_hint()}</p>
-    {/if}
 
-    {#if mode === 'vps'}
+
       <div class="flex flex-col gap-1">
         <FieldLabel class="text-text-bright text-xs font-medium" for="sha-hostname" required>
           {m.self_host_application_hostname_label()}
@@ -201,37 +148,14 @@ import { currentLocale } from '$lib/i18n';
           placeholder="pulse.example.org"
         />
       </div>
-    {:else}
-      <div class="flex flex-col gap-1">
-        <Label class="text-text-bright text-xs font-medium" for="sha-purpose">
-          {m.app_host_apply_purpose_label()}
-        </Label>
-        <Select
-          id="sha-purpose"
-          value={purpose}
-          options={zweckOptionen}
-          onchange={(v) => (purpose = v as 'privat' | 'verein' | 'firma' | 'sonst')}
-        />
-      </div>
-      <div class="flex flex-col gap-1">
-        <Label class="text-text-bright text-xs font-medium" for="sha-message">
-          {m.app_host_apply_message_label()}
-          <span class="text-text-muted font-normal">{m.app_host_apply_message_optional()}</span>
-        </Label>
-        <textarea id="sha-message" bind:value={message} rows="2" maxlength="2000"
-          placeholder={m.app_host_apply_message_placeholder()}
-          class="bg-bg-input border-border text-text-bright placeholder:text-text-muted resize-none rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-        ></textarea>
-      </div>
-      <ConnectivityCheckPanel onresult={(r) => (netCheck = r)} />
-    {/if}
+
 
     <FieldError message={formError} />
 
     <Button
       type="submit"
       class="self-end"
-      disabled={submitting || (mode === 'app_host' && netCheck === 'cannot-host')}
+      disabled={submitting}
     >
       {submitting ? m.self_host_application_submitting() : m.self_host_application_submit()}
     </Button>

@@ -10,7 +10,6 @@
  * VPS-Server verhalten sich wie bisher (Hostname IST deren Weg).
  */
 
-import type { ServerEntry } from '$lib/api/servers.svelte';
 import { m } from '$lib/paraglide/messages.js';
 import { directStatus } from '$lib/stores/directStatus.svelte';
 import { getDirectConnectionDetailed } from './registry';
@@ -35,13 +34,22 @@ function toPath(url: string): string {
   }
 }
 
-export function directEligible(server: ServerEntry | undefined): boolean {
+/** Strukturelles Minimum fuer die Weche — das volle `ServerEntry` erfuellt es;
+ *  duennere Fassungen (joinByInvite uebergibt das Einladungsziel) auch. */
+export type DirectTransportServer = {
+  hostname: string;
+  instance_id?: string | null;
+  isCloud?: boolean;
+  origin?: 'vps' | 'app_host' | null;
+};
+
+export function directEligible(server: DirectTransportServer | undefined): boolean {
   return !!server && !server.isCloud && !!server.instance_id;
 }
 
 /** `fetch`-Ersatz mit Direktpfad-Vorrang. Signatur bleibt kompatibel. */
 export async function transportFetch(
-  server: ServerEntry | undefined,
+  server: DirectTransportServer | undefined,
   url: string,
   init: RequestInit,
 ): Promise<Response> {

@@ -121,7 +121,11 @@ async def _instanz_oder_404(
 
 
 async def _fuehre_pruefung(
-    hostname: str, instanz_id: str, cloud_origin: str, owner_id: int | None
+    hostname: str,
+    instanz_id: str,
+    cloud_origin: str,
+    owner_id: int | None,
+    medien: bool = True,
 ) -> list[Schritt]:
     """Geht die Kette ab und bricht ab, wo ein weiterer Schritt nur dieselbe
     Ursache ein zweites Mal meldete.
@@ -177,9 +181,47 @@ async def _fuehre_pruefung(
         schritte.append(await pruefe_websocket(hostname, adresse, 443))
 
     # Ton und Bild: eigene Ports, eigene Firewall-Regel, eigener Befund.
-    schritte.append(await pruefe_stun(adresse))
-    schritte.append(await pruefe_tcp(adresse, RTMPS_PORT, "rtmps"))
+    # Nur beim VPS: bei app_host zielen beide Prüfungen auf die RELAY-Box,
+    # nicht auf den Heim-Router — dort sagen sie nichts über den Nutzer-Server
+    # (der NAT-Nachweis gelingt ohnehin nur aus einem echten Client, siehe
+    # docs/plans/2026-09-30-heim-verbindungs-check.md). Sie erscheinen dann
+    # ehrlich unter „nicht geprüft“.
+    if medien:
+        schritte.append(await pruefe_stun(adresse))
+        schritte.append(await pruefe_tcp(adresse, RTMPS_PORT, "rtmps"))
     return schritte
+
+
+async def _pruefe_telefonbuch(db: SessionDep, instanz_id: str) -> Schritt:
+    """Meldet sich der Heim-Adapter per Heartbeat? Nur app_host.
+
+    Ohne frischen Heartbeat ist der Direktpfad tot, während die Relay-Kette
+    (Folge-Schritte) auch dann grün bleiben kann, wenn nur der Adapter hängt
+    — deshalb steht der Schritt an erster Stelle und bricht die Kette NICHT
+    ab: „Adapter tot, Container lebt“ ist eine andere Ursache als „alles tot“.
+    """
+    from datetime import UTC, datetime
+
+    from dcc_auth.models_instances import InstanceDirectEndpoint
+
+    instanz = kennung_aus_text(instanz_id)
+    if instanz is None:
+        return Schritt("telefonbuch", False, "kein-eintrag")
+    row = await db.get(InstanceDirectEndpoint, instanz)
+    if row is None:
+        return Schritt("telefonbuch", False, "kein-eintrag")
+    aktualisiert = row.updated_at
+    if aktualisiert.tzinfo is None:  # SQLite (Tests) liefert naive UTC-Zeiten
+        aktualisiert = aktualisiert.replace(tzinfo=UTC)
+    alter_s = (datetime.now(UTC) - aktualisiert).total_seconds()
+    frisch = alter_s < get_settings().directory_online_threshold_seconds
+    if not frisch:
+        return Schritt("telefonbuch", False, "offline", einzelheit=f"letzte Meldung vor {int(alter_s)}s")
+    kandidat = next((c for c in row.candidates if c.get("protocol") == "udp"), None)
+    einzelheit = (
+        f"{kandidat['ip']}:{kandidat['port']}" if kandidat else None
+    )
+    return Schritt("telefonbuch", True, "ok", einzelheit=einzelheit)
 
 
 @router.post("/selfhost/diagnose/{instance_id}", response_model=DiagnoseAus)
@@ -200,13 +242,34 @@ async def diagnose(
 
     # Der gespeicherte Hostname ist ein blosser Name (bei der Genehmigung
     # geprüft); ein Schema davor wäre ein Fehler in den Daten, kein Eingabewert.
-    host = urlsplit(f"//{inst.hostname}").hostname or inst.hostname
+    # app_host (Heim-Server): die Spalte `hostname` trägt den SYNTHETISCHEN
+    # Namen (app-<id>.<relay_base>) und zeigt auf die PROD-Relay-Infrastruktur
+    # — dieselbe Falle wie beim server-ticket-Fix (3665c212). Die wirksame
+    # Adresse ist die allozierte Relay-Subdomain; ohne sie bleibt der
+    # synthetische Name (Prüfung wird dann eben dort scheitern).
+    nutzname = inst.hostname
+    if inst.origin == "app_host" and inst.relay_subdomain:
+        nutzname = inst.relay_subdomain
+    host = urlsplit(f"//{nutzname}").hostname or nutzname
 
     try:
         async with asyncio.timeout(GESAMTFRIST_S):
-            schritte = await _fuehre_pruefung(
-                host, str(inst.id), settings.pulse_oidc_issuer, inst.registered_by
-            )
+            if inst.origin == "app_host":
+                # Heim-Server: zuerst der Heartbeat-Schritt, dann die Kette
+                # gegen die RELAY-Adresse — ohne den VPS-Medientail (der
+                # würde die Relay-Box anpingen, nicht den Heim-Router).
+                schritte = [await _pruefe_telefonbuch(db, str(inst.id))]
+                schritte += await _fuehre_pruefung(
+                    host,
+                    str(inst.id),
+                    settings.app_base_url or settings.pulse_oidc_issuer,
+                    inst.registered_by,
+                    medien=False,
+                )
+            else:
+                schritte = await _fuehre_pruefung(
+                    host, str(inst.id), settings.app_base_url or settings.pulse_oidc_issuer, inst.registered_by
+                )
     except TimeoutError:
         schritte = [Schritt("gesamt", False, "zeitueberschreitung")]
 
@@ -227,9 +290,19 @@ async def diagnose(
 
     # Was die Kette ausgelassen hat. `_fuehre_pruefung` bricht bewusst ab, wo
     # ein weiterer Schritt nur dieselbe Ursache wiederholte — das darf sich
-    # aber nicht wie ein bestandener Rest lesen.
+    # aber nicht wie ein bestandener Rest lesen. Scherspektive: das
+    # telefonbuch-Glied gehört nur zur app_host-Kette, stun/rtmps nur zur
+    # VPS-Kette (bei app_host laufen sie bewusst nicht und erscheinen dort
+    # ehrlich als ungeprüft).
     gelaufen = {s.schritt for s in schritte}
-    nicht_geprueft = [titel(name, sprache) for name in SCHRITTE if name not in gelaufen]
+    # Scherspektive: app_host hat keine stun/rtmps-Glieder (die Medien-Glieder
+    # prueft die Server-App selbst — WHIP/WHEP-Rundtrip + LiveKit-Signal), und
+    # die VPS-Kette kennt kein telefonbuch.
+    if inst.origin == "app_host":
+        scope = tuple(name for name in SCHRITTE if name not in ("stun", "rtmps", "telefonbuch"))
+    else:
+        scope = tuple(name for name in SCHRITTE if name != "telefonbuch")
+    nicht_geprueft = [titel(name, sprache) for name in scope if name not in gelaufen]
 
     ausgaben: list[SchrittAus] = []
     for s in schritte:

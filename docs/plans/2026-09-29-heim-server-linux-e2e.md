@@ -1,0 +1,210 @@
+# Heim-Server Linux-E2E — Übergabe (2026-09-29)
+
+*Zweck: Fortsetzung des Mac-E2E (s. `2026-09-29-heim-server-mac-uebergabe.md`) auf
+Linux — die Server-App läuft hier NATIV (Host-Docker statt podman-VM). Stand
+(Nacht): **KOMPLETT GRÜN** — Direktpfad-ICE gefixt (`54c4e82b`), Chat-E2E
+dev2/dev3 über DataChannel, und (nach DNS-Freischaltung durch den User) auch
+**Voice über den Relay-Hostnamen** (`heim-voice-cloud-e2e.mjs`): LiveKit-Signal
+via Cloud-TLS → frps-Tunnel → Container, Medien UDP direkt, Audiospur
+beidseitig abonniert. Für die Linux-Plattform bleibt nur der Merge nach main.*
+
+## Was grün verifiziert ist (Reihenfolge der Kette)
+
+1. **Server-App dev-bundle auf Linux:** `cd desktop && PULSE_URL=https://pulse.
+   unicutmedia.com PULSE_HOST_IMAGE=pulse-allinone:heim-test node
+   node_modules/electron/cli.js . --remote-debugging-port=9223`. Kein
+   Keychain-Blocker wie am Mac; safeStorage via libsecret oder Klartext-Fallback
+   (chmod-600-Store). Unit-Tests grün (`pnpm test:unit`).
+2. **Takeover dev2:** Logout → Login dev2/test1234 → `#btnSetup` → 403 consumed
+   → Takeover-Overlay → Redeem. Dev-Cloud hat Relay-Provisioning an: frische
+   Instanz-Creds **mit Relay-Triple** (`merry-meadow-adbe.relay.unicutmedia.com`
+   + `77.42.71.166:7000` + Tunnel-Token). Die Mac-Instanz ist damit resettet
+   (abgesprochen).
+3. **Container pulse-host:** lokal gebautes Image `pulse-allinone:heim-test`
+   (`docker build -f infra/self-host/Dockerfile …` vom Repo-Root; Registry-
+   Parität Baustelle 2 umgangen via `PULSE_HOST_IMAGE`, greift ungepackt).
+   Health `127.0.0.1:55580/api/chat/health` ok, alle 3 `PULSE_RELAY_*`-Vars im
+   Container, frpc „Konfiguration gerendert".
+4. **Relay-Tunnel:** frps registriert Tunnel-Login, vhost-Loopback-Curl auf
+   Hetzner (`curl -H 'Host: merry-meadow-adbe.relay.unicutmedia.com'
+   http://127.0.0.1:8081/api/chat/health`) → `{"status":"ok"}`. Volle Kette
+   frpc → frps → Container-Caddy steht.
+5. **Ticket-Mint:** `POST /api/auth/me/server-ticket` mit Session → 200
+   (nach Fix 1, s. unten).
+
+## Fix 1 — Backend (committed): server-ticket löst Relay-Subdomain auf
+
+`routes_server_ticket.py` suchte nur in der Spalte `hostname` (synthetisch
+`app-<id>.<relay_base>`), Clients melden aber die Relay-Subdomain (genau die
+meldet `GET /me/instances` für app_host und die Server-App als Adresse). Ohne
+allozierte Relay-Subdomain fielen beide Werte nicht auf — deshalb fiel der 404
+erst jetzt auf („not found" beim Community-Erstellen). Fix: zweistufige
+Auflösung, exakter hostname-Treffer gewinnt, sonst `relay_subdomain`. Test:
+`test_relay_subdomain_loest_auf_die_instanz_auf` in
+`test_server_ticket_route.py` (9/9 grün).
+
+⚠️ Dev-Cloud-Status: der Fix läuft dort bereits — via `scripts/dev-sync.sh`
+(lokaler Quellstand, NICHT git). Auf der neuen Maschine nach dem Pull also
+einmal `scripts/dev-sync.sh --pull --branch feat/heim-server` (oder lokal
+syncen), sonst 404-Wiederholung. Achtung: uvicorn lädt beim dev-sync teils
+VERZÖGERT neu („binnen 2 s" galt nicht immer) — vor erneutem Client-Versuch
+per `curl -X POST https://pulse.unicutmedia.com/api/auth/me/server-ticket`
+prüfen: 401 = Route lebt, 404 = noch alter Stand.
+
+## Fix 2 — Adapter (committed): mDNS-Fernkandidaten discarden + Trace-Logger
+
+`rtc.rs`: `set_ice_multicast_dns_mode(MulticastDnsMode::Disabled)`, `main.rs`:
+`env_logger::init()` (RUST_LOG wirkt jetzt; vorher verschwanden webrtc-Logs
+im Nirvana). `Cargo.toml`: env_logger-Dep. Begründungskommentar im Code.
+
+## GEFIXT (2026-09-29, `54c4e82b`): Direktpfad-ICE im Container
+
+**Ursache (per webrtc-ice-0.17.1-Quellcode belegt):** `set_ip_filter` wirkt
+NUR aufs Gathering (`agent_gather.rs::gather_candidates_local_udp_mux`) — der
+Filter verwarf die Bridge-IP 172.17.0.2, `candidate_ips.is_empty()` →
+`ErrCandidateIpNotFound` → Abbruch VOR `udp_mux.get_conn(&ufrag)` → der Agent
+hat keine Verbindung in der Mux → „Dropping packet" für jeden Check.
+
+**Fix:** Filteraufteilung. `is_gatherable_ip` (Agent-intern: alle IPv4-
+Interfaces, kein Loopback) fürs `set_ip_filter`; `is_useful_candidate_ip`
+(bridges/CGNAT/IPv6 raus) nur noch fürs SDP — neu `sdp::strip_unusable_hosts`
+wirft die nativen Bridge-Kandidaten aus der Answer, `inject_extra_hosts` +
+`inject_srflx` laufen unverändert danach. Clients sehen wie bisher nur
+LAN-Host + srflx; der Agent behält die Bridge-IP intern. Der Schlüssel: die
+UDPMux routet Checks über den **ufrag im STUN-USERNAME**, nicht über die
+Kandidaten-IP (`udp_mux/mod.rs::conn_from_stun_message`) — die Bridge-IP ist
+intern also voll funktional.
+
+**Live-Beweis (Reihenfolge der Kette, alles an EINEM Abend):**
+1. Server-App (Linux, `PULSE_BUILD_MODE=server`-Bundle) gegen Dev-Cloud →
+   Login dev2 → „Server einrichten" → Takeover-Overlay bestätigt → Container
+   `pulse-host` healthy in ~30 s. Env korrekt: `PULSE_DIRECT_EXTRA_HOST_IPS=
+   192.168.178.20` (echte LAN-IP via `hostLanIpv4s`), Relay-Triple komplett.
+2. Adapter-Startlog: öffentliche Adresse `46.128.161.204:7900` (STUN,
+   Port-Preservation), Telefonbuch online.
+3. ICE-Probe (Browser, Cloud-Origin, Telefonbuch → direct-offer → Answer):
+   **ICE CONNECTED nach 250 ms**, DataChannel offen. Answer enthält sauber
+   `host 192.168.178.20:7900` + `srflx 46.128.161.204:7900`, KEINE 172.17er.
+   Adapter-Log: `verbunden über LAN (Host-Kandidat): lokal 172.17.0.2:7900
+   [host] <-> Gegenstelle 192.168.178.20:47519 [prflx]` — genau die
+   beabsichtigte Form (Bridge intern, LAN-Pfad trägt).
+4. **Chat-E2E** (`infra/self-host/tests/heim-chat-cloud-e2e.mjs`, neu): dev2
+   Cloud-Ticket (Relay-Subdomain-Auflösung = Fix 1 in der echten Kette) →
+   Session/Community/Kanal/Invite über den DataChannel; dev3 Membership-
+   Merkhilfe → Grant-Ticket → Session → Invite-Accept → Nachricht, Owner liest
+   sie über seinen eigenen DC. **Grün.**
+
+## ERLEDIGT (2026-09-29 nachts): Voice-E2E über den Relay-Hostnamen
+
+1. **DNS:** User hat `*.relay.unicutmedia.com → 77.42.71.166` im Hetzner-DNS
+   gesetzt (Zone liegt bei Hetzner, ns1.your-server.de/second-ns). `dig` grün.
+2. **Relay-Box (Hetzner, Hostname „Oblivion“, `michael@77.42.71.166`):** Der
+   Edge ist ein Docker-Caddy (`caddy`-Container, Config
+   `/home/michael/caddy/Caddyfile`). Der vorbereitete `*.relay`-Block scheiterte
+   am Wildcard-TLS (DNS-01 nötig, Stock-Image ohne Hetzner-Plugin → „tls
+   internal error“). Umgebaut auf **on-demand per Hostname (HTTP-01)**:
+   globaler `on_demand_tls { ask http://127.0.0.1:5566 }` + Loopback-Ask-Site
+   (statisch 200 — ponytail-Decke: erlaubt jede Domain, Upgrade-Pfad im
+   Kommentar) + `tls { on_demand }` im `*.relay`-Block (Upstream `frps:8080`
+   via Alias im geteilten Netz `pulse-selfhost-net`). Backup:
+   `Caddyfile.bak-20260929-relay-on-demand`. Erster Request zog das
+   Let's-Encrypt-Cert sofort; `curl https://merry-…relay…/api/chat/health`
+   → `{"status":"ok"}` (Kette TLS → frps vhost → Tunnel → Container-Caddy).
+3. **SSH-Zugang:** Michael hat den Public Key
+   `michael-desktop-pulse-dev` (id_ed25519 auf Michaels Rechner) in
+   `authorized_keys` eingetragen — BatchMode-SSH funktioniert jetzt.
+4. **Voice-E2E** (`infra/self-host/tests/heim-voice-cloud-e2e.mjs`): Tokens
+   kommen über den DataChannel vom Container (`ws_url` = 
+   `wss://merry-meadow-adbe.relay.unicutmedia.com/livekit`), beide Browser
+   PARALLEL verbunden (439/421 ms), beidseitig Remote-Teilnehmer mit
+   abonnierter Audiospur. Voice-Kanal ist `type: 1` (CHANNEL_TYPE_VOICE)!
+
+
+## Zweiter Testtag (2026-09-30): alles Allein-Machbare auf Linux getestet
+
+Neue Artefakte in `infra/self-host/tests/` — `heim-stream-cloud-e2e.mjs`,
+`heim-ws-cloud-e2e.mjs`, `heim-ext-ice-probe.cjs`, `heim-ext-voice-host.mjs`,
+`heim-ext-voice-gast.cjs`.
+
+1. **Streaming WHIP/WHEP über die ECHTE Cloud-Kette — GRÜN.** push_url trägt
+   `https://<relay>/whep/<path>/whip?token=…` (App-Host-Branch: MediaMTX
+   gathert srflx per STUN + LAN-Kandidaten). Publish-PC connected in 300 ms,
+   Viewer (dev3) per WHEP connected in 301 ms, **55 Frames in 4 s dekodiert**,
+   `remote_input`-Flag kommt im WHEP-Response an, MediaMTX loggt
+   `auth_publish_ok` + „is publishing“. (SDP-POSTs bewusst aus Node — WHIP/
+   WHEP-Endpoints sind Cross-Origin, Node kennt kein CORS.)
+2. **WS-Live-Chat über Relay-WS — GRÜN.** Self-Host-Gateway ist
+   `wss://<relay>/ws?token=<container-session>`; Ops-Sequenz
+   `hello,ready,message,channel_bump`, Abo-Modell (`{op:"subscribe"}`)
+   bestätigt. Pure-Node-Skript (Node 26 hat natives WebSocket).
+3. **EXTERN-ICE (Internet-Pfad) — GRÜN.** Chromium-Container auf der
+   Hetzner-Box spielt den Freund von außerhalb: ICE **CONNECTED nach 301 ms**,
+   gewähltes Paar `host 77.42.71.166 ↔ srflx 46.128.161.204:7900` — das
+   NAT-Loch trägt **ohne manuelle Portfreigabe** (Lochungs-Modus-Wette der
+   Server-App an einer echten Fritz!Box bestätigt). HARNESS-FALLE: der erste
+   Lauf lief in einem Docker-BRIDGE-Container auf der Box → deren Chrome sah
+   nur Bridge-IPs, inbound unmöglich (doppelt-NAT) → `--network host` ist
+   Pflicht. Erstlauf war also ein Harness-Artefakt, kein Produktbefund.
+4. **EXTERN-VOICE — GRÜN beidseitig.** Gast (Box) und Owner (LAN) sehen
+   einander mit abonnierter Audiospur; Signal via Relay-Tunnel, Medien-UDP
+   durchs Heim-NAT. Gast-Seite injiziert livekit-client per
+   `addScriptTag({path})` (kein Mixed-Content, kein CDN).
+5. **Backup → Restore — GRÜN.** Manueller pg_dump (custom, gzip) nach
+   `/data/backups`; im Wegwerf-Container (frisches Volume) pg_restore
+   `--clean --if-exists`: **0 Fehler, 10/10 Guilds** inkl. der heutigen
+   E2E-Communitys. Neustart-Resilienz: Container-Stop → Telefonbuch-Flag
+   `online:false` nach dem 300-s-Schwellwert
+   (`directory_online_threshold_seconds`), `docker start` → **healthy +
+   online nach ~18 s**.
+6. **Export-Payload — Kern bewiesen.** `docker run --entrypoint tar` über
+   `pulse-host-data` (exakt was exportVolume tut): 70 MB TAR mit
+   `./backups/*` + Postgres-Daten. Der UI-Knopf selbst öffnet einen NATIVEN
+   Save-Dialog (nicht automatisierbar) — manuell nachzuholen.
+7. **Autostart (Linux) — verifiziert auf Dateiebene.** Beim Pairing setzt die
+   Server-App den Default AN und schreibt
+   `~/.config/autostart/pulse-server.desktop` (XDG, Exec=Electron-Binary);
+   beim App-Boot zieht `syncLifecycleFromContainer` den laufenden Container
+   nach (heute live demonstriert).
+
+Damit ist auf Linux ALLES getestet, was ohne Windows-/Mac-Hardware und ohne
+Registry (Baustelle 2) machbar ist. Offen (unverändert): Windows-Klicktest,
+Mac-Re-Run nach dem ICE-Fix, Registry/Downloads ab main, Auto-Update-Design,
+Export-Dialog manuell, Security-Strang.
+
+## Weitere Befunde / Fallstricke dieser Session
+
+- **Wildcard-DNS fehlt weiterhin:** `*.relay.unicutmedia.com → 77.42.71.166`
+  ist NICHT im Registrar gesetzt (`dig` leer). Blockiert nur den Voice-E2E
+  (wss://<subdomain>.relay…/livekit) — und zwar hart: auch /etc/hosts hilft
+  nicht, weil Caddy-on-demand-TLS ohne erreichbare Domain kein Cert zieht.
+- **MediaMTX-Portkollision:** der lokale Dev-Stack belegt 1936/tcp + 8189/udp
+  (Container braucht beides) → `docker stop streaming-mediamtx` vor Container-
+  Start (rückholbar mit `docker start streaming-mediamtx`).
+- **pkill ist hier wirkungslos** (ZCode-AppImage-Shadowing, steht auch im
+  AGENTS.md) — und `pgrep -f <muster>` matcht die eigene Wrapper-Shell: kill
+  nur per PID aus `ss -ulnp`/`docker inspect`.
+- **drive.mjs eval truncates ~400 Zeichen** — für lange Rückgaben Playwright
+  direkt nutzen (`require('@playwright/test')` aus `web/`).
+- **uvicorn-Reload auf der Dev-Cloud verzögert teils** (Minutes, nicht 2 s) —
+  siehe Warnung oben bei Fix 1.
+- **Weiche transport.ts:** app_host ist direct-only (kein stiller Relay-
+  Fallback) — deshalb blockiert der ICE-Bug ALLE app_host-Chats, obwohl der
+  Relay-Tunnel grün steht. Der Relay-Hostname-Pfad wird nur für Voice-Signal
+  genutzt.
+- **`/invite/[code]`-Route fehlt im Web-Build weiterhin** (Baustelle 4) — der
+  Beitritt läuft über das Join-Dialog-Pastefeld (`parseJoinInput`), deshalb
+  nicht E2E-blockierend. Unangetastet.
+- Container auf DIESER Maschine: läuft jetzt SAUBER über die Server-App
+  erzeugt (`pulse-host`, healthy, Restart-Policy unless-stopped) — nicht mehr
+  manuell. Dev-Profil der Server-App: `~/.config/Pulse Server`, CDP 9223;
+  dev2/dev3-Chromiums auf 9225/9226
+  (`scripts/cdp/launch.fish <port> <suffix> https://pulse.unicutmedia.com`).
+- **Toolchain-Falle auf dieser Maschine:** Das ZCode-AppImage verbiegt
+  `argv[0]` — rustup-Proxies (`/usr/bin/cargo`, `rustup` selbst) sterben mit
+  „unknown proxy name: 'ZCode-…'". Direkt die Toolchain-Binaries nutzen:
+  `export PATH="$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin:$PATH"`.
+  (Gleiches Shadowing-Muster wie `pkill`, steht im AGENTS.md.)
+- Docker-Daemon startet hier nicht von allein: `sudo -n systemctl start docker`
+  (die `dcc_night_*`-Container kommen per Restart-Policy mit hoch).
+- Hetzner-Relay-Stack (pulsetest_frps/relay_plugin/auth) lebt und ist unangetastet;
+  Prod-Rollout bleibt wie im Mac-Dok beschrieben „nur zwei Env-Vars".

@@ -1,0 +1,130 @@
+name: win-build-server
+
+# Baut den Windows-NSIS-Installer der Pulse-SERVER-App (App-Hosting) samt
+# Auto-Update-Artefakten und lädt sie per scp auf den Cloud-VPS, von wo nginx sie
+# unter https://howispulse.com/updates/win-server/ ausliefert. electron-updater in
+# der Server-App pollt dort `latest.yml`.
+#
+# Gegenstück zu win-build.yml (Client-Installer), aber OHNE Rust/FFmpeg/HQ-Sidecar
+# — die Server-App streamt nicht selbst (das tut der allinone-Container). Sie
+# bündelt nur Podman (Container-Runtime fürs App-Hosting). Eigener Feed
+# /updates/win-server/, getrennt vom Client-Feed /updates/win/.
+#
+# ACHTUNG (wie beim Client): ein Windows-Release erreicht Bestandsclients NUR mit
+# einem Version-Bump in desktop/package.json — electron-updater ignoriert eine
+# erneut publizierte gleiche Version stillschweigend.
+#
+# Läuft bei jedem main-Push, der den Desktop-Wrapper berührt. Manuell auslösbar.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/win-build-server.yml'
+  workflow_dispatch: {}
+
+# Getrennte Concurrency-Gruppe vom Client-Build, damit sich die beiden nicht
+# gegenseitig abbrechen; laufenden Upload zu Ende laufen lassen.
+concurrency:
+  group: win-build-server
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Dependencies
+        run: pnpm install --frozen-lockfile
+
+      # App-Hosting: Podman SHA-gepinnt für den Installer bündeln. Nur die drei
+      # Binaries (podman.exe = Remote-Client, gvproxy + win-sshproxy =
+      # Machine-Netzwerk) — das WSL2-Machine-Image lädt `podman machine init`
+      # beim Erststart auf dem Zielgerät. Version + SHA zusammen bumpen (identisch
+      # zu win-build.yml; lokales Gegenstück: desktop/scripts/fetch-win-podman.ps1).
+      - name: Podman für App-Hosting bündeln
+        shell: pwsh
+        run: |
+          $ver = '5.8.4'
+          $sha = 'dce234b1810d1cbe3ce2562cf961294f942b0fa886a61897a2926aab17885f90'
+          $zip = "$env:RUNNER_TEMP\podman-win.zip"
+          Invoke-WebRequest -Uri "https://github.com/containers/podman/releases/download/v$ver/podman-remote-release-windows_amd64.zip" -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $sha) { throw "podman zip SHA mismatch: $actual" }
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\podman-extract"
+          Copy-Item "$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\podman.exe","$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\gvproxy.exe","$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\win-sshproxy.exe" -Destination desktop\resources-podman\
+          Get-ChildItem desktop\resources-podman\
+
+      # esbuild-Server-Bundle + electron-builder → desktop/release-server/:
+      #   Pulse-Server-Setup-<version>.exe  (NSIS-Installer)
+      #   latest.yml                        (electron-updater-Feed: Version + SHA512)
+      #   *.blockmap                        (Delta-Download-Map)
+      # `dist:win:server` läuft mit `--publish never` — der Upload macht der
+      # scp-Step unten. Nutzt electron-builder-server.yml (eigener Feed, kein
+      # Sidecar).
+      - name: NSIS-Server-Installer bauen
+        run: pnpm --filter @dcc/desktop run dist:win:server
+
+      # Build-Artefakt als Fallback/Direktdownload (auch ohne erfolgreichen Upload).
+      - name: Installer als Workflow-Artefakt
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse-Server-Setup-win
+          path: desktop/release-server/Pulse-Server-Setup-*.exe
+          if-no-files-found: error
+
+      - name: SSH für scp einrichten
+        # NUR von main aus in den Live-Feed — ein workflow_dispatch auf einem
+        # Branch (CI-Validierung) baut + archiviert nur, published aber nie:
+        # latest.yml würde sonst ALLE Server-Clients auf den Branch-Build updaten.
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # scp lädt nur die genannten Dateien hoch und löscht NIE etwas — alte
+      # Setup-.exe + .blockmap bleiben liegen (Delta-Downloads). Das
+      # Zielverzeichnis ~/pulse/updates-win-server/ muss auf dem Server existieren
+      # (einmalig anlegen; scp legt es nicht an) und ist read-only in den
+      # web-Container gemountet (docker-compose.yml → /srv/updates-win-server).
+      - name: Update-Feed nach howispulse hochladen
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          EXE=$(ls desktop/release-server/Pulse-Server-Setup-*.exe)
+          scp -i ~/.ssh/id_ed25519 \
+            desktop/release-server/latest.yml \
+            "$EXE" \
+            "$EXE.blockmap" \
+            michael@159.195.150.54:pulse/updates-win-server/
+          # Zusätzlich unter festem Dateinamen ablegen → stabiler Direktdownload
+          # zum Weitergeben: https://howispulse.com/updates/win-server/Pulse-Server-Setup-latest.exe
+          # Wird bei jedem Build überschrieben. electron-updater nutzt ihn NICHT
+          # (liest nur latest.yml) → harmlos neben den versionierten Dateien.
+          scp -i ~/.ssh/id_ed25519 \
+            "$EXE" \
+            michael@159.195.150.54:pulse/updates-win-server/Pulse-Server-Setup-latest.exe
+
+      - name: SSH-Key wieder entfernen
+        if: always()
+        shell: bash
+        run: rm -f ~/.ssh/id_ed25519

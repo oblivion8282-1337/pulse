@@ -36,7 +36,18 @@ async function anmeldenMitZugang(
   // Hostname, nicht Kennung — die Cloud loest auf. Den fremden Server danach zu
   // fragen waere die Luecke, gegen die dieser Weg gebaut ist.
   const { ticket, instanceId } = await holeTicket(server.hostname);
-  const sitzung = await loeseTicketEin(server.hostname, ticket, zugang);
+  // Mitgliedschaft VOR dem Dial tragen: Telefonbuch-Lookup und Offer sind
+  // membership-gated (die Heim-IP heikel), und ein Einladungsinhaber ist vor
+  // dem Redeem noch kein Mitglied — ohne diesen Schritt Henne-Ei: der
+  // Beitritt braucht den Tunnel, der Tunnel die Mitgliedschaft (Mac-Zwei-
+  // User-E2E 2026-09-28). Nachweisfrei, wie die Cloud die Vermerkung ohnehin
+  // haelt (s. routes_instance_membership.py); die echte Schranke bleibt der
+  // Invite-Code beim Redeem auf dem Server dahinter. Best-effort: schlaegt
+  // der Eintrag fehl, scheitert der Dial sichtbar wie bisher.
+  if (instanceId) {
+    await instancesApi.joinInstanceMembership(instanceId).catch(() => undefined);
+  }
+  const sitzung = await loeseTicketEin(server, ticket, zugang);
   sessionTokens.set(server.id, sitzung.session_token, Date.now() + sitzung.expires_in * 1000);
   return instanceId;
 }

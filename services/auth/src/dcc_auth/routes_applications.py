@@ -22,7 +22,6 @@ from sqlalchemy import and_, select
 
 from dcc_auth.admin_events import publish_application_pending
 from dcc_auth.db import SessionDep
-from dcc_auth.instance_provisioning import app_host_placeholder_hostname
 from dcc_auth.models import User
 from dcc_auth.models_instances import InstanceApplication, RegisteredInstance
 from dcc_auth.routes_instance_applications import _require_user
@@ -147,32 +146,6 @@ async def _guard_vps(db: SessionDep, user: User, payload: InstanceApplicationCre
         )
     return hostname
 
-
-async def _guard_app_host(db: SessionDep, user: User) -> None:
-    """App-Host-Guards (aus dem alten ``routes_app_host_applications.py``):
-    wer schon freigeschaltet ist, braucht keinen Antrag; nur EIN offener
-    app_host-Antrag pro User."""
-    if user.self_host_enabled:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="self-hosting bereits freigeschaltet",
-        )
-    dup = (
-        await db.execute(
-            select(InstanceApplication).where(
-                InstanceApplication.applicant_user_id == user.id,
-                InstanceApplication.origin == "app_host",
-                InstanceApplication.status == "pending",
-            )
-        )
-    ).scalars().first()
-    if dup is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail="du hast bereits einen offenen Antrag",
-        )
-
-
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -188,15 +161,20 @@ async def submit_instance_application(
     request: Request,
     db: SessionDep,
 ) -> InstanceApplicationOut:
-    """Antrag auf Hosting-Freischaltung einreichen (VPS oder App-Host)."""
+    """Antrag auf Hosting-Freischaltung einreichen (VPS; App-Host-Anträge sind
+    seit dem Heim-Server-Entscheid 2026-09-27 obsolet — die Server-App
+    registriert sich selbst, POST /me/instances)."""
     user = await _require_user(request, db)
 
-    app_id = next_id()
     if payload.origin == "app_host":
-        await _guard_app_host(db, user)
-        hostname = app_host_placeholder_hostname(app_id)
-    else:
-        hostname = await _guard_vps(db, user, payload)
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail="App-Hosting-Anträge sind abgeschafft — die Server-App "
+            "registriert sich beim ersten Login selbst (POST /me/instances).",
+        )
+
+    app_id = next_id()
+    hostname = await _guard_vps(db, user, payload)
 
     app = InstanceApplication(
         id=app_id,
