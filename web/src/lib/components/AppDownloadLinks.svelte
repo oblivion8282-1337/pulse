@@ -23,7 +23,10 @@
     MAC_DMG_URL,
     ANDROID_APK_URL,
     LINUX_FLATPAKREF_URL,
-    LINUX_INSTALL_COMMAND
+    LINUX_INSTALL_COMMAND,
+    WINDOWS_SERVER_INSTALLER_URL,
+    LINUX_SERVER_FLATPAKREF_URL,
+    LINUX_SERVER_INSTALL_COMMAND
   } from '$lib/downloads/appDownloads';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -50,6 +53,7 @@
   })();
 
   let copied = $state(false);
+  let serverCopied = $state(false);
   async function copyCommand() {
     try {
       await navigator.clipboard.writeText(LINUX_INSTALL_COMMAND);
@@ -59,91 +63,159 @@
       // Clipboard verweigert (Permissions) — der Befehl steht ja sichtbar da.
     }
   }
+  async function copyServerCommand() {
+    try {
+      await navigator.clipboard.writeText(LINUX_SERVER_INSTALL_COMMAND);
+      serverCopied = true;
+      setTimeout(() => (serverCopied = false), 2000);
+    } catch {
+      // wie oben
+    }
+  }
 
   const linkClass =
     'bg-secondary/60 text-secondary-foreground hover:bg-secondary flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors';
 </script>
 
 {#if visible}
-  <div
-    class="bg-card/85 border-border/60 flex flex-wrap items-center justify-center gap-2 rounded-xl border px-3 py-2 shadow-lg backdrop-blur"
-    data-testid="app-download-links"
-  >
-    <span class="text-card-foreground/80 text-xs font-medium">{m.downloads_get_apps()}</span>
-    {#each order as platform (platform)}
-      {#if platform === 'windows'}
-        <a
-          href={WINDOWS_INSTALLER_URL}
-          class={linkClass}
-          title={m.downloads_windows_hint()}
-          data-testid="download-windows"
-        >
-          <WindowsIcon class="size-3.5" />
-          {m.downloads_windows()}
-        </a>
-      {:else if platform === 'mac'}
-        <a
-          href={MAC_DMG_URL}
-          class={linkClass}
-          title={m.downloads_mac_hint()}
-          data-testid="download-mac"
-        >
-          <AppleIcon class="size-3.5" />
-          {m.downloads_mac()}
-        </a>
-      {:else if platform === 'android'}
-        <a
-          href={ANDROID_APK_URL}
-          class={linkClass}
-          title={m.downloads_android_hint()}
-          data-testid="download-android"
-        >
-          <AndroidIcon class="size-3.5" />
-          {m.downloads_android()}
-        </a>
-      {:else}
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger>
-            {#snippet child({ props })}
-              <button type="button" {...props} class={linkClass} data-testid="download-linux">
-                <LinuxIcon class="size-3.5" />
-                {m.downloads_linux()}
-              </button>
-            {/snippet}
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Content class="w-80 p-3" side="top">
-            <p class="text-foreground text-sm font-semibold">{m.downloads_linux_title()}</p>
-            <p class="text-muted-foreground mt-2 text-xs">{m.downloads_linux_step_terminal()}</p>
-            <code
-              class="bg-muted mt-1 block select-all break-all rounded-md px-2 py-1.5 font-mono text-2xs"
-            >
-              {LINUX_INSTALL_COMMAND}
-            </code>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              class="mt-2 w-full gap-1.5"
-              onclick={copyCommand}
-            >
-              {#if copied}
-                <CheckIcon class="size-3.5" />
-                {m.downloads_linux_copied()}
-              {:else}
-                <CopyIcon class="size-3.5" />
-                {m.downloads_linux_copy()}
-              {/if}
-            </Button>
-            <p class="text-muted-foreground mt-3 text-xs">{m.downloads_linux_or_software()}</p>
-            <a
-              href={LINUX_FLATPAKREF_URL}
-              class="text-primary mt-1 inline-block text-xs hover:underline"
-            >
-              {m.downloads_linux_flatpakref()}
-            </a>
-          </DropdownMenu.Content>
-        </DropdownMenu.Root>
-      {/if}
-    {/each}
+  <div class="flex flex-col items-center gap-2">
+    <div
+      class="bg-card/85 border-border/60 flex flex-wrap items-center justify-center gap-2 rounded-xl border px-3 py-2 shadow-lg backdrop-blur"
+      data-testid="app-download-links"
+    >
+      <span class="text-card-foreground/80 text-xs font-medium">{m.downloads_get_apps()}</span>
+      {#each order as platform (platform)}
+        {#if platform === 'windows'}
+          <a
+            href={WINDOWS_INSTALLER_URL}
+            class={linkClass}
+            title={m.downloads_windows_hint()}
+            data-testid="download-windows"
+          >
+            <WindowsIcon class="size-3.5" />
+            {m.downloads_windows()}
+          </a>
+        {:else if platform === 'mac'}
+          <a
+            href={MAC_DMG_URL}
+            class={linkClass}
+            title={m.downloads_mac_hint()}
+            data-testid="download-mac"
+          >
+            <AppleIcon class="size-3.5" />
+            {m.downloads_mac()}
+          </a>
+        {:else if platform === 'android'}
+          <a
+            href={ANDROID_APK_URL}
+            class={linkClass}
+            title={m.downloads_android_hint()}
+            data-testid="download-android"
+          >
+            <AndroidIcon class="size-3.5" />
+            {m.downloads_android()}
+          </a>
+        {:else}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger>
+              {#snippet child({ props })}
+                <button type="button" {...props} class={linkClass} data-testid="download-linux">
+                  <LinuxIcon class="size-3.5" />
+                  {m.downloads_linux()}
+                </button>
+              {/snippet}
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content class="w-80 p-3" side="top">
+              <p class="text-foreground text-sm font-semibold">{m.downloads_linux_title()}</p>
+              <p class="text-muted-foreground mt-2 text-xs">{m.downloads_linux_step_terminal()}</p>
+              <code
+                class="bg-muted mt-1 block select-all break-all rounded-md px-2 py-1.5 font-mono text-2xs"
+              >
+                {LINUX_INSTALL_COMMAND}
+              </code>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                class="mt-2 w-full gap-1.5"
+                onclick={copyCommand}
+              >
+                {#if copied}
+                  <CheckIcon class="size-3.5" />
+                  {m.downloads_linux_copied()}
+                {:else}
+                  <CopyIcon class="size-3.5" />
+                  {m.downloads_linux_copy()}
+                {/if}
+              </Button>
+              <p class="text-muted-foreground mt-3 text-xs">{m.downloads_linux_or_software()}</p>
+              <a
+                href={LINUX_FLATPAKREF_URL}
+                class="text-primary mt-1 inline-block text-xs hover:underline"
+              >
+                {m.downloads_linux_flatpakref()}
+              </a>
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
+        {/if}
+      {/each}
+    </div>
+
+    <div
+      class="bg-card/85 border-border/60 flex flex-wrap items-center justify-center gap-2 rounded-xl border px-3 py-2 shadow-lg backdrop-blur"
+      data-testid="app-server-download-links"
+    >
+      <span class="text-card-foreground/80 text-xs font-medium">{m.downloads_server_row()}</span>
+      <a
+        href={WINDOWS_SERVER_INSTALLER_URL}
+        class={linkClass}
+        title={m.downloads_server_hint()}
+        data-testid="download-server-windows"
+      >
+        <WindowsIcon class="size-3.5" />
+        {m.downloads_server()}
+      </a>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <button type="button" {...props} class={linkClass} data-testid="download-server-linux">
+              <LinuxIcon class="size-3.5" />
+              {m.downloads_server()}
+            </button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content class="w-80 p-3" side="top">
+          <p class="text-foreground text-sm font-semibold">{m.downloads_server_linux_title()}</p>
+          <p class="text-muted-foreground mt-2 text-xs">{m.downloads_linux_step_terminal()}</p>
+          <code
+            class="bg-muted mt-1 block select-all break-all rounded-md px-2 py-1.5 font-mono text-2xs"
+          >
+            {LINUX_SERVER_INSTALL_COMMAND}
+          </code>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            class="mt-2 w-full gap-1.5"
+            onclick={copyServerCommand}
+          >
+            {#if serverCopied}
+              <CheckIcon class="size-3.5" />
+              {m.downloads_linux_copied()}
+            {:else}
+              <CopyIcon class="size-3.5" />
+              {m.downloads_linux_copy()}
+            {/if}
+          </Button>
+          <p class="text-muted-foreground mt-3 text-xs">{m.downloads_linux_or_software()}</p>
+          <a
+            href={LINUX_SERVER_FLATPAKREF_URL}
+            class="text-primary mt-1 inline-block text-xs hover:underline"
+          >
+            {m.downloads_linux_flatpakref()}
+          </a>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
+    </div>
   </div>
 {/if}
