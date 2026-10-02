@@ -16,21 +16,13 @@ Was auf dieser Maschine steht, steht nicht automatisch auf der nächsten. Zwei
 Dinge sind bewusst **nicht** im Repo und müssen hergestellt werden, ein drittes
 liegt auf dem Server.
 
-## 1. Branches holen
+## 1. Zweige
 
-Die Laborarbeit liegt auf zwei Zweigen, nicht auf `main`:
-
-```bash
-git fetch origin
-git checkout werkzeug/pruefstand-labor-server   # Prüfstand, Messwerkzeuge, Messakten
-git checkout feat/native-hq-player              # nativer Player
-```
-
-**Sie hängen zusammen, liegen aber getrennt** — der Player braucht den
-Prüfstand zum Messen, der Prüfstand den Player als Zuschauer. Beim Arbeiten
-heißt das: nicht den Zweig wechseln, während eine Messung läuft. Am 2026-07-31
-sind so fünf von sechs Läufen einer Kennlinie ausgefallen, weil mitten im Lauf
-die Prüfstand-Skripte verschwanden.
+Die Laborarbeit liegt auf `main` — Prüfstand, Messwerkzeuge, Messakten und der
+native Player (`streaming/pulse-player/`) in einem Baum. Eigene Zweige gibt es
+dafür keine mehr: eine frühere Fassung dieses Abschnitts verwies auf
+`werkzeug/pruefstand-labor-server` und `feat/native-hq-player`; beide existieren
+weder lokal noch remote, ein `checkout` dieser Namen scheitert.
 
 ## 2. Den gepatchten webrtc-rs herstellen
 
@@ -154,11 +146,13 @@ PULSE_FERN_SSH=pulse-test`.
 ```bash
 cd streaming/testbench
 python3 verluststrecke.py --status          # muss "ingress: (keine)" zeigen
-PULSE_PLAYER_FLEXFEC=1 python3 intraref-verlust.py --secs 60 --label probe
+./real-harness.py --secs 14 --fps 60        # echter Sender, lokale Schleife
 ```
 
-Danach steht `probe.json` da. Die Kontrollzahlen: `nack_deckt_lauf_ab` muss
-`true` sein, `anzahl_ssrcs` genau 2 (Bild und Parität).
+*(Bis zum 2026-08-21 war der Kontrolllauf ein
+`PULSE_PLAYER_FLEXFEC=1 python3 intraref-verlust.py --secs 60 --label probe`
+mit den Kontrollzahlen `nack_deckt_lauf_ab = true` und `anzahl_ssrcs = 2` —
+das Skript ist mit der Betriebsart Intra-Refresh gelöscht worden.)*
 
 ## Was bis zum 2026-08-21 auf einer AMD-Maschine zuerst zu tun war
 

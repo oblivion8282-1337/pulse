@@ -109,6 +109,15 @@ md–lg  : TabletNavRail links, Inhalt als Liste + Detail nebeneinander
 `GuildRail` bekommt `hidden lg:flex`. Der `navDrawer`-Store wird auf `< lg`
 nicht mehr benutzt; damit ist der Bildschirmrand frei für System-Back.
 
+*Korrektur 2026-09-28:* die Fensterbreiten-Steuerung (`md`/`lg` hier,
+`hidden lg:flex` dort) wurde beim Bauen ersetzt — seit dem 2026-09-04
+entscheidet die **Geräteklasse**, nicht die Fensterbreite
+(`web/src/lib/stores/geraetKlasse.ts`, `viewport.svelte.ts`: drei
+sich ausschliessende Klassen `desktop`/`tablet`/`handy`, entschieden
+am Gerät). `app/+layout.svelte` steuert über `viewport.istHandy`/
+`viewport.isTablet`, `GuildRail` über `viewport.isDesktop`. §3-Routen
+und Bausteine stimmen weiter.
+
 ### 3.4 Aufräumen im Zuge der Arbeit
 
 `ChannelList.svelte` hat **819 Zeilen** — über der harten Grenze von 500

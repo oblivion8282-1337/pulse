@@ -87,8 +87,10 @@
 - **[FEHLALARM 2026-06-16] Server-seitige Einstellungs-Synchronisation** — Scan behauptete „komplett ungenutzt",
   stimmt aber nicht: `server-sync.ts` (`fetchAllPreferences`/`schedulePushSection`/`flushAllPending`) ist in
   `registry.svelte.ts` verdrahtet, und `preferences.py` ist die Plugin-Preferences-Ablage (Plugin-System 3b).
-  Das Subsystem ist also load-bearing, NICHT tot — bewusst nicht entfernt. (Nur die zwei Helfer
-  `flushSection`/`deleteServerSection` haben aktuell keinen Aufrufer.)
+  Das Subsystem ist also load-bearing, NICHT tot — bewusst nicht entfernt.
+  (Die 2026-06-16 noch überzähligen Helfer `flushSection`/`deleteServerSection` sind
+  inzwischen entfernt — 2026-09-28 exportiert `server-sync.ts` nur noch
+  `fetchAllPreferences`/`schedulePushSection`/`flushAllPending`, alle mit Aufrufer.)
   `web/src/lib/settings-registry/server-sync.ts`, `services/chat-gateway/.../routes/preferences.py`
 
 ## 5. Offene Notizen im Code (TODO/FIXME)

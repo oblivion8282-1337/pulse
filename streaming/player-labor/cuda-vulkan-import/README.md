@@ -7,10 +7,12 @@ Beantwortet zwei Fragen, nachprüfbar, in zwei Stufen:
 2. **Bild** — kann CUDA in ein exportiertes `VkImage` schreiben (NV12 und
    P010), oder muss eine Puffer→Bild-Kopie dazwischen?
 
-Davon hängt Zero-Copy im `pulse-player` unter **Linux/NVIDIA** ab. Heute nimmt
-jedes Bild den Weg GPU → Hauptspeicher → GPU zurück: `av1_cuvid` liefert seine
-Bilder in den Hauptspeicher (`decode.rs`, Modulkopf), der Renderer lädt sie
-wieder hoch. Was das kostet, steht in
+Davon hängt der Zero-Copy-Weg im `pulse-player` unter **Linux/NVIDIA** ab, und
+er ist dort seit dem 2026-08-07 die **VORGABE** (`decode.rs`, Modulkopf): das
+Bild bleibt auf der Karte, `PULSE_PLAYER_ZEROCOPY=0` schaltet auf den alten Weg
+zurück, bei dem jedes Bild GPU → Hauptspeicher → GPU nimmt (`av1_cuvid` liefert
+seine Bilder in den Hauptspeicher, der Renderer lädt sie wieder hoch). Was
+dieser Rückfallweg kostet, steht in
 `streaming/testbench/profiles/player-2026-08-06-bildweg-kosten.json` — 5,26 ms
 je Bild bei 1440p60 10 bit, also 32 Prozent des Budgets.
 

@@ -367,7 +367,8 @@ async def postfach_einliefern(
             # Unterhaltung nicht offen hat, bekam bis zum 2026-09-03 gar
             # nichts: kein Ungelesen-Zaehler, kein Ton, keine Zeile in der
             # Liste, bis zum naechsten Reload (der ``ready``-Rahmen holt
-            # nach). Der Klartext-Weg hat dafuer ``dm_bump`` an alle; hier
+            # nach). Der Klartext-Weg hat dafuer ``dm_bump`` an genau die
+            # zwei DM-Teilnehmer (Narrowing in ``pubsub_channel_guild.py``); hier
             # geht der Weckruf je Empfaengerkonto an alle seine Sockets,
             # auch die anderen Geraete des Absenders (Multi-Device) — der
             # Rahmen traegt nur Kanal und Anzahl, nie Inhalt, ein Konto,

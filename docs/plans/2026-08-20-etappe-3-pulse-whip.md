@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`streaming/pulse-whip/src/`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Etappe 3: `pulse-whip` — der Sendeweg, dreimal im Repo
 
 > **Für agentische Bearbeiter:** ERFORDERLICHE UNTER-SKILL: `superpowers:subagent-driven-development` (empfohlen) oder `superpowers:executing-plans`. Die Schritte tragen Checkbox-Syntax (`- [ ]`).

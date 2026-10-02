@@ -41,11 +41,13 @@ Pulse-Repo für die Spec.
 - Request: `{"op":"...","id":<num>?,"params"}` · Response: `{"id","ok","fields"}` (flach!)
   · Event: `{"ev":"..."}` (kein id/ok).
 - Ops: `health, gpu_info, list_monitors, list_windows,
-  list_application_audio, build_argv, start, stop, state, keyframe`.
+  list_application_audio, build_argv, start, stop, keyframe, clip_save, state`.
   (`keyframe` seit 2026-08-02 — beim naechsten Bild ein Vollbild erzeugen. Bei
   einem Vollbild-Abstand von 60 s keine blosse Reparatur, sondern
   Voraussetzung: ein beitretender Zuschauer wartete sonst bis zu eine Minute.
-  Der Windows-Sidecar hat sie ebenfalls, der Python-Auffang nicht.)
+  Windows- und macOS-Sidecar haben sie ebenfalls. `clip_save` — die letzten
+  Sekunden des Sendens ohne Neukodierung in eine Datei sichern, ShadowPlay-
+  Prinzip; der Zielpfad kommt vom Hauptprozess.)
 - States: `idle|starting|live|error|stopped`. Events: `state, fps, log, error, stopped`.
 - Token in URLs (pass=/token=) wird in `argv`/Logs **redacted** (`***`).
 
@@ -81,13 +83,18 @@ main.rs, profiles.rs, encode/mux_writer.rs, ops/{stop,state}.rs`.
   `streaming/ffmpeg-bau/bootstrap-ffmpeg.sh`). Fehlen die Header ganz, baut
   FFmpeg still ohne NVENC und der Sidecar meldet `video_codecs: []`.
 - **Encoder v1: VAAPI (AMD/Intel) + NVENC (Nvidia), beide Zero-Copy verbindlich.**
-  Codecs **nur H264 + AV1** (kein HEVC — nicht anbieten, nicht proben, keine hevc_mux-Tests).
+  Codecs: H264 + AV1, **seit 2026-09-13 auch HEVC** als Kandidat — per
+  Hardware-Probe angeboten und probiert (`caps.rs::CANDIDATES`,
+  `zehn_bit_probe("hevc")` für Main 10); bewusst KEIN Software-Fallback
+  (Patentlinien-Begründung im `caps.rs`-Kommentar).
 - **Screen-Picker (Portal/PipeWire-Capture) wird zuletzt gebaut** — zuerst Pipeline mit
   synthetischer Quelle (`capture::SyntheticSource`) zum Laufen bringen.
 - **WHIP ist IN scope** (Kehrtwende 2026-07-12, User-Entscheid): `http(s)://`-push_url
-  → ffmpeg-8.1-WHIP-Muxer (WebRTC-Ingest für Gäste auf App-gehosteten Instanzen;
-  RTMPS bleibt Default/Cloud-Pfad). AV1 kann der WHIP-Muxer nicht → auto-Fallback
-  auf H.264 in `ops/start.rs`. Plan: pulse-Repo `docs/plans/2026-07-12-whip-guest-publish.md`.
+  → EIGENER WebRTC-Sendeweg in `src/whip/` (WebRTC-Ingest für Gäste auf
+  App-gehosteten Instanzen; RTMPS bleibt Default/Cloud-Pfad). Der Sidecar
+  paketiert AV1 selbst — ffmpegs WHIP-Muxer und sein auto-Fallback auf H.264
+  sind entfallen (`ops/start.rs`, seit 2026-08-02). Plan: pulse-Repo
+  `docs/plans/2026-07-12-whip-guest-publish.md`.
 - Encoder-Settings gehen auf GSR zurück (`~/.cache/pulse/gsr/gpu-screen-recorder/src/main.cpp`,
   nutzt selbst `h264_nvenc`/`h264_vaapi` via av_dict) — aber **nicht mehr 1:1**. Maßgeblich ist
   `encode/opts.rs`, dort steht an jedem Wert die Messung. Der Stand nach 2026-07-30:
@@ -356,13 +363,14 @@ nachgelinkt). `list_application_audio` enumeriert real (`application.name`-Dedup
 "Desktop + Mikrofon" = vorerst nur Desktop (Warnung in `ops::start`).
 
 **10-bit-Encode (2026-07-26, NVENC/AV1).** `overrides.bit_depth: 10` → `P010`-Pool →
-10-bit-AV1. Gemeldet als `health.gsr.ten_bit` (Zusatzfeld ggü. Python/win/mac, `undefined`
-= false lesen). Die nicht-offensichtlichen Punkte:
-- **10 bit ist an AV1 gebunden.** H.264 kann NVENC hier zwar wirklich in `High 10`
+10-bit-AV1. Gemeldet als `health.sidecar.ten_bit` (plus `hevc_ten_bit` seit
+2026-09-13, `undefined` = false lesen). Die nicht-offensichtlichen Punkte:
+- **10 bit läuft über AV1 und HEVC Main 10** (HEVC-Weg seit 2026-09-13, die
+  Mittelstufe für Karten ohne AV1-Encode; `ops/start.rs::ten_bit_possible`).
+  H.264 kann NVENC hier zwar wirklich in `High 10`
   (nachgemessen: `profile_idc=110`, `bit_depth_luma=10`), aber **kein Browser dekodiert
   das** — und der WHEP-Rückfall im Web ist ein `<video>`. `ops::start` schiebt jeden
-  10-bit-Wunsch ohne AV1 auf 8 bit zurück, inkl. der Fälle, in denen der Codec vorher
-  selbst auf h264 zurückgefallen ist (fehlendes AV1, WHIP-Ziel).
+  unerfüllbaren 10-bit-Wunsch auf 8 bit zurück.
 - **Warum wir RGB→YUV selbst rechnen** (`encode/nv_p010.rs`, GL-Shader → `R16`-Luma +
   `RG16`-Chroma → CUDA → P010): im 8-bit-Pfad wandelt NVENC selbst, das geht für 10 bit
   NICHT. Zwei Sackgassen, beide gemessen, damit sie niemand erneut aufgreift:

@@ -6,8 +6,11 @@ in ein exportiertes `VkImage` (`../cuda-vulkan-import`), und wgpu 29 uebernimmt
 so ein Bild mitsamt Inhalt (`../wgpu-cuda-import`). Was fehlte, war der Anfang:
 **liegt das dekodierte Bild ueberhaupt auf der Karte?**
 
-Der Modulkopf von `pulse-player/src/decode.rs` sagt bis heute nein („die
-cuvid-Decoder liefern ihre Frames in den Hauptspeicher"), und die Kostenmessung
+Heute sagt der Modulkopf von `pulse-player/src/decode.rs` das Gegenteil: die
+cuvid-Decoder geben ihre Bilder auf der Karte heraus, seit sie ein CUDA-Geraet
+bekommen (2026-08-07, als VORGABE). Als diese Probe gebaut wurde, stand dort
+noch „die cuvid-Decoder liefern ihre Frames in den Hauptspeicher", und die
+Kostenmessung
 `streaming/testbench/profiles/player-2026-08-06-bildweg-kosten.json` hat das
 bestaetigt — ohne die Ursache zu klaeren.
 

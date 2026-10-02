@@ -36,42 +36,21 @@ ausgeliefert ist — gepatchtes MediaMTX (siehe `mediamtx-patches/`), gepatchtes
 ## Wie die Trennung gebaut ist
 
 Das Labor bindet den ausgelieferten Sidecar als **Bibliothek** ein
-(`pulse-linux-hq-sidecar = { path = "../linux-hq-sidecar" }`) und kopiert nur
-die Dateien, die der WHIP-Weg ohnehin umbaut:
+(`pulse-linux-hq-sidecar = { path = "../linux-hq-sidecar" }`). **Seit dem
+2026-08-02 hat es keinen eigenen Sendepfad mehr**: `src/` besteht nur noch aus
+`lib.rs` und `main.rs`, und `lib.rs` re-exportiert die geteilten Module
+(`caps`, `capture`, `dispatch`, `encode`, `events`, `logging`, `ops`,
+`profiles`, `proto`, `redact`, `stream_controller`, `system`, `whip`). Läuft
+das Binary, fährt es exakt denselben Code wie ein Nutzer; der eigene
+WebRTC-Sendeweg mit AV1-Paketierer und RTCP-Rückkanal, der hier entstanden ist,
+liegt im ausgelieferten Sidecar nebenan.
 
-| kopiert (weicht ab) | aus der Bibliothek (geteilt) |
-|---|---|
-| `encode/{mod,audio,mux_writer}.rs` | `capture/` (Portal, PipeWire) |
-| `whip/{mod,av1,pacer}.rs` | `encode/{hw,nv_import,nv_p010,opts,raw_dump,va_import}.rs` |
-| `ops/*`, `stream_controller.rs`, `dispatch.rs` | `caps`, `profiles`, `proto`, `events`, `logging`, `redact`, `system` |
-
-Zwei Dinge daran sind nicht offensichtlich:
-
-* **`ops/` und `stream_controller.rs` mussten zusammen mitkommen.** Läge `stop`
-  in der Bibliothek und `start` hier, sprächen die beiden verschiedene
-  Zustände an — der Stream ließe sich starten, aber nicht beenden.
-* **Die Abhängigkeit läuft nur in eine Richtung.** Kein geteiltes Modul greift
-  in die kopierten zurück (geprüft); die Bibliothek weiß vom Labor nichts.
-  Deshalb kann `crate::capture::…` in den kopierten Dateien unverändert
-  stehenbleiben — `lib.rs` re-exportiert die geteilten Module unter denselben
-  Namen.
-
-Der Preis ist die Duplikation dieser Dateien. Sie können auseinanderlaufen,
-und das ist bewusst in Kauf genommen: erst wenn feststeht, welche Teile des
-Messstands bleiben, lohnt es, eine saubere Naht (ein Trait „Paketsenke") in
-die Bibliothek zu ziehen und die Kopien wieder aufzulösen.
-
-**Der Preis ist sofort fällig geworden** — schon am Tag der Trennung hatte die
-Bibliothek eine Signatur geändert (`opts::vendor_opts` nahm plötzlich den
-Codec entgegen, aus der AMD-Encoder-Arbeit vom 2026-07-30), und die Kopie
-brach. Der Compiler hat es gefangen, aber nicht jede Drift tut ihm den
-Gefallen: eine geänderte **Konstante** in der Kopie fällt nicht auf, sie
-verschiebt nur still die Messung.
-
-**Beim nächsten Eingriff am ausgelieferten Sidecar deshalb abgleichen** —
-mindestens die messrelevanten Werte. Stand 2026-07-31 geprüft und gleich:
-`DEFAULT_INTERLEAVE_US = 10_000`; die Encoder-Optionen (`opts.rs`) teilt sich
-das Labor ohnehin mit der Bibliothek, dort kann nichts auseinanderlaufen.
+Geblieben ist der Ort für Versuche, die im Produkt nichts verloren haben —
+Diagnosezähler, Messschalter, Varianten, die noch nicht entschieden sind. Was
+hier gemessen und für gut befunden wurde, wandert nach nebenan, nicht
+umgekehrt. (Bis zum 2026-08-02 kopierte das Labor die Dateien, die der WHIP-Weg
+umbaute, und nahm deren Duplikation bewusst in Kauf; die Kopien sind mit dem
+Zusammenschrumpfen auf Re-Exporte aufgelöst.)
 
 ## Bauen und fahren
 
@@ -81,10 +60,13 @@ cd streaming/hq-labor && cargo build --release
 
 Der Prüfstand (`streaming/testbench/`) nimmt das Labor-Binary von selbst, wenn
 es gebaut ist; er meldet in jedem Lauf, welches Binary er fährt. Fehlt es,
-fällt er auf den ausgelieferten Sidecar zurück — dann sind RTMPS-Läufe
-weiterhin möglich, **WHIP-Läufe fallen aber still auf H.264 8 bit zurück**
-(der ffmpeg-Muxer kann kein AV1). Genau das ist am 2026-07-30 unbemerkt
-passiert, deshalb warnt der Prüfstand jetzt laut davor.
+fällt er auf den ausgelieferten Sidecar zurück — das schränkt heute nichts
+Wesentliches ein: der eigene WebRTC-Sendeweg mit AV1-Paketierer liegt seit dem
+2026-08-02 im ausgelieferten Sidecar (`encode::create_whip`, `src/whip/`), es
+gibt also weder einen ffmpeg-Muxer-Weg noch einen stillen AV1-Rückfall auf
+H.264 8 bit mehr. (Am 2026-07-30, als das Labor der einzige Träger des
+WHIP-Wegs war, ist genau dieser Abfall unbemerkt eingetreten — die
+Binary-Meldung in jedem Lauf stammt aus dieser Zeit.)
 
 ```bash
 cd streaming/testbench

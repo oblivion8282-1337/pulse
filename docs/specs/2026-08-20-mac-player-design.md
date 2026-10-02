@@ -11,6 +11,12 @@ nichts.
 
 ## Ausgangslage
 
+*(Umgesetzt seit 2026-08-20 — Korrektur 2026-09-28: die Ausgangslage
+unten ist überholt. `mac-build.yml` nimmt `streaming/pulse-player/**`
+in den Pfad-Trigger (Z. 60) und baut den Player (Z. 85);
+`electron-builder.yml` bündelt ihn unter `mac.extraResources`
+(Kommentar dort: „The player joined on 2026-08-20").)*
+
 Der Player wird auf macOS heute **gar nicht gebaut und nicht ausgeliefert**.
 
 - `.github/workflows/mac-build.yml` hat `streaming/pulse-player/**` nicht im

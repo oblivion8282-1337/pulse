@@ -1,6 +1,15 @@
 # Pulse-Laufwerk — vermieteter E2E-verschlüsselter Speicher
 
-> Status: **Spezifikation, nicht gebaut.** Stand: 2026-09-11.
+> Status: **Gebaut** (Stand 2026-09-28; ursprüngliche Zeile:
+> „Spezifikation, nicht gebaut"). Stand: 2026-09-11.
+> Server: `services/chat-gateway/src/dcc_chat_gateway/routes/ablage_pulse.py`
+> (Verbinden/Trennen, Pfad `pulse-laufwerk/guild-{guild_id}/`),
+> `models/ablage_pulse.py`, Kontingente `pulse_laufwerk_*` (`config.py`),
+> Migration `20260911_1200_0090_ablage_pulse`; Klient
+> `web/src/lib/ablage/ablageUeberPulse.ts`. Auch §11.2/§11.5 sind drin
+> (`anbieterListe`-Prop am Verbinden-Dialog;
+> `angeboteneAnbieter()`/`communityAnbieter()` in
+> `web/src/lib/ablage/anbieter.ts`).
 > Produktentscheidung des Eigentümers vom selben Tag: Fremde Laufwerke
 > (Nextcloud, Dropbox, Google Drive, OneDrive, fremdes S3) werden **nicht
 > ausgeliefert** — stattdessen vermietet Pulse selbst Onlinespeicher.

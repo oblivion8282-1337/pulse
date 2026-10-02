@@ -1,5 +1,19 @@
 # Pulse — Android-App (TWA)
 
+> **VERALTET seit 2026-06-04.** Die aktive Android-App ist der Capacitor-Wrapper
+> unter [`mobile/`](../../mobile/) (`com.howispulse.app`, CI:
+> `.github/workflows/android-build.yml` baut `mobile/**`). Dieses README
+> beschreibt die eingestellte TWA-Schiene und bleibt als Bauanleitung-Archiv
+> stehen. HQ-Bildschirm-Wiedergabe läuft im Browser per WHEP
+> (`web/src/lib/stream/whep.ts`) — sie ist nicht Desktop-only.
+>
+> Zwei Stellen unten stimmen zusätzlich nicht mit dem Git-Stand überein:
+> - Unter „Nicht eingecheckt“ steht `*.apk` / `*.aab` — getrackt ist trotzdem
+>   `app-release-signed.apk.idsig`.
+> - Die assetlinks.json-Anleitung wurde nie umgesetzt:
+>   `web/static/.well-known/assetlinks.json` existierte nie, und die
+>   nginx-Whitelist (`infra/prod/web-nginx.conf`) listet die Datei nicht.
+
 Eine **Trusted Web Activity (TWA)**: eine dünne Android-Hülle, die `https://howispulse.com`
 in einem echten Chrome-Unterbau lädt. Gebaut mit [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap).
 

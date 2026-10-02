@@ -35,7 +35,7 @@
 | Bereich | Umfang | Notizen |
 |---|---|---|
 | `web/src/lib/components/` (Kern: Chat, MessageList, Kanäle, DMs) | ~29.000 Zeilen Rest | Größtes Paket, in Teilpakete teilen (Chat/Messages zuerst — Pin-Code sitzt dort frisch) |
-| `web/src/lib/components/dropbox/` + `web/src/lib/dropbox` | ~1.600+ Zeilen | Ablage-UI |
+| `web/src/lib/components/dropbox/` | ~1.600+ Zeilen | Ablage-UI (ein `web/src/lib/dropbox` gibt es nicht — 2026-09-28 korrigiert) |
 | `web/src/lib/components/mobile/` | ~1.200 Zeilen | Mobil-Layouts |
 | Rest (account, friends, channels, feedback, ui, form, …) | ~6.000 Zeilen | ui/ ist die Bibliothek selbst — Audit nur als Verbraucher, nicht die Primitives selbst |
 
@@ -53,7 +53,7 @@
 |---|---|
 | `web/tests/` (~5.700) | Tests: Ponytail gilt, aber Deduplizierung hat dort niedrigere Priorität als Klarheit je Testfall |
 | `plugins/`, `scripts/`, `infra/`, `packaging/` | Betriebs-/Werkzeugcode, hinten |
-| `krypto/` (~1.200) | Unversioniert (nicht im Git) — Klären, ob es ins Repo soll; bis dahin nicht anfassen |
+| `krypto/` (~1.200) | Längst versioniert (seit 2026-08-28, Commit `4339804b` — 2026-09-28 korrigiert, hieß fälschlich „unversioniert") |
 | `streaming/`, `mobile/` exakte Größe | Zeilenzahlen aktuell durch node_modules/Vendor-Code aufgebläht; eigener Code erst bei Bedarf sauber messen |
 | `node_modules/`, `build/`, `uploads/`, `secrets/`, `data/`, `dump.rdb` | Abhängigkeiten/Laufzeitdaten — niemals Audit-Gegenstand |
 
@@ -62,4 +62,4 @@
 1. **WS-Zugangs-Präambel** (5×, chat-gateway) — riskant markiert, eigene Session mit vollem Testlauf.
 2. **Message-Handler-Fabrik** (Runde-6-Fund, ~70 Zeilen) — beim dritten Konsumenten.
 3. **Rest**: components/dropbox UI (nach Merge der aktiven Arbeit), mobile/ (1.2k), Desktop/Electron + Rust-Sidecars (Plattform-Regeln).
-4. **dev/design-Route** (658 Z.) löschen, sobald die Button-Migration abgeschlossen ist.
+4. ~~**dev/design-Route** (658 Z.) löschen, sobald die Button-Migration abgeschlossen ist.~~ Erledigt — Route längst gelöscht (2026-09-28 verifiziert, `web/src/routes/app/dev` existiert nicht mehr).

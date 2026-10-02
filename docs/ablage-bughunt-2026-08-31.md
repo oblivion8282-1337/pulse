@@ -172,6 +172,11 @@ inline nach, obwohl sie den fertigen bereits importiert. Zwei Schlüsselquellen
 nebeneinander sind der Zustand, in dem jede weitere Änderung auf der
 falschen aufbaut — deshalb ist das die erste Aufgabe der Etappe E1.
 
+*Erledigt (2026-09-28 verifiziert): `AblageSektion.svelte` existiert nicht
+mehr; der Hauptschlüssel liegt heute in
+`web/src/lib/ablage/verbindungen.svelte.ts` (dort ab Z. 299 mit der
+Begründung, warum kein localStorage-Umzugscode gebaut wurde).*
+
 ### B11 — Es gibt keinen Auffrisch-Weg für abgelaufene Zugänge
 
 `web/src/lib/ablage/{oauth,dropbox,gdrive}.ts` · offen, gehört in E1
@@ -181,6 +186,11 @@ aufgerufen**: kein erneuter Versuch nach einem 401, kein Zeitgeber, kein
 Aufrufer. Ein abgelaufener Zugang beendet die Verbindung damit endgültig und
 unbemerkt — der häufigste Dauerfehler dieser Bauart und der eigentliche
 Grund für die Zustandsanzeige aus E1.
+
+*Erledigt (2026-09-28 verifiziert): `auffrischeZugang` wird inzwischen
+aufgerufen — `web/src/lib/sicherung/ziele.ts:272` und die Adapter-
+Fehlerpfade (`web/src/lib/ablage/dropbox.ts:13` importiert ihn als
+`spieleNach`).*
 
 ### B12 — „Löschen" löscht auf keinem angebotenen Anbieter
 
@@ -202,6 +212,10 @@ einziger echter Anbieter mehr. **Die Probe war damit sofort nützlich, bevor
 sie überhaupt eingebaut war** — und die richtige Antwort ist, die Adapter zu
 vervollständigen, nicht die Probe aufzuweichen.
 
+*Erledigt (2026-09-28 verifiziert): `lösche` ist inzwischen implementiert in
+`dropbox.ts:211`, `webdav.ts:220`, `gdrive.ts:365` und `syncOrdner.ts:89`;
+nur OneDrive und S3 setzen es noch nicht um.*
+
 ### B13 — Eine Ordner-Verbindung überlebt kein Neuladen
 
 `web/src/lib/ablage/syncOrdner.ts`, `components/ablage/AblageVerbindenDialog.svelte`
@@ -221,6 +235,11 @@ Behoben wird es mit `archiveFsa.ts` vom Juli-Zweig: Griff in IndexedDB,
 Berechtigung beim Start erneut bestätigen. Die Verweigerung ist dabei kein
 Fehler, sondern der Zustand „Laufwerk weg" mit dem Handgriff „Ordner erneut
 wählen".
+
+*Erledigt (2026-09-28 verifiziert): `AblageVerbindenDialog.svelte:122-135`
+legt den Verzeichnis-Griff per `legeGriffAb` in der IndexedDB ab und
+speichert die Verbindung mit `konfiguration: { griffId }` — sie überlebt
+den Neustart.*
 
 ### B14 — Eine Rune in einer schlichten `.ts`-Datei legte die App lahm
 

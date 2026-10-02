@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`services/chat-gateway/alembic/versions/20260820_1200_0060_device_grants.py` + `routes/geraete.py`, `device_grants.py`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Standplatz-Geräteverwaltung — Umsetzungsplan
 
 > **Für agentische Bearbeiter:** ERFORDERLICHE UNTER-SKILL: `superpowers:subagent-driven-development`

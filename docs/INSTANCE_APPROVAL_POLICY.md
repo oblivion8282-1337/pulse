@@ -121,8 +121,11 @@ Kopierfertig für die Approval-UI:
 ## Prozess nach Approval
 
 1. `client_id` + `client_secret` im Cloud-UI generieren → Antragssteller bekommt
-   E-Mail mit Link zum einmaligen Anzeigen.
-2. Instanz-Eintrag in Cloud-DB mit Status `approved` + Hostname.
+   die Instanz-`.env` als Download (`pulse-instance-<id>.env`,
+   `routes_instance_applications.py`); nachträglich per `rotate-secret`, das den
+   neuen Secret-Wert einmalig in der Antwort liefert, alte Secret sofort ungültig
+   (`routes_admin_instances.py`). Kein E-Mail-Versand.
+2. Instanz-Eintrag in Cloud-DB mit Status `active` + Hostname.
 3. Hostname ab jetzt gesperrt für andere Anträge (1:1-Mapping).
 4. Instance-ID (Snowflake) wird der Instanz zugewiesen.
 
@@ -132,10 +135,14 @@ Kopierfertig für die Approval-UI:
 
 Genehmigte Instanz sperren (z.B. nach Beschwerde):
 
-1. Status im Cloud-UI auf `suspended` setzen.
-2. CRL-Update pushen → `client_id` landet auf der Revocation-Liste.
-3. Alle Sessions der Instanz werden beim nächsten CRL-Poll invalidiert (~30 s).
-4. E-Mail an Betreiber mit Begründung.
+1. Status im Cloud-UI auf `suspended` setzen → `client_id` landet auf der
+   Sperrliste unter `/.well-known/pulse-suspended-instances` (Cache-Tabelle in
+   `models_instances.py`, gefüllt vom Suspend-Endpoint).
+2. Die Instanz holt diese Liste per `suspend_poller` (chat-gateway, alle 60 s)
+   und invalidiert danach ihre Sessions.
+3. E-Mail an Betreiber mit Begründung.
 
-Endgültige Löschung: Status `revoked`, Hostname freigegeben nach 30 Tagen
-(Grace-Period für Neuantrag mit neuem Hostname).
+Endgültige Löschung: Status `deleted`; der Hostname wird beim Löschen sofort
+auf `deleted-<id>.invalid` umgeschrieben (`routes_instance_delete.py`) und ist
+damit für Neuanträge frei. Statuswerte einer Instanz: `active` | `suspended` |
+`deleted` — nach Freigabe heißt sie `active`, nicht `approved`.

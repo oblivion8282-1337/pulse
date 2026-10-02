@@ -13,7 +13,7 @@ Was im Git liegt und was nicht — Kurzfassung:
 | Sämtlicher Code | `.env` (Postgres-Passwort, Redis-URL etc.) |
 | Migrations, Docs, Infra, Plugins | `secrets/jwt_*.pem` (RS256-Schlüsselpaar) |
 | Test-Suites + CDP-Toolkit | Postgres-Daten (Test-Accounts, Gilden) |
-| `CLAUDE.md` + Nachtlauf-Status-Markdown | Browser-Profile, Logs, alles unter `/tmp/` |
+| `CLAUDE.md` | Browser-Profile, Logs, alles unter `/tmp/` (dorthin schreibt auch der Nachtlauf seine Status-Markdowns) |
 
 ## Der schnellste Weg: die Maschine sich selbst prüfen lassen
 
@@ -97,8 +97,8 @@ chmod 0600 secrets/jwt_private.pem
 ## 3. Dependencies
 
 ```fish
-pnpm install                # alle JS-Workspaces (web/, desktop/, plugins/)
-uv sync --all-packages      # alle Python-Workspaces (services/*, shared/, streaming/)
+pnpm install                # alle JS-Workspaces (web/, desktop/)
+uv sync --all-packages      # alle Python-Workspaces (shared/, services/*)
 ```
 
 `uv sync` zieht das Python 3.13 selbst rein, du brauchst es nicht im
@@ -122,8 +122,8 @@ Was passiert:
   chat-gateway (8002), voice-signaling (8003), media-svc (8004),
   mediamtx-auth-hook (8005).
 - Vite-Dev-Server für die Web-SPA auf 5173.
-- Electron-Dev-Fenster gegen :5173 (kann via Strg+C im Terminal beendet
-  werden, ohne den Rest zu stoppen).
+- Electron-Dev-Fenster gegen :5173 (startet per `setsid nohup` als eigene
+  Hintergrund-Session — beenden nur über `dev-down.fish`, nicht via Strg+C).
 
 `dev-down.fish` fährt alles wieder herunter, lässt aber die Docker-Volumes
 intakt (deine Test-Accounts überleben einen Neustart).

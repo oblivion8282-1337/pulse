@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`streaming/pulse-player/src/fernsteuerung/tests.rs:896` + `app/mod.rs:1703`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Ziehen über die Fenstergrenze — Umsetzungsplan (Teil 1)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

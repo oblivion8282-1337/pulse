@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** Umgesetzt — alle hier offenen Aufgaben sind laut Bughunt 2026-09-28 im Code verifiziert (`ws_remote_handlers.py:141` + `web/src/lib/ws/handlers/types.ts:39` + `win-hq-sidecar/src/ablage.rs` + `mac-hq-sidecar/src/clip.rs`). Die Checkboxen werden nicht einzeln nachgezogen.
+
 # Zwischenablage Stufe 1b-1 — der Weg vom Player bis zum Gateway
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

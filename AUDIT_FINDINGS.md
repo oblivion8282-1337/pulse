@@ -70,6 +70,10 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
 - [-] **#8 — [Infra] Keine Service-Dockerfiles, LiveKit `:latest`, LiveKit als root**
   **DEFERRED** — Prod-Readiness-Thema (Etappe 4+), nicht Teil dieses Durchlaufs.
   Erst beim Hetzner-Deployment relevant; siehe `PLAN.md` Section 9.
+  **(2026-09-28 nachgetragen:** inzwischen großteils erledigt — Service-Images bauen
+  über das zentrale `Dockerfile.service` im Repo-Root, und LiveKit ist gepinnt
+  (`livekit/livekit-server:v1.13.3`, `infra/prod/docker-compose.yml`). Weiterhin
+  offen: LiveKit läuft ohne `user:`-Override weiterhin als root.**)**
 
 ---
 
@@ -195,6 +199,11 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
 - [ ] **L9** Refresh-Token im `localStorage` (Frontend, Design-Entscheidung aus
   PLAN.md Section 6.6) — XSS-Exposure. Bewusst akzeptiert für die Bearer-Auth-API;
   Tauri-Bundle nutzt den Plugin-Store. Dokumentiert.
+  *(2026-09-28 nachgetragen: gegenstandslos — der Refresh-Token liegt heute im
+  HttpOnly-`pulse_rt`-Cookie des auth-svc (`web/src/lib/api/storage.ts`); im
+  localStorage liegt er nur noch als Einmal-Migrations-Fallback und wird nach dem
+  ersten Cookie-Refresh gelöscht. Tauri wurde zugunsten von Electron verworfen
+  (Entscheidung 2026-05-12, PLAN.md §17) und ist längst restlos entfernt.)*
 - [ ] **L10** Index-Coverage generell prüfen — `guild_members(user_id)`,
   `channels(guild_id, position)`, `messages(channel_id, id DESC)` sind da; ein
   Review gegen die tatsächlichen Query-Pläne steht aus.

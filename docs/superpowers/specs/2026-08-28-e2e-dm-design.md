@@ -34,6 +34,16 @@ erwartet, und an einer anderen weniger.
 und endet am Server; jede Direktnachricht liegt im Klartext in
 `messages.content` (`models/messages.py:39,48`).
 
+> *Korrektur 2026-09-28:* überholt. Verschlüsselung ist heute der
+> Normalweg — alle vier Krypto-Schalter stehen auf `true` (seit dem
+> 2026-09-01, `web/src/lib/krypto/schalter.ts`; E2E
+> `web/tests/e2e/e2e-dm.spec.ts`), und der Klartext-Weg für DMs ist
+> stillgelegt (Migration `0083_legacy_readonly`). Auch die
+> Geräteverzeichnis-Tabelle unten trägt Zertifikats-Belege, die es
+> nicht mehr gibt: `routes_credentials.py` ist gelöscht (übrig blieb
+> `models_credentials.py`); das Geräte-Modell steht in §3b, die
+> Geräteliste unter `GET /keys/geraete` (§3b, Stand 2026-08-30).
+
 **Es gibt aber bereits ein beglaubigtes Geräteverzeichnis** — bei einem
 E2E-System der Teil, an dem die meisten Projekte scheitern. Es wurde für den
 Cert-Login gebaut und wird hier weiterverwendet:
@@ -190,6 +200,18 @@ der Server mit. Was vorher im Klartext liegt, bleibt liegen, bis es aufgeräumt
 wird (§8).
 
 ### 3a. Diese Regel ist überholt (Entscheidung vom 2026-08-29)
+
+> *Korrektur 2026-09-28:* §3a selbst ist inzwischen zweifach überholt.
+> Erstens traf der Einstiegssatz nie dauerhaft zu — der Code hat nicht
+> die Koexistenz-Tabelle weitergefahren, sondern die unten stehende
+> Ersatzregel gebaut (Klartext-DMs stillgelegt, Migration
+> `0083_legacy_readonly`). Zweitens wurde die Ersatzregel am
+> **2026-09-12 wieder aufgehoben** (Entscheidung des Eigentümers): die
+> `ohne_app`-Sperre ist raus, auch reine Browser-Konten senden und
+> empfangen (`web/src/lib/krypto/dmSendeSperre.ts` — einziger
+> verbleibender Sperrgrund ist `kontakt`; den Haltbarkeits-Hinweis im
+> Gespräch trägt `web/src/lib/krypto/dmBrowserWarnung.ts`). Gebaut ist
+> damit: jede Direktnachricht ist verschlüsselt, ohne Geräte-Zwang.
 
 **Die Tabelle oben beschreibt nicht mehr, was gebaut werden soll.** Sie steht
 hier, weil der Code sie heute noch umsetzt und weil die Begründungen darunter
@@ -480,6 +502,11 @@ der Nutzer erfährt es nicht. Die Verdrängung braucht eine sichtbare Meldung.
 ### Was davon gebaut ist (Stand 2026-08-29)
 
 Hinter `GERAETE_KOPPLUNG_ENABLED` (`web/src/lib/krypto/schalter.ts`, **aus**).
+
+> *Korrektur 2026-09-28:* der Schalter steht seit dem 2026-09-01 auf
+> `true` — alle vier Krypto-Schalter sind an (`schalter.ts`), die
+> Kopplung ist gebaut und per E2E nachgewiesen
+> (`web/tests/e2e/e2e-kopplung.spec.ts`).
 Die vollständige Sicherheitsabwägung zum Code steht im Kopf von
 `services/chat-gateway/.../routes/kopplung.py`, die Begründung des
 Transportwegs in `routes/kopplung_umzug.py`.
@@ -504,6 +531,11 @@ Transportwegs in `routes/kopplung_umzug.py`.
   gerenderte Grafik scheidet aus — der Code darf den Server nicht erreichen),
   die sichtbare Meldung bei der 20-Geräte-Verdrängung, und das aktive Drängen
   zu einem zweiten Gerät.
+
+  *Korrektur 2026-09-28:* QR ist inzwischen gebaut — der Klient nutzt
+  `uqr` (`web/src/lib/kopplung/qr.ts`, eingebunden in
+  `GeraeteKopplungSection.svelte`). Die anderen beiden Punkte hier
+  nicht nachgeprüft.
 
 ---
 
@@ -691,7 +723,7 @@ Aufteilung entstanden:
 |---|---|---|
 | B | `etappe-b-schluesselverzeichnis.md` | `etappe-b2-klient-veroeffentlicht.md` |
 | D | `etappe-d-postfach.md` | `etappe-d2-klient-verschluesselt.md` |
-| G | `etappe-g1-private-gruppen-kanal.md` (Kanalart) | G2 (Megolm) — noch nicht geplant |
+| G | `etappe-g1-private-gruppen-kanal.md` (Kanalart) | G2 (Megolm) — gebaut *(Korrektur 2026-09-28: `web/src/lib/krypto/gruppe/`, u. a. `sitzungswahl.ts`, `empfangen.ts`, `kanalSitzungswahl.ts`; Server-Riegel `private_gruppen_zugriff.py`, `PRIVATE_GRUPPEN_ENABLED = true`), wenn auch ohne eigenen Etappen-Plan* |
 
 **Der Grund, warum das hier steht:** eine frühere Fassung behauptete, G sei
 die einzige Etappe mit zwei Hälften. Das war beim Schreiben richtig und

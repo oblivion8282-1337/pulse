@@ -2,6 +2,8 @@
 
 **Stand 2026-08-19, Übergabe an die andere Maschine. Nichts davon ist repariert.**
 
+> (2026-09-28 verifiziert: Befund 1 ist behoben — `remote_guard.py:86-98` behandelt die Gnadenfrist ausdrücklich; prüfe die übrigen Befunde einzeln, bevor du dich auf diesen Stand verlässt. Die einzelnen Verifikationen stehen je Befund unten.)
+
 Am 2026-08-19 sind auf `remote/2026-08-19/integration` zwei Reparaturen zusammengekommen, die
 beide am Verbindungsabriss hängen und **unabhängig voneinander auf zwei Maschinen gebaut**
 wurden:
@@ -23,6 +25,8 @@ gefahren (Wegwerf-Skripte nach dem Muster von `tests/test_remote_reconnect_regis
 ---
 
 ## 1 — HOCH: Der Rechte-Prüflauf tötet Sitzungen mitten in der Frist
+
+> (2026-09-28 verifiziert: behoben — `remote_guard.py:86-98` behandelt eine laufende Gnadenfrist ausdrücklich als erwarteten Zwischenzustand und endet die Sitzung dafür nicht.)
 
 **Ort:** `services/chat-gateway/src/dcc_chat_gateway/remote_guard.py:69` (`_end_reason`)
 
@@ -52,6 +56,8 @@ ohne Disconnect-Pfad ab) — der darf nicht mit wegfallen.
 
 ## 2 — HOCH: Reissen BEIDE Sockets, stirbt die Sitzung schneller als vorher
 
+> (2026-09-28 verifiziert: behoben — die Frist hängt jetzt je (Sitzung, Rolle): `remote_reconnect_registry.py:21,63,108`. Client-seitig ist `remote_reclaim_failed` nur noch bei aktiv laufender Frist endgültig: `web/src/lib/remote/wachten.ts:200`.)
+
 **Ort:** `remote_reconnect_registry.py::remote_schedule_disconnect_grace` +
 `web/src/lib/remote/wachten.ts` (Reclaim-Fehlweg)
 
@@ -79,6 +85,8 @@ ob „no grace window for this role" wirklich endgültig sein soll.
 
 ## 3 — MITTEL: Das Geräteregister wird beim Wiederverbinden nicht wiederhergestellt
 
+> (2026-09-28 verifiziert: behoben — der Host-Reclaim stellt die Belegung auf den neuen Socket wieder her: `routes/ws_remote_reconnect.py:99-113` ruft `device_mark_busy_and_publish` mit der gemerkten `sess.device_id`.)
+
 **Ort:** `device_registry.py::device_withdraw` ↔ `remote_reconnect_registry.py::remote_reclaim`
 **Von beiden Prüfläufen unabhängig gefunden.**
 
@@ -104,6 +112,8 @@ Die Anzeige lügt, die Tür ist zu.
 
 ## 4 — MITTEL: Bei mehreren Fenstern bleibt das Gerät dauerhaft „belegt"
 
+> (2026-09-28 verifiziert: behoben — der Reclaim trägt den NEUEN Socket in `_device_busy_socket` ein (Befund-3-Fix), sodass `remote_end` → `device_release_for_socket(sess.host_socket)` (`remote_registry.py:211`) das Gerät wieder findet und freigibt.)
+
 **Ort:** `device_registry.py::device_release_for_socket`
 
 Hat das Gerät mehrere Fenster und fällt ausgerechnet das der Sitzung, bleibt
@@ -120,6 +130,8 @@ Freigabemeldung.
 ---
 
 ## 5 — MITTEL: Gehaltene Tasten überleben den Abriss nicht mehr
+
+> (2026-09-28 verifiziert: behoben — `web/src/lib/remote/wiederaufnahme.ts::nachReclaimBehaupten` schickt nach geglücktem Reclaim Hello + `nachziehBuendel`; gerufen aus `session.svelte.ts:604`. Die Datei nennt „Befund 5/6" ausdrücklich.)
 
 **Ort:** `web/src/lib/remote/session.svelte.ts::#watchVerbindung` + `p2p.ts::senden`
 
@@ -144,6 +156,8 @@ das Orts-Tor Knopf und Rad.
 
 ## 6 — MITTEL: Ein beendeter Vorrang geht während des Abrisses verloren
 
+> (2026-09-28 verifiziert: behoben — dieselbe Reparatur wie Befund 5, `wiederaufnahme.ts` nennt „Befund 5/6"; der Serverweg-Fallback zieht Gebuchtes ebenfalls nach: `vorrang.ts:210-212`.)
+
 **Ort:** `web/src/lib/remote/vorrang.ts::GEDULD_MS` (4000) gegen die Gnadenfrist (12 s)
 
 Die Vorrang-Geduld läuft **innerhalb** der Gnadenfrist ab, und ihr Nachziehen geht über
@@ -166,6 +180,8 @@ vermutlich dieselbe Reparatur.
 ---
 
 ## 7 — NIEDRIG bis MITTEL: Der Reclaim prüft `REMOTE_CONTROL` nicht erneut
+
+> (2026-09-28 verifiziert: behoben — `handle_reclaim` prüft die Rechte erneut: `ws_remote_reconnect.py:84-88` via `peer_channel_perms` + `Permissions.REMOTE_CONTROL`.)
 
 **Ort:** `routes/ws_remote_reconnect.py::handle_reclaim`
 

@@ -1,7 +1,9 @@
 # streaming/ — HQ-Screen-Streaming für Pulse
 
-Mehrere Plattform-Sidecars, **gleiches stdio-JSON-RPC-Protokoll**. Alle pushen via RTMPS an MediaMTX → Viewer holen
-den Stream per WHEP.
+Mehrere Plattform-Sidecars, **gleiches stdio-JSON-RPC-Protokoll**. Der Push läuft über den eigenen WHIP-Sendeweg an
+MediaMTX → Viewer holen den Stream per WHEP. Die Oberfläche fordert ausnahmslos `whip`
+(`settings.svelte.ts::pushProtokoll`); RTMPS lebt nur noch als Codepfad für `rtmps://`-Push-URLs. Daneben gibt es den
+P2P-Direktpfad ohne MediaMTX (`direct: true`, Fernsteuerung).
 
 | Plattform | Sidecar | liegt in |
 |---|---|---|
@@ -14,7 +16,7 @@ den Stream per WHEP.
 vendorten Python/GPU-Screen-Recorder-Sidecar um (Kompatibilitäts-Tab, `useLegacyGsrSidecar`-Notbremse). Der
 Fallback ist ersatzlos entfernt — der einzige Op, den nur er kannte (`list_profiles`), hatte nie einen
 Konsumenten (s. Op-Tabelle unten). Fehlt das Rust-Binary heute, bleibt das Verhalten wie seit 2026-08-16:
-fail-closed, `gsrAvailable=false`, Übertragen-Knopf versteckt — kein Absturz.
+fail-closed, `sidecarAvailable=false`, Übertragen-Knopf versteckt — kein Absturz.
 
 ## Layout
 
@@ -22,7 +24,7 @@ fail-closed, `gsrAvailable=false`, Übertragen-Knopf versteckt — kein Absturz.
 streaming/
 ├── win-hq-sidecar/          Windows: Rust-Sidecar — s. unten
 │   ├── src/                 WGC-Capture + WASAPI + ffmpeg-next-Encode
-│   ├── ffmpeg-dist/         FFmpeg LGPL n8.1.2-shared, selbst gebaut + gepatcht
+│   ├── ffmpeg-dist/         FFmpeg LGPL n8.1-lgpl-shared — unverändertes BtbN-Fertigpaket (seit 2026-08-21)
 │   ├── mediamtx-dist/       MediaMTX-Binary für lokale Smoke-Tests
 │   └── examples/            cargo-runnable Smoke-Driver
 ├── linux-hq-sidecar/        Linux: Rust-Sidecar (PipeWire + VAAPI/NVENC), der einzige Weg
@@ -75,7 +77,7 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 
 | op | Request-Felder | Response (zusätzlich zu `ok`+`id`) |
 |---|---|---|
-| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ten_bit?, hdr?, ...}` — `ten_bit` melden Linux- und Windows-Sidecar, `hdr` **nur Windows**; macOS meldet keines davon. **`undefined` heißt „nein"**, nie „unbekannt, probier's mal" |
+| `health` | — | `sidecar: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ten_bit?, hevc_ten_bit?, hdr?, ...}` — `ten_bit` melden Linux- und Windows-Sidecar, `hevc_ten_bit` ebenfalls beide (seit 2026-09-13 getrennt gemeldet, weil es auseinanderfällt), `hdr` **nur Windows**; macOS meldet keines davon. **`undefined` heißt „nein"**, nie „unbekannt, probier's mal" |
 | `gpu_info` | — | `vendor, card_path, display_server, video_codecs` (re-probe falls noch nicht da) |
 | `list_profiles` | — | Bis zum 2026-07-19 gab es diese Op nur im inzwischen entfernten Linux-Python-Auffangnetz (`profiles, servers (immer `[]`), audio_modes, app_label_prefix`). Sie hatte nie einen Konsumenten — das HQ-Panel setzt hart `profile_name='Custom'` + `use_overrides=true`, und alle vier Katalog-Einträge trugen ohnehin dieselben 4000 kbps / 60 fps. Kein Rust-Sidecar kennt sie; nicht gesetzte Overrides fallen dort auf einen einzelnen Sockel (`profiles::BASELINE`, h264/opus/flv, 4000 kbps, 60 fps) zurück — dieselben Werte wie der frühere `Custom`-Eintrag. |
 | `list_monitors` | — | `monitors: [{index (1-basiert), name, primary, width, height, refresh_hz, x, y}, ...]` — **Windows- und mac-Sidecar** (Linux nutzt den Portal-Picker und gibt eine leere Liste zurück). `x`/`y` seit 2026-08-24: die Lage des Bildschirms im Desktop-Raum, negativ erlaubt (Monitor links vom Hauptbildschirm). Windows über `GetMonitorInfoW`, macOS über `CGDisplayBounds`; schlägt die Abfrage fehl, wird `0/0` gemeldet **statt das Feld wegzulassen** — ein fehlendes Feld liesse die Bildschirm-Karte raten, `0/0` ist erkennbar falsch. Ältere Sidecars melden die Felder gar nicht; die Karte fällt dann auf die Knopfliste zurück. |
@@ -86,7 +88,7 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 | `stop` | — | `ok` |
 | `state` | — | `running, state, fps, uptime_s, argv` |
 | `ablage` | `data` | `ok` — ein Wert der geteilten Zwischenablage (`streaming/pulse-ablage`). **Windows- und macOS-Sidecar** (Linux ist nie Host). Der Sidecar deutet ihn nicht selbst — das tut die Kiste, und die Hülle entscheidet: `{"rahmen":…}` kommt von der Gegenseite, `{"anstoss":"beginn"\|"neu_bitte"\|"ende"}` vom eigenen Renderer. **`beginn` ist zugleich die Trägerwahl**: es läuft ein Sidecar-Prozess je Stream-Platz, die Zwischenablage ist maschinenweit, und erst dieser Anstoß stellt den Fenster- (Windows) bzw. Eigner-Faden (macOS) auf. **Auf macOS gibt `stop` die Ablage wieder frei**, weil der Prozess dort über Streams hinweg warm bleibt — auf Windows erledigt das sein Prozessende. Was daraufhin hinausgeht, kommt als **Ereignis** (`ablage`), nicht als Antwort — ein `hol` wird beantwortet, sobald der Lesevorgang durch ist. |
-| `keyframe` | — | `ok` — beim nächsten Bild ein Vollbild erzeugen. **Nur Linux- und Windows-Sidecar.** Ohne laufenden Stream folgenlos; mehrere Anforderungen innerhalb eines Bildabstands fallen zu einer zusammen (bei mehreren Zuschauern zahlt der Sender ein Intra-Bild einmal für alle). Der reguläre Weg ist der RTCP-Rückkanal des eigenen WHIP-Sendewegs — diese Operation ist die Gegenstelle von Hand, damit die Wirkung messbar ist, ohne dass ein echter Zuschauer und ein Verlustprofil zusammenkommen müssen. |
+| `keyframe` | — | `ok` — beim nächsten Bild ein Vollbild erzeugen. **Alle drei Rust-Sidecars.** Ohne laufenden Stream folgenlos; mehrere Anforderungen innerhalb eines Bildabstands fallen zu einer zusammen (bei mehreren Zuschauern zahlt der Sender ein Intra-Bild einmal für alle). Der reguläre Weg ist der RTCP-Rückkanal des eigenen WHIP-Sendewegs — diese Operation ist die Gegenstelle von Hand, damit die Wirkung messbar ist, ohne dass ein echter Zuschauer und ein Verlustprofil zusammenkommen müssen. |
 
 **Bis zum 2026-08-21 gab es hier ein `overrides.intra_refresh`** — rollender
 Intra-Refresh statt periodischer Vollbilder, samt Fähigkeitsmeldung
@@ -107,29 +109,33 @@ native Player kann mehr als 8 bit ausgeben, und die Kachel muss sich für einen
 Wiedergabeweg entscheiden, BEVOR sie dekodiert. Fehlt das Feld (älterer Server
 oder Streamer), gilt 8 bit und die Kachel bleibt im `<video>`.
 
-`overrides.bit_depth` (8|10) und `health.gsr.ten_bit` sind **Zusatzfelder des
-Linux-Rust-Sidecars** (seit 2026-07-26). Windows- und macOS-Sidecar
-melden `ten_bit` nicht und ignorieren `bit_depth` stillschweigend — Konsumenten
+`overrides.bit_depth` (8|10), `health.sidecar.ten_bit` und
+`health.sidecar.hevc_ten_bit` sind **Zusatzfelder der Rust-Sidecars** (`ten_bit`
+seit 2026-07-26, `hevc_ten_bit` seit 2026-09-13). Linux und Windows melden
+beide Felder, und Windows setzt `bit_depth` ebenso um wie Linux; der
+macOS-Sidecar meldet keines der Felder und kennt kein `bit_depth` — Konsumenten
 müssen `undefined` als „kann kein 10 bit" lesen, nie als „unbekannt, probier's".
-10 bit ist dort an **AV1** gebunden: die 10-bit-Variante von H.264 wäre
-`High 10`, die kein Browser dekodiert, und der WHEP-Rückfall im Web ist ein
-`<video>`. Ein unerfüllbarer Wunsch (kein AV1, WHIP-Ziel, VAAPI-Karte) fällt im
-Sidecar mit Log-Zeile auf 8 bit zurück statt den Start zu verweigern; das
-Frontend schickt ihn deshalb nur, wenn er erfüllbar ist
-(`settings.svelte.ts::tenBitPossible`).
+10 bit läuft über **AV1 und HEVC Main 10** — der HEVC-Weg ist seit 2026-09-13
+die Mittelstufe für Karten ohne AV1-Encode (`linux ops/start.rs::
+ten_bit_possible`, `caps.rs`). Die 10-bit-Variante von H.264 wäre `High 10`,
+die kein Browser dekodiert, und der WHEP-Rückfall im Web ist ein `<video>`. Ein
+unerfüllbarer Wunsch fällt im Sidecar mit Log-Zeile auf 8 bit zurück statt den
+Start zu verweigern; das Frontend schickt ihn deshalb nur, wenn er erfüllbar ist
+(`settings.svelte.ts::tenBitPossible` — fragt AV1- und HEVC-10-bit getrennt ab).
 
 `start`/`build_argv` brauchen den Channel-Block — Pulse streamt immer in einen
 Voice-Channel:
 
-- `channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}` — Pulse-
-  Channel-Pfad. `push_url` (von media-svc, mit Token drin) wird wenn gesetzt
-  verbatim als Ziel-URL genutzt; sonst werden `mediamtx_endpoint` +
-  `push_protocol` als Fallback genutzt.
-- **Push-Protokoll entscheidet der SERVER** (media-svc
-  `MEDIAMTX_PUSH_PROTOCOL`): Default `rtmp` → `rtmps://<host>:1936/...`-URL.
-  App-gehostete Instanzen minten für Gäste `whip` →
-  `https://<host>/whep/<pfad>/whip?token=…` (WebRTC-Ingest, locht NAT wie
-  WHEP; Owner bleibt RTMPS). **Alle drei Rust-Sidecars (Linux, Windows, seit
+- `channel: {id, token, push_url?}` — Pulse-Channel-Pfad. `push_url` (von
+  media-svc, mit Token drin) wird wenn gesetzt verbatim als Ziel-URL genutzt.
+- **Push-Protokoll entscheidet der CLIENT — und der wünscht immer `whip`**
+  (`settings.svelte.ts::pushProtokoll` gibt fest `'whip'` zurück; der Wunsch
+  reist mit `getStreamToken`, `web/src/lib/stream/starten.ts`). media-svc
+  mintet dazu eine `https://<host>/whep/<pfad>/whip?token=…`-URL
+  (WebRTC-Ingest, locht NAT wie WHEP). `MEDIAMTX_PUSH_PROTOCOL` existiert
+  weiter, ist aber nur noch der Server-Boden, von dem der Client-Wunsch nur
+  NACH OBEN (Richtung WHIP) abweichen kann — mit immer-`whip` greift der
+  Boden praktisch nie. **Alle drei Rust-Sidecars (Linux, Windows, seit
   2026-08-20 auch macOS) fahren `http(s)://` über einen EIGENEN
   WebRTC-Sendeweg** (`src/whip/mod.rs`+`pacer.rs` plattformeigen; der
   AV1/SDP-Teil liegt seit 2026-08-20 gemeinsam in `streaming/pulse-whip`,
@@ -207,7 +213,7 @@ beschrieben, und wer diese Liste für vollständig hielt, übersah sie:
 // → stdin
 {"op": "health", "id": 1}
 // ← stdout
-{"id":1,"ok":true,"gsr":{"available":true,"source":"builtin","is_flatpak":false,"vendor":"nvidia","display_server":"wayland","video_codecs":["h264","av1"],"ten_bit":true,"has_flv_patch":true,"tls_backend":"gnutls","path":"/app/bin/pulse-linux-hq-sidecar"}}
+{"id":1,"ok":true,"sidecar":{"available":true,"source":"builtin","is_flatpak":false,"vendor":"nvidia","display_server":"wayland","video_codecs":["h264","hevc","av1"],"ten_bit":true,"hevc_ten_bit":true,"has_flv_patch":true,"tls_backend":"gnutls","path":"/app/bin/pulse-linux-hq-sidecar"}}
 
 // → stdin
 {"op": "build_argv", "id": 2,
@@ -264,17 +270,20 @@ der Patch trug die Intra-Refresh-Betriebsart, die es nicht mehr gibt.
 `build.rs` kopiert die FFmpeg-DLLs neben die exe — Binary ist standalone, kein
 Python nötig.
 
-**Zwei Encode-Pfade**, dispatch in `src/stream_controller.rs::run_pipeline`:
-- **NVIDIA Zero-Copy** (`src/pipeline_hw.rs` + `capture/wgc_hw.rs` + `encode/encoder_hw.rs` + `encode/hwctx.rs`):
+**Drei Encode-Pfade**, dispatch in `src/stream_controller/mod.rs::run_pipeline`:
+- **D3D11-Zero-Copy** (`src/pipeline_hw/` + `capture/wgc_hw.rs` + `encode/encoder_hw.rs` + `encode/hwctx.rs`):
   WGC liefert `ID3D11Texture2D`-Frames; im Capture-Callback `CopySubresourceRegion` GPU-intern in einen D3D11VA-Pool
-  (`av_hwframe_get_buffer`), NVENC liest `AV_PIX_FMT_D3D11` mit `sw_format=BGRA` direkt — Swizzle + NV12-Convert auf
-  der GPU. Kein PCIe-Roundtrip. **ffmpeg-next bindet `hwcontext_d3d11va.h` nicht** → `AVD3D11VADeviceContext` in
+  (`av_hwframe_get_buffer`), `h264_nvenc`/AMF lesen `AV_PIX_FMT_D3D11` mit `sw_format=BGRA` direkt — Swizzle +
+  NV12-Convert auf der GPU, Downscale über `encode/d3d11_scale.rs` (`ID3D11VideoProcessor`). Kein PCIe-Roundtrip.
+  **ffmpeg-next bindet `hwcontext_d3d11va.h` nicht** → `AVD3D11VADeviceContext` in
   `hwctx.rs` hand-gespiegelt, CRITICAL_SECTION als FFmpeg-Lock-Callback (Capture-Thread hält denselben Lock manuell
-  für CopySubresourceRegion). Aktiv für `adapter.vendor() == "nvidia"`.
+  für CopySubresourceRegion). Aktiv für NVIDIA (jeder Codec) und AMD (AMF; seit 2026-08-04 mit jedem Codec).
+- **D3D12-Zero-Copy** (`encode/encoder_d3d12.rs` + `encode/d3d12_convert.rs`): AMD-Gegenprobe für H.264/HEVC —
+  nativer `*_d3d12va` über die D3D12-Video-Encode-API, BGRA→NV12 per Compute-Shader. Nur mit
+  `PULSE_HQ_AMD_D3D12=1` (Messwerte in `encode/codec.rs`).
 - **CPU-Pfad** (`capture/wgc.rs` + `encode/encoder.rs`): BGRA via `frame.buffer()` → CPU-Vec → swscale BGRA→NV12 →
-  AMF/QSV. Aktiv für AMD/Intel oder mit `PULSE_HQ_DISABLE_ZERO_COPY=1`. Hat zusätzlich einen NVIDIA-„BGR-direct"-
-  Fastpath (NVENC schluckt BGRA-Bytes 1:1 ohne swscale wenn keine Downscale-Differenz). AMD/Intel Zero-Copy bräuchten
-  einen GPU-Color-Convert vor dem Encoder (D3D11-Compute-Shader oder `scale_d3d11`-Filter) — nicht implementiert.
+  AMF/QSV. Aktiv für Intel oder mit `PULSE_HQ_DISABLE_ZERO_COPY=1`. Hat zusätzlich einen NVIDIA-„BGR-direct"-
+  Fastpath (NVENC schluckt BGRA-Bytes 1:1 ohne swscale wenn keine Downscale-Differenz).
 
 **Env-Overrides**:
 - `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` — Adapter-Filter statt DXGI-`HIGH_PERFORMANCE`-Default. Auf Multi-GPU
@@ -314,9 +323,9 @@ beschreibt.
 
 Wie es wirklich gebaut ist:
 
-- **Electron-Main** spawnt den Sidecar lazy beim ersten `gsr:call` und reicht
+- **Electron-Main** spawnt den Sidecar lazy beim ersten `sidecar:call` und reicht
   stdout-Ereignisse an den Renderer durch (`desktop/electron/sidecar.ts`).
-- **Svelte** bedient das Protokoll oben über `window.pulse.gsr.*`
+- **Svelte** bedient das Protokoll oben über `window.pulse.sidecar.*`
   (`web/src/lib/stream/`).
 - **Persistenz** liegt in einem hand-gebauten KV-Store
   (`desktop/electron/store.ts`), nicht in einem Tauri-`store` — `electron-store`

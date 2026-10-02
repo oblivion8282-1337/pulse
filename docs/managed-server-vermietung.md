@@ -83,10 +83,11 @@ Betriebs-/Berufshaftpflicht mit IT-/Hosting-Baustein · ggf. Cyber-Versicherung 
 
 ## 3. Was braucht ein Pulse-Server an Ressourcen?
 
-Der Self-Host-Stack (Docker-Compose): 6 FastAPI-Services + Postgres + Redis + MinIO + LiveKit + MediaMTX
-+ Caddy + web-nginx. Einzeln leichtgewichtig; die Last hängt an **Voice** (LiveKit-SFU, CPU) und
-**HQ-Streaming** (MediaMTX — v.a. **Bandbreite**, kein Transcoding). Chat/DB/Redis/MinIO sind für kleine
-Gruppen genügsam.
+Der Self-Host-Stack läuft als **All-in-one-Compose** (`infra/self-host/docker-compose.yml`: ein
+`pulse`-Container, Daten im `pulse-data`-Volume) — Postgres, Redis, Garage (S3-Speicher, hat MinIO
+ersetzt), LiveKit, MediaMTX, Caddy inbegriffen. Einzeln leichtgewichtig; die Last hängt an **Voice**
+(LiveKit-SFU, CPU) und **HQ-Streaming** (MediaMTX — v.a. **Bandbreite**, kein Transcoding).
+Chat/DB/Redis/Speicher sind für kleine Gruppen genügsam.
 
 **Der echte Kostentreiber ist Traffic** (HQ-Streams sind hochbitratig: mehrere Zuschauer × hohe Bitrate).
 Hetzners 20 TB/Monat inklusive sind großzügig, aber bei Dauer-Streaming im Blick behalten.
@@ -102,7 +103,7 @@ Engpass ist **RAM**, nicht CPU. Hetzners neue Cloud-Linie fängt bei **2 vCPU / 
 | Groß / voice-schwer | viele Parallel-Voice, mehrere HQ-Streams | dedizierte vCPU wg. Latenz | **CCX23/CCX33** |
 
 **Boden = CX23** (2/4/40, €5,49). Trägt den ganzen Container-Stack im Normalbetrieb; engster Punkt ist
-die 40-GB-Platte (MinIO-Uploads) → per Volume nachrüstbar. Voice-Qualität profitiert bei Wachstum von
+die 40-GB-Platte (Uploads im Objektspeicher) → per Volume nachrüstbar. Voice-Qualität profitiert bei Wachstum von
 **dedizierten vCPUs** (CCX-Linie), weil LiveKit latenzsensibel ist.
 
 **Zwei Fallstricke bei „ganz billig":**

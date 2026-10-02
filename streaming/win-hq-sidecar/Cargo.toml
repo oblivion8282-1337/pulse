@@ -125,10 +125,9 @@ ffmpeg-next = { version = "8.1", default-features = false, features = [
 # die Begruendung faellt damit nicht weg, sie haengt jetzt am gestreckten
 # Vollbild-Abstand statt an der Betriebsart.
 #
-# Dieselben Fassungen wie im Linux-Sidecar, im nativen Player und in
-# `streaming/pulse-remote-webrtc`. Auseinanderlaufende webrtc-rs-Versionen
-# waeren die Sorte Fehler, die sich erst in der SDP-Verhandlung zeigt.
-# MIT/Apache-2.0, kein GPL.
+# Dieselben Fassungen wie im Linux-Sidecar und im nativen Player.
+# Auseinanderlaufende webrtc-rs-Versionen waeren die Sorte Fehler, die sich
+# erst in der SDP-Verhandlung zeigt. MIT/Apache-2.0, kein GPL.
 #
 # Sie waechst den Sidecar spuerbar — auch fuer Nutzer, die den Weg nie waehlen.
 # Bewusst in Kauf genommen, weil er Standard werden soll; ein Cargo-Feature
