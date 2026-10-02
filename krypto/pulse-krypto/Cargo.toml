@@ -3,6 +3,7 @@ name = "pulse-krypto"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "AGPL-3.0-only"
 
 # Kapselt vodozemac (Apache-2.0). Diese Kiste kennt weder Pulse-Datenmodelle
 # noch Netzwerk — nur Identitaeten, Sitzungen und Umschlaege.

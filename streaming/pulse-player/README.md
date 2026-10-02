@@ -685,14 +685,13 @@ printf '{"op":"open","id":1,"url":"https://…/whep/…?token=…"}\n' | ./targe
 
 ## Lizenz
 
-Die Crate selbst faellt unter die Client-Lizenz des Repos (**Pulse Client
-License 1.0**, siehe `../LICENSE`). Hier stand bis 2026-08-04 „PolyForm
-Perimeter" — das Projekt ist am 2026-07-29 auf eigene Lizenztexte gewechselt,
-weil PolyForm ausdruecklich Aenderungen und Weitergabe erlaubt und damit genau
-das gestattet haette, was hier untersagt sein soll. Fuer Abhaengigkeiten gilt:
+Die Crate faellt unter die Lizenz des Repos: **GNU AGPL v3.0 (AGPL-3.0-only)**,
+siehe `../LICENSE`. (Historie: bis zum 2026-10-02 stand hier die Pulse Client
+License 1.0, davor „PolyForm Perimeter" — Pulse ist zurueck auf AGPL.)
+Fuer Abhaengigkeiten gilt:
 
-- **Kein GPL-Code** darf hier hineingelinkt werden. Das kollidiert hart mit der
-  Client-Lizenz.
+- Bevorzugt permissive Lizenzen (MIT / Apache-2.0 / BSD / ISC). LGPL nur
+  dynamisch gelinkt und als getrennt austauschbare Datei ausgeliefert.
 - **FFmpeg muss LGPL-konfiguriert und dynamisch gelinkt sein.** Die System-FFmpeg
   vieler Distributionen ist mit `--enable-gpl` gebaut (auf der Dev-Maschine
   meldet das Arch-Paket GPL-3.0-only) und taugt deshalb **nur zur lokalen

@@ -1,15 +1,16 @@
 # Drittanbieter-Software
 
 > **Hinweis:** Diese Seite listet die Drittanbieter-Bibliotheken, die in den
-> Pulse-Client-Anwendungen (Desktop unter Windows/macOS/Linux) gebündelt oder
+> Pulse-Anwendungen (Desktop unter Windows/macOS/Linux) gebündelt oder
 > dynamisch eingebunden werden, sowie die damit verbundenen Lizenzpflichten.
-> Keine Rechtsberatung. Für den Server-Betrieb gilt die separate
-> [`LICENSE-SERVER.md`](https://github.com/oblivion8282-1337/pulse/blob/main/LICENSE-SERVER.md)
-> im Quellcode-Repository.
+> Keine Rechtsberatung. Pulse selbst steht unter der
+> [GNU AGPL v3.0](https://github.com/oblivion8282-1337/pulse/blob/main/LICENSE)
+> (AGPL-3.0-only); der vollständige Lizenztext liegt als `LICENSE` im
+> Quellcode-Repository.
 
-Der Pulse-Client selbst steht unter der Pulse Client License 1.0 (siehe
-`LICENSE-CLIENT.md` im Repository) — nutzen und einsehen erlaubt, ändern und
-weitergeben nicht. Einige seiner Bestandteile für das
+Pulse selbst ist unter der **GNU Affero General Public License v3.0**
+(AGPL-3.0-only) lizenziert — nutzen, ändern und weitergeben ist unter den
+Lizenzbedingungen erlaubt. Einige seiner Bestandteile für das
 HQ-Bildschirm-Streaming stammen jedoch von Drittanbietern und bringen eigene
 Lizenzbedingungen mit. Für **LGPL-lizenzierte Komponenten** (FFmpeg) erfüllen
 wir die Lizenzpflichten wie folgt:
@@ -186,4 +187,4 @@ Server aus, damit kein Browser eines Besuchers Google Fonts kontaktiert.
 
 ---
 
-Stand: 28. September 2026
+Stand: 2. Oktober 2026 (Lizenz-Rückkehr zu AGPL-3.0)

@@ -12,8 +12,7 @@ lässt es neu laufen.
 ## Lizenz
 
 Lucide steht unter der **ISC-Lizenz**. Sie ist permissiv und mit der
-Client-Lizenz dieses Projekts verträglich (anders als GPL/AGPL, die hier laut
-`CLAUDE.md` nicht mehr aufgenommen werden dürfen). Verlangt wird die Nennung des
+Lizenz dieses Projekts (AGPL-3.0-only) verträglich. Verlangt wird die Nennung des
 Urheberrechtsvermerks:
 
 ```

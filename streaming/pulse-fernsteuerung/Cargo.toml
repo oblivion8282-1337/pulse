@@ -3,6 +3,7 @@ name = "pulse-fernsteuerung"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "AGPL-3.0-only"
 description = "Plattformfreier Kern der Pulse-Fernsteuerung — Frame-Format, Sitzung, Klemmrechnung"
 
 # Grundsatz bleibt: keine Abhaengigkeit, die einen Bauweg beschwert. Dieselbe

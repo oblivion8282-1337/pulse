@@ -318,7 +318,8 @@ ARG PYTHON_VERSION
 LABEL org.opencontainers.image.source="https://github.com/oblivion8282-1337/pulse" \
       org.opencontainers.image.title="Pulse Self-Host All-in-One" \
       org.opencontainers.image.description="Single-container Pulse Self-Host (all services + Postgres + Redis + LiveKit + MediaMTX + Garage + coturn + Caddy)" \
-      org.opencontainers.image.version="${PULSE_VERSION}"
+      org.opencontainers.image.version="${PULSE_VERSION}" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \

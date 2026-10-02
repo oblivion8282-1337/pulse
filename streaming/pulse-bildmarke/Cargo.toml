@@ -3,6 +3,7 @@ name = "pulse-bildmarke"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "AGPL-3.0-only"
 
 # Ohne Abhaengigkeiten — diese Crate wird von beiden Sidecars, vom Player und
 # von pulse-whip eingebunden und darf deren Bauwege nicht beschweren.

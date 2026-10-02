@@ -3,10 +3,7 @@ name = "pulse-linux-hq-sidecar"
 version = "0.1.0"
 edition = "2024"
 publish = false
-# Kein `license`-Feld, wie bei den Nachbar-Crates (win/mac/pulse-player):
-# es gilt `streaming/LICENSE` (Pulse Client License 1.0). Bis 2026-07-31 stand
-# hier "AGPL-3.0-only" — ein Ueberbleibsel aus dem eigenen Repo, aus dem dieser
-# Code kam; im Hauptrepo ist Pulse seit 2026-07-25 nicht mehr AGPL. GPL bleibt
+license = "AGPL-3.0-only"
 # GPL trug allein, was von GPU Screen Recorder abgeleitet war
 # (`streaming/patches/`) — entfernt am 2026-08-27 zusammen mit jenem
 # Aufnahmeweg. Dieser Sidecar ersetzt ihn, statt davon abzustammen.

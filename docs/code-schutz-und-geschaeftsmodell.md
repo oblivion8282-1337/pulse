@@ -1,5 +1,12 @@
 # Code-Schutz & Geschäftsmodell — wie sich Pulse trotz öffentlichem Quellcode schützt
 
+> ⚠️ **ÜBERHOLT seit 2026-10-02:** Pulse ist wieder **AGPL-3.0-only** (`LICENSE`).
+> Diese Notiz beschreibt den source-available-Zwischenstand (2026-07 bis 2026-10)
+> und bleibt als Historie stehen. Schild 3 („proprietäre Lizenz") entfällt damit —
+> wirksam bleiben Marke (Schild 2), CLA, Nutzer-Netzwerk (Schild 1) und das
+> Service-Geschäftsmodell (Server-Betrieb als bezahlte Dienstleistung, nicht als
+> Lizenz-Zwang).
+
 > Status: **Strategie-Notiz**, Stand 2026-07-14; Lizenz-Fakten korrigiert 2026-09-28. Kontext: Der Quellcode
 > ist öffentlich einsehbar, aber **source-available, nicht Open Source** (`LICENSE`: „Pulse is source-available,
 > not open source") — zweiteilig: **Pulse Server License 1.0** (Server-Komponenten: 32 Tage Testbetrieb,

@@ -13,14 +13,13 @@ Voice über LiveKit (WebRTC/Opus). HQ-Screen-Streaming über die Pulse-Rust-Side
 Drei Transportpfade getrennt: HTTPS/WSS → FastAPI · WebRTC → LiveKit · WHEP → MediaMTX (Details `PLAN.md` §1).
 `streaming/` enthält die Pulse-eigenen Sidecars und den nativen Player. **Der alte Python-Aufsatz um `gpu-screen-recorder` ist am 2026-08-27 ersatzlos entfernt** (mit ihm `streaming/patches/` und `bootstrap-gsr.fish`) — Linux fährt seit 2026-07-17 den Rust-Sidecar, seit 2026-08-16 war der alte Weg für Nutzer ohnehin nicht mehr erreichbar. `~/Dokumente/GPU_Screen_Recorder/` ist damit für dieses Projekt gegenstandslos.
 
-## Lizenz — source-available, zwei Bereiche
+## Lizenz — AGPL-3.0-only
 
-Pulse ist **nicht Open Source**. Verbindlich ist `LICENSE` im Root.
-- **Server** (`services/`, `shared/`, `infra/`) = **Pulse Server License 1.0** — Quelle einsehbar, 32 Tage Evaluierung, danach kommerzielle Lizenz (Hebel für bezahltes Self-Hosting).
-- **Client** (`web/`, `desktop/`, `mobile/`, `krypto/`, `streaming/`, `plugins/`, `packaging/`, `Logo/`, `scripts/`) = **Pulse Client License 1.0** — **Nutzung frei**, Quelle einsehbar, aber Ändern/Weitergabe/Wiederverwendung untersagt. Eigene Texte statt PolyForm (PolyForm erlaubt ausdrücklich „Changes/New Works" — genau das soll hier verboten sein). **Anwaltlich nicht geprüft** — bei echtem Umsatz nachholen.
-- **Keine GPL-Komponente mehr im Baum**: `streaming/patches/` war die einzige (GPL-3.0, von gpu-screen-recorder abgeleitet) und ist am 2026-08-27 entfallen. `LICENSE` und `LICENSE-CLIENT.md` sind entsprechend nachgezogen.
-- Bei neuen Lizenz-Aussagen **alle** Stellen synchron halten: `LICENSE*`, Verzeichnis-`LICENSE`s, `README.md`, `CLA.md`, beide `packaging/*.metainfo.xml`, OCI-Label in `allinone.yml`, `web/src/lib/legal/impressum.md`.
-- **Keine AGPL/GPL-Dependencies aufnehmen** (kollidiert hart, z. B. die Cap-Encoder-Crates in `WINDOWS_HQ_SIDECAR.md`). FFmpeg überall LGPL und **dynamisch** gelinkt — so lassen.
+Pulse ist **Open Source unter der GNU AGPL v3.0 (AGPL-3.0-only)**. Verbindlich ist `LICENSE` im Root (unveränderter Originaltext).
+- **Alle Bereiche dieselbe Lizenz** (seit 2026-10-02; Historie: 2026-05-21 bis 2026-07-24 AGPL, 2026-07-25 bis 2026-10-01 source-available — PolyForm, dann eigene Pulse Client/Server License 1.0). Veröffentlicht gebliebene Alt-Versionen behalten ihre damalige Lizenz.
+- **Ausnahmen:** `Logo/` (Marken-Assets, alle Rechte vorbehalten) und Drittkomponenten mit eigenen Lizenzen (`THIRD-PARTY-NOTICES.md`).
+- Bei neuen Lizenz-Aussagen **alle** Stellen synchron halten: `LICENSE`, Verzeichnis-`LICENSE`s, `README.md`, `THIRD-PARTY-NOTICES.md`, `CLA.md`, beide `packaging/*.metainfo.xml`, OCI-Labels in `allinone.yml` + `infra/self-host/Dockerfile`, `web/src/lib/legal/impressum.md` + `drittanbieter.md`.
+- **Dependencies:** permissiv (MIT/Apache/BSD/ISC) bevorzugt; Copyleft (GPL/AGPL) ist seit der Rückkehr zulässig, aber bewusst entscheiden (z. B. Cap-Encoder-Crates in `WINDOWS_HQ_SIDECAR.md`). FFmpeg überall LGPL und **dynamisch** gelinkt — so lassen.
 
 ## Tech-Stack — die Stolpersteine
 
@@ -248,9 +247,10 @@ Die frühere Fassung dieses Absatzes sagte „noch an nichts angeschlossen". Das
 stimmte am Tag von Etappe A und blieb stehen, während sieben weitere Etappen
 landeten — die Fehlerklasse, vor der der Abschnitt „eine Behauptung wird nie
 an nur EINER Stelle korrigiert" weiter unten warnt.
-- **Neuer Top-Level-Bereich, Client-lizenziert** (läuft im Browser und auf dem
-  Telefon, nicht am Server) — in `LICENSE` und `README.md` nachgezogen,
-  `krypto/LICENSE` angelegt. `LICENSE-CLIENT.md` führt keine Verzeichnisliste.
+- **Neuer Top-Level-Bereich `krypto/`** (läuft im Browser und auf dem
+  Telefon, nicht am Server) — `krypto/LICENSE` angelegt. *(Stand 2026-10-02:
+  AGPL-3.0-only wie alles; der damalige Hinweis „Client-lizenziert, siehe
+  LICENSE-CLIENT.md" ist mit der AGPL-Rückkehr entfallen.)*
 - **Kein nativer Android-Bau, und das bleibt so.** Die Capacitor-App lädt
   dieselbe entfernte Web-App wie Electron → die Krypto läuft dort als **WASM in
   der WebView**, es gibt keine JNI-Grenze. Ein NDK wäre erst nötig, wenn Pulse

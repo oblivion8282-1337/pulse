@@ -61,12 +61,12 @@ Urheberrechtes bedürfen der schriftlichen Zustimmung des jeweiligen Autors bzw.
 Erstellers. Downloads und Kopien dieser Seite sind nur für den privaten, nicht
 kommerziellen Gebrauch gestattet.
 
-> Hinweis: Die Pulse-Software selbst ist source-available — der Quellcode ist
-> einsehbar, die Nutzung ist lizenziert (Client-Komponenten unter der Pulse
-> Client License 1.0, Server-Komponenten unter der Pulse Server License 1.0;
-> Ändern, Weitergeben und Wiederverwenden des Codes sind untersagt). Die
-> Nutzung dieses Dienstes als Endnutzer ist davon unberührt und kostenfrei.
-> Dies betrifft den Quellcode, nicht die Betreiber-Inhalte dieser Website.
+> Hinweis: Die Pulse-Software ist **freie Software** unter der GNU Affero
+> General Public License v3.0 (AGPL-3.0-only) — sie darf von jedermann genutzt,
+> geändert und weitergegeben werden, sofern die Lizenzbedingungen eingehalten
+> werden; wer sie als Netzdienst betreibt, muss seinen Nutzern den Quellcode
+> anbieten (AGPL §13). Quellcode: github.com/oblivion8282-1337/pulse. Dies
+> betrifft den Quellcode, nicht die Betreiber-Inhalte dieser Website.
 
 ---
 

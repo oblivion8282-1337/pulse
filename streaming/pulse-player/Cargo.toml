@@ -16,14 +16,16 @@ edition = "2021"
 rust-version = "1.95"
 description = "Nativer HQ-Stream-Player fuer Pulse (WHEP -> Decode -> eigenes Fenster)"
 publish = false
+license = "AGPL-3.0-only"
 
 # ---------------------------------------------------------------------------
 # LIZENZ — bitte vor dem Hinzufuegen einer Dependency lesen.
 #
-# Pulse ist source-available (PolyForm Perimeter fuer den Client). GPL-Code
-# darf NICHT in dieses Binary gelinkt werden; das kollidiert hart mit der
-# Client-Lizenz. Erlaubt sind MIT / Apache-2.0 / BSD / ISC / WTFPL sowie LGPL
-# NUR dynamisch gelinkt und als getrennt austauschbare Datei ausgeliefert.
+# Pulse steht unter der GNU AGPL v3.0 (AGPL-3.0-only). Copyleft-Abhaengigkeiten
+# (GPL/AGPL) sind damit grundsatzlich vertraglich; trotzdem bevorzugt
+# MIT / Apache-2.0 / BSD / ISC, und LGPL NUR dynamisch gelinkt und als
+# getrennt austauschbare Datei ausgeliefert — so bleibt die LGPL-Mitgabepflicht
+# klein und die Drittsoftware-Belege bleiben simpel.
 #
 # FFmpeg: in ausgelieferten Builds MUSS eine LGPL-Konfiguration verwendet
 # werden (wie win-hq-sidecar via FFMPEG_DIR und mac-hq-sidecar via

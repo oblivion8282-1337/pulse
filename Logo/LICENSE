@@ -1,13 +1,9 @@
-Pulse client component — Pulse Client License 1.0
+Pulse brand assets — NOT covered by the AGPL
 
-Everything in this directory is licensed under the Pulse Client License 1.0.
-Full text: ../LICENSE-CLIENT.md
+Everything in this directory (logo, wordmark, icons) is a brand asset of
+Pulse / howispulse.com, not free software.
 
-You may use it freely, including commercially, and you may read and audit its
-source. You may NOT modify it, create derivative works from it, redistribute it,
-republish it, or reuse its code in another project.
-
-Using Pulse as an end user — connecting to howispulse.com or to any Pulse
-server — is unrestricted and free of charge.
-
-Repository-wide licensing overview: ../LICENSE
+Copyright (c) 2026 Oblivion Pictures — Michael de Meyer. All rights reserved.
+The GNU AGPL v3.0 that covers the rest of this repository (see ../LICENSE)
+does not extend to these assets and grants no right to use the Pulse name or
+logo.

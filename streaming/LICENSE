@@ -1,17 +1,13 @@
-Pulse client component — Pulse Client License 1.0
+Part of Pulse — GNU Affero General Public License, Version 3 (AGPL-3.0-only)
 
-Everything in this directory is licensed under the Pulse Client License 1.0
-(full text: ../LICENSE-CLIENT.md).
+Everything in this directory is licensed under the GNU AGPL v3.0.
+Full text: ../LICENSE
 
-Until 2026-08-27 this file carved out one exception: `streaming/patches/`,
-GPL-3.0-or-later, patches against gpu-screen-recorder. That directory, the
-recorder it patched and the Python bridge that drove them were the older Linux
-capture path; all three have been removed in favour of the Rust sidecar in
-`linux-hq-sidecar/`. There is no exception left — and with it, no GPL-licensed
-source anywhere in this repository.
+History: until 2026-08-27 this file carved out `streaming/patches/`
+(GPL-3.0-or-later, patches against gpu-screen-recorder); that capture path was
+removed in favour of the Rust sidecar. From 2026-07-25 to 2026-10-01 Pulse ran
+under proprietary source-available licenses instead; since 2026-10-02 it is
+back under the AGPL and no carve-out is needed.
 
-You may use everything here freely, including commercially, and you may read
-and audit its source. You may NOT modify it, create derivative works from it,
-redistribute it, republish it, or reuse its code in another project.
-
-Repository-wide licensing overview: ../LICENSE
+Third-party components keep their own licenses
+(overview: THIRD-PARTY-NOTICES.md in the repository root).

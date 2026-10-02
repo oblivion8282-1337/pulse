@@ -49,14 +49,17 @@ Nicht weiter verfolgt in dieser Recherche.
 
 ### Stack (verifiziert per Recherche 2026-05-19, alles MIT/LGPL)
 
+> **Lizenz-Update 2026-10-02:** Pulse ist zurück unter der AGPL-3.0-only
+> (`LICENSE` im Repo-Root) — der unten beschriebene source-available-Zwischenstand
+> ist Geschichte; die MIT/LGPL-Einordnung der unten gelisteten Drittanbieter-
+> Komponenten bleibt davon unberührt; Details + Nachweispflichten in
+> `THIRD-PARTY-NOTICES.md` + `web/src/lib/legal/drittanbieter.md`.
 > **Lizenz-Update 2026-07-25:** Pulse ist seit diesem Datum nicht mehr AGPL,
 > sondern source-available (zunächst Client unter PolyForm Perimeter, Server unter
 > PolyForm Free Trial). **(2026-09-28 aktualisiert:** seit 2026-07-29 gelten
 > eigene, restriktivere Texte — Pulse Client License 1.0 / Pulse Server License 1.0,
 > siehe `LICENSE`/`LICENSE-CLIENT.md`/`LICENSE-SERVER.md` im Repo-Root; PolyForm nur
-> noch als Historie.**)** Die MIT/LGPL-Einordnung der unten gelisteten Drittanbieter-
-> Komponenten bleibt davon unberührt; Details + Nachweispflichten jetzt in
-> `THIRD-PARTY-NOTICES.md` + `web/src/lib/legal/drittanbieter.md`.
+> noch als Historie.**)**
 
 - **Capture:** `windows-capture` 2.0 (NiiightmareXD, MIT, 478★, frisch Apr 2026) — WGC + DXGI-DDA-Fallback in **einer** Crate, kein separates `windows-record` nötig. ⚠️ Adapter-Selector fehlt (Issue #191) → für Optimus selbst per `IDXGIFactory6::EnumAdapterByGpuPreference` vorgeschaltet. Eingebauter `MediaTranscoder`-Encoder ignorieren (kein NVENC-Adapter-Wahl, kein AV1).
 - **Per-App-Audio:** `wasapi` 0.23 (HEnquist, MIT, v0.23 Apr 2026, 83★) — hat `AudioClient::new_application_loopback_client(pid, include_tree)` direkt im API plus `record_application.rs`-Beispiel (113 LOC) und `processes.rs`-Beispiel (20 LOC) für anti-cheat-sichere App-Enum via `IAudioSessionManager2`. **Korrigiert die alte „~500 Z. selber schreiben"-Annahme** — 80% geschenkt. Risiko: niedriger Bus-Faktor (83★, eventuell selber patchen+upstreamen müssen = ~1-2 PT Puffer).
@@ -86,6 +89,8 @@ tokio            = "1"
 | **`win-capture-audio`** (bozbez) | GPL-2.0 + seit 2022-07-29 tot. Ideen lesen OK, Code-Copy nein. `wasapi`-Crate ersetzt das eh. |
 | **`rml_rtmp` + eigenem TLS-Wrap** | Funktioniert, aber 4-8 Wochen für Bugs die FFmpeg gelöst hat (Opus-FLV-Tag, MediaMTX-RTMPS-Auth, Reconnect). Skip. |
 | **Direkt-NVENC** (`nvidia-video-codec-sdk` etc.) | Spart 30 MB DLL, kostet AMD+Intel-Support (keine produktionsreifen Rust-Bindings) und RGBA→NV12-CUDA-Kernel-Eigenbau. Schlechter Trade. |
+
+*(2026-10-02: Mit der Rückkehr zur AGPL-3.0 entfallen die Lizenz-Gründe der ersten drei Zeilen — Copyleft-Dependencies sind wieder zulässig; die technische Bewertung bleibt maßgeblich.)*
 
 ### Aufwand-Matrix
 
@@ -124,7 +129,7 @@ CLAUDE.md's `❌ electron-builder` ist **Linux-Kontext-spezifisch** (Flatpak-Man
 
 **Distribution-Pfad für ersten Wurf** (vor electron-builder-Integration): Zip + PowerShell-Bootstrap analog `streaming/bootstrap-gsr.fish` *(2026-09-28 veraltet: dieses Skript wurde am 2026-08-27 mit dem GSR-Ausbau entfernt)*, entpackt nach `%LOCALAPPDATA%\Pulse\hq-sidecar\`. Minimaler Aufwand, gleiche mentale Map wie Linux.
 
-**Lizenz-Modell:** Pulse ist source-available — `LICENSE`/`LICENSE-CLIENT.md`/`LICENSE-SERVER.md` (seit 2026-07-29 Pulse Client License 1.0 / Pulse Server License 1.0; dazwischen 2026-07-25 bis 2026-07-29 PolyForm Perimeter/Free Trial) — die zum Zeitpunkt dieser Recherche noch gültige „Pulse bleibt closed (kein LICENSE-File)"-Annahme ist damit überholt. FFmpeg-DLLs werden weiterhin **getrennt** ausgeliefert (= LGPL-konform: User kann sie austauschen). Die geplante Drittanbieter-Lizenzseite existiert jetzt unter `/drittanbieter` (Quelle `web/src/lib/legal/drittanbieter.md`, Entwickler-Gegenstück `THIRD-PARTY-NOTICES.md` im Repo-Root) — sie verlinkt auf die unveränderte, öffentliche FFmpeg-Quelle statt einen eigenen Source-Mirror zu hosten. Binary-Größe: ~50 MB DLL-Overhead — relativ zu Electron (150 MB) egal.
+**Lizenz-Modell:** Pulse steht seit 2026-10-02 wieder unter der **AGPL-3.0-only** (`LICENSE` im Repo-Root; dazwischen 2026-07-25 bis 2026-10-01 source-available: PolyForm, dann Pulse Client/Server License 1.0). FFmpeg-DLLs werden weiterhin **getrennt** ausgeliefert (= LGPL-konform: User kann sie austauschen). Die geplante Drittanbieter-Lizenzseite existiert jetzt unter `/drittanbieter` (Quelle `web/src/lib/legal/drittanbieter.md`, Entwickler-Gegenstück `THIRD-PARTY-NOTICES.md` im Repo-Root) — sie verlinkt auf die unveränderte, öffentliche FFmpeg-Quelle statt einen eigenen Source-Mirror zu hosten. Binary-Größe: ~50 MB DLL-Overhead — relativ zu Electron (150 MB) egal.
 
 ## Linux-Build-vs-Test-Realität
 
