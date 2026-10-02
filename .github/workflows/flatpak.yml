@@ -69,6 +69,10 @@ on:
       - 'packaging/launcher-server.sh'
       - 'packaging/com.howispulse.PulseServer.desktop'
       - 'packaging/com.howispulse.PulseServer.metainfo.xml'
+      # landet als /app/pulse-server/package.json im Flatpak (desktopName →
+      # Wayland-app_id) — ohne diesen Eintrag würde eine Änderung dort keinen
+      # Neubau auslösen und der ausgelieferte app_id wäre still veraltet.
+      - 'packaging/pulse-server.package.json'
       - '.github/workflows/flatpak.yml'
   workflow_dispatch:    # also allow manual republish from the Actions tab
 
@@ -205,6 +209,18 @@ jobs:
           IsRuntime=false
           GPGKey=$PUBKEY_B64
           EOF
+          # Klick-Install für die Server-App — dasselbe Repo, eigener Ref.
+          cat > build/repo/com.howispulse.PulseServer.flatpakref <<EOF
+          [Flatpak Ref]
+          Title=Pulse Server
+          Name=com.howispulse.PulseServer
+          Branch=master
+          Url=https://howispulse.com/flatpak/
+          Homepage=https://howispulse.com
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          IsRuntime=false
+          GPGKey=$PUBKEY_B64
+          EOF
           cat > build/repo/pulse.flatpakrepo <<EOF
           [Flatpak Repo]
           Title=Pulse
@@ -253,6 +269,7 @@ jobs:
         run: |
           echo "✓ Flatpak republished to https://howispulse.com/flatpak/" >> "$GITHUB_STEP_SUMMARY"
           echo "  Client:  \`flatpak install --user https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "  Server:  \`flatpak install --user https://howispulse.com/flatpak/com.howispulse.PulseServer.flatpakref\`" >> "$GITHUB_STEP_SUMMARY"
           echo "  Update:   \`flatpak update\`" >> "$GITHUB_STEP_SUMMARY"
 
       # ── Tear down the imported signing key ──────────────────────────────
