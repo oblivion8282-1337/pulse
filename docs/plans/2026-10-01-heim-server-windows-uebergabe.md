@@ -183,3 +183,60 @@ den Chat-Port 7900, und LiveKit/MediaMTX in der VM kündigten nur VM-interne
   eigenes Stück, erst LAN beweisen.
 - macOS unberührt (Publish-Pfad über gvproxy, eigener offener Punkt), Linux
   unberührt (Verhalten bitidentisch, keine neue Env-Variable dort).
+
+## Merge-Tag — Checkliste (2026-10-02, ABGESCHLOSSEN bis auf Rauchprobe)
+
+Netcup-Inspektion 02.10.: Die komplette Relay-Infra steht auf Produktion
+(DNS-Wildcard ✓, Caddy on-demand-TLS mit Ask-Verkabelung ✓, frps + Auth-
+Plugin ✓, Registry mit `pulse-allinone:stable` + Token-Auth ✓). **Einziger
+Blocker: `/selfhost/relay/tls-check` antwortet auf Prod 404** — der Endpunkt
+kommt mit diesem Merge, der VPS-Cron rollt ihn 5 Min danach automatisch.
+
+**Erledigt (02.10., PR #486 → `7d5154a4`):**
+
+1. ✅ Gate grün (2×: vor + nach dem Bump; backend/web/desktop/infra gestempelt).
+2. ⏳ Windows-Klicktests (Owner-Stream, Fernsteuerung) — bewusst VERSCHOBEN.
+3. ✅ Bump 0.1.92 + Changelog (2aeb6835; native.json korrekt unberührt).
+4. ✅ PR #486 „merge: Heim-Server 2026-10-02", admin-merge; PR-CI komplett grün
+   (backend 16 Min gegen frische DB, frontend, zwillinge, CLA). Ein
+   Merge-Konflikt (changelog.json 0.1.92 vs. 0.1.91-Stand) vorab aufgelöst —
+   beide Einträge verkettet.
+5. ✅ tls-check LEBT: 422 ohne Parameter (Route da), 404 für unbekannte
+   Subdomain = korrekte Handler-Antwort. **Achtung Proben-Falle: 404 ist hier
+   ein GÜLTIGER Code (unbekannte Domain); die Route beweist nur die 422.**
+6. ✅ Alle sechs CI-Straßen grün: ci (Images), flatpak (beide Apps +
+   flatpakrefs), win-build-server (0.1.92), win-build, mac-build, allinone
+   (Registry: `sha-7d5154a` + :stable/:edge rollt).
+7. ✅ Downloads erreichbar: `updates/win-server/latest.yml` → 200 mit
+   `version: 0.1.92`; beide `.flatpakref` → 200.
+
+**Zwei Infra-Nachzüge, die der Merge NICHT allein brachte** (gleiche Klasse wie
+die Garage-Migration: Images rollt der Cron, Infra nicht):
+
+- **Compose-Drift**: Die Mount-Zeile `updates-win-server` + Garage-Env-Block
+  lagen im Repo, aber nicht in `~/pulse/infra/prod/docker-compose.yml` auf dem
+  VPS → `pulse_web` hatte den Mount nicht → Feed 404. Fix: compose rsync +
+  `docker compose up -d` (Garage-Secrets waren dank damaliger Migration schon
+  in der `.env` — die `:?`-Pflichtprüfung wäre sonst reingelaufen).
+- **scp-Verzeichnisrechte**: Der CI-Upload legte `~/pulse/updates-win-server/`
+  mit `drwxr--r--` an → nginx (Nicht-Root im Container) kam nicht hinein →
+  403. Fix: `chmod 755`. Auf einem FRISCHEN Server wiederholt sich das beim
+  ersten win-build-server-Lauf — dort an das chmod denken (oder im Workflow
+  einen ssh-chmod-Schritt nachziehen).
+
+**Offen:**
+
+8. ⏳ **Rauchprobe gegen Produktion**: Linux-Flatpak Server-App (installiert,
+   `flatpak run com.howispulse.PulseServer`), Einrichtung als dev-Konto gegen
+   Produktion — KEINE PULSE_URL/PULSE_HOST_IMAGE-Overrides! Beweist: Cloud-
+   Provisionierung → Image-Pull aus registry.howispulse.com mit Instanz-Creds
+   → frps-Tunnel → Caddy-TLS (tls-check am echten Fall, jetzt endlich 200) →
+   Verbindungs-Check 16/16. Danach zweites Gerät: Chat/Voice/Stream via Relay.
+   Serverseitig: `docker logs pulse_frps --tail 50` (Login/NewProxy),
+   Caddy-Cert-Log, Registry-Pull in den auth-Logs.
+9. ⏳ Downloads-Seite (web) um „Pulse Server" erweitern (Windows .exe, beide
+   Flatpak-Refs, macOS-DMG).
+10. ⏳ Windows-Code-Signing extern anstoßen (Security-Priorität 1; bis dahin
+    SmartScreen-Warnung beim ersten Installer).
+11. ⏳ TURN-Follow-up (Internet-Gäste an Win-Heimservern).
+12. ⏳ Windows-Klicktests (siehe 2) + Mac-Echtgerätetest des Medienwegs.
