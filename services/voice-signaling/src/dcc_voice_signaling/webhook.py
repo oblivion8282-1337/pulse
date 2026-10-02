@@ -215,18 +215,20 @@ def channel_id_from_room(room_name: str) -> str | None:
 def user_id_from_identity(identity: str) -> str | None:
     """Die Präsenz-Kennung zu einer LiveKit-Identität.
 
-    Zwei Formen: ``user-<id>`` → die nackte Nutzer-ID (wie seit jeher), und
-    ``gast-<id>`` → die Gast-Kennung **mitsamt Präfix**. Der Unterschied ist
-    Absicht: die Präsenz-Sets tragen beide nebeneinander, und allein am
-    Präfix erkennt die Oberfläche später, dass sie eine Gast-Kachel malen und
-    kein Profil nachschlagen darf. Eine nackte Gast-Zahl wäre von einer
-    Nutzer-ID nicht mehr zu unterscheiden.
+    Drei Formen: ``user-<id>`` → die nackte Nutzer-ID (wie seit jeher),
+    ``user-<id>~<suffix>`` → ebenfalls die nackte Nutzer-ID (Join-Token tragen
+    einen Sitzungs-Suffix, damit derselbe Account an zweitem Gerät nicht von
+    LiveKit ersetzt wird), und ``gast-<id>`` → die Gast-Kennung **mitsamt
+    Präfix**. Der Unterschied ist Absicht: die Präsenz-Sets tragen beide
+    nebeneinander, und allein am Präfix erkennt die Oberfläche später, dass
+    sie eine Gast-Kachel malen und kein Profil nachschlagen darf. Eine nackte
+    Gast-Zahl wäre von einer Nutzer-ID nicht mehr zu unterscheiden.
     """
     if identity.startswith(_GAST_IDENTITY_PREFIX):
         return identity if len(identity) > len(_GAST_IDENTITY_PREFIX) else None
     if not identity.startswith(_IDENTITY_PREFIX):
         return None
-    uid = identity[len(_IDENTITY_PREFIX) :]
+    uid = identity[len(_IDENTITY_PREFIX) :].split("~", 1)[0]
     return uid or None
 
 

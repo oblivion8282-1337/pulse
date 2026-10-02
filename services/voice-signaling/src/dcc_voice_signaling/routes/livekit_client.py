@@ -57,6 +57,22 @@ def _temp_api_client() -> tuple[lk.LiveKitAPI, bool] | None:
     ), True
 
 
+def _identities_of_user(participants: lk.ListParticipantsResponse, user_id: str) -> list[str]:
+    """Alle LiveKit-Identitäten eines Nutzers im Raum.
+
+    Join-Identitäten tragen seit der Mehrgerät-Freischaltung einen Sitzungs-
+    Suffix (``user-<id>~<zufall>``), ältere/alte-Format-Teilnehmer laufen ohne.
+    Moderation (Kick, Rechte-Update) muss ALLE Geräte treffen — exakt plus
+    Suffix-Variante."""
+    exact = f"user-{user_id}"
+    prefix = exact + "~"
+    return [
+        p.identity
+        for p in participants.participants
+        if p.identity == exact or p.identity.startswith(prefix)
+    ]
+
+
 async def _livekit_remove_participant(
     channel_id: str, user_id: str, *, api_client: lk.LiveKitAPI | None = None
 ) -> None:
@@ -80,12 +96,28 @@ async def _livekit_remove_participant(
         should_close = False
 
     try:
-        await api_client.room.remove_participant(
-            lk.RoomParticipantIdentity(
-                room=_room_for_channel(channel_id),
-                identity=f"user-{user_id}",
-            )
+        parts = await api_client.room.list_participants(
+            lk.ListParticipantsRequest(room=_room_for_channel(channel_id))
         )
+        # Alle Geräte des Nutzers rauswerfen (Join-Identitäten tragen einen
+        # Sitzungs-Suffix — nur `user-<id>` exakt zu treffen würde das zweite
+        # Gerät im Raum lassen).
+        for identity in _identities_of_user(parts, user_id):
+            try:
+                await api_client.room.remove_participant(
+                    lk.RoomParticipantIdentity(
+                        room=_room_for_channel(channel_id),
+                        identity=identity,
+                    )
+                )
+            except Exception:  # noqa: BLE001 — einzelnes Gerät schon weg
+                log.warning(
+                    "livekit remove_participant failed for channel=%s user=%s identity=%s",
+                    channel_id,
+                    user_id,
+                    identity,
+                    exc_info=True,
+                )
     except Exception:  # noqa: BLE001 — participant offline / server down
         log.warning(
             "livekit remove_participant failed for channel=%s user=%s",
@@ -129,20 +161,37 @@ async def _livekit_update_participant(
         should_close = False
 
     try:
-        await api_client.room.update_participant(
-            lk.UpdateParticipantRequest(
-                room=_room_for_channel(channel_id),
-                identity=f"user-{user_id}",
-                permission=lk.ParticipantPermission(
-                    can_subscribe=True,
-                    can_publish=can_publish,
-                    can_publish_data=True,
-                    can_publish_sources=[_track_source_enum(s) for s in sources]
-                    if sources
-                    else [],
-                ),
-            )
+        parts = await api_client.room.list_participants(
+            lk.ListParticipantsRequest(room=_room_for_channel(channel_id))
         )
+        # Rechte live auf ALLE Geräte des Nutzers anwenden (Sitzungs-Suffix,
+        # s. `_identities_of_user`).
+        for identity in _identities_of_user(parts, user_id):
+            try:
+                await api_client.room.update_participant(
+                    lk.UpdateParticipantRequest(
+                        room=_room_for_channel(channel_id),
+                        identity=identity,
+                        permission=lk.ParticipantPermission(
+                            can_subscribe=True,
+                            can_publish=can_publish,
+                            can_publish_data=True,
+                            can_publish_sources=[
+                                _track_source_enum(s) for s in sources
+                            ]
+                            if sources
+                            else [],
+                        ),
+                    )
+                )
+            except Exception:  # noqa: BLE001 — einzelnes Gerät schon weg
+                log.warning(
+                    "livekit update_participant failed for channel=%s user=%s identity=%s",
+                    channel_id,
+                    user_id,
+                    identity,
+                    exc_info=True,
+                )
     except Exception:  # noqa: BLE001 — participant offline / server down
         # WARNING (not INFO): if LiveKit is wedged the mute won't be
         # live-applied to currently-publishing tracks; the override is

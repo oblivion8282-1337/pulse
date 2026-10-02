@@ -67,7 +67,10 @@ async def test_token_happy_path(client, auth_signer, monkeypatch):
         algorithms=["HS256"],
         options={"verify_aud": False},
     )
-    assert payload["sub"] == "user-42"
+    # Mehrgerät-Voice: die Join-Identität trägt einen Sitzungs-Suffix
+    # (`user-<id>~<zufall>`), damit LiveKit das erste Gerät beim Beitritt des
+    # zweiten nicht ersetzt. `user_id_from_identity` löst ihn wieder auf.
+    assert payload["sub"].startswith("user-42~")
     assert payload["video"]["room"] == "channel-987654321"
     assert payload["video"]["roomJoin"] is True
 
