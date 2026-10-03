@@ -1,0 +1,6 @@
+#!/bin/sh
+# UDP-Gateway — TCP⇄UDP-Brücke für die Host-UDP-Relays der Server-App
+# (podman-machine-Betrieb: Win-WSL2 leitet published UDP nicht durch,
+# mac-gvproxy ebenso; nur TCP kommt in die VM. Details im Skriptkopf.)
+exec 2>&1
+exec /opt/pulse/venv/bin/python3 -u /etc/s6-overlay/scripts/udp-gateway.py
