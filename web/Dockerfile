@@ -36,6 +36,9 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY web/package.json web/package.json
 COPY desktop/package.json desktop/package.json
+# patchedDependencies (virtua) — ohne die Patch-Datei stirbt das
+# frozen-lockfile-Install beim Hashen des Patches (CI 2026-10-03).
+COPY patches/ patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
