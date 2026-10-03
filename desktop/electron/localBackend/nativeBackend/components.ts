@@ -1,10 +1,11 @@
 /**
  * Service-Specs für das native Backend — das Gegenstück zur s6-rc.d-Liste
- * des allinone-Images (18 Units → 14 Prozesse; entfallen: coturn [kein
- * Windows-Build; LiveKit-embedded-TURN/kein TURN — Semantik wie
- * PULSE_TURN_DISABLED=true], frpc [Relay-Fallback abgeschafft], udp-gateway
- * [nur für WSL/gvproxy-NAT nötig], backup [v2: pg_dump-Timer], garage-init
- * [weed braucht keine Init-Unit]).
+ * des allinone-Images (18 Units → bis zu 15 Prozessen; entfallen: coturn
+ * [kein Windows-Build; LiveKit-embedded-TURN/kein TURN — Semantik wie
+ * PULSE_TURN_DISABLED=true], udp-gateway [nur für WSL/gvproxy-NAT nötig],
+ * backup [v2: pg_dump-Timer], garage-init [weed braucht keine Init-Unit]).
+ * frpc (Steuerungs-Relay für /livekit + /whep) gehört DAZU — der Beschluss
+ * „kein Relay" (2026-09-27) betraf nur den Chat-Datenweg (Direktpfad).
  *
  * Startreihenfolge = Abhängigkeitsreihenfolge; der Manager gate't jeden
  * Schritt mit healthCheck, deshalb keine sleep-Ketten wie in s6.
@@ -58,6 +59,8 @@ export interface NativeComponentsInput {
   mediamtxYmlPath: string;
   caddyfilePath: string;
   weedS3JsonPath: string;
+  /** frpc.toml — null ohne Relay-Creds (VPS/o.ä.): Prozess bleibt dann aus. */
+  frpcTomlPath: string | null;
 }
 
 /**
@@ -169,6 +172,27 @@ export function nativeComponents(
     console.error('[native] direct-adapter.exe fehlt — Direktpfad deaktiviert.');
   }
 
+  // Steuerungs-Relay-Tunnel (App-Hosting): trägt LiveKit-Signal (/livekit)
+  // und WHEP-Playback (/whep) auf den Relay-Hostnamen — der Chat läuft separat
+  // über den Direktpfad. Optional wie im Image: ohne Relay-Creds (VPS) bleibt
+  // der frpc-longrun dort schlafen, hier startet er schlicht nicht.
+  let frpc: ServiceSpec | null = null;
+  if (input.frpcTomlPath) {
+    try {
+      frpc = {
+        name: 'frpc',
+        command: resolveNativeBin('frpc'),
+        args: ['-c', input.frpcTomlPath],
+        env: {},
+        // loginFailExit=false lässt frpc selbst retryen; der Tunnel-Erfolg
+        // zeigt sich am Relay-Hostnamen, nicht an einem lokalen Port.
+        healthCheck: alwaysHealthy,
+      };
+    } catch {
+      console.error('[native] frpc.exe fehlt — Steuerungs-Relay (Voice/Stream von außen) deaktiviert.');
+    }
+  }
+
   return [
     postgres,
     garnet,
@@ -185,5 +209,6 @@ export function nativeComponents(
     mediamtx,
     chatGateway,
     ...(directAdapter ? [directAdapter] : []),
+    ...(frpc ? [frpc] : []),
   ];
 }

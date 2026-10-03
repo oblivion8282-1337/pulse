@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { createPublicKey } from 'node:crypto';
 
 import { renderNativeEnv } from '../../electron/localBackend/nativeBackend/envContract.ts';
-import { renderLivekitYaml, renderMediamtxYml, renderWeedS3Config, renderCaddyfile } from '../../electron/localBackend/nativeBackend/configs.ts';
+import { renderLivekitYaml, renderMediamtxYml, renderWeedS3Config, renderCaddyfile, renderFrpcToml } from '../../electron/localBackend/nativeBackend/configs.ts';
 import { ensureNativeSecrets } from '../../electron/localBackend/nativeBackend/secrets.ts';
 import { datenDirs, servicePythonPath } from '../../electron/localBackend/nativeBackend/paths.ts';
 import { SupervisedProcess } from '../../electron/localBackend/nativeBackend/processes.ts';
@@ -116,6 +116,7 @@ test('nativeComponents: 14 Specs in Abhängigkeitsreihenfolge', () => {
     mediamtxYmlPath: join(dirs.run, 'mediamtx.yml'),
     caddyfilePath: join(dirs.run, 'Caddyfile'),
     weedS3JsonPath: join(dirs.run, 'weed-s3.json'),
+    frpcTomlPath: null,
   });
   const names = specs.map((s) => s.name);
   assert.deepEqual(names.slice(0, 14), [
@@ -128,6 +129,40 @@ test('nativeComponents: 14 Specs in Abhängigkeitsreihenfolge', () => {
   // chat-gateway zuletzt, Postgres zuerst (Migrationen)
   assert.equal(names[0], 'postgres');
   assert.equal(names[names.length - 1], 'chat-gateway');
+  // Ohne frpc.toml (VPS/keine Relay-Creds) startet KEIN frpc.
+  assert.ok(!names.includes('frpc'));
+});
+
+test('nativeComponents: frpc nur mit Relay-Config (Steuerungs-Tunnel)', () => {
+  process.env.PULSE_NATIVE_ROOT = TMP;
+  const bin = join(TMP, 'native-bin');
+  writeFileSync(join(bin, 'frpc.exe'), '');
+  const dirs = datenDirs(join(TMP, 'data'));
+  const env = renderNativeEnv(dirs, SECRETS, IDENTITY);
+  const specs = nativeComponents({
+    dirs, secrets: SECRETS, env, identity: IDENTITY,
+    livekitYamlPath: join(dirs.run, 'livekit.yaml'),
+    mediamtxYmlPath: join(dirs.run, 'mediamtx.yml'),
+    caddyfilePath: join(dirs.run, 'Caddyfile'),
+    weedS3JsonPath: join(dirs.run, 'weed-s3.json'),
+    frpcTomlPath: join(dirs.run, 'frpc.toml'),
+  });
+  const frpc = specs.find((s) => s.name === 'frpc');
+  assert.ok(frpc, 'frpc-Spec muss mit Relay-Config existieren');
+  assert.equal(frpc!.args[0], '-c');
+  assert.equal(frpc!.args[1], join(dirs.run, 'frpc.toml'));
+});
+
+test('renderFrpcToml: Portierung von 11-render-frpc.sh', () => {
+  const toml = renderFrpcToml('clever-cobalt-11af.relay.howispulse.com', 'relay.example.com:7000', 'tok-secret', 8080);
+  assert.ok(toml.includes('serverAddr = "relay.example.com"'));
+  assert.ok(toml.includes('serverPort = 7000'));
+  assert.ok(toml.includes('user = "clever-cobalt-11af.relay.howispulse.com"'));
+  assert.ok(toml.includes('metadatas.token = "tok-secret"'));
+  assert.ok(toml.includes('loginFailExit = false'));
+  assert.ok(toml.includes('type = "http"'));
+  assert.ok(toml.includes('localPort = 8080'));
+  assert.ok(toml.includes('subdomain = "clever-cobalt-11af"'));
 });
 
 test('SupervisedProcess: start/stop + Exit-Callback (echter Kindprozess)', async () => {

@@ -39,6 +39,7 @@ import {
   renderMediamtxYml,
   renderWeedS3Config,
   renderCaddyfile,
+  renderFrpcToml,
 } from './configs.ts';
 import { nativeComponents } from './components.ts';
 import { SupervisedProcess } from './processes.ts';
@@ -168,8 +169,13 @@ export class NativeBackendManager {
 
     progress('init');
     const secrets = ensureNativeSecrets(dirs.secrets);
+    // Öffentlicher Name wie im Container (containerBackendManager:238): mit
+    // Relay-Tunnel ist die Subdomain der öffentlich erreichbare Host (der
+    // Tunnel routet nur sie) — creds.hostname (app-<id>.relay…) wäre stumm.
+    // LIVEKIT_URL/WHEP/JWT-Issuer/CORS hängen alle an diesem Namen.
+    const publicHostname = creds.relaySubdomain ?? creds.hostname;
     const env = renderNativeEnv(dirs, secrets, {
-      hostname: creds.hostname,
+      hostname: publicHostname,
       instanceId: creds.instanceId,
       ownerId: creds.ownerId,
       clientId: creds.clientId,
@@ -183,12 +189,24 @@ export class NativeBackendManager {
     const mediamtxYmlPath = join(dirs.run, 'mediamtx.yml');
     const caddyfilePath = join(dirs.run, 'Caddyfile');
     const weedS3JsonPath = join(dirs.run, 'weed-s3.json');
-    writeFileSync(livekitYamlPath, renderLivekitYaml(secrets, NATIVE_PORTS.voice), { encoding: 'utf8' });
-    writeFileSync(mediamtxYmlPath, renderMediamtxYml(creds.hostname, dirs.certs, NATIVE_PORTS.mtxHook), { encoding: 'utf8' });
-    writeFileSync(caddyfilePath, renderCaddyfile(NATIVE_PORTS.caddyHttp, NATIVE_PORTS.caddyDesktop, templatesDir()), { encoding: 'utf8' });
+    writeFileSync(livekitYamlPath, renderLivekitYaml(secrets, NATIVE_PORTS.voice), { encoding: 'utf-8' });
+    writeFileSync(mediamtxYmlPath, renderMediamtxYml(publicHostname, dirs.certs, NATIVE_PORTS.mtxHook), { encoding: 'utf-8' });
+    writeFileSync(caddyfilePath, renderCaddyfile(NATIVE_PORTS.caddyHttp, NATIVE_PORTS.caddyDesktop, templatesDir()), { encoding: 'utf-8' });
     const signingKey = randomBytes(32).toString('base64');
-    writeFileSync(weedS3JsonPath, renderWeedS3Config(secrets.minioUser, secrets.minioPassword, signingKey), { encoding: 'utf8' });
-    await ensureRtmpsCert(dirs.certs, creds.hostname, venvPython());
+    writeFileSync(weedS3JsonPath, renderWeedS3Config(secrets.minioUser, secrets.minioPassword, signingKey), { encoding: 'utf-8' });
+    await ensureRtmpsCert(dirs.certs, publicHostname, venvPython());
+    // Steuerungs-Relay (App-Hosting): nur mit vollständigen Relay-Creds —
+    // sonst bleibt frpc aus (wie der schlafende frpc-longrun im Image).
+    const frpcTomlPath = creds.relaySubdomain && creds.relayServerAddr && creds.relayTunnelToken
+      ? join(dirs.run, 'frpc.toml')
+      : null;
+    if (frpcTomlPath) {
+      writeFileSync(
+        frpcTomlPath,
+        renderFrpcToml(creds.relaySubdomain!, creds.relayServerAddr!, creds.relayTunnelToken!, NATIVE_PORTS.caddyHttp),
+        { encoding: 'utf-8', mode: 0o600 },
+      );
+    }
 
     // 2. Prozessbaum — initdb VOR dem Start, Migrationen danach (06-run-
     //    migrations-Äquivalent): Postgres zuerst, dann Schema, dann Rest.
@@ -196,14 +214,14 @@ export class NativeBackendManager {
     ensureInitDb(dirs, secrets);
 
     const specs = nativeComponents({ dirs, secrets, env, identity: {
-      hostname: creds.hostname,
+      hostname: publicHostname,
       instanceId: creds.instanceId,
       ownerId: creds.ownerId,
       clientId: creds.clientId,
       clientSecret: creds.clientSecret,
       cloudOrigin: creds.cloudOrigin,
       adminEmail,
-    }, livekitYamlPath, mediamtxYmlPath, caddyfilePath, weedS3JsonPath });
+    }, livekitYamlPath, mediamtxYmlPath, caddyfilePath, weedS3JsonPath, frpcTomlPath });
 
     const [pgSpec, ...restSpecs] = specs;
     // Port-Kollisions-Gate: antwortet auf 5432 schon ein FREMDES Postgres,

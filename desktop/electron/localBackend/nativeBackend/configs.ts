@@ -109,6 +109,41 @@ export function renderWeedS3Config(
 }
 
 /**
+ * frpc.toml für den Steuerungs-Relay-Tunnel — Portierung von
+ * 11-render-frpc.sh. Der Tunnel trägt NICHT den Chat (Direktpfad), sondern
+ * die Browser-eigenen Verbindungen auf den Relay-Hostnamen: LiveKit-Signal
+ * (/livekit) und WHEP-Playback (/whep). Ohne ihn ist eine App-Host-Instanz
+ * von außen stimm- und streamlos (Linux-Container startet denselben frpc).
+ * Secrets (Tunnel-Token) stehen in der Datei — niemals loggen.
+ */
+export function renderFrpcToml(
+  subdomain: string,
+  serverAddr: string,
+  tunnelToken: string,
+  localHttpPort: number,
+): string {
+  const host = serverAddr.split(':')[0];
+  const port = serverAddr.split(':')[1] ?? '7000';
+  const slug = subdomain.split('.')[0];
+  return `# gerendert vom nativeBackendManager — Steuerungs-Relay (App-Hosting)
+serverAddr = "${host}"
+serverPort = ${parseInt(port, 10)}
+user = "${subdomain}"
+metadatas.token = "${tunnelToken}"
+# Bei Login-Fehler (Relay down, Token noch nicht aktiv) intern retryen statt
+# exiten — sonst zehrt der Crash-Loop das restart-gate auf (wie im Image).
+loginFailExit = false
+
+[[proxies]]
+name = "${slug}-http"
+type = "http"
+localPort = ${localHttpPort}
+subdomain = "${slug}"
+metadatas.token = "${tunnelToken}"
+`;
+}
+
+/**
  * Caddyfile aus dem Image-Template rendern (behind-proxy-Patch wie
  * 09-init-caddy.sh, plus Desktop-Listener 127.0.0.1:55580 am selben Block).
  * Das Template hardcodet die internen Ports (8001-8005/7880/8889/9000) —

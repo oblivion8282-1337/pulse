@@ -5,8 +5,8 @@
 # Layout nach Lauf:
 #   resources-native/
 #     native-bin/   caddy.exe, weed.exe, livekit-server.exe, mediamtx.exe,
-#                   direct-adapter.exe, garnet/GarnetServer.exe (+dlls),
-#                   dotnet/ (Runtime für Garnet), pg/bin/ (Postgres 15)
+#                   direct-adapter.exe, frpc.exe, garnet/GarnetServer.exe
+#                   (+dlls), dotnet/ (Runtime für Garnet), pg/bin/ (Postgres 15)
 #     python/       venv (uv, Python 3.13) mit allen Service-Deps
 #     services/     Python-Quellen: auth, chat-gateway, media-svc,
 #                   voice-signaling, mediamtx-auth-hook, shared
@@ -34,6 +34,7 @@ $MediamtxVersion = "1.19.1"  # upstream; Fork-Windows-Artifact steht noch aus
 $PgVersion      = "15.14-1"
 $DotnetVersion  = "10.0.12"
 $WeedVersion    = "4.48"
+$FrpVersion     = "0.69.1"   # passend zum frps der Cloud (snowdreamtech/frps:0.69.1)
 
 $Repo = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $Tmp = Join-Path $env:TEMP "pulse-native-fetch"
@@ -55,6 +56,13 @@ if (-not (Test-Path (Join-Path $Bin "caddy.exe"))) {
     Fetch "https://github.com/caddyserver/caddy/releases/download/v$CaddyVersion/caddy_${CaddyVersion}_windows_amd64.zip" "$Tmp/caddy.zip"
     Unzip "$Tmp/caddy.zip" "$Tmp/caddy"
     Copy-Item "$Tmp/caddy/caddy.exe" $Bin
+}
+
+# ── frpc (Steuerungs-Relay-Tunnel: /livekit + /whep auf den Relay-Hostnamen) ─
+if (-not (Test-Path (Join-Path $Bin "frpc.exe"))) {
+    Fetch "https://github.com/fatedier/frp/releases/download/v$FrpVersion/frp_${FrpVersion}_windows_amd64.zip" "$Tmp/frp.zip"
+    Unzip "$Tmp/frp.zip" "$Tmp/frp"
+    Copy-Item "$Tmp/frp/frp_${FrpVersion}_windows_amd64/frpc.exe" $Bin
 }
 
 # ── Garnet (+ .NET-Runtime — das Release-Zip ist runtime-abhängig) ──────────
