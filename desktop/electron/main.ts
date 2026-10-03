@@ -878,7 +878,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // der Creds. null bei fehlender Session → die UI blendet die Zeile aus.
   ipcMain.handle('host:me', async (e) => {
     if (!localSenderOnly(e)) return null;
-    const origin = creds?.cloudOrigin ?? PROD_URL;
+    // Dasselbe Realm wie host:login/-logout: gepairt → cloudOrigin, sonst
+    // DEV_URL, sonst Produktion (sonst fragt /me im Dev nach Prod-Tokens).
+    const origin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+    const tokens = loadAuth(hostStore);
     const me = await fetchMe(origin, () => getAccessToken(origin)).catch(() => null);
     // Die Anmeldung bestimmt die Welt: beim ersten /me nach Login/Start auf
     // den angemeldeten Benutzer umschalten (asynchron — der Aufruf kehrt
@@ -894,7 +897,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
         })
         .catch(() => {});
     }
-    return me;
+    // hatTokens: Escape-Hatch für die UI — Tokens vorhanden, aber /me fällt
+    // durch (falsches Realm, abgelaufen, Netz) → "Abmelden" zeigen statt
+    // "Anmelden", sonst hängt der User in einer Session fest, die er nicht
+    // mehr loswird (beide Knöpfe wären falsch versteckt).
+    return me ? { ...me, hatTokens: !!tokens } : { hatTokens: !!tokens };
   });
   // "Abmelden": Session-Cookies der Cloud löschen und zurück zum Login
   // navigieren — danach kann sich ein ANDERER User anmelden. Das Pairing
