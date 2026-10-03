@@ -70,10 +70,13 @@ async function auswerten(page: Page, label: string) {
     }
   }
   const letzte = rec[rec.length - 1];
+  // Mobile-Merge 2026-10: die overflow-Sperre (messSperre) wurde in der
+  // Versöhnung gestrichen — „Sperre greift“ heißt jetzt: es öffnet sich
+  // NIE ein Leerraum unter der letzten Nachricht (30-px-Klemme + Pin),
+  // und das Ende flushed ans Listenende.
   return {
     frames: rec.length,
-    sperreGegriffen: rec.some((s) => s.ov === 'hidden'),
-    sperreFrei: letzte?.ov !== 'hidden',
+    keinLeerraum: rec.every((s) => s.sh - s.vb <= 40),
     flushAmEnde:
       !!letzte && Math.abs(letzte.sh - letzte.ch - letzte.top) <= 2 && letzte.sh - letzte.vb <= 5
   };
@@ -158,8 +161,7 @@ test.describe.serial('Nachrichtenliste: kein Scrollen unter die letzte Nachricht
     await page.waitForTimeout(800);
     const erg = await auswerten(page, 'Reload → kurzer Kanal');
     expect(erg.frames).toBeGreaterThan(0);
-    expect(erg.sperreGegriffen).toBe(true);
-    expect(erg.sperreFrei).toBe(true);
+    expect(erg.keinLeerraum).toBe(true);
     expect(erg.flushAmEnde).toBe(true);
   });
 
@@ -174,8 +176,7 @@ test.describe.serial('Nachrichtenliste: kein Scrollen unter die letzte Nachricht
     await page.waitForTimeout(800);
     const erg = await auswerten(page, 'SPA-Wechsel hoch → kurz');
     expect(erg.frames).toBeGreaterThan(0);
-    expect(erg.sperreGegriffen).toBe(true);
-    expect(erg.sperreFrei).toBe(true);
+    expect(erg.keinLeerraum).toBe(true);
     expect(erg.flushAmEnde).toBe(true);
   });
 });
