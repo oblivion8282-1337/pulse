@@ -44,8 +44,9 @@ export interface MapResult { verdict: MapVerdict; openPorts: number[]; failedPor
 export interface HostDeps {
   /** Optionale Plattform-Voraussetzung VOR allem anderen (Windows: WSL2 für
    *  podman machine). 'needs-windows-setup' → eigene Karte mit dem
-   *  Erststart-Assistenten statt einer generischen Fehlerphase. */
-  checkPrereqs?(): Promise<'ok' | 'needs-windows-setup'>;
+   *  Erststart-Assistenten statt einer generischen Fehlerphase.
+   *  'not-possible-here' → nativer Backend-Pfad ohne gebündelte Binaries. */
+  checkPrereqs?(): Promise<'ok' | 'needs-windows-setup' | 'not-possible-here'>;
   startBackend(opts: { media: boolean; onProgress?: (step: string) => void }): Promise<void>;
   stopBackend(): Promise<void>;
   checkReachability(): Promise<ReachResult>;

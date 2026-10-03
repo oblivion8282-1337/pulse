@@ -91,6 +91,12 @@ win:
       to: podman
       filter:
         - "*.exe"
+    # Nativer Backend-Pfad (Windows-Default, kein WSL2): Binaries + venv +
+    # Service-Quellen + Template, aufgebaut von scripts/fetch-win-native.ps1.
+    # Ist der Ordner leer, fällt checkPrereqs auf 'not-possible-here' und die
+    # Diagnose weist auf die Neuinstallation — kein stiller Fallback zu Podman.
+    - from: resources-native
+      to: native
   icon: build-resources/icon-server.ico
   signAndEditExecutable: true
 # Assistierter NSIS-Wizard (per-User, kein UAC) — Spiegel des Client.

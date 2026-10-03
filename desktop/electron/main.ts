@@ -57,6 +57,7 @@ import { handleDeepLink, extractPulseUrl, takePendingInvite, isValidFqdn } from 
 import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
 import { ContainerBackendManager, resolveImage, HOST_HTTP_PORT, setzeContainerWelt } from './localBackend/containerBackendManager';
+import { NativeBackendManager, setzeNativeWelt } from './localBackend/nativeBackend/nativeBackendManager';
 import { wslReady, installWsl, inFlatpak } from './localBackend/containerRuntime';
 import { volumeSizeBytes, exportVolume, importVolume, lastAutoBackupAt } from './localBackend/dataTools';
 import { httpHealth } from './localBackend/health';
@@ -539,7 +540,15 @@ function _openExternalIfWebUrl(url: string): void {
 // der ganze Server-Stack läuft als EIN allinone-Container (inkl. frpc-Tunnel).
 
 function wireHost(getWin: () => Electron.BrowserWindow | null): void {
-  const manager = new ContainerBackendManager();
+  // Backend-Wahl: Windows fährt NATIV (Prozessbaum statt Container) — kein
+  // WSL2, keine Virtualisierung im BIOS. PULSE_HOST_BACKEND=container optiert
+  // den Podman/Docker-Pfad zurück (Dev/Test). Andere Plattformen bleiben beim
+  // Container (macOS: gebündeltes Podman; Linux: System-Runtime).
+  const NATIVE_BACKEND =
+    process.platform === 'win32' && process.env.PULSE_HOST_BACKEND !== 'container';
+  const manager: ContainerBackendManager | NativeBackendManager = NATIVE_BACKEND
+    ? new NativeBackendManager()
+    : new ContainerBackendManager();
   const hostStore = { get: storeGet, set: (k: string, v: unknown) => storeSet(k, v) };
   // Benutzer-Welten (2026-10-01): die Welt (Container/Volume/Creds) gehört dem
   // Konto, das in der Server-App angemeldet ist. Beim Benutzerwechsel stoppt
@@ -557,6 +566,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   if (weltUser && String(legacyCreds?.ownerId ?? '') !== weltUser) {
     setCreds(loadCredsFuer(hostStore, weltUser));
     setzeContainerWelt(`u${weltUser}`);
+    setzeNativeWelt(`u${weltUser}`);
   } else {
     setCreds(legacyCreds); // Bestands-Welt: suffix-lose Namen, ohne Migration
   }
@@ -588,6 +598,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     storeSet('pulse.host.weltUser', userId);
     setCreds(gehoertLegacy ? legacy : loadCredsFuer(hostStore, userId));
     setzeContainerWelt(neueWelt);
+    setzeNativeWelt(neueWelt);
     const weltGewechselt = neueWelt !== alteWelt;
     aktiveContainerWelt = neueWelt;
     await syncLifecycleFromContainer().catch(() => {});
@@ -605,8 +616,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
 
   const deps: HostDeps = {
     // Windows + Podman: podman machine braucht WSL2. Docker Desktop verwaltet
-    // seine WSL-Umgebung selbst → Check nur für den Podman-Pfad.
+    // seine WSL-Umgebung selbst → Check nur für den Podman-Pfad. NATIV
+    // (Windows-Default): keine Virtualisierung nötig — nur gebündelte Binaries.
     checkPrereqs: async () => {
+      if (NATIVE_BACKEND) {
+        return (await manager.runtimeAvailable()) ? 'ok' : 'not-possible-here';
+      }
       if (process.platform !== 'win32') return 'ok';
       const rt = await manager.runtime();
       if (rt?.kind !== 'podman') return 'ok';
@@ -943,7 +958,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     let sizeBytes: number | null = null;
     let lastAutoBackup: number | null = null;
     const rt = await manager.runtime().catch(() => null);
-    if (rt && creds) {
+    if (NATIVE_BACKEND && rt) {
+      // Nativer Pfad: kein Volume — Größen aus dem Datenverzeichnis.
+      const info = await (manager as NativeBackendManager).dataInfo().catch(() => null);
+      if (info) { sizeBytes = info.sizeBytes; lastAutoBackup = info.lastAutoBackupAt; }
+    } else if (rt && rt.kind !== 'native' && creds) {
       const running = await manager.isContainerRunning().catch(() => false);
       sizeBytes = await volumeSizeBytes(rt, resolveImage().image, running).catch(() => null);
       // Automatische pg_dumps des Backup-Services — ohne sie würde die UI
@@ -973,17 +992,30 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     };
 
     const rt = await manager.runtime().catch(() => null);
-    push(
-      'runtime', S('Container-Runtime', 'Container runtime'), !!rt,
-      S('Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
-        'Docker or Podman was not found on this device.'),
-      S('Docker installieren und die Server-App neu starten.',
-        'Install Docker and restart the server app.'),
-    );
+    if (NATIVE_BACKEND) {
+      push(
+        'runtime', S('Server-Komponenten', 'Server components'), !!rt,
+        S('Die gebündelten Server-Bausteine fehlen auf diesem Gerät.',
+          'The bundled server components are missing on this device.'),
+        S('Server-App neu installieren.', 'Reinstall the server app.'),
+      );
+    } else {
+      push(
+        'runtime', S('Container-Runtime', 'Container runtime'), !!rt,
+        S('Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
+          'Docker or Podman was not found on this device.'),
+        S('Docker installieren und die Server-App neu starten.',
+          'Install Docker and restart the server app.'),
+      );
+    }
     const laeuft = rt ? await manager.isContainerRunning().catch(() => false) : false;
     push(
-      'container', S('Server-Container', 'Server container'), laeuft,
-      S('Der Server-Container ist gestoppt.', 'The server container is stopped.'),
+      'container',
+      NATIVE_BACKEND ? S('Server-Prozesse', 'Server processes') : S('Server-Container', 'Server container'),
+      laeuft,
+      NATIVE_BACKEND
+        ? S('Die Server-Prozesse laufen nicht.', 'The server processes are not running.')
+        : S('Der Server-Container ist gestoppt.', 'The server container is stopped.'),
       S('Knopf „Server starten“ oben betätigen.', 'Press the "Start server" button above.'),
     );
     let healthOk = false;
@@ -1003,9 +1035,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       S('Eine Minute warten. Bleibt der Schritt rot: Server stoppen und wieder starten.',
         'Wait a minute. If it stays red: stop and start the server again.'),
     );
-    const backup = rt && laeuft
+    const backup = rt && laeuft && rt.kind !== 'native'
       ? await lastAutoBackupAt(rt, resolveImage().image, true).catch(() => null)
-      : null;
+      : NATIVE_BACKEND && laeuft
+        ? await (manager as NativeBackendManager).dataInfo().then((i) => i.lastAutoBackupAt).catch(() => null)
+        : null;
     push(
       'backup', S('Automatisches Backup', 'Automatic backup'), !!backup,
       S('Es gibt noch keinen automatischen Datenbank-Snapshot.',
@@ -1102,6 +1136,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!rt) return { ok: false, error: 'Keine Container-Runtime gefunden.' };
     return withContainerStopped(async () => {
       step('exporting');
+      // Nativer Pfad: tar aus dem Datenverzeichnis statt Volume-Export.
+      if (rt.kind === 'native') {
+        const result = await (manager as NativeBackendManager).exportData(sel.filePath as string);
+        if (result.ok) storeSet('pulse.host.lastBackupAt', Date.now());
+        return result;
+      }
       const result = await exportVolume(rt, resolveImage().image, sel.filePath as string);
       if (result.ok) storeSet('pulse.host.lastBackupAt', Date.now());
       return result;
@@ -1125,6 +1165,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!rt) return { ok: false, error: 'Keine Container-Runtime gefunden.' };
     return withContainerStopped(async () => {
       step('importing');
+      if (rt.kind === 'native') {
+        const r = await (manager as NativeBackendManager).importData(sel.filePaths[0]);
+        return r.ok; // gleiche boolesche Semantik wie importVolume
+      }
       return importVolume(rt, resolveImage().image, sel.filePaths[0]);
     });
   });
