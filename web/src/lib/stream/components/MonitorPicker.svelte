@@ -62,10 +62,12 @@
 
   function pick(value: string) {
     setCaptureSourceForSlot(slot, value);
-    // Ton an die Quelle koppeln (Bildschirm → System, Fenster → dessen App;
-    // zweiter Slot → aus). Nur hier, beim bewussten Klick auf eine Quelle —
-    // Begründung in `applyAudioForCaptureSource`.
-    applyAudioForCaptureSource(value, slot);
+    // Ton koppelt nur beim App-Fenster (→ dessen App). Monitor-Klicks fassen
+    // den Ton nicht an — dessen Vorgabe kommt allein aus dem Dialog-Öffnen,
+    // und eine handgewählte Ton-Quelle überlebt den Monitor-Wechsel
+    // (Michaels Entscheidung 2026-10-03; Begründung in
+    // `applyAudioForCaptureSource`).
+    applyAudioForCaptureSource(value);
     persistSettings();
   }
 
