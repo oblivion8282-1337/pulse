@@ -68,10 +68,18 @@ rtmpServerKey: ${join(certDir, 'mediamtx.key').replace(/\\/g, '/')}
 webrtc: yes
 webrtcAddress: 127.0.0.1:8889
 webrtcEncryption: no
-# NATIV: die echten LAN-Interfaces sind sichtbar (kein WSL-NAT) — der
-# Standardweg wie auf dem VPS. 8189/udp muss LAN-erreichbar bleiben.
-webrtcLocalUDPAddress: :${NATIVE_MEDIA_PORTS.mtxWebrtcUdp}
+# App-Host hinter Heim-NAT — Container-Parität aus 08-init-mediamtx.sh
+# (App-Host-Zweig): MediaMTX holt sich per STUN selbst den srflx-Kandidaten
+# und locht durchs NAT (wie LiveKit use_external_ip / direct-adapter) —
+# die Heim-IP wechselt, eine statische AdditionalHosts-IP wäre falsch.
+# 0.0.0.0 statt :PORT bindet IPv4-only: mit Dual-Stack funkte MediaMTX an
+# die IPv6-Adresse des Zuschauers, die kein Heim-Router hereinlässt
+# (gemessen 2026-07-10: 312 Pakete raus, 0 zurück).
+webrtcLocalUDPAddress: 0.0.0.0:${NATIVE_MEDIA_PORTS.mtxWebrtcUdp}
 webrtcIPsFromInterfaces: yes
+webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
+  - url: stun:stun.cloudflare.com:3478
 hls: no
 moq: no
 

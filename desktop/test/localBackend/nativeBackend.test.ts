@@ -69,6 +69,12 @@ test('renderMediamtxYml: echte Interfaces (kein VM-Sonderweg) + Auth-Hook', () =
   assert.match(yml, /hls: no/);
   assert.match(yml, /moq: no/);
   assert.match(yml, /mediamtx\.crt/);
+  // App-Host-Parität (08-init-mediamtx.sh): IPv4-only-Bind gegen die IPv6-
+  // Falle + eigene STUN-Server, damit MediaMTX den srflx-Kandidaten selbst
+  // ermittelt und durchs Heim-NAT locht.
+  assert.match(yml, /webrtcLocalUDPAddress: 0\.0\.0\.0:8189/);
+  assert.match(yml, /webrtcICEServers2:/);
+  assert.match(yml, /url: stun:stun\.l\.google\.com:19302/);
 });
 
 test('renderWeedS3Config: weed-IAM-Format (credentials + sts.signingKey)', () => {
