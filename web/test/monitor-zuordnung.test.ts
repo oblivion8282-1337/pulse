@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import {
   nummerAus,
   quelleFuerStart,
+  quelleIstBelegt,
   reihenfolge,
   vorgabeFuerPlatz,
   wahlBleibt,
@@ -144,5 +145,46 @@ describe('nummerAus', () => {
     for (const quelle of ['portal', 'window:3', 'Monitor: ', 'Monitor: x', '']) {
       assert.equal(nummerAus(quelle), undefined, quelle);
     }
+  });
+});
+
+describe('quelleIstBelegt — Michaels Entscheidung 2026-10-03', () => {
+  // Was ein ANDERER laufender Stream gerade aufnimmt, wird im Picker der
+  // anderen Plätze ausgegraut: derselbe Inhalt soll nicht zweimal gesendet
+  // werden. Dieselbe Quelle blockt exakt; bei Fenstern blockt auch ein
+  // anderes Fenster derselben App („die App streamt schon“).
+  const belegt = [
+    { quelle: 'Monitor: 1', app: '' },
+    { quelle: 'window:7', app: 'chrome.exe' },
+  ];
+
+  test('derselbe Bildschirm ist belegt, ein anderer nicht', () => {
+    assert.equal(quelleIstBelegt('Monitor: 1', '', belegt), true);
+    assert.equal(quelleIstBelegt('Monitor: 2', '', belegt), false);
+  });
+
+  test('dasselbe Fenster ist belegt', () => {
+    assert.equal(quelleIstBelegt('window:7', 'chrome.exe', belegt), true);
+  });
+
+  test('ein anderes Fenster derselben App ist auch belegt', () => {
+    assert.equal(quelleIstBelegt('window:9', 'chrome.exe', belegt), true);
+  });
+
+  test('ein Fenster einer anderen App bleibt frei', () => {
+    assert.equal(quelleIstBelegt('window:9', 'firefox.exe', belegt), false);
+  });
+
+  test('dasselbe Fenster blockt auch ohne App-Namen (exakter Treffer gewinnt)', () => {
+    assert.equal(quelleIstBelegt('window:7', '', belegt), true);
+  });
+
+  test('Bildschirme blocken nur sich selbst, nicht fremde Fenster', () => {
+    assert.equal(quelleIstBelegt('window:9', '', [{ quelle: 'Monitor: 1', app: '' }]), false);
+    assert.equal(quelleIstBelegt('Monitor: 1', '', [{ quelle: 'window:7', app: 'chrome.exe' }]), false);
+  });
+
+  test('ohne laufende Streams ist alles frei', () => {
+    assert.equal(quelleIstBelegt('Monitor: 1', '', []), false);
   });
 });

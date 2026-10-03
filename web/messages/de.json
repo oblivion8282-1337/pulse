@@ -1800,6 +1800,7 @@
   "monitor_picker_group_windows": "Fenster",
   "monitor_picker_label": "Quelle",
   "monitor_picker_option_label": "Bildschirm {index}: {name}",
+  "monitor_picker_option_in_use": "Wird bereits gestreamt",
   "monitor_picker_option_primary": "(primär)",
   "monitor_picker_option_resolution": "— {width}×{height}",
   "monitor_picker_refresh_aria": "Bildschirm-Liste neu laden",
