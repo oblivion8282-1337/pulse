@@ -42,6 +42,7 @@ import { drafts } from './drafts.svelte';
 import { friendRequests } from './friendRequests.svelte';
 import { communityInvites } from './communityInvites.svelte';
 import { directStatus } from './directStatus.svelte';
+import { appHostAnwesenheit } from './appHostAnwesenheit.svelte';
 import { friends } from './friends.svelte';
 import { guildSounds } from './guildSounds.svelte';
 import { guilds } from './guilds.svelte';
@@ -127,6 +128,7 @@ export function resetSocialStores(): void {
   friendRequests.clear();
   communityInvites.clear();
   directStatus.clearAll();
+  appHostAnwesenheit.clear();
   blocks.clear();
   directMessages.clear();
   // Private Gruppen sind konto-gebunden wie die DMs, standen hier aber nicht

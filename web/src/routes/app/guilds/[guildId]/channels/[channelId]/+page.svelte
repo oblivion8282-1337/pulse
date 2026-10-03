@@ -431,6 +431,21 @@
     <h2 class="text-text-bright text-lg font-semibold">{pm.community_suspended_title()}</h2>
     <p class="text-text-muted max-w-sm text-sm">{pm.community_suspended_body()}</p>
   </section>
+{:else if kanalWechsel.serverSchlaeft}
+  <!-- App-Hosting (2026-10-03): Der Host-Rechner dieser Community ist aus —
+       der Normalzustand eines App-Host-Servers, kein Fehlerfall. Verständliche
+       Tafel statt technischem Fehlertext; Retry misst die Anwesenheit frisch. -->
+  <section
+    class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 rounded-none p-8 text-center md:rounded-2xl"
+    data-testid="server-schlaeft"
+  >
+    <h2 class="text-text-bright text-lg font-semibold">{pm.server_schlaeft_seite_titel()}</h2>
+    <p class="text-text-muted max-w-sm text-sm">{pm.server_schlaeft_seite_text()}</p>
+    <Button
+      onclick={() => kanalWechsel.retry(guildId, channelId)}
+      data-testid="load-retry"
+    >{pm.channel_page_retry()}</Button>
+  </section>
 {:else if kanalWechsel.loadError}
   <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
     <FieldError message={kanalWechsel.loadError} testId="load-error" />

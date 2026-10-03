@@ -9,11 +9,13 @@
  */
 
 import { getDirectConnectionDetailed } from '$lib/direct/registry';
+import { aufbauGedeckelt } from '$lib/direct/deadline';
 import { DirectWebSocket } from '$lib/direct/websocket';
 import { isDirectOnly } from '$lib/direct/policy';
 import { DirectUnavailableError } from '$lib/direct/transport';
 import { serversStore } from '$lib/api/servers.svelte';
 import { directStatus } from '$lib/stores/directStatus.svelte';
+import { appHostAnwesenheit } from '$lib/stores/appHostAnwesenheit.svelte';
 import { currentAccessToken, getCloudBearer, request } from '$lib/api/client';
 import { isAccessExpired, jwtPayload, loadTokens } from '$lib/api/storage';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
@@ -383,9 +385,18 @@ export class GatewayConnection {
     }
   }
 
-  waitForReady(): Promise<void> {
+  waitForReady(timeoutMs?: number): Promise<void> {
     if (this._readyDone) return Promise.resolve();
-    return this._readyPromise ?? Promise.resolve();
+    const p = this._readyPromise ?? Promise.resolve();
+    // Deckel (App-Hosting, 2026-10-03): Ein schlafender Self-Host als letzter
+    // AKTIVER Server darf den App-Start nicht mit seiner Warte-Zeremonie
+    // festhalten — nach timeoutMs wird entlassen, die Verbindung läuft im
+    // Hintergrund weiter und füllt die Stores, sobald sie steht. Resolve statt
+    // Reject: Der Aufrufer soll rendern, nicht in einen Fehlerzweig laufen.
+    // (Das _readyPromise wird ausschließlich resolved, nie rejected — der
+    // Reject-Durchlass von aufbauGedeckelt kann hier nicht greifen.)
+    if (timeoutMs === undefined) return p;
+    return aufbauGedeckelt(p, timeoutMs).then(() => undefined);
   }
 
   /** Cloud → JWT mit Refresh; Self-Host → sessionTokens (kein Refresh, Cert-Re-Auth Phase 4.3). */
@@ -435,6 +446,18 @@ export class GatewayConnection {
   private async _openSocket(token: string): Promise<SocketLike> {
     if (!this.isCloud && this.instanceId) {
       const entry = serversStore.find(this.serverId);
+      // Schlafend bekannte App-Hosts nicht anrufen (2026-10-03): Der Dial
+      // würde die vollen ICE-Timeouts auf einem toten Server verbrennen; die
+      // Anwesenheit ist ein billiger Cloud-Lookup. 'closed' + Backoff wie
+      // beim Direkt-Fehler — ist der Server wieder an, verbindet der Retry.
+      if (
+        entry &&
+        isDirectOnly(entry) &&
+        (await appHostAnwesenheit.istOffline(this.instanceId))
+      ) {
+        directStatus.report(this.instanceId, 'offline');
+        throw new DirectUnavailableError('offline');
+      }
       const result = await getDirectConnectionDetailed(this.instanceId, entry).catch(() => null);
       if (result?.ok && result.conn.isOpen) {
         directStatus.clear(this.instanceId);

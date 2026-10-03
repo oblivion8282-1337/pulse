@@ -18,6 +18,7 @@ import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
 import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { leaveInstanceOn } from '$lib/api/add-server-flow';
+import { appHostAnwesenheit } from '$lib/stores/appHostAnwesenheit.svelte';
 import { instancesApi } from '$lib/api/instances';
 import { fetchDeletedInstanceIds } from '$lib/api/deleted-instances';
 import { ApiError } from '$lib/api/client';
@@ -26,8 +27,10 @@ export function removeServerLocally(serverId: string): void {
   // Connection schließen BEVOR der Entry weg ist (Pool dereferenced
   // serversStore.find sonst zu undefined → spätere reconnects crashen).
   gatewayPool.close(serverId);
+  const instanceId = serversStore.find(serverId)?.instance_id;
   serversStore.remove(serverId);
   serverGuilds.forget(serverId);
+  if (instanceId) appHostAnwesenheit.forget(instanceId);
   serverCapabilities.forget(serverId);
   if (activeServer.serverId === serverId) {
     const fallback = serversStore.servers.find((s) => s.isCloud);

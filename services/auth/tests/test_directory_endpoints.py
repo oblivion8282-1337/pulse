@@ -225,6 +225,45 @@ async def test_lookup_stale_heartbeat_marked_offline(
     assert r.json()["online"] is False
 
 
+# — Abschied (offline) ————————————————————————————————————————
+# Der saubere Abschied der Server-App: Eintrag sofort weg statt 5 Minuten
+# „online“-Lüge mit Client-Dials auf einen toten UDP-Port (2026-10-03).
+
+
+def _offline_body(instance: dict, **overrides) -> dict:
+    body = {"instance_id": instance["id"], "token": instance["token"]}
+    body.update(overrides)
+    return body
+
+
+async def test_offline_deletes_entry_immediately(client, alice, instance):
+    await client.post("/selfhost/directory/heartbeat", json=_heartbeat_body(instance))
+    r = await client.post("/selfhost/directory/offline", json=_offline_body(instance))
+    assert r.status_code == 204, r.text
+
+    r = await client.get(
+        f"/me/instances/{instance['id']}/direct-endpoint",
+        headers={"Cookie": alice["cookie"]},
+    )
+    assert r.status_code == 404  # weg — nicht „online: false“
+
+
+async def test_offline_is_idempotent(client, alice, instance):
+    for _ in range(2):
+        r = await client.post("/selfhost/directory/offline", json=_offline_body(instance))
+        assert r.status_code == 204, r.text
+
+
+async def test_offline_wrong_token_401(client, instance):
+    await client.post("/selfhost/directory/heartbeat", json=_heartbeat_body(instance))
+    r = await client.post(
+        "/selfhost/directory/offline",
+        json=_offline_body(instance, token="plse_relay_wrongwrongwrong"),
+    )
+    assert r.status_code == 401
+    # Eintrag bleibt stehen — der Abschied eines Unbefugten löscht nichts.
+
+
 # — CORS-Spiegel (DirectPathCorsMiddleware, app.py) ————————————————
 
 _FOREIGN_ORIGIN = "https://pulse.beispiel-hoster.de"

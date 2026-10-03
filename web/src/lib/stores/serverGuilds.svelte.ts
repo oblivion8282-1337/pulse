@@ -19,6 +19,8 @@
  */
 
 import { chatApi } from '$lib/api/chat';
+import { serversStore } from '$lib/api/servers.svelte';
+import { appHostAnwesenheit } from './appHostAnwesenheit.svelte';
 import { guilds as activeGuilds } from './guilds.svelte';
 import type { Guild } from '$lib/api/types';
 
@@ -72,6 +74,17 @@ class ServerGuildsStore {
   async ensureLoaded(serverId: string): Promise<void> {
     if (this.loading[serverId]) return;
     if ((this.byServer[serverId]?.length ?? 0) > 0) return; // schon da
+    // Schlafend bekannte App-Hosts: kein Request — die Anfrage würde nur in
+    // der Direkt-Weiche enden und dem Nutzer eine Wartezeit bescheren. Ist
+    // der Server wieder an, liefert der nächste Takt/refresh() die Liste.
+    const entry = serversStore.find(serverId);
+    if (
+      entry?.origin === 'app_host' &&
+      entry.instance_id &&
+      (await appHostAnwesenheit.istOffline(entry.instance_id))
+    ) {
+      return;
+    }
     this.loading = { ...this.loading, [serverId]: true };
     try {
       const guilds = await chatApi.listGuilds({ serverId });

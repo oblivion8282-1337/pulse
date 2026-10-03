@@ -4,9 +4,14 @@ Zwei Endpoints:
 
 * ``POST /selfhost/directory/heartbeat`` — die Server-App meldet ihre
   STUN-ermittelte öffentliche Adresse + den DTLS-Fingerprint ihres
-  direct-adapters. Auth wie ``relay_auth``: (instance_id, Relay-Tunnel-Token)
+  direct-adapters. Auth wie ``relay_auth``: (instance_id, relay-Tunnel-Token)
   gegen den gespeicherten Hash — das Token besitzt nur der laufende Container,
   und der Vergleich ist billig (kein Argon2 im Heartbeat-Takt).
+* ``POST /selfhost/directory/offline`` — der saubere Abschied: die Server-App
+  meldet beim Runterfahren, dass sie weggeht. Löscht den Eintrag sofort, statt
+  ihn bis zur Online-Schwelle (300 s) veralten zu lassen — in diesem Fenster
+  würde sonst jeder Client-Dial auf einen toten UDP-Port die vollen
+  ICE-Timeouts verbrennen (App-Hosting, 2026-10-03).
 * ``GET /me/instances/{id}/direct-endpoint`` — Clients holen den Eintrag zum
   Verbindungsaufbau. Session- UND membership-gated (die Heim-IP des Hosters
   ist sensibel; 404 statt 403 gegen Existence-Leak, Muster Bootstrap-Mint).
@@ -136,6 +141,33 @@ async def directory_heartbeat(
             fingerprint=body.fingerprint,
             updated_at=datetime.now(UTC),
         )
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class OfflineIn(BaseModel):
+    """Abschieds-Meldung — identische Auth wie der Heartbeat, nur ohne Daten."""
+
+    model_config = ConfigDict(extra="forbid")
+    instance_id: Annotated[str, Field(min_length=1, max_length=32)]
+    token: Annotated[str, Field(min_length=1, max_length=128)]
+    client_id: Annotated[str, Field(max_length=128)] | None = None
+
+
+@router.post("/selfhost/directory/offline", status_code=status.HTTP_204_NO_CONTENT)
+async def directory_offline(body: OfflineIn, request: Request, db: SessionDep) -> Response:
+    """Löscht den Telefonbuch-Eintrag der Instanz sofort (idempotent).
+
+    Teilt das Rate-Limit mit dem Heartbeat — der Abschied kommt genau einmal
+    pro Stopp, fällt dort also nicht auf. Löscht auch die letzte bekannte
+    Heim-Adresse (gleiches Versiegeln wie beim Kill-Switch).
+    """
+    settings = get_settings()
+    await _check_rate(request, "directory_heartbeat", settings.rate_limit_directory_heartbeat)
+    inst = await _authed_instance(db, body.instance_id, body.token, body.client_id)
+    await db.execute(
+        delete(InstanceDirectEndpoint).where(InstanceDirectEndpoint.instance_id == inst.id)
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

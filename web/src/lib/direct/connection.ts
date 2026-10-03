@@ -17,11 +17,20 @@ import {
   type FrameFromAdapter,
   type ReqFrame,
 } from './protocol';
+import { aufbauGedeckelt } from './deadline';
 
 const CONNECT_TIMEOUT_MS = 8000;
 /** Kandidaten trudeln manchmal ewig ein (TURN-Timeouts) — nach dieser Frist
  *  brechen wir das ICE-Gathering ab und schicken das Offer mit dem Bisherigen. */
 const ICE_GATHERING_TIMEOUT_MS = 3000;
+/** Gesamtdeckel für EINEN Verbindungsaufbau (2026-10-03): Ohne ihn stapeln
+ *  sich Gathering-Deckel + Offer-Roundtrip + Channel-Deckel zu ~11+ s — die
+ *  jeder Klick auf einen „online“-gemeldeten, aber toten App-Host verbrennt
+ *  (Crash/Stromausfall: kein Abschied, Telefonbuch lügt bis 300 s). 6 s sind
+ *  genug für langsame Netze (STUN-Antworten kommen üblicherweise <1 s), und
+ *  die Registry sperrt nach dem Fehlschlag 60 s. */
+const OPEN_DEADLINE_MS = 6000;
+
 /** Base64 bläht ~4/3 auf; 48 KiB roh bleibt sicher unter dem SCTP-Limit. */
 const BODY_CHUNK_BYTES = 48 * 1024;
 
@@ -58,7 +67,9 @@ export class DirectConnection {
     };
   }
 
-  /** Baut die Verbindung auf. `postOffer` reicht das SDP über die Cloud durch. */
+  /** Baut die Verbindung auf. `postOffer` reicht das SDP über die Cloud durch.
+   *  Gesamtbudget OPEN_DEADLINE_MS: schlagen nicht ALLE Schritte rechtzeitig
+   *  zu Ende, gilt der Aufbau als gescheitert — der catch räumt den pc ab. */
   static async open(args: {
     postOffer: (sdp: string) => Promise<string>;
     expectedFingerprint: string;
@@ -67,17 +78,21 @@ export class DirectConnection {
     const pc = new RTCPeerConnection({ iceServers: args.iceServers });
     const http = pc.createDataChannel('http');
     try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await gatheringComplete(pc);
+      const schritte = (async () => {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await gatheringComplete(pc);
 
-      const answerSdp = await args.postOffer(pc.localDescription!.sdp);
-      const fp = sdpFingerprint(answerSdp);
-      if (!fp || fp !== args.expectedFingerprint.toUpperCase()) {
-        throw new DirectFingerprintMismatch();
-      }
-      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-      await channelOpen(http);
+        const answerSdp = await args.postOffer(pc.localDescription!.sdp);
+        const fp = sdpFingerprint(answerSdp);
+        if (!fp || fp !== args.expectedFingerprint.toUpperCase()) {
+          throw new DirectFingerprintMismatch();
+        }
+        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+        await channelOpen(http);
+      })();
+      const ok = await aufbauGedeckelt(schritte, OPEN_DEADLINE_MS);
+      if (!ok) throw new Error('direct connection deadline exceeded');
       return new DirectConnection(pc, http);
     } catch (e) {
       pc.close();

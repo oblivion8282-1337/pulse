@@ -121,6 +121,25 @@ export function datenVolume(): string {
   return DATA_VOLUME + (containerWelt ? `-${containerWelt}` : '');
 }
 
+/** Ziel-URL des Abschieds-Calls (Telefonbuch-Abmeldung, s. meldeDirektOffline). */
+export function abschiedsUrl(creds: BootstrapCreds): string {
+  return `${creds.cloudOrigin}/api/auth/selfhost/directory/offline`;
+}
+
+/** Körper des Abschieds-Calls: Pairing-Identität wie beim Herzschlag des
+ *  Adapters (client_id + client_secret als `token`, Route _authed_instance). */
+export function abschiedsKoerper(creds: BootstrapCreds): {
+  instance_id: string;
+  token: string;
+  client_id: string;
+} {
+  return {
+    instance_id: creds.instanceId,
+    token: creds.clientSecret,
+    client_id: creds.clientId,
+  };
+}
+
 /** Welt-Verzeichnisname für die Env-Datei (unter userData). */
 export function weltVerzeichnis(): string {
   return CONTAINER_NAME + (containerWelt ? `-${containerWelt}` : '');
@@ -312,6 +331,11 @@ export class ContainerBackendManager {
   private rt: ContainerRuntime | null = null;
   private relay: UdpRelay | null = null;
   private tcpRelay: TcpRelay | null = null;
+  /** Pairing-Creds des letzten start() — nur für den Abschieds-Call in
+   *  stop() (Telefonbuch-Eintrag sofort löschen statt 300 s „online“-Lüge,
+   *  2026-10-03). null, wenn dieser Prozess den Server nie gestartet hat
+   *  (Boot-Abgleich adoptiert einen laufenden Container ohne start()). */
+  private creds: BootstrapCreds | null = null;
   private gatewayRelay: UdpGatewayRelay | null = null;
 
   /** Runtime lazy erkennen + cachen (einmal gefunden, bleibt sie stehen). */
@@ -383,6 +407,7 @@ export class ContainerBackendManager {
   }): Promise<void> {
     const { userData, creds, adminEmail, onProgress } = opts;
     const progress = onProgress ?? (() => {});
+    this.creds = creds;
 
     const rt = await this.ensureRuntime();
     if (!rt) {
@@ -530,6 +555,14 @@ export class ContainerBackendManager {
   }
 
   async stop(): Promise<void> {
+    // Abschied SOFORT und parallel zum Container-Stopp lostreten: bei App-
+    // -Ende (before-quit feuert fire-and-forget) hält nur der zweite Quit-
+    // -Handler (Sidecar-Backstop) den Prozess kurz am Leben — ein Abschied
+    // NACH dem bis zu 20 s langen `podman stop` käme zu spät.
+    // ponytail: Ein letzter Adapter-Herzschlag kann das ~1–2-s-SIGTERM-Fenster
+    // (bei 120-s-Takt) theoretisch überholen und den Eintrag neu anlegen —
+    // dann greift der clientseitige Dial-Deckel; kein Datenproblem.
+    void this.meldeDirektOffline();
     this.relay?.close();
     this.relay = null;
     this.tcpRelay?.close();
@@ -542,6 +575,38 @@ export class ContainerBackendManager {
     await rtExec(rt, ['stop', '-t', '20', containerName()], {
       timeoutMs: 60_000,
     }).catch(() => {});
+  }
+
+  /** Pairing-Creds nachziehen (Adoption eines laufenden Containers ohne
+   *  start() in dieser Sitzung, Benutzer-/Weltwechsel in main.ts) — ohne sie
+   *  bliebe der Abschied beim Stopp stumm. */
+  setzeCreds(creds: BootstrapCreds | null): void {
+    this.creds = creds;
+  }
+
+  /** Sagt der Cloud „ich gehe jetzt offline“ — löscht den Telefonbuch-Eintrag
+   *  sofort, statt ihn bis zur Online-Schwelle (300 s) „online“ lügen zu
+   *  lassen: in diesem Fenster würden Clients auf den toten UDP-Port dialen
+   *  und die vollen ICE-Timeouts verbrennen (2026-10-03). Auth wie der
+   *  Herzschlag des Adapters: Pairing-Creds (client_id + client_secret).
+   *  Fire-and-forget, 2-s-Deckel; Fehler egal (Worst Case = Status quo). */
+  private async meldeDirektOffline(): Promise<void> {
+    const c = this.creds;
+    if (!c) return;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 2_000);
+    try {
+      await fetch(abschiedsUrl(c), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(abschiedsKoerper(c)),
+        signal: ctl.signal,
+      });
+    } catch {
+      /* offline/Cloud down — der Eintrag altert wie bisher von allein */
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Update-Check im Betrieb: Image pullen (der Registry-Login aus start()

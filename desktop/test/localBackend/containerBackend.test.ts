@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { renderContainerEnv, hostLanIpv4s, vmIpAusIpAusgabe, RELAY_UDP_PORTS } from '../../electron/localBackend/containerBackendManager.ts';
+import { renderContainerEnv, hostLanIpv4s, vmIpAusIpAusgabe, RELAY_UDP_PORTS, abschiedsUrl, abschiedsKoerper } from '../../electron/localBackend/containerBackendManager.ts';
 import { runtimeCandidates, inFlatpak, machineAction } from '../../electron/localBackend/containerRuntime.ts';
 import type { BootstrapCreds } from '../../electron/localBackend/pairing.ts';
 
@@ -150,4 +150,21 @@ test('Benutzer-Welten: Suffix nur bei gesetzter Welt, Legacy bleibt nacktl', () 
   assert.equal(containerName(), 'pulse-host-u123');
   assert.equal(datenVolume(), 'pulse-host-data-u123');
   setzeContainerWelt(null); // aufräumen für andere Tests
+});
+
+// — Abschied (Telefonbuch-Abmeldung beim Stopp, 2026-10-03) ————————————
+
+test('abschiedsUrl: Cloud-Origin + Route', () => {
+  assert.equal(
+    abschiedsUrl(CREDS),
+    'https://howispulse.com/api/auth/selfhost/directory/offline',
+  );
+});
+
+test('abschiedsKoerper: Pairing-Identität wie der Adapter-Herzschlag (client_id + secret als token)', () => {
+  assert.deepEqual(abschiedsKoerper(CREDS), {
+    instance_id: '123',
+    token: 'SECRET',
+    client_id: 'cid',
+  });
 });
