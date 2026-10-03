@@ -144,6 +144,11 @@ class AnrufStore {
   #room: Room | null = null;
   #klingelWecker: ReturnType<typeof setTimeout> | null = null;
   #dauerTimer: ReturnType<typeof setInterval> | null = null;
+  /** Reentrancy-Wächter für `#verbinden` (Vorbild `#connectGen` in der
+   *  Voice-Engine): zwei Lieferungen von `call_angenommen` oder ein
+   *  Doppel-Tipp auf Annehmen durften früher zwei Räume bauen — der erste
+   *  blieb als verwaiste Verbindung mit offenem Mikro zurück (Echo). */
+  #verbindenLaeuft = false;
   /** Von `track.attach()` erzeugte Audio-Elemente — beim Abbau entfernen. */
   #ferneStimmen: HTMLMediaElement[] = [];
   /** In einem WS-Handler gesetzte Endes-Info für das gerade Abgebaute. */
@@ -225,10 +230,14 @@ class AnrufStore {
         }
       }
     } catch (e) {
+      // Start fehlgeschlagen (Netz, DM weg, Drossel) — hier melden, nicht
+      // weiterwerfen: die Aufrufer feuern `void`, ein Wurf wäre unbehandelt.
+      toast.error(m.anruf_aktion_fehlgeschlagen(), {
+        description: e instanceof Error ? e.message : undefined
+      });
       this.#aufräumen();
-      throw e;
     }
-    this.#klingelWeckerPlanen();
+    if (this.aktiv) this.#klingelWeckerPlanen();
   }
 
   /** Schlüssel-Umschlag an alle Geräte verteilen — DM per Olm, Gruppe per
@@ -299,6 +308,7 @@ class AnrufStore {
   async annehmen(gegenstelle: string): Promise<void> {
     const anruf = this.aktiv;
     if (!anruf || anruf.rolle !== 'eingehend') return;
+    if (this.#verbindenLaeuft) return; // Doppel-Tipp auf Annehmen
     this.#setGegenstelle(gegenstelle);
     this.#klingelWeckerLoeschen();
     try {
@@ -371,16 +381,36 @@ class AnrufStore {
   }
 
   async stummUmschalten(): Promise<void> {
-    if (!this.#room) return;
-    this.stumm = !this.stumm;
-    await this.#room.localParticipant.setMicrophoneEnabled(!this.stumm);
+    const room = this.#room;
+    if (!room) return;
+    const vorher = this.stumm;
+    this.stumm = !vorher;
+    try {
+      await room.localParticipant.setMicrophoneEnabled(vorher);
+    } catch (e) {
+      // Zurückrollen, sonst behauptet der Knopf etwas, das der Raum nie tat
+      // (Toggle-Desync) — und die Ablehnung landet nicht als unbehandelte
+      // Ablehnung im Nirgendwo.
+      this.stumm = vorher;
+      toast.error(m.anruf_aktion_fehlgeschlagen(), {
+        description: e instanceof Error ? e.message : undefined
+      });
+    }
   }
 
   async kameraUmschalten(): Promise<void> {
     const room = this.#room;
     if (!room) return;
-    this.kameranAn = !this.kameranAn;
-    await room.localParticipant.setCameraEnabled(this.kameranAn);
+    const vorher = this.kameranAn;
+    this.kameranAn = !vorher;
+    try {
+      await room.localParticipant.setCameraEnabled(this.kameranAn);
+    } catch (e) {
+      this.kameranAn = vorher;
+      toast.error(m.anruf_aktion_fehlgeschlagen(), {
+        description: e instanceof Error ? e.message : undefined
+      });
+    }
   }
 
   /** Vom WS-Handler: Initiator stoppt Klingeln und verbindet. */
@@ -389,6 +419,24 @@ class AnrufStore {
     if (!anruf || anruf.id !== callId || anruf.rolle !== 'ausgehend') return;
     this.#klingelWeckerLoeschen();
     void this.#verbinden();
+  }
+
+  /** Vom WS-Handler: `call_angenommen` des EIGENEN Kontos — dieses Gerät
+   *  klingelt noch, die Annahme ist an einem anderen Gerät passiert. Hier
+   *  abräumen (früher feuerte der 45-s-Wecker ein „ablehnen“, das den
+   *  laufenden Anruf auf dem anderen Gerät totlegte, Befund 03.10.). */
+  zweitgeraetAngenommen(callId: string): void {
+    const anruf = this.aktiv;
+    if (
+      !anruf ||
+      anruf.id !== callId ||
+      anruf.rolle !== 'eingehend' ||
+      anruf.zustand !== 'klingelt'
+    ) {
+      return;
+    }
+    toast.info(m.anruf_anderes_geraet_angenommen());
+    this.#aufräumen();
   }
 
   /** Vom WS-Handler: `call_abgelehnt` beim Rufenden — UI-Info, das Ende
@@ -451,7 +499,16 @@ class AnrufStore {
    *  ohne Schlüssel (Klartext-Weg) verbindet der Raum wie bisher ohne E2EE. */
   async #verbinden(): Promise<void> {
     const anruf = this.aktiv;
-    if (!anruf) return;
+    if (!anruf || this.#verbindenLaeuft) return;
+    this.#verbindenLaeuft = true;
+    try {
+      await this.#verbindenInnere(anruf);
+    } finally {
+      this.#verbindenLaeuft = false;
+    }
+  }
+
+  async #verbindenInnere(anruf: LaufenderAnruf): Promise<void> {
     const schluessel = this.#schluessel.get(anruf.id) ?? null;
     const gen = ++this.#abbauGen;
     try {
@@ -474,6 +531,14 @@ class AnrufStore {
           if (s === ConnectionState.Connected) {
             this.aktiv = this.aktiv ? { ...this.aktiv, zustand: 'verbunden' } : null;
             this.#dauerTimerStarten();
+          } else if (s === ConnectionState.Disconnected) {
+            // LiveKit-Kick oder Netzverlust — früher blieb ein totes Overlay
+            // stehen (der Store kannte nur Connected, Befund 03.10.). Eigene
+            // Räumung feuert Disconnected erneut → der Raum-Vergleich dämpft.
+            if (this.#room === room) {
+              toast.error(m.anruf_verbindung_verloren());
+              this.#aufräumen();
+            }
           }
         })
         .on(RoomEvent.TrackSubscribed, (track) => {
@@ -524,7 +589,10 @@ class AnrufStore {
   }
 
   #dauerTimerStarten(): void {
-    this.dauerSekunden = 0;
+    // Reconnect (Connected feuert erneut) startet keinen zweiten Ticker —
+    // früher liefen dann zwei Intervalle parallel (Leak, Befund 03.10.), und
+    // die Dauer sprang zurück auf null.
+    if (this.#dauerTimer) return;
     this.#dauerTimer = setInterval(() => {
       this.dauerSekunden += 1;
     }, 1000);

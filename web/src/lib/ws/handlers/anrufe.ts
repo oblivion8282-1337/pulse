@@ -6,6 +6,7 @@ import { registerWsHandler } from '../handler-registry';
 import { anrufe } from '$lib/anrufe/anruf.svelte';
 import { sendeAnrufSystemzeile } from '$lib/anrufe/systemzeileSenden';
 import { userCache } from '$lib/stores/users.svelte';
+import { auth } from '$lib/stores/auth.svelte';
 
 export function register(_ctx: HandlerContext): void {
   // Die Systemzeile wird hier angedockt — einmalig beim Gateway-Aufbau, bevor
@@ -17,6 +18,13 @@ export function register(_ctx: HandlerContext): void {
   });
 
   registerWsHandler('call_angenommen', (evt) => {
+    // Die eigene Kennung: das eigene Zweitgerät hat abgenommen — hier klingelt
+    // es noch, und der 45-s-Wecker müsste entschärft werden (früher feuerte
+    // er „ablehnen“ und riss den laufenden Anruf tot, Befund 03.10.).
+    if (evt.user_id === String(auth.user?.id ?? '')) {
+      anrufe.zweitgeraetAngenommen(evt.call_id);
+      return;
+    }
     anrufe.verbindenNachAnnahme(evt.call_id);
   });
 
