@@ -45,6 +45,7 @@ from dcc_voice_signaling.webhook import (
     camera_key,
     channel_id_from_room,
     gast_stumm_key,
+    geraete_key,
     room_key,
     streaming_key,
     user_id_from_identity,
@@ -65,9 +66,12 @@ _SCAN_PATTERN = f"{_KEY_PREFIX}channel-*"
 # room_finished behaviour, where an absent key reads as "nobody".
 #
 # KEYS[1] = presence set, KEYS[2] = streaming set, KEYS[3] = camera set,
-# KEYS[4] = guest-mute set.
+# KEYS[4] = guest-mute set, KEYS[5] = device-count hash.
 # ARGV[1..4] = JSON arrays of member strings for KEYS[1..4].
 # ARGV[5] = TTL seconds (applied to whichever keys end up non-empty).
+# ARGV[6] = JSON object naked-user-id → device count (the hash is rewritten
+#           wholesale — the webhook's counter is a cache of exactly this
+#           truth, and a stale count would hold ghost presence standing).
 _LUA_SET_EXACT_TRIPLE = """
 local ttl = tonumber(ARGV[5])
 for i = 1, 4 do
@@ -77,6 +81,14 @@ for i = 1, 4 do
         redis.call('SADD', KEYS[i], unpack(members))
         redis.call('EXPIRE', KEYS[i], ttl)
     end
+end
+redis.call('DEL', KEYS[5])
+local zaehle = cjson.decode(ARGV[6])
+for feld, zahl in pairs(zaehle) do
+    redis.call('HSET', KEYS[5], feld, zahl)
+end
+if next(zaehle) ~= nil then
+    redis.call('EXPIRE', KEYS[5], ttl)
 end
 return 0
 """
@@ -91,8 +103,10 @@ async def _set_exact_triple(
     streaming: set[str],
     camera: set[str],
     ttl_seconds: int,
-    gast_stumm_key_: str | None = None,
-    gast_stumm: set[str] | None = None,
+    gast_stumm_key_: str,
+    gast_stumm: set[str],
+    geraete_key_: str,
+    geraete_zahl: dict[str, int],
 ) -> None:
     """Rewrite all per-room sets atomically (single Lua round-trip).
 
@@ -100,19 +114,20 @@ async def _set_exact_triple(
     TTL every pass is correct — a set only expires if reconcile itself stops
     running (backstop), not while a channel stays occupied. Doing the rewrites
     in one Lua script (vs. separate transactions) closes the window in which a
-    reader could see a mismatched mix of old/new sets. The guest-mute set is
-    optional: older callers (tests) may pass only the three original sets.
+    reader could see a mismatched mix of old/new sets. The device-count hash
+    (``:geraete``, the webhook's leave-gate) is rewritten from the same truth
+    — the webhook's counter is only a cache, and a stale count would hold
+    ghost presence standing.
     """
-    keys = [presence_key, streaming_key_, camera_key_]
+    keys = [presence_key, streaming_key_, camera_key_, gast_stumm_key_, geraete_key_]
     argv = [
         json.dumps(sorted(members), separators=(",", ":")),
         json.dumps(sorted(streaming), separators=(",", ":")),
         json.dumps(sorted(camera), separators=(",", ":")),
+        json.dumps(sorted(gast_stumm), separators=(",", ":")),
+        str(ttl_seconds),
+        json.dumps(geraete_zahl, separators=(",", ":")),
     ]
-    if gast_stumm_key_ is not None:
-        keys.append(gast_stumm_key_)
-        argv.append(json.dumps(sorted(gast_stumm or set()), separators=(",", ":")))
-    argv.append(str(ttl_seconds))
     await redis.eval(  # type: ignore[arg-type]
         _LUA_SET_EXACT_TRIPLE,
         len(keys),
@@ -136,6 +151,9 @@ async def _reconcile_room(
     members: set[str] = set()
     streaming: set[str] = set()
     camera: set[str] = set()
+    # Geräte je Nutzer-ID (Join-Identitäten tragen einen Sitzungs-Suffix) —
+    # die Wahrheit hinter dem Webhook-Zähler (``:geraete``-Hash).
+    geraete: dict[str, int] = {}
     # Stumme Gäste. LiveKit sendet KEINE track_muted-Webhooks — der Mute-Zustand
     # eines Gastes existiert für den Server nur in dieser Abfrage. Mitglieder
     # melden ihren Zustand selbst und tauchen hier bewusst nicht auf.
@@ -153,6 +171,7 @@ async def _reconcile_room(
             rauszuwerfen.append(p.identity)
             continue
         members.add(uid)
+        geraete[uid] = geraete.get(uid, 0) + 1
         mikro_da = False
         for track in p.tracks:
             # Für Gäste entfällt der UNKNOWN→Screen-Share-Fallback: sie
@@ -194,6 +213,8 @@ async def _reconcile_room(
         ttl_seconds,
         gast_stumm_key_=gast_stumm_key(room_name),
         gast_stumm=gast_stumm,
+        geraete_key_=geraete_key(room_name),
+        geraete_zahl=geraete,
     )
     await _publish_state(redis, room_name, cid)
 
@@ -206,6 +227,7 @@ async def _clear_ghost_room(redis: Redis, room_name: str, cid: str) -> None:
         streaming_key(room_name),
         camera_key(room_name),
         gast_stumm_key(room_name),
+        geraete_key(room_name),
     )
     await _publish_state(redis, room_name, cid)  # publishes empty → clients clear
 
@@ -238,11 +260,12 @@ async def reconcile_once(redis: Redis, lk_api, *, ttl_seconds: int) -> dict[str,
     ghosts: list[tuple[str, str]] = []
     async for raw in redis.scan_iter(match=_SCAN_PATTERN):
         key = raw.decode() if isinstance(raw, (bytes, bytearray)) else raw
-        suffix = key[len(_KEY_PREFIX) :]  # channel-<id>[:streaming|:camera|:gast-stumm]
+        suffix = key[len(_KEY_PREFIX) :]  # channel-<id>[:streaming|:camera|:gast-stumm|:geraete]
         if (
             suffix.endswith(":streaming")
             or suffix.endswith(":camera")
             or suffix.endswith(":gast-stumm")
+            or suffix.endswith(":geraete")
         ):
             continue  # base presence key drives the cleanup; siblings go with it
         room_name = suffix

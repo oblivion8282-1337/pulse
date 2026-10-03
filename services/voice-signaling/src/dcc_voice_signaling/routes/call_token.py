@@ -11,6 +11,7 @@ Stelle — Moderation am Anruf ist ein späteres Stück)."""
 
 from __future__ import annotations
 
+import secrets
 from datetime import timedelta
 from typing import Annotated
 
@@ -91,7 +92,10 @@ async def issue_call_token(
         can_subscribe=True,
         can_publish_data=True,
     )
-    identity = f"user-{user.id}"
+    # Sitzungs-Suffix wie beim Guild-Join (routes/token.py): ohne Suffix
+    # trat sich das zweite Gerät desselben Kontos im selben Gruppenanruf
+    # per LiveKit-Duplicate-Identity selbst raus (Befund 03.10. #6).
+    identity = f"user-{user.id}~{secrets.token_hex(4)}"
     builder = (
         lk.AccessToken(settings.livekit_api_key, settings.livekit_api_secret)
         .with_identity(identity)

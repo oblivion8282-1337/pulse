@@ -11,6 +11,8 @@ Key layout (shared with chat-gateway, which only reads):
   - ``voice:room:channel-<channel_id>``           → Redis SET of user-id strings
   - ``voice:room:channel-<channel_id>:streaming`` → Redis SET of user-id strings
                                                      (users currently sharing screen)
+  - ``voice:room:channel-<channel_id>:geraete``   → Redis HASH user-id → device count
+                                                     (gate for _apply_leave)
   - publish on ``voice:events`` →
       ``{"channel_id": "<id>", "user_ids": [...], "streaming_user_ids": [...]}``
 
@@ -49,25 +51,25 @@ end
 return 0
 """
 
-# Atomically remove a member from the presence, streaming AND camera sets,
-# deleting each key if it becomes empty.  Doing this in one round-trip avoids a
-# window where a concurrent _publish_state reads an inconsistent snapshot
-# (e.g. streaming_user_ids/camera_user_ids containing a user absent from
-# user_ids).
+# Atomary leave, refcounted (Befund 03.10. #6): dasselbe Konto kann mit
+# mehreren Geräten im Raum sein (Join-Identitäten tragen einen Sitzungs-
+# Suffix, die Präsenz-Sets führen die nackte Nutzer-ID). Zieht ein Gerät,
+# zählt der Zähler im ``:geraete``-Hash herunter; erst beim letzten Gerät
+# verschwindet die Präsenz aus allen Sets.
 # KEYS[1] = presence set, KEYS[2] = streaming set, KEYS[3] = camera set,
-# ARGV[1] = member.
+# KEYS[4] = guest-mute set, KEYS[5] = device-count hash.
+# ARGV[1] = member (naked presence id).
 _LUA_LEAVE = """
-redis.call('SREM', KEYS[1], ARGV[1])
-if redis.call('SCARD', KEYS[1]) == 0 then
-    redis.call('DEL', KEYS[1])
+local uebrig = redis.call('HINCRBY', KEYS[5], ARGV[1], -1)
+if uebrig > 0 then
+    return 0
 end
-redis.call('SREM', KEYS[2], ARGV[1])
-if redis.call('SCARD', KEYS[2]) == 0 then
-    redis.call('DEL', KEYS[2])
-end
-redis.call('SREM', KEYS[3], ARGV[1])
-if redis.call('SCARD', KEYS[3]) == 0 then
-    redis.call('DEL', KEYS[3])
+redis.call('HDEL', KEYS[5], ARGV[1])
+for i = 1, 4 do
+    redis.call('SREM', KEYS[i], ARGV[1])
+    if redis.call('SCARD', KEYS[i]) == 0 then
+        redis.call('DEL', KEYS[i])
+    end
 end
 return 0
 """
@@ -76,6 +78,10 @@ VOICE_EVENTS_CHANNEL = "voice:events"
 VOICE_ROOM_KEY = "voice:room:{room}"
 VOICE_STREAMING_KEY = "voice:room:{room}:streaming"
 VOICE_CAMERA_KEY = "voice:room:{room}:camera"
+# Geräte-Zähler je Raum (Befund 03.10. #6): HASH naked-user-id → Anzahl
+# Geräte im Raum. Gatter für _apply_leave — ein Zweitgerät, das geht, darf
+# die Präsenz des ersten nicht mitnehmen.
+VOICE_GERAETE_KEY = "voice:room:{room}:geraete"
 # Gäste mit stummem Mikrofon (Präsenz-Kennungen). Mitglieder melden ihren
 # Zustand selbst über ihre Gateway-Sitzung; Gäste haben keine — ihr Zustand
 # wird aus den ``track_muted``/``track_unmuted``-Webhooks abgelesen.
@@ -214,6 +220,10 @@ def gast_stumm_key(room_name: str) -> str:
     return VOICE_GAST_STUMM_KEY.format(room=room_name)
 
 
+def geraete_key(room_name: str) -> str:
+    return VOICE_GERAETE_KEY.format(room=room_name)
+
+
 def channel_id_from_room(room_name: str) -> str | None:
     if not room_name.startswith(_ROOM_PREFIX):
         return None
@@ -313,12 +323,20 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
 async def _apply_join(redis: Redis, room_name: str, user_id: str) -> None:
     settings = get_settings()
     key = room_key(room_name)
+    gk = geraete_key(room_name)
     pipe = redis.pipeline(transaction=False)
     pipe.sadd(key, user_id)
     # NX: only set TTL when the key is new (sadd=1 first time). This prevents
     # a ghost presence (missed participant_left) from having its TTL refreshed
     # on every subsequent join, keeping the self-heal window intact.
     pipe.expire(key, settings.voice_state_ttl_seconds, nx=True)
+    # Geräte-Zähler hochsetzen — derselbe TTL-Schutz wie die Präsenz (NX, nur
+    # bei Neuanlage). ponytail: Ein verlorener participant_left lässt den
+    # Zähler zu hoch stehen und hält die Präsenz — dieselbe Geist-Klasse wie
+    # die NX-TTL-Falle oben; der Reconcile-Lauf schreibt den Hash ohnehin
+    # regelmäßig neu (reconcile._set_exact_triple).
+    pipe.hincrby(gk, user_id, 1)
+    pipe.expire(gk, settings.voice_state_ttl_seconds, nx=True)
     await pipe.execute()
 
 
@@ -326,17 +344,14 @@ async def _apply_leave(redis: Redis, room_name: str, user_id: str) -> None:
     key = room_key(room_name)
     sk = streaming_key(room_name)
     ck = camera_key(room_name)
-    # Atomic: remove from ALL three sets in one Lua round-trip.  Separate eval
-    # calls would leave a window where a concurrent _publish_state reads an
-    # inconsistent snapshot (streaming_/camera_user_ids containing a user absent
-    # from user_ids).
-    await redis.eval(_LUA_LEAVE, 3, key, sk, ck, user_id)  # type: ignore[arg-type]
-    # Ein stummer Gast, der den Raum verlässt, soll sein Stumm-Zeichen nicht
-    # mitnehmen: beim Wiedereintritt gilt er als nicht stumm, bis er selbst
-    # wieder mutet. (_publish_state filtert zusätzlich, aber aufräumen ist
-    # ehrlicher als filtern.)
+    gk = geraete_key(room_name)
+    # Atomic: Refcount-Abbau + (nur beim letzten Gerät) Entfernen aus ALLEN
+    # Sets in einem Lua-Round-trip — separate eval-Aufrufe ließen ein Fenster,
+    # in dem ein gleichzeitiges _publish_state einen unstimmigen Schnappschuss
+    # liest (streaming_/camera_user_ids mit einem Nutzer außerhalb von
+    # user_ids).
     await redis.eval(
-        _LUA_SREM_DEL_IF_EMPTY, 1, gast_stumm_key(room_name), user_id
+        _LUA_LEAVE, 5, key, sk, ck, gast_stumm_key(room_name), gk, user_id
     )  # type: ignore[arg-type]
 
 
@@ -346,6 +361,7 @@ async def _apply_room_finished(redis: Redis, room_name: str) -> None:
         streaming_key(room_name),
         camera_key(room_name),
         gast_stumm_key(room_name),
+        geraete_key(room_name),
     )
 
 
