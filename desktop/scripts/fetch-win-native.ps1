@@ -157,10 +157,13 @@ foreach ($d in @("auth", "chat-gateway", "media-svc", "voice-signaling", "mediam
     $to = Join-Path $svcDest $d
     if (Test-Path $to) { Remove-Item $to -Recurse -Force }
     robocopy $from $to /E /XD __pycache__ .venv tests /NFL /NDL /NJH /NJS | Out-Null
+    # robocopy: 0-7 sind Erfolgscodes (1 = Dateien kopiert), ab 8 Fehler.
+    if ($LASTEXITCODE -ge 8) { throw "robocopy $d fehlgeschlagen (Exit $LASTEXITCODE)" }
 }
 $sharedTo = Join-Path $svcDest "shared"
 if (Test-Path $sharedTo) { Remove-Item $sharedTo -Recurse -Force }
 robocopy (Join-Path $Repo "shared") $sharedTo /E /XD __pycache__ .venv tests /NFL /NDL /NJH /NJS | Out-Null
+if ($LASTEXITCODE -ge 8) { throw "robocopy shared fehlgeschlagen (Exit $LASTEXITCODE)" }
 
 $tplDest = Join-Path $Root "templates"
 New-Item -ItemType Directory -Force -Path $tplDest | Out-Null
@@ -168,3 +171,7 @@ Copy-Item (Join-Path $Repo "infra\self-host\s6\etc\caddy\Caddyfile.template") $t
 Copy-Item (Join-Path $Repo "desktop\electron\gen_selfsigned_cert.py") $Root -Force
 
 Write-Host "`nresources-native fertig: $Root"
+# pwsh -File gibt sonst den Exit-Code des LETZTEN nativen Befehls zurück —
+# robocopy meldet 1 bei Erfolg ("Dateien kopiert"), der CI-Schritt failte
+# trotz vollständigem Lauf (Win-Runner, 2026-10-03). Explizit 0 setzen.
+exit 0
