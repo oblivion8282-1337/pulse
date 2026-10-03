@@ -83,9 +83,35 @@ async def token_speichern(
     try:
         await session.commit()
     except IntegrityError:
-        # Doppelte Erst-Anmeldung desselben Geräts (zwei Start-Aufrufe im
-        # Rennen) — die Zeile existiert bereits, 204 statt 500.
+        # Rennen (zwei Start-Aufrufe desselben Geräts): der andere Aufruf hat
+        # die Zeile (user_id, geraet_id) gewonnen. Rollback, dann den
+        # Überlebenden explizit auf DEN hier angekommenden Token ziehen —
+        # sonst würde ein verlorener Rennlauf still 204 liefern, ohne dass
+        # der frische Token je ankommt (Befund 03.10.).
         await session.rollback()
+        uebrig = (
+            await session.execute(
+                select(FcmToken).where(
+                    FcmToken.user_id == current.id,
+                    FcmToken.geraet_id == payload.geraet_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if uebrig is None:
+            # Kein Rennen um die Zeile — ein anderer Grund (z. B. Token-Unique
+            # gegen ein parallel wanderndes Gerät). Ehrlich scheitern statt
+            # Erfolg behaupten; der App-Start wiederholt den Aufruf.
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail="fcm_token_belegt"
+            ) from None
+        uebrig.token = payload.token
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail="fcm_token_belegt"
+            ) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

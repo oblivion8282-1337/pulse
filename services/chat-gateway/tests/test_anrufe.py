@@ -175,3 +175,136 @@ async def test_mitgliedschaft_fuer_token_nur_fuer_teilnehmer(
         f"/anrufe/{call_id}/mitgliedschaft", headers=make_auth_header(t_fremd)
     )
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ablehnen_auf_laufendem_anruf_wird_abgewiesen(
+    client, _auth_signer, friend_pair, captured_events
+):
+    """Befund 03.10. #1: das Zweitgerät des Angerufenen klingelt nach der
+    Annahme weiter; sein 45-s-Wecker schickt „ablehnen“ — der laufende
+    Anruf muss das überleben."""
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+    dm_id = await _dm_zwischen(client, _auth_signer, friend_pair, uid_a, uid_b)
+    heads_a = make_auth_header(t_a)
+    heads_b = make_auth_header(t_b)
+
+    r = await client.post(
+        "/anrufe", json={"art": "dm", "channel_id": dm_id}, headers=heads_a
+    )
+    call_id = r.json()["id"]
+    r = await client.post(f"/anrufe/{call_id}/annehmen", headers=heads_b)
+    assert r.status_code == 204
+
+    captured_events.clear()
+    r = await client.post(f"/anrufe/{call_id}/ablehnen", headers=heads_b)
+    assert r.status_code == 409
+    assert not [e for (_t, e) in captured_events if e["op"] == "call_ende"]
+
+    # Der Anruf läuft weiter: Auflegen des Initiators endet mit „aufgelegt“
+    # (nicht „verpasst“) und Dauer ≥ 0.
+    r = await client.post(f"/anrufe/{call_id}/auflegen", headers=heads_a)
+    assert r.status_code == 204
+    ende = [e for (_t, e) in captured_events if e["op"] == "call_ende"]
+    assert ende and ende[0]["grund"] == "aufgelegt"
+
+
+@pytest.mark.asyncio
+async def test_doppel_annahme_publiziert_nur_einmal(
+    client, _auth_signer, friend_pair, captured_events
+):
+    """Befund 03.10. #2: jeder /annehmen-Ruf publizierte erneut — das
+    Doppel-Event war der Einstieg für die Doppel-Verbindung (Echo)."""
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+    dm_id = await _dm_zwischen(client, _auth_signer, friend_pair, uid_a, uid_b)
+    heads_b = make_auth_header(t_b)
+
+    r = await client.post(
+        "/anrufe", json={"art": "dm", "channel_id": dm_id}, headers=make_auth_header(t_a)
+    )
+    call_id = r.json()["id"]
+    captured_events.clear()
+
+    for _ in range(2):
+        r = await client.post(f"/anrufe/{call_id}/annehmen", headers=heads_b)
+        assert r.status_code == 204
+    # Eine Kopie je Teilnehmer-Konto — auch nach zweiter Annahme nicht mehr.
+    angenommene = [e for (_t, e) in captured_events if e["op"] == "call_angenommen"]
+    assert len(angenommene) == 2
+
+
+@pytest.mark.asyncio
+async def test_gruppenanruf_ueberlebt_erstes_auflegen(
+    client, _auth_signer, friend_pair, captured_events, _isolate_chat_settings
+):
+    """Befund 03.10. #3: beim Gruppenanruf beendet das erste Auflegen nur
+    den eigenen Weg, nicht den Anruf für alle."""
+    _isolate_chat_settings.private_groups_enabled = True
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+
+    r = await client.post(
+        "/gruppen", json={"name": "Anrufgruppe"}, headers=make_auth_header(t_a)
+    )
+    assert r.status_code == 201
+    gid = r.json()["id"]
+    r = await client.post(
+        f"/gruppen/{gid}/mitglieder",
+        json={"user_id": str(uid_b)},
+        headers=make_auth_header(t_a),
+    )
+    assert r.status_code == 201
+
+    heads_a = make_auth_header(t_a)
+    heads_b = make_auth_header(t_b)
+
+    r = await client.post(
+        "/anrufe", json={"art": "gruppe", "channel_id": gid}, headers=heads_a
+    )
+    call_id = r.json()["id"]
+
+    # Noch klingelnd: Auflegen des Initiators bricht den Ruf ab (verpasst).
+    r = await client.post(f"/anrufe/{call_id}/auflegen", headers=heads_a)
+    assert r.status_code == 204
+    ende = [e for (_t, e) in captured_events if e["op"] == "call_ende"]
+    assert ende and ende[0]["grund"] == "verpasst"
+
+    # Zweiter Lauf: verbunden, dann legt b auf — der Anruf läuft für a weiter.
+    r = await client.post(
+        "/anrufe", json={"art": "gruppe", "channel_id": gid}, headers=heads_a
+    )
+    call_id = r.json()["id"]
+    r = await client.post(f"/anrufe/{call_id}/annehmen", headers=heads_b)
+    assert r.status_code == 204
+
+    captured_events.clear()
+    r = await client.post(f"/anrufe/{call_id}/auflegen", headers=heads_b)
+    assert r.status_code == 204
+    assert not [e for (_t, e) in captured_events if e["op"] == "call_ende"]
+
+
+@pytest.mark.asyncio
+async def test_anruf_start_ist_gedrosselt(client, _auth_signer, friend_pair):
+    """Befund 03.10. #4: das Klingeln an eine ganze Gruppe ist ein
+    Spam-Vektor — Regel „anruf_start“ bremst den sechsten Ruf je Minute."""
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    dm_id = await _dm_zwischen(client, _auth_signer, friend_pair, uid_a, uid_b)
+    heads_a = make_auth_header(t_a)
+
+    codes = []
+    for i in range(7):
+        r = await client.post(
+            "/anrufe", json={"art": "dm", "channel_id": dm_id}, headers=heads_a
+        )
+        codes.append(r.status_code)
+        if r.status_code == 201 and i < 6:
+            # Anruf sofort beenden, damit nicht an der Zustandsmaschine
+            # hängt — die Drossel zählt unabhängig davon.
+            await client.post(
+                f"/anrufe/{r.json()['id']}/auflegen", headers=heads_a
+            )
+    assert 429 in codes, f"keine Drossel nach 7 Rufen: {codes}"
+    assert codes[0] == 201

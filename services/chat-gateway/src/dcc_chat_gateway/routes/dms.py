@@ -263,15 +263,31 @@ async def set_dm_lesestand(
             where=pg_insert(DmLesestand).excluded.last_read_message_id
             > DmLesestand.last_read_message_id,
         )
+        # Gespeicherten Wert zurücklesen: der Monotonie-Guard darf den
+        # veralteten Stand eines Zweitgeräts ablehnen — das Event trägt dann
+        # den tatsächlich geltenden Stand statt des ANGEFRAGTEN (Befund
+        # 03.10.), sonst springen die Lese-Häkchen der Empfänger zurück.
+        .returning(DmLesestand.last_read_message_id)
     )
-    await session.execute(stmt)
+    gespeichert = (await session.execute(stmt)).scalar_one_or_none()
+    if gespeichert is None:
+        # Guard hat abgelehnt (ON CONFLICT WHERE false → keine RETURNING-Zeile):
+        # den vorhandenen, höheren Stand lesen.
+        gespeichert = (
+            await session.execute(
+                select(DmLesestand.last_read_message_id).where(
+                    DmLesestand.channel_id == dm.id,
+                    DmLesestand.user_id == current.id,
+                )
+            )
+        ).scalar_one()
     await session.commit()
 
     other = dm.user_b_id if dm.user_a_id == current.id else dm.user_a_id
     ereignis = DmLesestandEvent(
         channel_id=str(dm.id),
         user_id=str(current.id),
-        last_read_message_id=str(payload.last_read_message_id),
+        last_read_message_id=str(gespeichert),
     )
     manager = getattr(request.app.state, "connection_manager", None)
     if manager is not None:

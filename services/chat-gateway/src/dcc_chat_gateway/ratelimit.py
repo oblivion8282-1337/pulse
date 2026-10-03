@@ -104,6 +104,10 @@ _RULES: dict[str, tuple[int, float]] = {
     # upsertet einmal je Gerät — ein Mensch braucht dafür keine zehn Anläufe
     # je Minute; das Band fängt nur durchgedrehte Clients.
     "fcm_token": (10, 60.0),
+    # Anrufe anstoßen (Befund 03.10.): je Aufruf klingelt es an ALLE Geräte
+    # aller Gruppenmitglieder — ohne Bremse hammerbar als Klingel-Spam an
+    # ganze Gruppen. 5/Minute: ein Mensch ruft nicht im Minutentakt an.
+    "anruf_start": (5, 60.0),
 }
 
 

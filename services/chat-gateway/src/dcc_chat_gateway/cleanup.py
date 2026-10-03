@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.ablage_zwischenlager_pflege import sweep_alte_zwischenlager_dateien
+from dcc_chat_gateway.anruf_pflege import sweep_haengende_anrufe
 from dcc_chat_gateway.config import Settings
 from dcc_chat_gateway.models import CommunityInviteNotification, WebPushSubscription
 from dcc_chat_gateway.kopplung_pflege import sweep_verfallene_kopplungen
@@ -156,6 +157,12 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
         except Exception:  # noqa: BLE001 — best effort, s. Reaper-Vorbild
             log.warning("ablage_pulse_ankuendigung_purge_fehlgeschlagen")
     log.info("ablage_pulse_pflege_done ankuendigungen=%d", ankuendigungen)
+
+    # Hängende Anruf-Zeilen (abgestürzte Klienten, Befund 03.10.) —
+    # dieselbe Schleife, derselbe Takt.
+    async with session_factory() as session:
+        anrufe = await sweep_haengende_anrufe(session)
+    log.info("anruf_pflege_done beendet=%d", anrufe)
 
     return deleted
 

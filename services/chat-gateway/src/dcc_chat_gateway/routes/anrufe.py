@@ -39,6 +39,7 @@ from dcc_chat_gateway.models import (
     GRUND_ABGELEHNT,
     GRUND_VERPASST,
 )
+from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.routes._deps import CloudOnly, dm_member_check
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -125,6 +126,10 @@ async def anruf_starten(
     request: Request,
 ) -> AnrufOut:
     """Klingeln lassen: legt den Anruf an und ruft alle weiteren Teilnehmer."""
+    # Schritt 0, vor jeder DB-Runde (Muster postfach): das Klingeln geht als
+    # Fan-out an alle Geräte einer ganzen Gruppe — ohne Bremse ein Spam-Vektor.
+    if not ratelimit.check("anruf_start", current.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded")
     art_code = ART_DM if payload.art == "dm" else ART_GRUPPE
 
     if art_code == ART_DM:
@@ -180,11 +185,15 @@ async def anruf_annehmen(
         anruf.zustand = ZUSTAND_LAEUFEND
         anruf.verbunden_at = datetime.now(tz=timezone.utc)
         await session.commit()
-    await _publish(
-        request,
-        await _teilnehmer(session, anruf),
-        CallAngenommenEvent(call_id=str(anruf.id), user_id=str(current.id)),
-    )
+        # Nur beim echten Übergang klingelnd → laufend: ein Zweitgerät, das
+        # denselben Anruf ebenfalls „annimmt“, darf die Annahme-Nachricht
+        # nicht erneut ausspielen — sie erreichte sonst JEDES Gerät des
+        # Kontos ein zweites Mal und war der Einstieg für Doppel-Verbindungen.
+        await _publish(
+            request,
+            await _teilnehmer(session, anruf),
+            CallAngenommenEvent(call_id=str(anruf.id), user_id=str(current.id)),
+        )
 
 
 @router.post("/anrufe/{anruf_id}/ablehnen", status_code=status.HTTP_204_NO_CONTENT)
@@ -195,6 +204,13 @@ async def anruf_ablehnen(
     request: Request,
 ) -> None:
     anruf = await _anruf_als_mitglied(session, anruf_id, current.id)
+    if anruf.zustand == ZUSTAND_BEENDET:
+        return
+    if anruf.zustand == ZUSTAND_LAEUFEND:
+        # Ein laufender Anruf ist angenommen — ein „Ablehnen“ (der 45-s-Wecker
+        # eines Zweitgeräts, das die Annahme verpasst hat) darf ihn nicht
+        # totschlagen. Das Gerät räumt lokal auf, der Anruf läuft weiter.
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="anruf_laeuft")
     await _publish(
         request,
         await _teilnehmer(session, anruf),
@@ -214,6 +230,13 @@ async def anruf_auflegen(
 ) -> None:
     anruf = await _anruf_als_mitglied(session, anruf_id, current.id)
     if anruf.zustand == ZUSTAND_BEENDET:
+        return
+
+    if anruf.zustand == ZUSTAND_LAEUFEND and anruf.art == ART_GRUPPE:
+        # Gruppenanruf: ein Auflegen beendet nur den eigenen Weg — der Anruf
+        # läuft für die übrigen Teilnehmer weiter (wie bei ablehnen). Ob noch
+        # jemand drin ist, weiß nur die LiveKit-Präsenz; der Server führt
+        # bewusst keinen Teilnehmer-Ring (ponytail, Modul-Kopf).
         return
 
     if anruf.zustand == ZUSTAND_LAEUFEND and anruf.verbunden_at is not None:

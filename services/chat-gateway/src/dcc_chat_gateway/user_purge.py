@@ -33,6 +33,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dcc_chat_gateway.device_meldungen import device_out
 from dcc_chat_gateway.models import (
     MENTION_TYPE_USER,
+    Anruf,
+    ART_DM,
     Channel,
     CommunityInviteNotification,
     Device,
@@ -231,6 +233,13 @@ async def _delete_dm_channels(
             session, attachment_ids=att_ids, defer_s3=defer_s3
         )
     await session.execute(sa_delete(Message).where(Message.channel_id.in_(cids)))
+    # Anrufe dieser DMs miträumen (Befund 03.10.): channel_id ist polymorph
+    # ohne FK — ohne diesen Lauf blieben die Call-Zeilen als Waisen stehen.
+    await session.execute(
+        sa_delete(Anruf).where(
+            Anruf.channel_id.in_(cids), Anruf.art == ART_DM
+        )
+    )
     await session.execute(
         sa_delete(DirectMessageChannel).where(DirectMessageChannel.id.in_(cids))
     )
@@ -352,6 +361,11 @@ async def _purge_db(
 
     # 8b. FCM-Tokens der Android-Geräte (Übergabe P0.1).
     await session.execute(sa_delete(FcmToken).where(FcmToken.user_id == user_id))
+
+    # 8c. Anrufe, die das Konto eingeleitet hat (Befund 03.10. — kein FK auf
+    # einleiter_id). DM-Anrufe räumt `_delete_dm_channels` mit dem Kanal weg;
+    # hier geht es um die Gruppen-Anrufe.
+    await session.execute(sa_delete(Anruf).where(Anruf.einleiter_id == user_id))
 
     # 9. DM channels the user was a participant in (1:1 → drop the
     # whole channel + every message in it).
