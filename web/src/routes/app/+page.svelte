@@ -12,6 +12,8 @@
   import { darfCommunityAnlegen } from '$lib/servers/erstellrecht';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { serversStore, serverDisplayName } from '$lib/api/servers.svelte';
+  import { serverState } from '$lib/ws/server-state.svelte';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { erstelleCommunity } from '$lib/guilds/erstellen';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
@@ -33,6 +35,17 @@
       offenFuerAlle: capabilities.allowGuildCreation,
     }),
   );
+
+  // Start-Entkopplung (2026-10-03): Ist der aktive Server ein Self-Host, der
+  // gerade verbindet, zeigt die Startseite „Verbinde mit …“ statt der
+  // irreführenden „Noch keine Communitys“-Leere. null = normal rendern.
+  // (serverState ist der 1-s-Spiegel aus dem App-Layout.)
+  const verbindeMitServer = $derived.by(() => {
+    const id = activeServer.serverId;
+    const entry = id ? serversStore.find(id) : undefined;
+    if (!entry || entry.isCloud) return null;
+    return serverState.get(id).state === 'connecting' ? serverDisplayName(entry) : null;
+  });
 
   let creating = $state(false);
   // Which screen the add-community dialog opens on. The rail's "+" menu sets
@@ -99,7 +112,14 @@
 />
 
 <div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-none text-sm md:rounded-2xl">
-  {#if guilds.list.length === 0}
+  {#if verbindeMitServer}
+    <div class="text-center">
+      <p class="text-text-bright mb-1 text-lg font-semibold">
+        {m.app_verbinde_mit_server({ name: verbindeMitServer })}
+      </p>
+      <p class="text-text-muted text-xs">{m.app_verbinde_mit_server_hint()}</p>
+    </div>
+  {:else if guilds.list.length === 0}
     <div class="text-center">
       <p class="text-text-bright mb-2 text-lg font-semibold">{m.app_no_communities()}</p>
       <Button onclick={() => { createMode = 'choose'; creating = true; }} data-testid="empty-create-guild">

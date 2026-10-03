@@ -3092,5 +3092,7 @@
   "server_app_download_mac_btn": "Server-App für macOS laden",
   "server_schlaeft_hint": "Server-App ist aus — Communitys sind vorübergehend nicht erreichbar",
   "server_schlaeft_seite_titel": "Diese Community ist gerade nicht erreichbar",
-  "server_schlaeft_seite_text": "Der Rechner, auf dem diese Community läuft, ist ausgeschaltet. Sobald er wieder an ist, kannst du es erneut versuchen."
+  "server_schlaeft_seite_text": "Der Rechner, auf dem diese Community läuft, ist ausgeschaltet. Sobald er wieder an ist, kannst du es erneut versuchen.",
+  "app_verbinde_mit_server": "Verbinde mit {name} …",
+  "app_verbinde_mit_server_hint": "Die App ist sofort bereit — die Communities dieses Servers erscheinen, sobald die Verbindung steht."
 }

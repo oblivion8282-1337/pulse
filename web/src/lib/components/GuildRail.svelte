@@ -29,7 +29,6 @@
   import LogOutIcon from '@lucide/svelte/icons/log-out';
   import LockIcon from '@lucide/svelte/icons/lock';
   import BugIcon from '@lucide/svelte/icons/bug';
-  import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import { chatApi } from '$lib/api/chat';
@@ -245,8 +244,8 @@
   let infoServerTarget = $state<ServerEntry | null>(null);
   let infoServerOpen = $state(false);
 
-  onMount(() => serverState.start());
-  onDestroy(() => serverState.stop());
+  // serverState-Start/-Stopp gehört dem App-Layout (seit 2026-10-03) — die
+  // Rail wäre als Owner nur auf Seiten mit Rail aktiv gewesen.
 
 
   function openServerInfo(server: ServerEntry): void {

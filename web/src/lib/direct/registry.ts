@@ -207,5 +207,13 @@ export async function getDirectConnectionDetailed(
 
 /**
  * Liefert die offene Direktverbindung — oder `null`, wenn es (noch) keine
- * gibt. Nie werfend: VPS-Aufrufer fallen auf ihren Hostname zurück.
+ * gibt. Synchron und ohne Dial: reines Nachschauen im Zustandsspeicher.
+ * VPS-Aufrufer (transport-Weiche) fragen so ab, ob sich ein ggf. laufender
+ * Aufbau bereits erledigt hat — ohne jemals auf ihn zu warten.
  */
+export function getDirectConnection(instanceId: string | null): DirectConnection | null {
+  if (!instanceId) return null;
+  const state = states.get(instanceId);
+  if (state?.kind === 'open' && state.conn.isOpen) return state.conn;
+  return null;
+}

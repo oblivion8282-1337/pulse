@@ -27,3 +27,11 @@ export function aufbauGedeckelt(schritte: Promise<unknown>, ms: number): Promise
   });
   return Promise.race([erfolg, deadline]);
 }
+
+/** Geduldsfrist des Gateways für den Direkt-Dial eines VPS-Servers
+ *  (2026-10-03): Steht die Abkürzung nicht in dieser Zeit, nimmt der Socket
+ *  den normalen Weg über den Hostnamen — der Dial läuft weiter und deckt
+ *  spätere Verbindungsaufbauten (Reconnect/Server-Wechsel). 1,5 s sind ein
+ *  guter Kompromiss: ein funktionierender LAN-/WAN-Weg steht meist <1 s,
+ *  alles darüber wäre reine Startverzögerung. */
+export const VPS_DIAL_WARTE_MS = 1_500;

@@ -50,7 +50,7 @@ export const gateway = {
   // Lifecycle
   connect: () => _active().connect(),
   disconnect: () => _active().disconnect(),
-  waitForReady: (timeoutMs?: number) => _active().waitForReady(timeoutMs),
+  waitForReady: () => _active().waitForReady(),
   // Listener
   on: (l: WsListener) => _active().on(l),
   onChannelDeleted: (h: ChannelDeletedHook) => _active().onChannelDeleted(h),
