@@ -251,4 +251,38 @@ test.describe.serial('Discord-Clone E2E', () => {
     await expect(card.getByTestId('link-embed-author')).toHaveText('Rick Astley');
     await expect(card).toHaveAttribute('href', /youtube\.com\/watch\?v=dQw4w9WgXcQ/);
   });
+
+  // Zeichenlimit 4000 (serverseitig erzwungen, s. MessageInput-Kommentar):
+  // Der Zähler erscheint ab 3600, rot und sendblockierend ab 4001. Vorher
+  // erfuhr der Nutzer das Limit erst am Server-Fehler nach dem Absenden.
+  test('Zeichenzähler: Vorwarnung, rotes Limit, blockiertes Senden', async () => {
+    const eingabe = alicePage.getByTestId('message-input');
+    await expect(eingabe).toBeVisible();
+
+    // Unterhalb der Vorwarnzone bleibt alles wie bisher: kein Zähler.
+    await eingabe.fill('kurzer text');
+    await expect(alicePage.getByTestId('zeichen-zaehler')).toHaveCount(0);
+
+    // Ab 3601 steht der Zähler da (und Senden geht noch).
+    await eingabe.fill('a'.repeat(3601));
+    const zaehler = alicePage.getByTestId('zeichen-zaehler');
+    await expect(zaehler).toBeVisible();
+    await expect(zaehler).toHaveText('3601 / 4000');
+    await expect(alicePage.getByTestId('message-send')).toBeEnabled();
+
+    // Über dem Limit: Zähler rot (destruktive Klasse), Knopf und Enter tot.
+    await eingabe.fill('a'.repeat(4001));
+    await expect(zaehler).toHaveText('4001 / 4000');
+    await expect(zaehler).toHaveClass(/text-destructive/);
+    await expect(alicePage.getByTestId('message-send')).toBeDisabled();
+    await eingabe.press('Enter');
+    await expect(
+      alicePage.locator('[data-testid=message-content]', { hasText: 'aaaa' })
+    ).toHaveCount(0);
+
+    // Kürzen hilft sofort wieder.
+    await eingabe.fill('a'.repeat(4000));
+    await expect(alicePage.getByTestId('message-send')).toBeEnabled();
+    await eingabe.fill('');
+  });
 });

@@ -418,6 +418,61 @@
 
   const getKey = (item: ChatItem): string => item.key;
 
+  // Höhen-Schätzung je Eintrag, gemessen 2026-10-03 im Dev-Stack (1440-px-
+  // Fenster, Listenbreite 1054). Speist den virtua-Patch (patches/virtua.patch)
+  // mit einer Vorschätzung pro Nachricht: Ohne sie zählt jede ungemessene Zeile
+  // mit dem Pauschalwert 48 px, mehrzeilige Nachrichten sind real 2–4× höher,
+  // und JEDE Messkorrektur über dem Sichtfenster zieht die Ansicht beim
+  // Hochscrollen sichtbar zurück („er springt kurz zurück“). Mit der Schätzung
+  // bleibt der Korrekturrest unter einer Textzeile — unmerklich.
+  //
+  // ponytail: Anhänge/Linkvorschauen/Einladungskarten und zusammengeklappte
+  // blockierte Nachrichten liefern undefined → Pauschalwert; für sie bleibt die
+  // alte Korrektur. Umbruch-wrappte Riesenzeilen schätzt ZEICHEN_BREITE bewusst
+  // zu breit — zu HOHE Schätzungen korrigiert virtua in Scrollrichtung nach
+  // unten (unsichtbar), zu niedrige gegen den Scroll (sichtbar).
+  const ZEILEN_HOEHE = 23.25;
+  const FORTS_BASE = 4.5;
+  const NAMENS_ZEILE = 31;
+  const TRENNER_HOEHE = 52;
+  const ANTWORT_HOEHE = 17.5;
+  const REAKTIONS_HOEHE = 26;
+  const ZEICHEN_BREITE = 7.5;
+
+  function visuelleZeilen(content: string, textBreite: number): number {
+    const proZeile = Math.max(20, Math.floor(textBreite / ZEICHEN_BREITE));
+    return content
+      .split('\n')
+      .reduce((n, z) => n + Math.max(1, Math.ceil(z.length / proZeile)), 0);
+  }
+
+  function schaetzeHoehe(item: ChatItem): number | undefined {
+    if (item.kind === 'divider') return TRENNER_HOEHE;
+    const m = item.message;
+    if (!m.content) return undefined;
+    if (layout === 'bubble') {
+      const karte = (wrapperEl?.clientWidth ?? 900) - 24; // Rahmen px-3
+      const textBreite = Math.min(karte * 0.78, karte) - 24; // Blasen max-w + eigenes px-3
+      let h = 16 + ZEILEN_HOEHE * visuelleZeilen(m.content, textBreite); // py-2
+      if (item.isGroupEnd) h += 12; // Zeitzeile in der Blase
+      if (m.reply_to_id) h += ANTWORT_HOEHE;
+      if (m.reactions?.length) h += REAKTIONS_HOEHE;
+      return h;
+    }
+    // Zeilen-Hülle: Rahmen px-3 + (Avatar 40 + Lücke 12) + Rand mx-2 beidseitig
+    const textBreite = (wrapperEl?.clientWidth ?? 900) - 92;
+    let h = FORTS_BASE + ZEILEN_HOEHE * visuelleZeilen(m.content, textBreite);
+    if (!item.isContinuation) h += NAMENS_ZEILE;
+    if (m.reply_to_id) h += ANTWORT_HOEHE;
+    if (m.reactions?.length) h += REAKTIONS_HOEHE;
+    return h;
+  }
+
+  // Index-basiert (so liest virtua die Schätzung); items[i] kann beim Umbau
+  // kurz undefined sein — dann Pauschalwert.
+  const hoeheNachIndex = (i: number): number | undefined =>
+    items[i] === undefined ? undefined : schaetzeHoehe(items[i]);
+
   // Append-Cache: vermeidet vollen Rebuild bei einfachen Appends. Plain (nicht
   // `$state`) — würden sie in einem `$derived` geschrieben, wirft Svelte
   // state_unsafe_mutation und leert die Liste. `_lastItemsDayKey` erzwingt bei
@@ -644,12 +699,16 @@
         </p>
       {/if}
     {:else}
-      <!-- `itemSize` = Höhen-Schätzung für ungemessene Zeilen (~eine kurze
-           Textnachricht). Ohne den Wert leitet virtua sie aus dem ab, was beim
-           Öffnen zufällig sichtbar ist — unten in einer Bilderstrecke z.B.
-           332px, und JEDE neue Nachricht belegt dann für einen Frame diese
-           332px, bevor sie auf ihre echte Höhe schrumpft: der sichtbare Sprung
-           beim Absenden. Fest gesetzt bleibt der Fehler unter einer Textzeile.
+      <!-- `itemSize` = Pauschalwert für ungemessene Zeilen, für die auch
+           `itemSizeEstimate` (s. schaetzeHoehe oben) nichts liefert — Anhang-,
+           Embed- und blockierte Nachrichten. Für alle Textnachrichten steht die
+           pro-Eintrag-Schätzung bereit; ohne sie wäre jede ungemessene Zeile
+           pauschal 48px, und JEDE Messkorrektur über dem Sichtfenster zöge die
+           Ansicht beim Hochscrollen sichtbar zurück. Ohne den festen Wert
+           leitet virtua die Schätzung zudem aus dem Median der Gemessenen ab
+           — unten in einer Bilderstrecke z.B. 332px, und JEDE neue Nachricht
+           belegt dann für einen Frame diese 332px, bevor sie auf ihre echte
+           Höhe schrumpft: der sichtbare Sprung beim Absenden.
 
            `bufferSize` = wie viele Pixel über/unter dem Sichtfenster schon
            gerendert werden. Der Standard (200px) liegt knapp unter zwei
@@ -664,6 +723,7 @@
         onscroll={handleVirtuaScroll}
         shift={prependShift}
         itemSize={48}
+        itemSizeEstimate={hoeheNachIndex}
         bufferSize={800}
         style={`height:100%${messSperre ? ';overflow-y:hidden' : ''}`}
       >

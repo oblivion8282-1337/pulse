@@ -1,0 +1,108 @@
+diff --git a/lib/core/index.js b/lib/core/index.js
+index 9011474577c440439fae809863261bac7cecacbf..5dc85f5d3d7143e5c7d861f872e05f4e0dc273d9 100644
+--- a/lib/core/index.js
++++ b/lib/core/index.js
+@@ -117,11 +117,16 @@ e), h = 5, m = 6, p = 1, w = 4, S = 8, v = e => n(e.$getTotalSize(), e.$getViewp
+     const o = n ? "unshift" : "push";
+     for (let n = 0; n < t; n++) e[o](-1);
+     return e;
+-}, k = (e, o, s) => {
++}, k = (e, o, s, d) => {
+     let r = s && s[1] || o || 40, l = -1, c = 0;
+     const f = s && s[0], a = f ? I(f.slice(0, t(e, f.length)), n(0, e - f.length)) : I([], e), u = I([], e + 1), $ = e => {
+         const t = a[e];
+-        return -1 === t ? r : t;
++        // PATCH pulse: pro-Eintrag-Schaetzung (4. Argument) statt Pauschalwert r
++        return -1 === t ? (d ? d(e) ?? r : r) : t;
++    }, W = (von, bis) => {
++        let sum = 0;
++        for (let idx = von; idx < bis; idx++) sum += $(idx);
++        return sum;
+     }, g = t => {
+         if (!e) return 0;
+         if (l >= t) return u[t];
+@@ -148,7 +153,7 @@ e), h = 5, m = 6, p = 1, w = 4, S = 8, v = e => n(e.$getTotalSize(), e.$getViewp
+         $getLength: () => e,
+         $setLength: (n, o) => {
+             const s = n - e;
+-            return l = o ? -1 : t(n - 1, l), e = n, s > 0 ? (I(u, s), I(a, s, o), r * s) : (u.splice(s), 
++            return l = o ? -1 : t(n - 1, l), e = n, s > 0 ? (I(u, s), I(a, s, o), d ? (o ? W(0, s) : W(n - s, n)) : r * s) : (u.splice(s), 
+             (o ? a.splice(0, -s) : a.splice(s)).reduce((e, t) => e - (-1 === t ? r : t), 0));
+         },
+         $estimateDefaultSize: o ? void 0 : e => {
+diff --git a/lib/svelte/VList.svelte b/lib/svelte/VList.svelte
+index 8c354c90e3940a8660a232f036f74a3c2608aa75..3f8bf520c407d9699f410b571bfc637c08ed1353 100644
+--- a/lib/svelte/VList.svelte
++++ b/lib/svelte/VList.svelte
+@@ -8,9 +8,10 @@
+   let {
+     data,
+     getKey,
+     bufferSize,
+     itemSize,
++    itemSizeEstimate,
+     ssrCount,
+     shift,
+     horizontal,
+     keepMounted,
+@@ -78,6 +76,7 @@
+     {getKey}
+     {bufferSize}
+     {itemSize}
++    {itemSizeEstimate}
+     {ssrCount}
+     {shift}
+     {horizontal}
+diff --git a/lib/svelte/VList.type.d.ts b/lib/svelte/VList.type.d.ts
+index 4335145610941d520d48ea91876e724dafd5492d..5b83e2244cb373585bdc9c5fd0d258873c27fc4d 100644
+--- a/lib/svelte/VList.type.d.ts
++++ b/lib/svelte/VList.type.d.ts
+@@ -3,7 +3,7 @@ import { VirtualizerHandle, VirtualizerProps } from './Virtualizer.type.js';
+ /**
+  * Props of {@link VList}.
+  */
+-export interface VListProps<T> extends Pick<VirtualizerProps<T>, "data" | "getKey" | "bufferSize" | "itemSize" | "ssrCount" | "shift" | "horizontal" | "children" | "onscroll" | "onscrollend" | "keepMounted" | "cache" | "itemProps">, ViewportComponentAttributes {
++export interface VListProps<T> extends Pick<VirtualizerProps<T>, "data" | "getKey" | "bufferSize" | "itemSize" | "itemSizeEstimate" | "ssrCount" | "shift" | "horizontal" | "children" | "onscroll" | "onscrollend" | "keepMounted" | "cache" | "itemProps">, ViewportComponentAttributes {
+ }
+ /**
+  * Methods of {@link VList}.
+diff --git a/lib/svelte/Virtualizer.svelte b/lib/svelte/Virtualizer.svelte
+index d28dfe77a33a8883ddacf6176cdcaf7699091044..b455ad5bfa5316347e56fe721f8e48caa7c3daeb 100644
+--- a/lib/svelte/Virtualizer.svelte
++++ b/lib/svelte/Virtualizer.svelte
+@@ -35,6 +35,7 @@
+     scrollRef,
+     bufferSize,
+     itemSize,
++    itemSizeEstimate,
+     ssrCount,
+     shift = false,
+     horizontal = false,
+@@ -46,7 +47,7 @@
+     onscrollend,
+   }: Props = $props();
+ 
+-  const layout = createListLayout(data.length, itemSize, cache);
++  const layout = createListLayout(data.length, itemSize, cache, itemSizeEstimate);
+   const store = createVirtualStore(layout, ssrCount);
+   const driver = createContainerDriver(store, horizontal);
+   store.$subscribe(UPDATE_VIRTUAL_STATE, () => {
+diff --git a/lib/svelte/Virtualizer.type.d.ts b/lib/svelte/Virtualizer.type.d.ts
+index df758c2622cc2f740765a58c250f49232e48d2a6..2e32a3fca3ac5e7bdf48cd33129457eb5896dafb 100644
+--- a/lib/svelte/Virtualizer.type.d.ts
++++ b/lib/svelte/Virtualizer.type.d.ts
+@@ -49,6 +49,14 @@ export interface VirtualizerProps<T> {
+      * - If set, you can opt out estimation and use the value as initial item size.
+      */
+     itemSize?: number;
++    /**
++     * PATCH pulse: per-item size hint for unmeasured items, by index.
++     * Returned undefined falls back to itemSize. Feeds both the size map and
++     * the shift compensation on prepends (sum of estimates instead of
++     * itemSize * count), so upward scrolling through freshly prepended
++     * history doesn't fight measurement corrections.
++     */
++    itemSizeEstimate?: (index: number) => number | undefined;
+     /**
+      * A prop for SSR. If set, the specified amount of items will be mounted in the initial rendering regardless of the container size until hydrated. The minimum value is 0.
+      */

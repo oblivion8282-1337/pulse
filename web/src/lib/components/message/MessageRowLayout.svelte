@@ -100,7 +100,7 @@
     >
       {#snippet children({ props })}
         {#key url}
-          <button {...props} class="shrink-0" data-testid="message-avatar">
+          <button {...props} class="shrink-0 self-start" data-testid="message-avatar">
             <Avatar.Root class="size-10 shrink-0">
               {#if url}
                 <Avatar.Image src={url} alt={authorName} />

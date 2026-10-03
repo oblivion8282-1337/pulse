@@ -9,7 +9,7 @@
   import HashIcon from '@lucide/svelte/icons/hash';
   import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import UsersIcon from '@lucide/svelte/icons/users';
-  import MessageInput from './MessageInput.svelte';
+  import MessageInput, { ZEICHEN_LIMIT } from './MessageInput.svelte';
   import MessageList from './MessageList.svelte';
   import MemberList from './MemberList.svelte';
   import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
@@ -118,6 +118,10 @@
   let namePrefix = $derived(NAMENS_PRAEFIX[headerKind]);
 
   let replyTarget = $state<Message | null>(null);
+
+  // Zeichenzähler-Stand des Composers (0 = unsichtbar). Rendering in der
+  // reservierten Tippanzeige-Zeile — s. `zeichenExtern` in MessageInput.
+  let composerZeichen = $state(0);
 
   // ChatView ist eine Drop-Zone (Discord-Style) und reicht Dateien an den Composer durch.
   let composer = $state<MessageInput | undefined>();
@@ -517,20 +521,36 @@
     {#if composerDisabled && composerDisabledReason}
       <ComposerDisabledBanner reason={composerDisabledReason} />
     {/if}
-    {#if typingLabel}
-      <div
-        class="text-text-base flex h-5 items-center gap-2 px-4 text-xs md:px-5"
-        data-testid="typing-indicator"
-        aria-live="polite"
-      >
-        <span class="typing-dots inline-flex items-center gap-1" aria-hidden="true">
-          <span class="bg-primary size-1.5 rounded-full"></span>
-          <span class="bg-primary size-1.5 rounded-full"></span>
-          <span class="bg-primary size-1.5 rounded-full"></span>
+    <!-- Hoehe dauerhaft reserviert: Erscheint/Verschwindet die Tippanzeige,
+         schrumpft die Nachrichtenliste darunter nicht — sonst schnitt sie die
+         letzte Zeile am unteren Rand ab. Ohne Tipper steht hier eine leere,
+         unsichtbare Zeile (20 px), deren rechte Seite den Zeichenzaehler des
+         Composers aufnimmt — er verschiebt damit nichts, wenn er erscheint. -->
+    <div
+      class="text-text-base flex h-5 items-center gap-2 px-4 text-xs md:px-5"
+      aria-live="polite"
+    >
+      {#if typingLabel}
+        <span class="flex min-w-0 flex-1 items-center gap-2" data-testid="typing-indicator">
+          <span class="typing-dots inline-flex items-center gap-1" aria-hidden="true">
+            <span class="bg-primary size-1.5 rounded-full"></span>
+            <span class="bg-primary size-1.5 rounded-full"></span>
+            <span class="bg-primary size-1.5 rounded-full"></span>
+          </span>
+          <span class="truncate font-medium">{typingLabel}</span>
         </span>
-        <span class="truncate font-medium">{typingLabel}</span>
-      </div>
-    {/if}
+      {/if}
+      {#if composerZeichen > 0}
+        <span
+          class="text-2xs font-mono {composerZeichen > ZEICHEN_LIMIT
+            ? 'text-destructive font-semibold'
+            : 'text-text-muted'} ml-auto"
+          data-testid="zeichen-zaehler"
+        >
+          {composerZeichen} / {ZEICHEN_LIMIT}
+        </span>
+      {/if}
+    </div>
     {#if anhangGrund === 'kein-laufwerk'}
       <!-- Auslieferungsschritt 1 (2026-09-02, Eigentümer): Laufwerk-Hinweise
            ausgeblendet — ohne Laufwerke gibt es ohnehin keine Anhänge
@@ -552,6 +572,8 @@
       onCancelReply={() => (replyTarget = null)}
       disabled={composerDisabled}
       disabledReason={composerDisabledReason}
+      zeichenExtern
+      bind:zeichenStand={composerZeichen}
       {attachmentsAllowed}
       {attachmentAccept}
       verschluesselt={verschluesselteAnhaenge}
