@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  virtua:
+    hash: 214a2f39fde7fb05f7b5b65c1e534f3c4d38c365957556434465c72481285f7b
+    path: patches/virtua.patch
+
 importers:
 
   .: {}
@@ -67,7 +72,7 @@ importers:
         version: 0.1.3
       virtua:
         specifier: ^0.51.1
-        version: 0.51.1(svelte@5.57.0)
+        version: 0.51.1(patch_hash=214a2f39fde7fb05f7b5b65c1e534f3c4d38c365957556434465c72481285f7b)(svelte@5.57.0)
     devDependencies:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
@@ -4642,7 +4647,7 @@ snapshots:
       extsprintf: 1.4.1
     optional: true
 
-  virtua@0.51.1(svelte@5.57.0):
+  virtua@0.51.1(patch_hash=214a2f39fde7fb05f7b5b65c1e534f3c4d38c365957556434465c72481285f7b)(svelte@5.57.0):
     optionalDependencies:
       svelte: 5.57.0
 

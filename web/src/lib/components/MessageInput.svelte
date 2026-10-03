@@ -1,3 +1,10 @@
+<script module>
+  // Zeichenlimit des Servers (messages.py, ws_op_send.py, watch_/stream_chat.py).
+  // Modul-Export, damit ChatView den Zähler in der Tippanzeige-Zeile mit
+  // derselben Zahl rendern kann, ohne sie zu duplizieren.
+  export const ZEICHEN_LIMIT = 4000;
+</script>
+
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
@@ -35,7 +42,9 @@
     handleDrop = true,
     attachmentsAllowed = true,
     attachmentAccept = '',
-    verschluesselt = false
+    verschluesselt = false,
+    zeichenExtern = false,
+    zeichenStand = $bindable(0)
   }: {
     channelId?: string | null;
     placeholder?: string;
@@ -83,6 +92,16 @@
      *  ihr Dateischluessel faehrt in der Nachricht mit. Aendert NUR den
      *  Upload-Weg — Auswahl, Vorschau und Abbruch bleiben identisch. */
     verschluesselt?: boolean;
+    /** Zeichenzähler oben statt unten anzeigen lassen: Der Chat hat eine
+     *  dauerhaft reservierte Zeile über dem Eingabefeld (Tippanzeige) mit
+     *  freiem Platz rechts — der Zähler steht dort, ohne beim Erscheinen
+     *  etwas zu verschieben. Der Zähler-Stand geht dann per `zeichenStand`
+     *  an den Aufrufer; 0 = nicht sichtbar. Standalone-Verwender (Watch-/
+     *  Stream-Chat) lassen beides weg und behalten die eigene Zeile unten. */
+    zeichenExtern?: boolean;
+    /** Bindable: aktueller Zähler-Stand (0 = unterhalb der Vorwarnzone oder
+     *  Limit gilt hier nicht). Nur mit `zeichenExtern` bespielt. */
+    zeichenStand?: number;
   } = $props();
 
   const attachmentsEnabled = $derived(channelId !== null && attachmentsAllowed);
@@ -156,6 +175,27 @@
   // suppresses role + everyone suggestions.
   const guildId = $derived(channelId ? guilds.guildIdForChannel(channelId) : null);
 
+  // Zeichenlimit 4000: Der Server lehnt längeren Text auf JEDEM Weg ab
+  // (messages.py `MessageIn`/`MessageEditIn`, ws_op_send.py Fehlercode 4005,
+  // watch_/stream_chat.py `MAX_CONTENT_LEN`). Nur der verschlüsselte DM-Weg
+  // (`sendReport`, Postfach mit 256-KB-Umschlägen) kennt es nicht. Ohne
+  // Zähler sah der Nutzer das Limit erst am Server-Fehler, nachdem der Text
+  // schon im Eingabefeld stand. Gezählt wird die SENDE-Form — Shortcodes
+  // expandiert und @Namen im Kabelformat `<@123…>`, das LÄNGER sein kann
+  // als der sichtbare Text; `[...s]` zählt Codepoints wie Pythons len().
+  const ZEICHEN_WARN_AB = 3600;
+  const limitAktiv = $derived(!sendReport);
+  const zeichen = $derived.by(() => {
+    const value = expandShortcodes(text).trim();
+    return [...(mentionOverlay?.toMarkup(value) ?? value)].length;
+  });
+  const ueberLimit = $derived(limitAktiv && zeichen > ZEICHEN_LIMIT);
+  // Stand an den Aufrufer reichen (Chat-Ansicht rendert ihn in der reservierten
+  // Tippanzeige-Zeile); 0 = unterhalb der Vorwarnzone oder Limit gilt nicht.
+  $effect(() => {
+    zeichenStand = limitAktiv && zeichen >= ZEICHEN_WARN_AB ? zeichen : 0;
+  });
+
   // Bughunt Runde 18: Fehlerzeilen blockieren jetzt — vorher ging die
   // Nachricht ohne den fehlgeschlagenen Anhang raus und die Fehlerkachel
   // (einzige Retry-Möglichkeit) verschwand still.
@@ -163,7 +203,8 @@
     disabled ||
       (text.trim().length === 0 && anhaenge.zeilen.length === 0) ||
       anhaenge.laeuftNoch ||
-      anhaenge.hatFehler
+      anhaenge.hatFehler ||
+      ueberLimit
   );
   const effectivePlaceholder = $derived(
     disabled && disabledReason ? disabledReason : placeholder
@@ -389,4 +430,19 @@
     <ComposerEmojiButton onPick={insertEmoji} />
     <ComposerSendButton disabled={sendDisabled} />
   </div>
+
+  {#if !zeichenExtern && limitAktiv && zeichen >= ZEICHEN_WARN_AB}
+    <!-- Zeichenzähler für Standalone-Verwender (Watch-/Stream-Chat): unter dem
+         Eingabefeld, rechts. Im Chat selbst steht der Zähler oben in der
+         reservierten Tippanzeige-Zeile (`zeichenExtern`) — dort verschiebt
+         ihr Erscheinen nichts. -->
+    <div class="flex justify-end pt-0.5" aria-live="polite">
+      <span
+        class="text-2xs font-mono {ueberLimit ? 'text-destructive font-semibold' : 'text-text-muted'}"
+        data-testid="zeichen-zaehler"
+      >
+        {zeichen} / {ZEICHEN_LIMIT}
+      </span>
+    </div>
+  {/if}
 </form>
