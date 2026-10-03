@@ -910,14 +910,19 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!localSenderOnly(e)) return { ok: false };
     const win = getWin();
     if (win && !win.isDestroyed()) {
-      await win.loadURL(PROD_URL);
+      // Dasselbe Realm wie die Status-Abfrage (host:me): gepairt → cloudOrigin,
+      // sonst Dev-URL (falls gesetzt), sonst Produktion. Hardcoded PROD_URL
+      // meldete im Dev-Cloud-Betrieb bei der FALSchen Cloud an — /me (und
+      // damit das "Angemeldet als") fragt die Instanz-Cloud und fand nie
+      // Tokens.
+      await win.loadURL(creds?.cloudOrigin ?? DEV_URL ?? PROD_URL);
       startLoginWatch(win);
     }
     return { ok: true };
   });
   ipcMain.handle('host:logout', async (e) => {
     if (!localSenderOnly(e)) return { ok: false };
-    const origin = creds?.cloudOrigin ?? PROD_URL;
+    const origin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
     // Durablen Refresh-Token serverseitig entwerten (best effort) + lokal löschen.
     const tokens = loadAuth(hostStore);
     if (tokens) await revokeRefresh(origin, tokens.refreshToken);
