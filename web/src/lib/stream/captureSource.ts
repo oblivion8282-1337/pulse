@@ -22,7 +22,6 @@ import { streamSettings } from './settingsState.svelte';
 import { runningStreamSlots, streamForSlot } from './state.svelte';
 import {
   APP_AUDIO_PREFIX,
-  MONITOR_CAPTURE_PREFIX,
   WINDOW_CAPTURE_PREFIX,
   tonVorgabeFuerPlatz,
 } from './settingsCatalog';
@@ -141,14 +140,14 @@ export function platzZuruecksetzen(slot: number): void {
 }
 
 /**
- * Ton passend zur gewählten Quelle vorauswählen: Bildschirm → Systemton,
- * Fenster → Ton genau dieser Anwendung.
- *
- * Bewusst eine feste Kopplung ohne Ausnahmen — wer ein Fenster teilt, meint
- * fast immer dessen Ton, und die Auswahl steht sichtbar im Dialog, bevor der
- * Stream startet. Wer etwas anderes will (oder gar keinen Ton), stellt es
- * danach um; der Ton wird nicht persistiert, die Kopplung wirkt nur auf die
- * laufende Dialog-Sitzung.
+ * Ton passend zur gewählten Quelle koppeln — seit Michaels Entscheidung vom
+ * 2026-10-03 aber NUR noch beim App-Fenster: Wer ein Fenster teilt, meint
+ * fast immer dessen Ton, egal welcher Stream-Platz. **Monitor-Klicks fassen
+ * den Ton nicht mehr an** — die Voreinstellung (erster Platz „Desktop",
+ * weitere „Aus") kommt allein aus dem Dialog-Öffnen (`platzZuruecksetzen`),
+ * und eine von Hand getroffene Ton-Wahl überlebt jeden Monitor-Wechsel. Bis
+ * dahin koppelte jeder Quellen-Klick den Ton neu (Monitor → Desktop,
+ * weiterer Platz → Aus) und warf damit handgewählte Ton-Quellen fort.
  *
  * Der Prozessname passt ohne Übersetzung: `list_windows` liefert `app`
  * ("chrome.exe"), die Audio-Seite erwartet `App: chrome.exe`. Dass die App
@@ -156,23 +155,11 @@ export function platzZuruecksetzen(slot: number): void {
  * alle laufenden Prozesse auf, nicht nur über aktive Audio-Sitzungen.
  * Ohne ermittelbaren Prozessnamen bleibt der Ton unangetastet.
  *
- * **Jeder weitere Stream-Slot → Ton aus.** Zwei gleichzeitige Streams würden
- * sonst denselben Ton doppelt übertragen; der Zuschauer, der beide Kacheln
- * offen hat, hört alles zweimal. Das ist die Vorgabe beim Öffnen
- * (`tonVorgabeFuerPlatz`), kein Lock — am Dialog lässt sich der Ton danach
- * frei umstellen. Achtung dabei: Der Auto-Neustart eines laufenden Streams
- * (`autoRestart.ts`) liest Quelle und Ton live — bewusste Änderungen am
- * geteilten Ton-Feld greifen in dessen nächsten Neustart.
+ * Achtung: Der Auto-Neustart eines laufenden Streams (`autoRestart.ts`) liest
+ * Quelle und Ton live aus diesen Feldern — auch die Kopplung greift dort in
+ * den nächsten Neustart.
  */
-export function applyAudioForCaptureSource(value: string, slot = 0): void {
-  if (slot !== 0) {
-    streamSettings.audio_mode = 'Aus';
-    return;
-  }
-  if (value.startsWith(MONITOR_CAPTURE_PREFIX)) {
-    streamSettings.audio_mode = 'Desktop';
-    return;
-  }
+export function applyAudioForCaptureSource(value: string): void {
   if (!value.startsWith(WINDOW_CAPTURE_PREFIX)) return;
   const id = Number(value.slice(WINDOW_CAPTURE_PREFIX.length));
   const app = streamSettings.available_windows.find((w) => w.id === id)?.app?.trim();

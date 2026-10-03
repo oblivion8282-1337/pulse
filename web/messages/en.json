@@ -1800,6 +1800,7 @@
   "monitor_picker_group_windows": "Windows",
   "monitor_picker_label": "Source",
   "monitor_picker_option_label": "Display {index}: {name}",
+  "monitor_picker_option_in_use": "Already streaming",
   "monitor_picker_option_primary": "(primary)",
   "monitor_picker_option_resolution": "— {width}×{height}",
   "monitor_picker_refresh_aria": "Refresh display list",

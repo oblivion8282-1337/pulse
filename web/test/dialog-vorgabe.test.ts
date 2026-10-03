@@ -60,6 +60,35 @@ describe('Persistenz: Quelle und Ton überleben den Dialog nicht', () => {
   });
 });
 
+describe('Ton-Kopplung: nur das App-Fenster koppelt (Michaels Entscheidung 2026-10-03)', () => {
+  // Bis dahin stellte JEDER Quellen-Klick den Ton neu (Monitor → Desktop,
+  // weiterer Platz → Aus) und warf damit handgewählte Ton-Quellen fort —
+  // Firefox-Ton war nach einem Monitor-Wechsel weg. Jetzt koppelt nur das
+  // App-Fenster (→ dessen App), die Vorgabe kommt allein aus dem Öffnen.
+  // `captureSource.ts` ist im Node-Läufer nicht ladbar, deshalb per Quelltext.
+  const quelltext = readFileSync(
+    fileURLToPath(new URL('../src/lib/stream/captureSource.ts', import.meta.url)),
+    'utf8',
+  );
+  const kopplung =
+    quelltext.match(/export function applyAudioForCaptureSource[\s\S]*?\n}/)?.[0] ?? '';
+
+  test('Kopplungsfunktion gefunden', () => {
+    assert.ok(kopplung.length > 0, 'applyAudioForCaptureSource gefunden');
+  });
+
+  test('Monitor-Klicks stellen den Ton nicht mehr um', () => {
+    assert.ok(!kopplung.includes("'Desktop'"), 'kein Monitor → Desktop mehr');
+    assert.ok(!kopplung.includes("'Aus'"), 'kein weiterer Platz → Aus mehr');
+    assert.ok(!kopplung.includes('slot'), 'die Funktion braucht keinen Platz-Parameter mehr');
+  });
+
+  test('das App-Fenster koppelt weiterhin seinen Ton', () => {
+    assert.match(kopplung, /WINDOW_CAPTURE_PREFIX/);
+    assert.match(kopplung, /audio_mode = APP_AUDIO_PREFIX \+ app/);
+  });
+});
+
 describe('Laufende Streams werden vom Dialog-Reset nicht angetastet', () => {
   // Bughunt 2026-09-20: Der Status-Chip öffnet den Dialog FÜR laufende Slots,
   // und der Auto-Neustart (autoRestart.ts) liest Quelle und Ton live — ohne

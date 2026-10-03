@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-10-03.1",
+      "date": "2026-10-03",
+      "style": "Sachlich",
+      "title": "Stream-Start: entspanntere Auswahl von Quelle und Ton",
+      "intro": "Drei Feinheiten am Stream-Start: HEVC-Streams laufen unter Windows und macOS jetzt zunächst in der App, statt von selbst ein eigenes Fenster zu öffnen — das Fenster gibt es weiterhin auf Knopfdruck. Die Ton-Auswahl wirft eine einmal getroffene Wahl nicht mehr weg, wenn nachträglich der Bildschirm gewechselt wird. Und was bereits gestreamt wird, ist im Quellen-Fenster des zweiten Streams ausgegraut, damit derselbe Inhalt nicht versehentlich zweimal gesendet wird.",
+      "items": [
+        "HEVC-Streams (8 bit) unter Windows und macOS: Start in der App-Kachel; der native Player öffnet sich nur noch auf ausdrücklichen Wunsch (Entkoppeln). 10-bit-Streams öffnen das Fenster weiterhin sofort, unter Linux ändert sich nichts.",
+        "Ton-Kopplung: Nur das Anklicken eines App-Fensters stellt den Ton um (auf genau diese App). Ein Bildschirm-Wechsel lässt eine handgewählte Ton-Quelle stehen — Firefox bleibt Firefox, „Aus“ bleibt „Aus“. Beim frischen Öffnen gilt wie bisher: erster Stream mit Systemton, jeder weitere ohne Ton.",
+        "Zweiter Stream: Quellen, die ein anderer laufender Stream bereits zeigt, sind ausgegraut („Wird bereits gestreamt“) — derselbe Bildschirm oder dieselbe App kann nicht mehr doppelt gesendet werden."
+      ]
+    },
+    {
       "id": "2026-10-02.1",
       "date": "2026-10-02",
       "style": "Sachlich",

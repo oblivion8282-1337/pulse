@@ -37,6 +37,8 @@
     WINDOW_CAPTURE_PREFIX,
   } from '../settings.svelte';
   import { windowDisplayName, windowSubtitle, ambiguousNames } from '../windowName';
+  import { runningStreamSlots } from '../state.svelte';
+  import { quelleIstBelegt } from '../monitorZuordnung';
 
   // Which stream slot this picker selects the source for (0 = primary stream,
   // 1 = the second stream / second monitor). `slot` is a reserved Svelte
@@ -60,12 +62,35 @@
   // ununterscheidbar.
   let ambiguous = $derived(ambiguousNames(streamSettings.available_windows));
 
+  // Quellen, die ANDERE laufende Streams gerade aufnehmen — im eigenen Picker
+  // ausgegraut statt versteckt (Michaels Entscheidung 2026-10-03): derselbe
+  // Inhalt soll nicht zweimal gesendet werden. Der eigene Platz zählt nicht —
+  // sein Picker zeigt ja gerade seine laufende Auswahl. Maß ist die AKTIVE
+  // Quelle (aktiveQuelleFuerSlot), nicht die gemerkte Wahl.
+  let belegteQuellen = $derived.by(() => {
+    const liste: { quelle: string; app: string }[] = [];
+    for (const anderer of runningStreamSlots()) {
+      if (anderer === slot) continue;
+      const quelle = aktiveQuelleFuerSlot(anderer).quelle;
+      if (quelle === '' || quelle === 'portal') continue;
+      const app = quelle.startsWith(WINDOW_CAPTURE_PREFIX)
+        ? (streamSettings.available_windows.find(
+            (w) => `${WINDOW_CAPTURE_PREFIX}${w.id}` === quelle,
+          )?.app?.trim() ?? '')
+        : '';
+      liste.push({ quelle, app });
+    }
+    return liste;
+  });
+
   function pick(value: string) {
     setCaptureSourceForSlot(slot, value);
-    // Ton an die Quelle koppeln (Bildschirm → System, Fenster → dessen App;
-    // zweiter Slot → aus). Nur hier, beim bewussten Klick auf eine Quelle —
-    // Begründung in `applyAudioForCaptureSource`.
-    applyAudioForCaptureSource(value, slot);
+    // Ton koppelt nur beim App-Fenster (→ dessen App). Monitor-Klicks fassen
+    // den Ton nicht an — dessen Vorgabe kommt allein aus dem Dialog-Öffnen,
+    // und eine handgewählte Ton-Quelle überlebt den Monitor-Wechsel
+    // (Michaels Entscheidung 2026-10-03; Begründung in
+    // `applyAudioForCaptureSource`).
+    applyAudioForCaptureSource(value);
     persistSettings();
   }
 
@@ -129,13 +154,16 @@
             {#each streamSettings.available_monitors as mon (mon.index)}
               {@const value = `${MONITOR_CAPTURE_PREFIX}${mon.index}`}
               {@const selected = captureSource === value}
+              {@const gesperrt = quelleIstBelegt(value, '', belegteQuellen)}
               <button
                 type="button"
                 role="radio"
                 aria-checked={selected}
+                disabled={gesperrt}
                 onclick={() => pick(value)}
                 data-testid="stream-monitor-tile"
                 class="flex min-w-0 items-start gap-2 rounded-md border p-2.5 text-left transition-colors
+                  disabled:cursor-not-allowed disabled:opacity-50
                   {selected
                   ? 'border-primary bg-primary/10 text-text-bright'
                   : 'border-border bg-bg-chat text-text-base hover:border-primary/50'}"
@@ -145,11 +173,17 @@
                   <span class="truncate text-xs font-medium">
                     {m.monitor_picker_option_label({ index: mon.index, name: mon.name })}
                   </span>
-                  <span class="text-text-muted truncate text-2xs">
-                    {mon.primary ? `${m.monitor_picker_option_primary()} · ` : ''}{mon.width
-                      ? m.monitor_picker_option_resolution({ width: mon.width, height: mon.height })
-                      : ''}
-                  </span>
+                  {#if gesperrt}
+                    <span class="text-warning truncate text-2xs">
+                      {m.monitor_picker_option_in_use()}
+                    </span>
+                  {:else}
+                    <span class="text-text-muted truncate text-2xs">
+                      {mon.primary ? `${m.monitor_picker_option_primary()} · ` : ''}{mon.width
+                        ? m.monitor_picker_option_resolution({ width: mon.width, height: mon.height })
+                        : ''}
+                    </span>
+                  {/if}
                 </span>
               </button>
             {/each}
@@ -171,16 +205,20 @@
             {#each streamSettings.available_windows as w (w.id)}
               {@const value = `${WINDOW_CAPTURE_PREFIX}${w.id}`}
               {@const selected = captureSource === value}
+              {@const wApp = w.app?.trim() ?? ''}
+              {@const gesperrt = quelleIstBelegt(value, wApp, belegteQuellen)}
               {@const name = windowDisplayName(w)}
               {@const subtitle = windowSubtitle(w, ambiguous.has(name))}
               <button
                 type="button"
                 role="radio"
                 aria-checked={selected}
+                disabled={gesperrt}
                 onclick={() => pick(value)}
                 data-testid="stream-window-tile"
                 title={w.title ? `${name} — ${w.title}` : name}
                 class="flex min-w-0 items-start gap-2 rounded-md border p-2.5 text-left transition-colors
+                  disabled:cursor-not-allowed disabled:opacity-50
                   {selected
                   ? 'border-primary bg-primary/10 text-text-bright'
                   : 'border-border bg-bg-chat text-text-base hover:border-primary/50'}"
@@ -188,7 +226,11 @@
                 <AppWindowIcon class="mt-0.5 size-4 shrink-0 {selected ? 'text-primary' : 'text-text-muted'}" />
                 <span class="flex min-w-0 flex-col">
                   <span class="truncate text-xs font-medium">{name}</span>
-                  {#if subtitle}
+                  {#if gesperrt}
+                    <span class="text-warning truncate text-2xs">
+                      {m.monitor_picker_option_in_use()}
+                    </span>
+                  {:else if subtitle}
                     <span class="text-text-muted truncate text-2xs">{subtitle}</span>
                   {/if}
                 </span>

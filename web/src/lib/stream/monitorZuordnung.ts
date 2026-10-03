@@ -64,6 +64,32 @@ export function nummerAus(quelle: string): number | undefined {
 }
 
 /**
+ * Ist diese Quelle durch einen ANDEREN laufenden Stream belegt?
+ *
+ * Michaels Entscheidung vom 2026-10-03: derselbe Inhalt soll nicht zweimal
+ * gesendet werden — ein Bildschirm bzw. eine App, die gerade streamt, wird im
+ * Picker der anderen Plätze **ausgegraut**, nicht versteckt (der Nutzer soll
+ * sehen, warum sie weg ist). Der eigene Platz eines laufenden Streams wird
+ * vom Aufrufer nie gemeldet — der streamt ja gerade seine Auswahl.
+ *
+ * Zwei Wege zum „belegt“: dieselbe Quelle exakt (Bildschirm-Nummer bzw.
+ * dieselbe Fenster-Kennung), oder — bei Fenstern — **dieselbe App**: auch ein
+ * anderes Fenster derselben Anwendung ist belegt, denn „die App streamt
+ * schon“ (App-Ton würde doppelt kommen, und zwei Fenster einer App im
+ * zweiten Stream ist kein Szenario, das jemand vermisst). Bildschirme
+ * (`app` leer) blocken nur sich selbst.
+ */
+export function quelleIstBelegt(
+  quelle: string,
+  app: string,
+  belegte: ReadonlyArray<{ quelle: string; app: string }>,
+): boolean {
+  return belegte.some(
+    (b) => b.quelle === quelle || (app !== '' && b.app !== '' && b.app === app),
+  );
+}
+
+/**
  * Trägt die gespeicherte Wahl noch? Nur dann darf sie ersetzt werden.
  *
  * **Eine fehlende Nummer heisst NICHT „ersetzen".** Bis zum 2026-08-26 wurde

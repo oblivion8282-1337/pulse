@@ -29,7 +29,7 @@
   import StreamChatPanel from './StreamChatPanel.svelte';
   import TileShell from './TileShell.svelte';
   import RemoteRequestButton from '$lib/remote/components/RemoteRequestButton.svelte';
-  import { isElectron } from '$lib/platform/runtime';
+	import { isElectron, isLinux } from '$lib/platform/runtime';
   import { remoteSession } from '$lib/remote/session.svelte';
   import { darfFernsteuern } from '$lib/remote/darfSteuern';
   import { detachedStreams } from '../detach.svelte';
@@ -85,24 +85,27 @@
   $effect(() => {
     if (mgr?.tenBit) tenBitGesehen = true;
   });
-  // Dasselbe Muster fuer den Codec: HEVC geht UEBERALL direkt in den nativen
-  // Player (seit 2026-09-13, vormals nur Linux). Auf Linux laesst sich der
-  // H265-Track im Browser gar nicht verhandeln; auf Windows/macOS waere der
-  // `<video>`-Weg inzwischen moeglich — die erste Gegenmessung („Electron
-  // dekodiert H265 nicht") war ein Messfehler am falschen Ende: Der Sender
-  // warf die Keyframes weg (IDR_N_LP-Bug des rtp-Crate-Payloaders), nach
-  // dessen Fix dekodiert derselbe Chromium 1080p60 anstandslos
-  // (docs/2026-09-13-windows-amf-hevc-10bit.md). Der Zwang bleibt trotzdem
-  // als QUALITAETSENTSCHEIDUNG stehen: Das eigene Fenster bringt Zero-Copy,
-  // 10 bit und den Einfrier-Waechter mit — der `<video>`-Weg bleibt
-  // Rueckfall, wenn es den Player nicht gibt (reines Web). Browser ohne
-  // HEVC-Verhandlung (Firefox, Linux+NVIDIA) sehen weiterhin schwarz — die
-  // von Anfang an dokumentierte Abwägung bei der HEVC-Wahl.
-  let hevcGesehen = $state(false);
-  $effect(() => {
-    if (mgr?.codec === 'hevc') hevcGesehen = true;
-  });
-  const hevcNativPflicht = $derived(hevcGesehen);
+	// Dasselbe Muster fuer den Codec, aber seit Michaels Entscheidung vom
+	// 2026-10-03 nur noch auf LINUX ein Zwang: Dort laesst sich der H265-Track
+	// im Browser gar nicht verhandeln — ohne das eigene Fenster saehe der
+	// Zuschauer nur die Fehlermeldung. Auf Windows/macOS spielt die Kachel
+	// HEVC inzwischen selbst (die erste Gegenmessung „Electron dekodiert H265
+	// nicht" war ein Sender-Bug — der RTP-Packer warf Keyframes weg,
+	// IDR_N_LP-Bug des rtp-Crate-Payloaders; nach dessen Fix dekodierte
+	// derselbe Chromium 1080p60 anstandslos,
+	// docs/2026-09-13-windows-amf-hevc-10bit.md). Der Zwang vom 2026-09-13,
+	// der dort als Qualitaetsentscheidung stand (Zero-Copy, Einfrier-Waechter),
+	// ist zurueckgenommen: HEVC 8 bit verhaelt sich wie H264/AV1 — Kachel
+	// zuerst, das eigene Fenster nur auf ausdruecklichen Wunsch (Entkoppel-
+	// Knopf). 10 bit erzwingt das Fenster unabhaengig davon weiter (`tenBit`).
+	// Ohne HEVC-Verhandlung (Firefox, Linux+NVIDIA, Windows ohne HEVC-
+	// Grafikhardware) bleibt die Kachel schwarz, bis der Zuschauer selbst
+	// entkoppelt — dokumentierte Abwaegung.
+	let hevcGesehen = $state(false);
+	$effect(() => {
+		if (mgr?.codec === 'hevc') hevcGesehen = true;
+	});
+	const hevcNativPflicht = $derived(isLinux() && hevcGesehen);
   // Dasselbe Spiel fuer die Fernsteuerbarkeit, und aus demselben Grund: sobald
   // das eigene Fenster spielt, wird `mgr` hier abgeklemmt (s. unten) — genau
   // dann zeigt die Kachel aber das `NativeWindowPanel` mit dem Anfrage-Knopf.
