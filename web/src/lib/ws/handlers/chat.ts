@@ -19,6 +19,7 @@ import { dmGegenstelle } from '$lib/krypto/dmGegenstelle';
 import { streamChat } from '$lib/stores/streamChat.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
 import { readState } from '$lib/stores/readState.svelte';
+import { lesestandAnker } from '$lib/stores/lesestandKern';
 import { typing } from '$lib/stores/typing.svelte';
 import { userCache } from '$lib/stores/users.svelte';
 import { dispatchingUserId } from '$lib/stores/currentServerUser';
@@ -145,9 +146,13 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
           privateGruppen.upsert({ ...gruppe, last_message_id: nachricht.id });
         }
         if (nachricht.author_id !== me) {
-          readState.recordSeen(nachricht.channel_id, nachricht.id);
+          // Anker = kanonische Absender-ID (`krypto_id`), nicht die
+          // Zustellungs-ID — sonst vergleicht der Sender seinen lokalen
+          // Stand später gegen eine fremde Kennung (B3, s.
+          // `lesestandKern.lesestandAnker`).
+          readState.recordSeen(nachricht.channel_id, lesestandAnker(nachricht));
           if (istAboniert(nachricht.channel_id)) {
-            readState.markRead(nachricht.channel_id, nachricht.id);
+            readState.markRead(nachricht.channel_id, lesestandAnker(nachricht));
           } else {
             readState.incUnread(nachricht.channel_id);
             // Toast/Ton/In-Page-Benachrichtigung — zieht mit `dm_bump` gleich
@@ -315,6 +320,21 @@ export function register(ctx: HandlerContext): void {
 
   registerWsHandler('postfach_neu', () => {
     postfachAbholenUndAnzeigen((kanalId) => ctx.subs.has(kanalId));
+  });
+
+  registerWsHandler('dm_lesestand', (evt) => {
+    // Serverseitiger Lesefortschritt (P0.2) — geht an BEIDE Teilnehmer.
+    // Eigener Stand: andere Geräte des eigenen Kontos löschen damit ihre
+    // Ungelesen-Zähler (die eigene markRead-Meldung kommt als Echo wieder
+    // und ist durch den Vorwärts-Merge harmlos). Fremder Stand: die
+    // Gegenstelle hat gelesen → Lese-Häkchen an der eigenen Bubble.
+    const me = dispatchingUserId();
+    if (!me) return;
+    if (evt.user_id === me) {
+      readState.seedOwnLesestand(evt.channel_id, evt.last_read_message_id);
+    } else {
+      readState.setPartnerLesestand(evt.channel_id, evt.last_read_message_id);
+    }
   });
 
   registerWsHandler('mention_added', (evt) => {

@@ -20,12 +20,14 @@
    */
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
+  import UsersIcon from '@lucide/svelte/icons/users';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import BereichsKopf from './BereichsKopf.svelte';
   import SuchPille from '$lib/components/SuchPille.svelte';
   import MobileChatsSuche from './MobileChatsSuche.svelte';
   import NeuesGespraechDialog from './NeuesGespraechDialog.svelte';
+  import NeueGruppeDialog from './NeueGruppeDialog.svelte';
   import MobileGruppenZeile from './MobileGruppenZeile.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
@@ -56,6 +58,7 @@
   const gruppen = $derived(onSelectGruppe ? privateGruppen.list : []);
 
   let neuesGespraech = $state(false);
+  let neueGruppe = $state(false);
   let suche = $state('');
 
   /** Ab drei ZEICHEN wird gesucht — gerechnet wird über die normalisierte
@@ -121,6 +124,16 @@
             <PencilIcon class="size-4" />
             {m.chats_compose()}
           </DropdownMenu.Item>
+          {#if onSelectGruppe}
+            <DropdownMenu.Item
+              onclick={() => (neueGruppe = true)}
+              data-testid="chats-menu-new-group"
+              class="flex items-center gap-2"
+            >
+              <UsersIcon class="size-4" />
+              {m.chats_new_group()}
+            </DropdownMenu.Item>
+          {/if}
         </DropdownMenu.Content>
       </DropdownMenu.Root>
     {/snippet}
@@ -220,4 +233,7 @@
   </nav>
 
   <NeuesGespraechDialog bind:open={neuesGespraech} {onSelect} />
+  {#if onSelectGruppe}
+    <NeueGruppeDialog bind:open={neueGruppe} onErstellt={onSelectGruppe} />
+  {/if}
 </div>

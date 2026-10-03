@@ -39,7 +39,7 @@ from sqlalchemy import or_, select
 import dcc_chat_gateway.config as _cfg
 from dcc_chat_gateway import s3, watchkeys
 from dcc_chat_gateway.db import SessionLocal
-from dcc_chat_gateway.dm_vorschau import letzte_nachrichten
+from dcc_chat_gateway.dm_vorschau import letzte_nachrichten, lesestaende
 from dcc_chat_gateway.friend_events import (
     load_blocks_in,
     load_blocks_out,
@@ -369,6 +369,9 @@ async def build_and_send_ready_frame(
             # die Liste im Klienten-Speicher (`directMessages.seed`), die
             # Vorschau waere sonst nach jedem Verbindungsaufbau wieder weg.
             dm_letzte = await letzte_nachrichten(session, list(dm_rows))
+            # Serverseitiger Lesefortschritt (P0.2): eigen + Gegenstelle je DM
+            # in einem Rutsch — der ready-Rahmen ist die Seed-Stelle des Klienten.
+            lese = await lesestaende(session, [d.id for d in dm_rows])
             dm_channels = []
             for d in dm_rows:
                 other = d.user_b_id if d.user_a_id == user.id else d.user_a_id
@@ -380,6 +383,8 @@ async def build_and_send_ready_frame(
                     and other not in blocks_out_set
                     and other not in blocks_in_set
                 )
+                eigener_stand = lese.get((d.id, user.id))
+                partner_stand = lese.get((d.id, other))
                 dm_channels.append(
                     {
                         "id": str(d.id),
@@ -395,6 +400,14 @@ async def build_and_send_ready_frame(
                         ),
                         "last_message_at": (
                             letzte.created_at.isoformat() if letzte else None
+                        ),
+                        # Additiv, optional (P0.2): numerisch-opake IDs —
+                        # der Client vergleicht sie über compareSnowflakeId.
+                        "last_read_message_id": (
+                            str(eigener_stand) if eigener_stand is not None else None
+                        ),
+                        "partner_last_read_message_id": (
+                            str(partner_stand) if partner_stand is not None else None
                         ),
                     }
                 )

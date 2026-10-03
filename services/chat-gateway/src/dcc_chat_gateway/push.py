@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.models import WebPushSubscription
+from dcc_chat_gateway.fcm import fan_out_fcm_dm_push
 from dcc_chat_gateway.vapid import (
     VapidKeys,
     ensure_vapid,
@@ -358,6 +359,7 @@ async def fan_out_dm_push(
     author_name: str,
     channel_id: int,
     message_id: int,
+    manager=None,
 ) -> None:
     """Push a closed-browser notification for a new DM to its recipient.
 
@@ -370,6 +372,9 @@ async def fan_out_dm_push(
     (Drittanbieter) sah bisher den Klartext der DM — dieselbe Information wie
     im verschlüsselten Postfach-Weg (``fan_out_dm_push_encrypted``), das
     Absender und Kanal nennt, aber nie Inhalt.
+    ``manager`` (ConnectionManager) gates the FCM leg: Android-Geräte des
+    Empfängers bekommen den System-Push nur, wenn KEINE offene WebSocket-
+    Verbindung besteht (Übergabe P0.1) — wer online ist, hat den WS-Weg.
     """
     payload = {
         "type": "dm",
@@ -382,6 +387,12 @@ async def fan_out_dm_push(
         "icon": None,
     }
     await _fan_out_payload({recipient_id}, payload)
+    await fan_out_fcm_dm_push(
+        recipient_ids={recipient_id},
+        author_name=author_name,
+        channel_id=channel_id,
+        manager=manager,
+    )
 
 
 async def fan_out_dm_push_encrypted(
@@ -389,6 +400,7 @@ async def fan_out_dm_push_encrypted(
     recipient_ids: set[int],
     author_name: str,
     channel_id: int,
+    manager=None,
 ) -> None:
     """Push eine geschlossene-Browser-Benachrichtigung fuer eine ende-zu-
     ende-verschluesselte DM aus.
@@ -400,6 +412,8 @@ async def fan_out_dm_push_encrypted(
     diesen Fall (``chat_handler_dm_notification_body`` im Paraglide-
     Katalog: "Neue Direktnachricht"), ``message_id`` bleibt ``null``. Absender
     und Kanal duerfen genannt werden — das tut der Klartext-Weg auch.
+
+    ``manager`` gated das FCM-Bein wie in ``fan_out_dm_push``.
     """
     payload = {
         "type": "dm",
@@ -412,6 +426,12 @@ async def fan_out_dm_push_encrypted(
         "icon": None,
     }
     await _fan_out_payload(recipient_ids, payload)
+    await fan_out_fcm_dm_push(
+        recipient_ids=recipient_ids,
+        author_name=author_name,
+        channel_id=channel_id,
+        manager=manager,
+    )
 
 
 async def fan_out_friend_push(

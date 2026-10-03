@@ -122,7 +122,9 @@ import type { Message } from '../api/types';
 import {
   verlaufSpeichernPflicht,
   verlaufNachrichtGeloescht,
-  verlaufLokaleIdFuerKryptoId
+  verlaufLokaleIdFuerKryptoId,
+  verlaufBearbeitungAnwenden,
+  verlaufReaktionAnwenden
 } from '../verlauf';
 import { lokaleIdsFuerLoeschung } from './loeschZiel';
 import { messages } from '../stores/messages.svelte';
@@ -138,6 +140,7 @@ import { KontoSicherungFehlgeschlagen, zustellungOeffnen } from './zustellungOef
 import { mitKontosperre } from './sperren';
 import { mitNachlaufBeiWeckung } from './postfachNachlauf';
 import { fuelleEinmalschluesselNach } from './veroeffentlichen';
+import { anrufe } from '../anrufe/anruf.svelte';
 
 // DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
 // Modulkopf (Bughunt 2026-08-28, FIX 4). Ohne diesen Parameter faellt
@@ -148,6 +151,23 @@ import { fuelleEinmalschluesselNach } from './veroeffentlichen';
 // FIX 4 bei einem anderen Agenten in Arbeit und ist erst hier nachgezogen.
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
+}
+
+/**
+ * Welche LOKALEN Saetze eine kanonische Frame-ID trifft (Loesch- und
+ * Reaktions-Umschlag): erst die geladene Anzeige (`loeschZiel.ts`), dann der
+ * Verlauf — die Nachricht kann aelter sein als das, was gerade geladen ist.
+ * Leer = auf diesem Geraet unbekannt.
+ */
+async function lokaleZielIds(
+  channelId: string,
+  kanonischeId: string,
+  absenderUserId?: string
+): Promise<string[]> {
+  const geladen = lokaleIdsFuerLoeschung(kanonischeId, messages.for(channelId), absenderUserId);
+  if (geladen.length > 0) return geladen;
+  const imVerlauf = await verlaufLokaleIdFuerKryptoId(channelId, kanonischeId, absenderUserId);
+  return imVerlauf === null ? [] : [imVerlauf];
 }
 
 async function postfachZyklus(): Promise<Message[]> {
@@ -220,32 +240,61 @@ async function postfachZyklus(): Promise<Message[]> {
       //
       // Der Frame nennt die ABSENDER-ID; hier liegt die Nachricht unter der
       // Zustellungs-ID mit der Absender-ID als `krypto_id` (s.
-      // `loeschZiel.ts`). Erst die geladene Anzeige, dann der Verlauf — die
-      // Nachricht kann aelter sein als das, was gerade geladen ist. Ohne
-      // Treffer bleibt der Frame-Wert selbst stehen: der Grabstein auf eine
-      // unbekannte ID ist wirkungslos, der Frame wird trotzdem quittiert,
-      // denn eine Nachricht, die nie ankam, kann auch nicht stehen bleiben.
-      let ziele = lokaleIdsFuerLoeschung(
-        ergebnis.nachrichtId,
-        messages.for(ergebnis.channelId),
-        ergebnis.absenderUserId
-      );
-      if (ziele.length === 0) {
-        const imVerlauf = await verlaufLokaleIdFuerKryptoId(
-          ergebnis.channelId,
-          ergebnis.nachrichtId,
-          ergebnis.absenderUserId
-        );
-        // Kein Treffer im Verlauf: der Grabstein geht auf die Frame-ID selbst.
-        // Er greift ins Leere, solange nichts mit dieser ID existiert — und
-        // eine ID vergibt nur ihr eigener Verfasser, ein Fremder kann darüber
-        // also keinen künftigen Satz eines anderen treffen.
-        ziele = [imVerlauf ?? ergebnis.nachrichtId];
-      }
-      for (const lokaleId of ziele) {
+      // `loeschZiel.ts`, aufgeloest in `lokaleZielIds` — mit Absender-Bindung:
+      // nur der Verfasser darf seine Sätze löschen (Bughunt 2026-09-23, s.
+      // `loeschZiel.ts`). Ohne Treffer bleibt der Frame-Wert selbst stehen:
+      // der Grabstein auf eine unbekannte ID ist wirkungslos, der Frame wird
+      // trotzdem quittiert, denn eine Nachricht, die nie ankam, kann auch
+      // nicht stehen bleiben.
+      let ziele = await lokaleZielIds(ergebnis.channelId, ergebnis.nachrichtId, ergebnis.absenderUserId);
+      if (ziele.length === 0) ziele = [ergebnis.nachrichtId];      for (const lokaleId of ziele) {
         verlaufNachrichtGeloescht(ergebnis.channelId, lokaleId);
         messages.remove(ergebnis.channelId, lokaleId);
       }
+      schonQuittierbar.push(ergebnis.id);
+      continue;
+    }
+    if (ergebnis.art === 'reaktion') {
+      // Reaktions-Umschlag (P1.5): am Verlaufs-Satz anwenden, die Anzeige
+      // nachziehen, direkt quittieren — nichts abzulegen. Ein unbekanntes
+      // Ziel (Nachricht nie hier angekommen) bleibt wirkungslos und wird
+      // trotzdem quittiert, aus demselben Grund wie beim Lösch-Frame.
+      for (const lokaleId of await lokaleZielIds(ergebnis.channelId, ergebnis.ziel)) {
+        const reactions = await verlaufReaktionAnwenden(
+          ergebnis.channelId,
+          lokaleId,
+          ergebnis.autorId,
+          ergebnis.emoji,
+          ergebnis.entfernen
+        );
+        if (reactions) messages.setReactions(ergebnis.channelId, lokaleId, reactions);
+      }
+      schonQuittierbar.push(ergebnis.id);
+      continue;
+    }
+    if (ergebnis.art === 'bearbeitung') {
+      // Bearbeitungs-Umschlag (P1.5 Teil 2): Text der Ziel-Nachricht
+      // ersetzen, Anzeige nachziehen, direkt quittieren — nichts abzulegen.
+      // Unbekanntes Ziel bleibt wirkungslos und wird trotzdem quittiert.
+      // ponytail: zwei Frames auf dasselbe Ziel wenden last-write-wins an —
+      // same-cycle ist die Reihenfolge garantiert, cross-cycle sortiert der
+      // Server; ein bearbeitetAm-Vergleich waere der Ausbau, falls je
+      // ueberholende Frames beobachtet werden.
+      for (const lokaleId of await lokaleZielIds(ergebnis.channelId, ergebnis.ziel)) {
+        const bearbeitetAm = new Date().toISOString();
+        if (await verlaufBearbeitungAnwenden(ergebnis.channelId, lokaleId, ergebnis.inhalt, bearbeitetAm)) {
+          messages.bearbeiteInhalt(ergebnis.channelId, lokaleId, ergebnis.inhalt, bearbeitetAm);
+        }
+      }
+      schonQuittierbar.push(ergebnis.id);
+      continue;
+    }
+    if (ergebnis.art === 'anrufSchluessel') {
+      // Anruf-Schlüssel-Frame (E2EE-Anrufe): nur im Anruf-Store merken
+      // (Arbeitsspeicher, nichts im Verlauf) — direkt quittierbar. Ein
+      // unbeteiligtes Gerät (eigenes Zweitgerät, Anruf längst vorbei) legt
+      // den Schlüssel ebenso still ab; der Store räumt beim Anruf-Ende auf.
+      anrufe.schluesselEmpfangen(ergebnis.anrufId, ergebnis.schluessel);
       schonQuittierbar.push(ergebnis.id);
       continue;
     }

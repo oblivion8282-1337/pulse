@@ -368,8 +368,10 @@
         <figcaption
           class="from-black/85 via-black/45 absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t to-transparent px-3 pt-8 pb-2 text-xs"
         >
+          <!-- Sitzungs-Suffix der Join-Identität abziehen (Mehrgerät-Voice),
+               sonst greift der Sender-Namen-Lookup ins Leere. -->
           <span class="text-white font-semibold">
-            {v.identity.startsWith('user-') ? senderName(v.identity.slice(5)) : v.name}
+            {v.identity.startsWith('user-') ? senderName(v.identity.slice(5).split('~', 1)[0]) : v.name}
           </span>
         </figcaption>
       </figure>

@@ -55,7 +55,12 @@
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { orientierungSperren } from '$lib/platform/orientation';
   import { registriereZurueckTaste } from '$lib/platform/zurueckTaste';
-  import { istRaumBereich, merkeRaumPfad } from '$lib/navigation/letzterRaumBereich.svelte';
+  import { istRaumBereich, merkeRaumPfad, raumPfadNachAuflegen } from '$lib/navigation/letzterRaumBereich.svelte';
+  import { untrack } from 'svelte';
+  import { installiereLesestandSync } from '$lib/api/lesestand';
+  import { installiereShareEmpfang } from '$lib/platform/shareEmpfang';
+  import { installiereFcmPush } from '$lib/platform/fcm';
+  import AnrufOverlay from '$lib/components/anrufe/AnrufOverlay.svelte';
   import { page } from '$app/state';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
@@ -444,6 +449,43 @@
     if (istRaumBereich(pfad)) merkeRaumPfad(pfad);
   });
 
+  // Serverseitiger Lesefortschritt (P0.2): markRead-Meldungen spiegeln in die
+  // Cloud (entprellt, fire-and-forget) — einmalig beim App-Start verkabelt.
+  installiereLesestandSync();
+  // Share-Target (P1.8): geteilte Texte/Bilder aus anderen Apps einsammeln.
+  installiereShareEmpfang();
+  // FCM-Push (P0.1): Token holen + melden, Push-Tap → Deep-Link. Nur in der
+  // Capacitor-App aktiv, sonst ein No-op.
+  installiereFcmPush();
+
+  // Auflegen außerhalb der Kanal-Seite (z. B. vom Ich-Tab): ohne diese
+  // Rückstufung bliebe der gemerkte Räume-Pfad auf dem SPRACHKANAL stehen,
+  // und der Räume-Tab würde dorthin werfen — wo der Auto-Rejoin sofort
+  // wieder beitreten würde. Nach dem Verbinden→Getrennt-Übergang zeigt der
+  // Tab daher auf die Raum-Übersicht der Community, in der man war.
+  // `!voice.channelId` ist der eigentliche „wirklich aufgelegt"-Beweis:
+  // `connected` fällt auch bei einem Media-Reconnecting (Netzwechsel im Call)
+  // auf false ab, ohne dass der Kanal verlassen wird — `channelId` bleibt
+  // dabei gesetzt und wird erst im Teardown beim echten Disconnect genullt.
+  let voiceWarVerbunden = $state(false);
+  let letzteVoiceGuildId = $state('');
+  $effect(() => {
+    if (voice.connected && voice.channelId) {
+      letzteVoiceGuildId = guilds.guildIdForChannel(voice.channelId) ?? '';
+    }
+    const verbunden = voice.connected;
+    if (
+      voiceWarVerbunden &&
+      !verbunden &&
+      !voice.channelId &&
+      !voice.connecting &&
+      letzteVoiceGuildId
+    ) {
+      untrack(() => raumPfadNachAuflegen(letzteVoiceGuildId));
+    }
+    voiceWarVerbunden = verbunden;
+  });
+
   // Android-Hülle: Querformat nur mit ANGEDOCKTEM Stream. Ein Stream im
   // Popup-Eckfenster (Corner-Mode: man hat den Kanal verlassen) lockt
   // trotzdem auf Hochformat — quer ist nur fürs Stream-Vollbild auf dem
@@ -507,6 +549,10 @@
       <VoiceControlBar />
     </div>
   {/if}
+  <!-- Anruf-Overlay (Anrufe-Epic C): global über allem, weil ein Anruf
+       Navigation überdauert — Klingeln/Annahme/Auflegen sind überall
+       erreichbar. -->
+  <AnrufOverlay />
   <!-- Die Bereichs-Leiste sitzt UNTER dem Voice-Dock (Canvas 3a): das Dock ist
        der laufende Zustand, die Leiste die Navigation. `--safe-bottom` traegt
        jetzt sie, sonst laege der Home-Balken des Telefons darauf. -->

@@ -32,13 +32,68 @@
   import type { Attachment } from '$lib/api/types';
   import AutoRefreshImage from './AutoRefreshImage.svelte';
   import Lightbox from './Lightbox.svelte';
+  import AudioNachricht from './message/AudioNachricht.svelte';
   import FileIcon from '@lucide/svelte/icons/file';
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import DownloadIcon from '@lucide/svelte/icons/download';
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import PauseIcon from '@lucide/svelte/icons/pause';
+  import PlayIcon from '@lucide/svelte/icons/play';
+  import XIcon from '@lucide/svelte/icons/x';
+import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
+import { anhangBlob } from '../krypto/anhangHolen';
+import { anhangBytesLesen } from '../verlauf/db';
+import { erzeugeVideoVorschaubildAusBytes } from '../attachments/vorschaubild';
+import { Portal } from 'bits-ui';
   import { m } from '$lib/paraglide/messages.js';
   import { formatBytes } from '$lib/utils/formatBytes';
+  import { istAnhangAbgelaufenFehler } from '$lib/krypto/anhangAbgelaufen';
 
   let { attachments }: { attachments: Attachment[] } = $props();
+
+  /** Poster für Video-Kacheln: das beim Upload mitgelieferte Vorschaubild
+   *  (lokale Bytes) als Objekt-URL — ein <img> steht sofort, auch wenn die
+   *  Virtualisierung das Video-Element beim Scrollen neu mountet. */
+  let videoPoster = $state<Record<string, string>>({});
+  const posterLaeuft = new Set<string>();
+  $effect(() => {
+    for (const a of attachments) {
+      if (!a.mime?.startsWith('video/') || videoPoster[a.id]) continue;
+      if (a.verschluesselt && a.thumb_schluessel) {
+        // Neuer Weg: verschluesselte Vorschau aus dem lokalen Bestand.
+        void anhangBlob(a.id, a.thumb_schluessel, 'image/webp', true)
+          .then((blob) => {
+            if (blob) videoPoster = { ...videoPoster, [a.id]: URL.createObjectURL(blob) };
+          })
+          .catch(() => {});
+      } else if (a.verschluesselt && !posterLaeuft.has(a.id)) {
+        // Alter Anhang OHNE gespeicherte Vorschau: den ersten Frame EINMAL
+        // aus den lokal gespeicherten Bytes ziehen und als Poster cachen —
+        // sonst bleibt die Kachel bei jedem Scroll-Remount schwarz.
+        posterLaeuft.add(a.id);
+        void (async () => {
+          const lokal = await anhangBytesLesen(a.id);
+          if (!lokal) return;
+          const v = await erzeugeVideoVorschaubildAusBytes(
+            lokal.daten,
+            a.mime ?? 'video/mp4'
+          );
+          if (v) videoPoster = { ...videoPoster, [a.id]: URL.createObjectURL(v.blob) };
+        })().catch(() => posterLaeuft.delete(a.id));
+      } else if (!a.verschluesselt && a.url) {
+        // Klartext-Anhang: Poster direkt aus der Server-Datei ziehen.
+        void fetch(a.url)
+          .then((r) => r.arrayBuffer())
+          .then((buf) => erzeugeVideoVorschaubildAusBytes(new Uint8Array(buf), a.mime ?? 'video/mp4'))
+          .then((v) => {
+            if (v) videoPoster = { ...videoPoster, [a.id]: URL.createObjectURL(v.blob) };
+          })
+          .catch(() => posterLaeuft.delete(a.id));
+      }
+    }
+  });
 
   let lightboxAttachment = $state<Attachment | null>(null);
   let lightboxOpen = $state(false);
@@ -48,6 +103,12 @@
    *  Klumpen ist mit seiner letzten Zustellung gefallen, s.
    *  `krypto/anhangHolen.ts`), sonst die fertige Adresse. */
   let quellen = $state<Record<string, string>>({});
+
+  /** Anhaenge, deren eigene Zustellung abgelaufen ist (410
+   *  `anhang_abgelaufen`, als ApiError durchgereicht) —
+   *  sie bekommen die ruhige „abgelaufen“-Meldung statt des generischen
+   *  „nicht mehr verfügbar“. */
+  let abgelaufen = $state<Record<string, boolean>>({});
 
   // Bilder bleiben aussen vor: die holt `AutoRefreshImage` selbst, samt
   // ref-gezaehltem Zwischenspeicher fuer die virtualisierte Liste.
@@ -63,22 +124,33 @@
     // Eigener Sammler statt `{ ...quellen }`: ein Lesen des eigenen `$state`
     // im Effekt machte ihn von sich selbst abhaengig.
     const gesammelt: Record<string, string> = {};
+    const abgelaufenGesammelt: Record<string, boolean> = {};
     void (async () => {
       const { anhangBlob } = await import('$lib/krypto/anhangHolen');
       for (const a of liste) {
         if (abgebrochen) return;
-        const blob = a.schluessel
-          ? await anhangBlob(a.id, a.schluessel, a.mime ?? 'application/octet-stream', false)
-          : null;
-        if (abgebrochen) return;
-        if (blob) {
-          const url = URL.createObjectURL(blob);
-          erzeugt.push(url);
-          gesammelt[a.id] = url;
-        } else {
+        // Ein Ablauf-Wurf ist hier kein Abbruch des
+        // Laufs: die uebrigen Anhaenge der Nachricht laden weiter, und der
+        // abgelaufene bekommt unten seine eigene Zeile. Auch jeder andere
+        // Fehler bleibt beim neutralen „nicht verfügbar“.
+        try {
+          const blob = a.schluessel
+            ? await anhangBlob(a.id, a.schluessel, a.mime ?? 'application/octet-stream', false)
+            : null;
+          if (abgebrochen) return;
+          if (blob) {
+            const url = URL.createObjectURL(blob);
+            erzeugt.push(url);
+            gesammelt[a.id] = url;
+          } else {
+            gesammelt[a.id] = '';
+          }
+        } catch (fehler) {
           gesammelt[a.id] = '';
+          if (istAnhangAbgelaufenFehler(fehler)) abgelaufenGesammelt[a.id] = true;
         }
         quellen = { ...gesammelt };
+        abgelaufen = { ...abgelaufenGesammelt };
       }
     })();
     // Beim Verlassen freigeben — anders als bei den Bildern gibt es hier
@@ -87,6 +159,7 @@
       abgebrochen = true;
       for (const url of erzeugt) URL.revokeObjectURL(url);
       quellen = {};
+      abgelaufen = {};
     };
   });
 
@@ -101,6 +174,210 @@
   function openLightbox(a: Attachment) {
     lightboxAttachment = a;
     lightboxOpen = true;
+  }
+
+  /** Video-Betrachter (WhatsApp/Telegram-Stil): schwarz, kein nativer
+   *  Media-Player — Tippen startet/pausiert, schmale Spur unten, und
+   *  Wischen (bzw. die Pfeile) blättert durch die Videos DES CHATS. Die
+   *  Galerie wird beim Öffnen aus den sichtbaren Thumbnails gesammelt. */
+  let vollbildUrl = $state<string | null>(null);
+  let galerie: string[] = $state([]);
+  let galerieIndex = $state(0);
+  /** Zwei dauerhafte Spieler-Slots (WhatsApp-Trick): das SICHTBARE Video
+   *  wird NIE umgeschrieben — der Quellwechsel passiert nur im verdeckten
+   *  Slot, und der wird erst sichtbar, wenn sein Frame dekodiert ist. Der
+   *  Nachbar wird nach jedem Wechsel vorgeladen, damit Wisch-Wechsel
+   *  ohne Lade-Loch laufen. Ein src-Wechsel auf der sichtbaren Fläche ist
+   *  die Stelle, an der der WebView sein graues Kästchen malt. */
+  let urlA = $state<string | null>(null);
+  let urlB = $state<string | null>(null);
+  let bereitA = $state(false);
+  let bereitB = $state(false);
+  let aktiverSlot = $state<'A' | 'B'>('A');
+  let spielerA: HTMLVideoElement | undefined = $state();
+  let spielerB: HTMLVideoElement | undefined = $state();
+  let spielerLaeuft = $state(false);
+  let spielerPosition = $state(0);
+  let spielerDauer = $state(0);
+  /** Nutzer hat per Knopf pausiert — der Auto-Start nach einem Slot-Wechsel
+   *  darf das nicht überstimmen. */
+  let nutzerPausiert = false;
+  /** Bedienelemente (✕, Zähler, Pfeile, Mittel-Knopf, Spur): 2 s ohne
+   *  Interaktion → ausblenden (nur bei laufendem Video). Ein Tipp auf den
+   *  Bildschirm SCHALTET: sichtbar → weg, weg → zurück. */
+  let steuerungSichtbar = $state(true);
+  let steuerungWache: ReturnType<typeof setTimeout> | undefined;
+
+  function aktivesVideo(): HTMLVideoElement | undefined {
+    return aktiverSlot === 'A' ? spielerA : spielerB;
+  }
+
+  function aktiverBereit(): boolean {
+    return aktiverSlot === 'A' ? bereitA : bereitB;
+  }
+
+  function steuerungZeigen(): void {
+    steuerungSichtbar = true;
+    clearTimeout(steuerungWache);
+    if (!aktivesVideo()?.paused) {
+      steuerungWache = setTimeout(() => (steuerungSichtbar = false), 2000);
+    }
+  }
+
+  function steuerungUmschalten(): void {
+    if (steuerungSichtbar) {
+      clearTimeout(steuerungWache);
+      steuerungSichtbar = false;
+    } else {
+      steuerungZeigen();
+    }
+  }
+  let wischX: number | null = null;
+  /** Übergangs-Animation beim Blättern: der frisch aktivierte Slot schiebt
+   *  sich aus der Wischrichtung über Schwarz (250 ms). Ende durch
+   *  animationend, mit 400-ms-Fallback, falls das Ereignis verpasst wird. */
+  let slideRichtung = $state<1 | -1>(1);
+  let slideLaeuft = $state(false);
+  let slideWache: ReturnType<typeof setTimeout> | undefined;
+  /** Serialize Slots: zwei rasche Wische dürfen sich nicht in die Lade-
+   *  Wartephase des anderen fahren. */
+  let wechselLaeuft = false;
+
+  function warteAufFrame(el: HTMLVideoElement, frist = 1500): Promise<void> {
+    if (el.readyState >= 2) return Promise.resolve();
+    return new Promise((resolve) => {
+      el.onloadeddata = () => resolve();
+      setTimeout(resolve, frist);
+    });
+  }
+
+  /** Lädt die Nachbar-URL in den FREIEN Slot (verdeckt — dort kann nie
+   *  etwas Graues sichtbar werden), damit der nächste Wechsel instant ist. */
+  function nachladen(richtung: number): void {
+    const ziel = galerieIndex + richtung;
+    if (ziel < 0 || ziel >= galerie.length) return;
+    if (aktiverSlot === 'A') {
+      if (urlB !== galerie[ziel]) {
+        urlB = galerie[ziel];
+        bereitB = false;
+      }
+    } else if (urlA !== galerie[ziel]) {
+      urlA = galerie[ziel];
+      bereitA = false;
+    }
+  }
+
+  function oeffneVollbild(url: string): void {
+    const nacktesVideo = url.split('#')[0];
+    galerie = [
+      ...new Set(
+        [...document.querySelectorAll('[data-testid="attachment-video-thumb"] video')]
+          .map((v) => v.getAttribute('src')?.split('#')[0] ?? '')
+          .filter((s) => s !== '')
+      )
+    ];
+    galerieIndex = Math.max(0, galerie.indexOf(nacktesVideo));
+    urlA = nacktesVideo;
+    bereitA = false;
+    urlB = null;
+    bereitB = false;
+    aktiverSlot = 'A';
+    nutzerPausiert = false;
+    vollbildUrl = nacktesVideo;
+    slideLaeuft = false;
+    clearTimeout(slideWache);
+    steuerungZeigen();
+  }
+
+  async function galerieWechsel(richtung: number): Promise<void> {
+    const ziel = galerieIndex + richtung;
+    if (ziel < 0 || ziel >= galerie.length || wechselLaeuft) return;
+    wechselLaeuft = true;
+    try {
+      const neueUrl = galerie[ziel];
+      const naechster: 'A' | 'B' = aktiverSlot === 'A' ? 'B' : 'A';
+      const el = naechster === 'A' ? spielerA : spielerB;
+      if (!el) return;
+      slideRichtung = richtung >= 0 ? 1 : -1;
+      steuerungZeigen();
+      // Slot ggf. laden/awaiten — passiert VERDECKT, das Sichtbare steht
+      // einfach noch auf dem alten (bereits dekodierten) Bild.
+      const slotUrl = naechster === 'A' ? urlA : urlB;
+      const slotBereit = naechster === 'A' ? bereitA : bereitB;
+      if (slotUrl !== neueUrl || !slotBereit) {
+        if (naechster === 'A') {
+          urlA = neueUrl;
+          bereitA = false;
+        } else {
+          urlB = neueUrl;
+          bereitB = false;
+        }
+        await warteAufFrame(el);
+      }
+      aktivesVideo()?.pause();
+      nutzerPausiert = false;
+      aktiverSlot = naechster;
+      galerieIndex = ziel;
+      spielerPosition = 0;
+      spielerDauer = el.duration || 0;
+      slideLaeuft = true;
+      clearTimeout(slideWache);
+      slideWache = setTimeout(() => (slideLaeuft = false), 400);
+      void el.play().catch(() => {});
+      nachladen(1);
+    } finally {
+      wechselLaeuft = false;
+    }
+  }
+
+  function spielerUmschalten(): void {
+    const el = aktivesVideo();
+    if (!el) return;
+    if (el.paused) {
+      nutzerPausiert = false;
+      void el.play().catch(() => {});
+    } else {
+      nutzerPausiert = true;
+      el.pause();
+    }
+    steuerungZeigen();
+  }
+
+  /** Sobald der AKTIVE Slot seinen ersten Frame hat: abspielen (außer der
+   *  Nutzer hat bewusst pausiert) und den Nachbarn vorladen. */
+  $effect(() => {
+    const bereit = aktiverBereit();
+    if (!bereit || nutzerPausiert) return;
+    const el = aktivesVideo();
+    if (el && el.paused) void el.play().catch(() => {});
+    spielerDauer = el?.duration || 0;
+    nachladen(1);
+  });
+
+  function wischStart(e: TouchEvent): void {
+    wischX = e.touches[0]?.clientX ?? null;
+  }
+
+  function wischEnde(e: TouchEvent): void {
+    const start = wischX;
+    wischX = null;
+    if (start === null) return;
+    // Auf der Spurliste wischen heißt spülen, nicht blättern.
+    if ((e.target as Element)?.closest('[data-testid="attachment-fullscreen-controls"]')) return;
+    const dx = (e.changedTouches[0]?.clientX ?? start) - start;
+    if (dx < -60) galerieWechsel(1);
+    else if (dx > 60) galerieWechsel(-1);
+  }
+
+  function taste(e: KeyboardEvent): void {
+    if (!vollbildUrl) return;
+    if (e.key === 'ArrowRight') galerieWechsel(1);
+    else if (e.key === 'ArrowLeft') galerieWechsel(-1);
+    else if (e.key === 'Escape') schliesseVollbild();
+  }
+
+  function schliesseVollbild(): void {
+    vollbildUrl = null;
   }
 
   /** Ersatz, wenn ein Anhang keinen Dateinamen traegt.
@@ -170,25 +447,49 @@
              mit dem Inhalt) loest sich 100 % nicht auf — Video und Audio
              schrumpften auf Mindestbreite zusammen. `w-96 max-w-full` ist
              ueberall die gleiche, definite Breite. -->
-        <video
-          src={quelleVideo ?? undefined}
-          controls
-          preload="metadata"
-          class="block max-h-96 w-96 max-w-full rounded-xl border border-border"
-          style={reserveBox(a) || 'aspect-ratio:16 / 9;'}
-          data-testid="attachment-video"
+        <!-- Messenger-Stil: nur VORSCHAUBILD + Play-Knopf in der Bubble —
+             die permanent sichtbare Steuerleiste war unruhig. Klick öffnet
+             den echten Player im Vollbild-Overlay. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div
+          class="relative w-72 max-w-full cursor-pointer overflow-hidden rounded-xl border border-border"
+          style="aspect-ratio: 16 / 9;"
+          onclick={() => quelleVideo && oeffneVollbild(quelleVideo)}
+          data-testid="attachment-video-thumb"
         >
-          <track kind="captions" />
-        </video>
+          {#if quelleVideo}
+            <!-- Mit Vorschaubild: ein <img> steht sofort und überlebt das
+                 Scroll-Remount der Virtualisierung. Ohne Vorschaubild (alte
+                 Anhänge): das Video-Element — unsichtbar bis der erste
+                 gezeichnete Frame da ist (sonst graues Kästchen). -->
+            {#if videoPoster[a.id]}
+              <img
+                src={videoPoster[a.id]}
+                alt=""
+                class="pointer-events-none absolute inset-0 size-full object-cover"
+              />
+            {:else}
+              <video
+                src={`${quelleVideo}#t=0.1`}
+                preload="metadata"
+                playsinline
+                class="pointer-events-none block size-full object-cover opacity-0 transition-opacity"
+                onloadeddata={(e) => (e.currentTarget.style.opacity = '1')}
+              >
+                <track kind="captions" />
+              </video>
+            {/if}
+          {:else}
+            <div class="block aspect-video w-72 bg-black/40"></div>
+          {/if}
+          <span class="absolute inset-0 flex items-center justify-center">
+            <span class="bg-black/60 flex size-14 items-center justify-center rounded-full border-2 border-white/80">
+              <PlayIcon class="size-7 text-white" />
+            </span>
+          </span>
+        </div>
       {:else if k === 'audio'}
-        {@const quelleAudio = quelle(a)}
-        <audio
-          src={quelleAudio ?? undefined}
-          controls
-          preload="metadata"
-          class="block w-96 max-w-full"
-          data-testid="attachment-audio"
-        ></audio>
+        <AudioNachricht src={quelle(a) ?? undefined} bekannteDauer={a.dauerSekunden} />
       {:else}
         {@const quelleDatei = quelle(a)}
         <a
@@ -211,7 +512,11 @@
               {a.filename ?? m.message_attachments_unnamed()}
             </p>
             <p class="text-text-muted text-xs">
-              {quelleDatei === '' ? m.message_attachments_unavailable() : formatBytes(a.size)}
+              {abgelaufen[a.id]
+                ? m.message_attachments_abgelaufen()
+                : quelleDatei === ''
+                  ? m.message_attachments_unavailable()
+                  : formatBytes(a.size)}
             </p>
           </div>
           <DownloadIcon class="text-text-muted size-4 shrink-0" />
@@ -231,3 +536,225 @@
     anhang={lightboxAttachment.verschluesselt ? lightboxAttachment : null}
   />
 {/if}
+
+{#if vollbildUrl}
+  <!-- Video-Betrachter (WhatsApp/Telegram-Stil): schwarz, ohne native
+       Steuerleiste. Tippen aufs Bild schaltet die Steuerung um (2 s Ruhe
+       blendet sie aus — nur bei laufendem Video), Start/Pause nur über den
+       Mittel-Knopf, Wischen/Pfeile blättern. Schließen: ✕ oder Esc.
+       IM PORTAL: unter dem Swipe-Gesten-Vorfahren (transform!) würde sonst
+       selbst `fixed inset-0` eingeklemmt. -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <Portal>
+    <div
+      class="fixed inset-0 z-50 flex flex-col bg-black"
+      onclick={(e) => {
+        e.stopPropagation();
+        steuerungUmschalten();
+      }}
+      ontouchstart={wischStart}
+      ontouchend={wischEnde}
+      data-testid="attachment-video-fullscreen"
+    >
+      <!-- Kopf mit Verlauf: schließen + Galerie-Zähler -->
+      <div
+        class="relative z-10 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent p-4 pb-8 transition-opacity duration-300 {steuerungSichtbar
+          ? 'opacity-100'
+          : 'pointer-events-none opacity-0'}"
+        data-testid="attachment-fullscreen-header"
+      >
+      <button
+        type="button"
+        class="flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-transform active:scale-90"
+        onclick={schliesseVollbild}
+        aria-label={m.attachment_preview_strip_remove_label()}
+        data-testid="attachment-video-fullscreen-close"
+      >
+        <XIcon class="size-5" />
+      </button>
+      {#if galerie.length > 1}
+        <span
+          class="rounded-full border border-white/10 bg-black/40 px-3 py-1 text-xs text-white/90 tabular-nums backdrop-blur-md"
+          data-testid="attachment-fullscreen-counter"
+        >
+          {galerieIndex + 1} / {galerie.length}
+        </span>
+      {/if}
+    </div>
+
+    <!-- Video mittig — ZWEI dauerhafte Slots: das sichtbare Video wird nie
+         umgeschrieben (dort malt der WebView sonst sein graues Kästchen),
+         geladen wird immer verdeckt im anderen Slot, der nach Frame-Ready
+         übernimmt. Bewusst KEIN Tap-Toggle auf der Fläche — Start/Pause
+         läuft ausschließlich über den Knopf in der Mitte. -->
+    <div class="relative flex flex-1 items-center justify-center overflow-hidden">
+      <div
+        class="relative flex size-full items-center justify-center {slideLaeuft
+          ? slideRichtung === 1
+            ? 'video-slide-von-rechts'
+            : 'video-slide-von-links'
+          : ''}"
+        onanimationend={() => (slideLaeuft = false)}
+      >
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          bind:this={spielerA}
+          src={urlA ?? undefined}
+          playsinline
+          preload="auto"
+          class="absolute inset-0 size-full object-contain {aktiverSlot === 'A' && bereitA
+            ? 'opacity-100'
+            : 'opacity-0'}"
+          onloadeddata={() => {
+            bereitA = true;
+            if (aktiverSlot === 'A') spielerDauer = spielerA?.duration || 0;
+          }}
+          onplay={() => {
+            if (aktiverSlot === 'A') spielerLaeuft = true;
+          }}
+          onpause={() => {
+            if (aktiverSlot === 'A') spielerLaeuft = false;
+          }}
+          ontimeupdate={() => {
+            if (aktiverSlot === 'A') spielerPosition = spielerA?.currentTime ?? 0;
+          }}
+        ></video>
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          bind:this={spielerB}
+          src={urlB ?? undefined}
+          playsinline
+          preload="auto"
+          class="absolute inset-0 size-full object-contain {aktiverSlot === 'B' && bereitB
+            ? 'opacity-100'
+            : 'opacity-0'}"
+          onloadeddata={() => {
+            bereitB = true;
+            if (aktiverSlot === 'B') spielerDauer = spielerB?.duration || 0;
+          }}
+          onplay={() => {
+            if (aktiverSlot === 'B') spielerLaeuft = true;
+          }}
+          onpause={() => {
+            if (aktiverSlot === 'B') spielerLaeuft = false;
+          }}
+          ontimeupdate={() => {
+            if (aktiverSlot === 'B') spielerPosition = spielerB?.currentTime ?? 0;
+          }}
+        ></video>
+      </div>
+      {#if !aktiverBereit()}
+        <LoaderCircleIcon class="absolute size-9 animate-spin text-white/80" />
+      {:else}
+        <!-- Der Mittel-Knopf ist der EINZIGE Play/Pause-Schalter. -->
+        <button
+          type="button"
+          class="absolute flex size-16 items-center justify-center rounded-full border-2 border-white/80 bg-black/60 backdrop-blur-sm transition-all duration-300 active:scale-90 {steuerungSichtbar
+            ? 'opacity-100'
+            : 'pointer-events-none opacity-0'}"
+          onclick={(e) => {
+            e.stopPropagation();
+            spielerUmschalten();
+            steuerungZeigen();
+          }}
+          aria-label={spielerLaeuft ? m.audio_player_pause() : m.audio_player_play()}
+          data-testid="attachment-fullscreen-toggle"
+        >
+          {#if spielerLaeuft}
+            <PauseIcon class="size-8 text-white" />
+          {:else}
+            <PlayIcon class="size-8 text-white" />
+          {/if}
+        </button>
+      {/if}
+      {#if galerieIndex > 0}
+        <button
+          type="button"
+          class="absolute left-2 flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-all duration-300 {steuerungSichtbar
+            ? 'opacity-100'
+            : 'pointer-events-none opacity-0'}"
+          onclick={(e) => {
+            e.stopPropagation();
+            galerieWechsel(-1);
+          }}
+          aria-label="Vorheriges Video"
+          data-testid="attachment-fullscreen-prev"
+        >
+          <ChevronLeftIcon class="size-6" />
+        </button>
+      {/if}
+      {#if galerieIndex < galerie.length - 1}
+        <button
+          type="button"
+          class="absolute right-2 flex size-11 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-md transition-all duration-300 {steuerungSichtbar
+            ? 'opacity-100'
+            : 'pointer-events-none opacity-0'}"
+          onclick={(e) => {
+            e.stopPropagation();
+            galerieWechsel(1);
+          }}
+          aria-label="Nächstes Video"
+          data-testid="attachment-fullscreen-next"
+        >
+          <ChevronRightIcon class="size-6" />
+        </button>
+      {/if}
+    </div>
+
+    <!-- Schmale Spurliste unten mit Verlauf -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="relative z-10 flex items-center gap-3 bg-gradient-to-t from-black/80 to-transparent px-4 pb-5 pt-8 text-xs text-white/80 tabular-nums transition-opacity duration-300 {steuerungSichtbar
+        ? 'opacity-100'
+        : 'pointer-events-none opacity-0'}"
+      data-testid="attachment-fullscreen-controls"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <span>{formatiereDauer(spielerPosition)}</span>
+      <input
+        type="range"
+        min="0"
+        max={spielerDauer || 0.1}
+        step="0.1"
+        value={spielerPosition}
+          oninput={(e) => {
+            const el = aktivesVideo();
+            if (el) el.currentTime = Number(e.currentTarget.value);
+          }}
+        class="h-1.5 flex-1 cursor-pointer accent-white/90"
+        aria-label="Wiedergabeposition"
+        data-testid="attachment-fullscreen-seek"
+      />
+      <span>{formatiereDauer(spielerDauer)}</span>
+    </div>
+  </div>
+</Portal>
+{/if}
+<svelte:window onkeydown={taste} />
+
+<style>
+  /* Galerie-Übergang: das neue Video rutscht aus der Wischrichtung über
+     das abgedunkelte Standbild des bisherigen (Telegram-Feel). */
+  .video-slide-von-rechts {
+    animation: slide-von-rechts 250ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .video-slide-von-links {
+    animation: slide-von-links 250ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @keyframes slide-von-rechts {
+    from {
+      transform: translateX(60%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes slide-von-links {
+    from {
+      transform: translateX(-60%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+</style>

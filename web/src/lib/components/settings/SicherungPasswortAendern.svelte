@@ -18,6 +18,7 @@
   import { wickleSchluesselDatei, öffneSchluesselDatei } from '$lib/sicherung/krypto';
   import { SCHLUESSEL_DATEI } from '$lib/sicherung/spiegel';
   import { adapterLieferant, dekAusZwischenlager, dekZwischenlagern } from '$lib/sicherung/geraete';
+  import { neueUuid } from '$lib/utils/uuid';
 
   let altPasswort = $state('');
   let passwort = $state('');
@@ -54,7 +55,7 @@
       await adapter.schreibe(SCHLUESSEL_DATEI, await wickleSchluesselDatei(dek, passwort));
       // Gerät frisch bestücken, falls das Zwischenlager leer war.
       const gelagert = await dekAusZwischenlager();
-      await dekZwischenlagern(dek, gelagert?.kuerzel ?? crypto.randomUUID());
+      await dekZwischenlagern(dek, gelagert?.kuerzel ?? neueUuid());
       meldung = m.sicherung_meldung_passwort_geaendert();
       altPasswort = '';
       passwort = '';

@@ -279,6 +279,32 @@ class MessageStore {
     this.byChannel = { ...this.byChannel, [evt.channel_id]: next };
   }
 
+  /** Setzt die Reaktions-Liste einer Nachricht hart — fuer Reaktions-
+   *  Umschlaege verschluesselter Nachrichten (P1.5): dort gibt es kein
+   *  `reaction_add`-Ereignis mit Delta, der Verlauf liefert den fertigen
+   *  Stand (`verlaufReaktionAnwenden`). Nicht geladen = nichts zu tun. */
+  setReactions(channelId: string, id: string, reactions: ReactionAggregate[]): void {
+    const list = this.byChannel[channelId];
+    if (!list) return;
+    const idx = list.findIndex((m) => m.id === id);
+    if (idx < 0) return;
+    const next = list.slice();
+    next[idx] = { ...list[idx], reactions };
+    this.byChannel = { ...this.byChannel, [channelId]: next };
+  }
+
+  /** E2EE-Bearbeitungs-Umschlag angewendet (P1.5 Teil 2): Text + edited_at
+   *  auf der geladenen Nachricht ersetzen (harter Ersatz statt Delta). */
+  bearbeiteInhalt(channelId: string, id: string, inhalt: string, bearbeitetAm: string): void {
+    const list = this.byChannel[channelId];
+    if (!list) return;
+    const idx = list.findIndex((m) => m.id === id);
+    if (idx < 0) return;
+    const next = list.slice();
+    next[idx] = { ...next[idx], content: inhalt, edited_at: bearbeitetAm };
+    this.byChannel = { ...this.byChannel, [channelId]: next };
+  }
+
   /** Pin-Liste setzen (REST-Antwort beim Kanalöffnen). */
   setPins(channelId: string, pins: Message[]): void {
     this.pinsByChannel = { ...this.pinsByChannel, [channelId]: pins };

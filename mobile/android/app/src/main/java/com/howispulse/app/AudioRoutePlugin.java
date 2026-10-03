@@ -39,6 +39,7 @@ public class AudioRoutePlugin extends Plugin {
         if ("speaker".equals(route)) {
             mode = SpeakerphoneRouter.ROUTE_SPEAKER;
         } else if ("earpiece".equals(route)) {
+            // Hörmuschel-Modus zurück (2026-09-08): der Nutzer soll wählen können.
             mode = SpeakerphoneRouter.ROUTE_EARPIECE;
         } else {
             mode = SpeakerphoneRouter.ROUTE_AUTO;

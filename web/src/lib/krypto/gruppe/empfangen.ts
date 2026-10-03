@@ -28,9 +28,9 @@
  * Schluessel nach, und die liegengebliebene Nachricht laesst sich dann
  * oeffnen. Ohne die Reihenfolge in Schritt 8 waere sie dauerhaft verloren.
  */
-import type { Message } from '../../api/types';
 import type { PostfachZustellung } from '../../api/postfach';
-import { leseNachrichtNutzlast } from '../nachrichtNutzlast';
+import type { ZustellungOffenErgebnis } from '../zustellungOeffnen';
+import { leseNachrichtNutzlast, rahmenAusNutzlast } from '../nachrichtNutzlast';
 import { baueEmpfangeneNachricht } from '../empfangeneNachricht';
 import { ART_GRUPPENNACHRICHT, leseGruppenhuelle, leseVerteilNutzlast } from './gruppenNutzlast';
 import {
@@ -139,12 +139,21 @@ export async function verteilschluesselAufnehmen(
  * Megolm-Sitzung authentisiert. Erst der fehlende Wert (Sender vor der
  * Aenderung) faellt auf die Metadaten zurueck — deshalb bleibt die
  * `absender_user_id === null`-Sperre bestehen.
+ *
+ * **Aktions-Frames (Reaktion, Bearbeitung, Loeschung) reisen hier im selben
+ * Megolm-Geheimtext wie Nachrichten** — sie werden durch denselben
+ * Gruppen-Sendeweg (`gruppe/frameSenden.ts`) an alle Mitglieder-Geraete
+ * verteilt. Die Erkennung teilt dieser Weg mit dem Olm-Weg
+ * (`rahmenAusNutzlast`); das Ergebnis in der Form des Abholzyklus liefert
+ * diese Funktion direkt zurueck, der Aufrufer (`zustellungOeffnen.ts`)
+ * muss darin keinen Unterschied mehr sehen.
  */
 export async function oeffneGruppennachricht(
   z: PostfachZustellung
-): Promise<Message | 'verworfen' | null> {
+): Promise<ZustellungOffenErgebnis | null> {
   const huelle = leseGruppenhuelle(z.daten);
   if (!huelle || z.absender_user_id === null) return null;
+  const autorId = z.absender_user_id;
 
   const empfang = await gruppenempfangLaden(
     z.channel_id,
@@ -174,7 +183,7 @@ export async function oeffneGruppennachricht(
       zaehler: geoeffnet.zaehler(),
       wasserstand: stand?.zaehler
     });
-    return 'verworfen';
+    return { art: 'ohneAblage', id: z.id };
   }
 
   const gelesen = leseNachrichtNutzlast(geoeffnet.klartext());
@@ -189,7 +198,7 @@ export async function oeffneGruppennachricht(
       nutzlast: gelesen.absenderGeraet,
       zustellung: z.absender_device_pubkey
     });
-    return 'verworfen';
+    return { art: 'ohneAblage', id: z.id };
   }
   if (
     gelesen.absenderNutzer !== null &&
@@ -207,7 +216,7 @@ export async function oeffneGruppennachricht(
       nutzlast: gelesen.absenderNutzer,
       zustellung: z.absender_user_id
     });
-    return 'verworfen';
+    return { art: 'ohneAblage', id: z.id };
   }
 
   // Sichern VOR der Quittung — der Ratchet ist weitergedreht. Der
@@ -229,6 +238,7 @@ export async function oeffneGruppennachricht(
   // `../empfangeneNachricht.ts` — dort stehen auch die Gruende fuer die
   // ID-Wahl und die beiden bedingten Felder. Die Zuschreibung kommt aus der
   // authentisierten Nutzlast, wo sie vorhanden ist (s. oben).
-  const absenderUserId = gelesen.absenderNutzer ?? z.absender_user_id;
-  return baueEmpfangeneNachricht(z, absenderUserId, gelesen);
-}
+  const absenderUserId = gelesen.absenderNutzer ?? autorId;
+  const rahmen = rahmenAusNutzlast(gelesen, z.id, z.channel_id, absenderUserId);
+  if (rahmen) return rahmen;
+  return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, absenderUserId, gelesen) };}

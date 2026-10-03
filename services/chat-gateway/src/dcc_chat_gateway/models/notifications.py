@@ -59,4 +59,32 @@ class WebPushSubscription(Base):
     )
 
 
-__all__ = ["WebPushSubscription"]
+class FcmToken(Base):
+    """Ein FCM-Registrierungstoken eines Android-Geräts (Übergabe P0.1).
+
+    Schlüssel ``(user_id, geraet_id)``: ein Konto kann mehrere Android-Geräte
+    führen, jedes mit eigenem Token; eine erneute App-Anmeldung upsertet die
+    Zeile ihres Geräts, statt Zeilen zu vervielfachen. ``token`` ist zusätzlich
+    UNIQUE — ein physischer FCM-Token gehört zu genau einem Konto; übernimmt
+    ein anderes Konto den Token (Neuanmeldung auf dem Gerät), verliert das
+    alte seine Zeile (die Route räumt vorher).
+
+    ``geraet_id`` ist die selbst gewählte, gerätelokale Kennung des Klienten
+    (persistierte UUID) — kein Fremdschlüssel, andere Dienste kennen sie nicht.
+
+    Kein FK auf ``user_id`` — wie bei ``WebPushSubscription`` gehört das
+    Konto einem anderen Dienst; die Kontolöschung räumt hier über
+    ``user_purge.py`` ab.
+    """
+
+    __tablename__ = "fcm_tokens"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    geraet_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    token: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    erstellt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+__all__ = ["FcmToken", "WebPushSubscription"]

@@ -48,6 +48,7 @@ import { zuSatz, sortierSchluessel, satzZuNachricht, type SatzAlsNachricht } fro
 import {
   verlaufPutSaetze,
   verlaufMarkiereGeloescht,
+  verlaufSatzUmschreiben,
   verlaufLesenSaetze,
   verlaufSatzVorhanden,
   verlaufSatzAnhangIds,
@@ -60,6 +61,11 @@ import { dauerhaftenSpeicherAnfordern } from '$lib/identity/dauerhafterSpeicher'
 import { verlaufZustand } from './zustand.svelte';
 import { zusammenfuegen, type Mergeposten } from './zusammenfuegen';
 import { VerlaufSpeichernFehlgeschlagen, pruefeSpeicherErgebnis } from './speichernPflicht';
+import {
+  reaktionAnwenden,
+  reaktionenZuAggregat,
+  type ReaktionsAggregat
+} from '../krypto/reaktionen';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
@@ -280,15 +286,74 @@ export function verlaufLesen(
   const kontoId = aktuellesKonto();
   if (kontoId === null) return Promise.resolve([]);
   return verlaufLesenSaetze(kanalId, opts, kontoId)
-    .then((saetze) => {
-      // Wie beim Speichern: ein geglueckter Lesezugriff entkraeftet einen
+.then((saetze) => {
+      // Wie beim Speichern: ein geglueckter Lesezugriff entkraeft einen
       // gemeldeten Fehler (2026-09-11, s. zustand.svelte.ts::erholt).
       verlaufZustand.erholt();
-      return saetze.map(satzZuNachricht);
-    })
-    .catch((err) => {
+      return saetze.map((satz) => {
+        const nachricht = satzZuNachricht(satz);
+        // Reaktions-Umschlaege (P1.5) liegen als Paare am Satz — hier, mit
+        // dem Konto in der Hand, wird daraus die Anzeige-Form (s.
+        // `SatzAlsNachricht.reactions`). Nur anhaengen, wenn es etwas gibt.
+        const reactions = reaktionenZuAggregat(satz.reaktionen, kontoId);
+        return reactions.length > 0 ? { ...nachricht, reactions } : nachricht;
+      });
+    })    .catch((err) => {
       verlaufZustand.melde(err);
       return [];
+    });
+}
+
+/**
+ * Wendet EINE Reaktion (eigene oder per Umschlag empfangene) auf den Satz
+ * `nachrichtId` an — `nachrichtId` ist die LOKALE ID; eine kanonische ID aus
+ * einem Umschlag loest der Aufrufer vorher auf (`verlaufLokaleIdFuerKryptoId`,
+ * s. `krypto/empfangen.ts`). Gibt die neue Anzeige-Form zurueck, oder `null`,
+ * wenn nichts geschrieben wurde: kein solcher Satz, Grabstein, fremdes
+ * Konto, oder der Umschlag aenderte nichts (doppelt angekommen, s.
+ * `krypto/reaktionen.ts`). Wirft nie — ein Fehlschlag meldet sich bei
+ * `verlaufZustand`, und der Aufrufer laesst die Anzeige, wie sie ist.
+ */
+export function verlaufReaktionAnwenden(
+  kanalId: string,
+  nachrichtId: string,
+  autorId: string,
+  emoji: string,
+  entfernen: boolean
+): Promise<ReaktionsAggregat[] | null> {
+  if (!istLokalerKanal(kanalId)) return Promise.resolve(null);
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) return Promise.resolve(null);
+  return verlaufSatzUmschreiben(sortierSchluessel(kanalId, nachrichtId), kontoId, (satz) => {
+    if (satz.geloescht) return null;
+    const reaktionen = reaktionAnwenden(satz.reaktionen, autorId, emoji, entfernen);
+    return reaktionen === satz.reaktionen ? null : { ...satz, reaktionen };
+  })
+    .then((neu) => (neu ? reaktionenZuAggregat(neu.reaktionen, kontoId) : null))
+    .catch((err) => {
+      verlaufZustand.melde(err);
+      return null;
+    });
+}
+
+export async function verlaufBearbeitungAnwenden(
+  kanalId: string,
+  nachrichtId: string,
+  inhalt: string,
+  bearbeitetAm: string
+): Promise<boolean> {
+  if (!istLokalerKanal(kanalId)) return false;
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) return false;
+  return verlaufSatzUmschreiben(
+    sortierSchluessel(kanalId, nachrichtId),
+    kontoId,
+    (satz) => (satz.geloescht ? null : { ...satz, inhalt, bearbeitetAm })
+  )
+    .then((neu) => neu !== null)
+    .catch((err) => {
+      verlaufZustand.melde(err);
+      return false;
     });
 }
 
@@ -329,7 +394,7 @@ export function verlaufSchonAbgelegt(kanalId: string, nachrichtId: string): Prom
 export function verlaufLokaleIdFuerKryptoId(
   kanalId: string,
   kryptoId: string,
-  autorId: string
+  autorId?: string
 ): Promise<string | null> {
   if (!istLokalerKanal(kanalId)) return Promise.resolve(null);
   const kontoId = aktuellesKonto();

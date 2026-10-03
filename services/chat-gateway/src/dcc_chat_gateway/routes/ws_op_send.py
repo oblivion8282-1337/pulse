@@ -410,4 +410,5 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
                 author_name=user.username,
                 channel_id=cid_int,
                 message_id=persisted.id,
+                manager=manager,
             )

@@ -14,6 +14,7 @@
  */
 import { untrack } from 'svelte';
 import { chatApi } from '$lib/api/chat';
+import { gruppenApi } from '$lib/api/gruppen';
 import { cloudGateway } from '$lib/ws/connection';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
@@ -21,6 +22,7 @@ import { alsGruppeErkennenNachWarten } from '$lib/gruppen/kanalArtWarten';
 import { messages } from '$lib/stores/messages.svelte';
 import { verlaufSpeichern, verlaufLesen, verlaufMergen } from '$lib/verlauf';
 import { readState } from '$lib/stores/readState.svelte';
+import { lesestandAnker } from '$lib/stores/lesestandKern';
 import { m } from '$lib/paraglide/messages.js';
 
 export interface DmRoute {
@@ -83,6 +85,19 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
       if (isStale()) return;
     }
 
+    if (istGruppe) {
+      // Gruppen haben keinen Live-Pfad (kein WS-Ereignis, kein ready-Feld —
+      // s. Store-Kopf `privateGruppen`): der einzige Weg an Membership-
+      // Änderungen ist GET /gruppen, das sonst nur beim Neustart/reconnect
+      // läuft. Beim Öffnen frisch nachhalten — Verlassen/Re-Add werden damit
+      // ohne App-Neustart sichtbar (Testrunde 2026-09-24). Fire-and-forget:
+      // der lokale Bestand zeigt sofort, der Seed korrigiert danach.
+      void gruppenApi
+        .auflisten()
+        .then((gruppen) => privateGruppen.seed(gruppen))
+        .catch(() => {});
+    }
+
     if (!istGruppe && !directMessages.byId[cid]) {
       // We don't know this DM yet — pull it (e.g. deep link before hydrate
       // finished, or the recipient opening a freshly-created DM).
@@ -104,34 +119,46 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
       }
     }
 
-    // Cached from an earlier visit? Then its WS subscription lapsed while we
-    // were away — re-subscribe + gap-fill below instead of re-fetching.
-    const alreadyLoaded = !!messages.loadedChannels[cid];
     // C2: lokal ist ein Vorrat, keine Wahrheit — der lokale Bestand deckt nur
     // ab, was DIESER Klient seit C1 selbst gesehen hat. Der Server wird
-    // deshalb IMMER zusätzlich gefragt, auch wenn lokal schon etwas da war.
+    // deshalb IMMER zusätzlich gefragt. Jedes Öffnen läuft daher durch
+    // dieselbe Sequenz (lokal → zeigen → Server) — ein wiedergeöffneter
+    // Chat sieht aus und lädt damit genauso wie der erste Besuch.
+    //
+    // Wiedereintritt: den Altbestand der letzten Visite vorher leeren. Startet
+    // die virtuelle Liste mit ihm, laufen die setInitial unten mitten in der
+    // Pin-Scroll-Phase über gemessene Items — virtuas Größenmodell verliert
+    // dabei Updates und die Liste bekommt Phantom-Höhe am Ende (die
+    // Scrollbar zeigt „nicht unten", obwohl die letzte Nachricht sichtbar
+    // ist, und man kann in nichts weiterscrollen). Leeren macht den
+    // Wiedereinstieg strukturell zum Erstbesuch: die Liste startet bei 0 und
+    // misst einmalig den finalen Bestand.
+    // untrack, weil das umgebende Effekt-Feuern sonst die eigene Schreiberei
+    // auf `loadedChannels` als Abhängigkeit sieht und sich endlos selbst
+    // stale-abortet (Kanal bliebe leer).
+    untrack(() => {
+      if (messages.loadedChannels[cid]) messages.setInitial(cid, []);
+    });
     let lokal: Awaited<ReturnType<typeof verlaufLesen>> = [];
     try {
-      if (!alreadyLoaded) {
-        lokal = await verlaufLesen(cid, { anzahl: 50 });
+      lokal = await verlaufLesen(cid, { anzahl: 50 });
+      if (isStale()) return;
+      // Sofort zeigen, was lokal liegt — das ist der spürbare Gewinn von
+      // C2 — bevor die Serverantwort überhaupt eingetroffen sein kann.
+      if (lokal.length > 0) messages.setInitial(cid, verlaufMergen(lokal, []));
+      if (istGruppe) {
+        // **Kein Serverabruf.** Der Server sieht in einer privaten Gruppe
+        // nie Klartext (Spec §9) und fuehrt dort keine `messages`-Zeile;
+        // `GET /channels/<id>/messages` antwortete 403. Der lokale Bestand
+        // IST der Verlauf — das ist keine Abkuerzung, sondern die einzige
+        // Kopie. Auch der leere Fall wird gesetzt, damit der Kanal als
+        // geladen gilt und der Nachfass-Effekt oben nicht anspringt.
+        messages.setInitial(cid, verlaufMergen(lokal, []));
+      } else {
+        const history = await chatApi.listMessages(cid, {}, cloudRoute);
         if (isStale()) return;
-        // Sofort zeigen, was lokal liegt — das ist der spürbare Gewinn von
-        // C2 — bevor die Serverantwort überhaupt eingetroffen sein kann.
-        if (lokal.length > 0) messages.setInitial(cid, verlaufMergen(lokal, []));
-        if (istGruppe) {
-          // **Kein Serverabruf.** Der Server sieht in einer privaten Gruppe
-          // nie Klartext (Spec §9) und fuehrt dort keine `messages`-Zeile;
-          // `GET /channels/<id>/messages` antwortete 403. Der lokale Bestand
-          // IST der Verlauf — das ist keine Abkuerzung, sondern die einzige
-          // Kopie. Auch der leere Fall wird gesetzt, damit der Kanal als
-          // geladen gilt und der Nachfass-Effekt oben nicht anspringt.
-          messages.setInitial(cid, verlaufMergen(lokal, []));
-        } else {
-          const history = await chatApi.listMessages(cid, {}, cloudRoute);
-          if (isStale()) return;
-          messages.setInitial(cid, verlaufMergen(lokal, history));
-          void verlaufSpeichern(cid, history);
-        }
+        messages.setInitial(cid, verlaufMergen(lokal, history));
+        void verlaufSpeichern(cid, history);
       }
     } catch (err) {
       if (isStale()) return;
@@ -160,7 +187,9 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     // wiedergeöffneter Kanal deckt das Hochscrollen ab
     // (`verlauf/nachladen.ts`). Dynamischer Import wie in
     // `verlauf/index.ts` — die Sicherung gehört nicht in den Chat-Grundstack.
-    if (!alreadyLoaded) {
+    // In der C2-Sequenz (Wiedereinstieg = Erstbesuch) ist JEDER Öffner ein
+    // Frischlader — der alte alreadyLoaded-Guard ist damit gegenstandslos.
+    {
       void import('$lib/sicherung/andock')
         .then(({ sicherungKanalSeiteLaden }) => sicherungKanalSeiteLaden(cid, 50))
         .then(async (angekommen) => {
@@ -184,7 +213,10 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     // lastPersistedId (der frische Stand) und holt genau das Fenster.
     if (!istGruppe) void cloudGateway.gapFill(cid);
     const loaded = messages.for(cid);
-    const latestSeen = loaded[loaded.length - 1]?.id;
+    // Anker = kanonische Absender-ID bei verschlüsselten Nachrichten (B3,
+    // s. `lesestandKern.lesestandAnker`) — nicht die Zustellungs-ID.
+    const letzte = loaded[loaded.length - 1];
+    const latestSeen = letzte ? lesestandAnker(letzte) : undefined;
     if (latestSeen) readState.recordSeen(cid, latestSeen);
     // Acknowledge up to whatever we know is the latest — including ids
     // bumped in via dm_bump while we weren't subscribed (those don't land
@@ -233,6 +265,17 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     if (prevDM) abonnementAufgeben(prevDM);
   }
 
+  /** Altbestand des Zielkanals vor dem ersten Rendern leeren (derselben
+   *  Grund wie das Leeren in `switchTo` — s. dort). Muss SYNCHRON im Setup
+   *  der Seite laufen: läuft es erst im Effekt, rendert die Liste einen Frame
+   *  lang den Altbestand oben und blitzt, bevor der Sprung nach unten kommt.
+   */
+  function vorbereiten(cid: string) {
+    untrack(() => {
+      if (cid && messages.loadedChannels[cid]) messages.setInitial(cid, []);
+    });
+  }
+
   return {
     get loadError() {
       return loadError;
@@ -240,6 +283,7 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     get resolving() {
       return resolving;
     },
+    vorbereiten,
     switchTo,
     nachladenWennNoetig,
     aufraeumen

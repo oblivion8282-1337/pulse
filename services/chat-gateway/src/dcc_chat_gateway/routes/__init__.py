@@ -16,6 +16,7 @@ from dcc_chat_gateway.routes import (
     admin_diagnose_paket,
     admin_members,
     admin_plugins,
+    anrufe,
     attachments,
     audio_diagnostic,
     bans,
@@ -29,6 +30,8 @@ from dcc_chat_gateway.routes import (
     dms,
     dropbox,
     dropbox_admin,
+    fcm,
+    meine_anhaenge,
     friends,
     geraete,
     guild_icons,
@@ -179,6 +182,9 @@ router.include_router(dropbox.kanal_router)
 # alter Communitys bleiben kalt liegen.
 router.include_router(dropbox_admin.admin_router, dependencies=_dropbox_gate)
 router.include_router(notifications.router)
+router.include_router(fcm.router)
+router.include_router(meine_anhaenge.router)
+router.include_router(anrufe.router)
 router.include_router(presence.router)
 router.include_router(reports.router)
 router.include_router(mod_queue.router)

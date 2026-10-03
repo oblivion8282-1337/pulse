@@ -36,6 +36,22 @@
   // unconditionally in the LiveKit token, so a determined user could
   // still publish video via DevTools. A backend gate via
   // ``can_publish_sources`` is the proper follow-up.
+  // Manueller Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App
+  // (ruft das native AudioRoute-Plugin). Default = Lautsprecher; Tippen
+  // erzwingt Hörmuschel bzw. zurück. Onmount mit dem nativen Stand sync.
+  const showAudioRouteToggle = isCapacitorAndroid();
+  let speakerOn = $state(true);
+  onMount(() => {
+    if (!showAudioRouteToggle) return;
+    void getAudioRoute().then((r) => {
+      speakerOn = r !== 'earpiece';
+    });
+  });
+  function toggleAudioRoute(): void {
+    speakerOn = !speakerOn;
+    void setAudioRoute(speakerOn ? 'speaker' : 'earpiece');
+  }
+
   let canUseCamera = $derived.by(() => {
     const cid = voice.channelId;
     if (!cid) return true;
@@ -81,28 +97,10 @@
     selfContext ? voicePresence.isForceDeafened(selfContext.cid, selfContext.uid) : false
   );
 
-  // Manueller Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App
-  // (ruft das native AudioRoute-Plugin). Im Browser/Electron unsichtbar/No-op.
-  // Default = Lautsprecher (= nativer Auto-Modus); Tippen erzwingt Hörmuschel
-  // bzw. zurück. Onmount mit dem nativen Stand synchronisieren.
-  const showAudioRouteToggle = isCapacitorAndroid();
-  // Bughunt Runde 8: der Toggle kannte nur zwei Zustände — „auto" (der
-  // EINZIGE Modus mit aktiver BT-SCO-Routing-Logik des nativen Routers)
-  // war nach dem ersten Tippen für immer unerreichbar: Im Auto schickte
-  // der zweite Tipp 'speaker' statt 'auto', der Ton sprang vom Car-Kit
-  // auf den Handy-Lautsprecher und blieb dort bis zum App-Neustart.
-  let route = $state<AudioRoute>('auto');
-  onMount(() => {
-    if (!showAudioRouteToggle) return;
-    void getAudioRoute().then((r) => {
-      route = r;
-    });
-  });
-  function toggleAudioRoute(): void {
-    // auto → speaker → earpiece → auto …
-    route = route === 'auto' ? 'speaker' : route === 'speaker' ? 'earpiece' : 'auto';
-    void setAudioRoute(route);
-  }
+  // Manueller Lautsprecher/Hörmuschel-Umschalter ENTFERNT (2026-08-25): der
+  // native Router routet Voice immer auf den Lautsprecher („Anruf auf
+  // Lautsprecher"), ein Hörmuschel-Weg existiert nicht mehr — der Knopf hätte
+  // also nichts mehr umgeschaltet.
 
   // `rounded-full` ausdrücklich: Anruf-Steuerungen sind rund, das ist die
   // Konvention aus jeder Telefon-Oberfläche und keine Abweichung vom Baukasten.
@@ -222,39 +220,34 @@
         </Tooltip.Content>
       </Tooltip.Root>
 
-      <!-- Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App (nativer
-           AudioRoute-Toggle). Behebt den earpiece-Default im Kommunikationsmodus.
-           Bughunt Runde 45: das `&& !viewport.isMobile` war eine
-           Gate-Inversion — ausgerechnet auf Phones (die EINZIGEN mit
-           Hörmuschel) war der Schalter weg, nur Tablets durften umschalten. -->
+      <!-- Watch-Party auf Mobil ausgeblendet — Desktop-Feature (s. Phase 6). -->
       {#if showAudioRouteToggle}
+        <!-- Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App
+             (nativer AudioRoute-Toggle). Behebt den earpiece-Default im
+             Kommunikationsmodus. -->
         <Tooltip.Root>
           <Tooltip.Trigger>
             {#snippet child({ props })}
               <Button
                 {...props}
-                variant={route === 'earpiece' ? 'ghost' : 'default'}
+                variant={!speakerOn ? 'ghost' : 'default'}
                 size="icon-sm"
                 class={btnCls}
                 onclick={toggleAudioRoute}
                 data-testid="voice-audio-route-toggle"
-                aria-label={route === 'auto'
+                aria-label={speakerOn
                   ? m.voice_bar_route_to_speaker()
-                  : route === 'speaker'
-                    ? m.voice_bar_route_to_earpiece()
-                    : m.voice_bar_route_to_speaker()}
+                  : m.voice_bar_route_to_earpiece()}
               >
-                {#if route === 'earpiece'}<EarIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
+                {#if !speakerOn}<EarIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
               </Button>
             {/snippet}
           </Tooltip.Trigger>
           <Tooltip.Content>
-            {route === 'earpiece' ? m.voice_bar_route_earpiece_hint() : m.voice_bar_route_speaker_hint()}
+            {!speakerOn ? m.voice_bar_route_earpiece_hint() : m.voice_bar_route_speaker_hint()}
           </Tooltip.Content>
         </Tooltip.Root>
       {/if}
-
-      <!-- Watch-Party auf Mobil ausgeblendet — Desktop-Feature (s. Phase 6). -->
       {#if voice.channelId && !viewport.isMobile}
         <WatchPartyStartButton channelId={voice.channelId} />
       {/if}

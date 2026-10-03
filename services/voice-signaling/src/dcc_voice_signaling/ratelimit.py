@@ -28,6 +28,7 @@ _RULES: dict[str, tuple[int, float]] = {
     # sich das Service-Geheimnis ungedrosselt raten liess. Key ist die
     # Client-IP (der Aufrufer ist ein anderer Dienst, Loopback-Gate davor).
     "internal_secret": (120, 60.0),
+    "call_token": (10, 60.0),  # Anruf-Token: Klingeln+Annahme je Teilnehmer
 }
 
 

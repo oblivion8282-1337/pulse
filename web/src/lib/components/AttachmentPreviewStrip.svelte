@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
   import type { PendingAttachment } from '$lib/attachments/upload.svelte';
+  import AudioNachricht from './message/AudioNachricht.svelte';
   import FileIcon from '@lucide/svelte/icons/file';
   import XIcon from '@lucide/svelte/icons/x';
   import { m } from '$lib/paraglide/messages.js';
@@ -47,6 +48,72 @@
     data-testid="attachment-preview-strip"
   >
     {#each pending as p (p.localId)}
+      <!-- Sprachnachricht-Entwurf: hoerbar als Player-Zeile statt als stumme
+           Datei-Kachel (Testrunde 2026-09-11) — gleiche Entfernen-/Fortschritts-
+           Logik, nur breiter. -->
+      {#if p.file.type.startsWith('video/')}
+        <!-- Video-Entwurf: kleine Vorschau mit Abspielmöglichkeit. -->
+        <div class="relative flex items-center gap-2">
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <video src={p.previewUrl ?? undefined} class="h-20 rounded-md border border-border" playsinline></video>
+          {#if p.state === 'uploading' || p.state === 'queued'}
+            <div class="absolute inset-x-0 bottom-0 h-1 overflow-hidden rounded-b-lg bg-black/40">
+              <div
+                class="h-full bg-primary transition-[width] duration-150"
+                style="width: {p.progress}%"
+              ></div>
+            </div>
+          {/if}
+          {#if p.state === 'error'}
+            <div
+              class="absolute inset-0 flex items-center justify-center rounded-md bg-destructive/80 text-2xs font-semibold text-white"
+              title={p.errorMessage ?? ''}
+              data-testid="attachment-error"
+            >
+              {m.attachment_preview_strip_error()}
+            </div>
+          {/if}
+          <button
+            type="button"
+            class="bg-bg-panel text-text-muted hover:text-text-bright absolute -right-1.5 -top-1.5 z-10 rounded-full border border-border p-0.5"
+            onclick={() => onRemove(p.localId)}
+            aria-label={m.attachment_preview_strip_remove_label()}
+            data-testid="attachment-remove"
+          >
+            <XIcon class="size-3" />
+          </button>
+        </div>
+      {:else if p.file.type.startsWith('audio/')}
+        <div class="relative flex items-center">
+          <AudioNachricht src={p.previewUrl ?? undefined} bekannteDauer={p.aufnahmeDauer} />
+          {#if p.state === 'uploading' || p.state === 'queued'}
+            <div class="absolute inset-x-0 bottom-0 h-1 overflow-hidden rounded-b-lg bg-black/40">
+              <div
+                class="h-full bg-primary transition-[width] duration-150"
+                style="width: {p.progress}%"
+              ></div>
+            </div>
+          {/if}
+          {#if p.state === 'error'}
+            <div
+              class="absolute inset-0 flex items-center justify-center rounded-md bg-destructive/80 text-2xs font-semibold text-white"
+              title={p.errorMessage ?? ''}
+              data-testid="attachment-error"
+            >
+              {m.attachment_preview_strip_error()}
+            </div>
+          {/if}
+          <button
+            type="button"
+            class="bg-bg-panel text-text-muted hover:text-text-bright absolute -right-1.5 -top-1.5 z-10 rounded-full border border-border p-0.5"
+            onclick={() => onRemove(p.localId)}
+            aria-label={m.attachment_preview_strip_remove_label()}
+            data-testid="attachment-remove"
+          >
+            <XIcon class="size-3" />
+          </button>
+        </div>
+      {:else}
       <div class="relative">
         <div
           class="bg-bg-hover flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border border-border"
@@ -85,6 +152,7 @@
           <XIcon class="size-3" />
         </button>
       </div>
+      {/if}
     {/each}
     {#if fehlerTexte.length > 0}
       <ul

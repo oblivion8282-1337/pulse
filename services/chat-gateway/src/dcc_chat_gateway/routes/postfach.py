@@ -90,12 +90,13 @@ async def postfach_einliefern(
     settings = chat_config.get_settings()
     cid_int = int(body.channel_id)
 
-    # Bughunt Runde 35: die Route hatte keine Bremse — ein Skript konnte die
-    # Empfaenger-Schleife (je Nutzlast bis 64 Pubkeys) dauerhaft am Laufen
-    # halten. 60/Minute je Konto: der Klient liefert in Batches ein, die
-    # batching-Freundliche Grenze bleibt weit unter jedem echten Bedarf.
-    if not ratelimit.check("postfach", user.id):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded")
+    # 0. Drossel (Übergabe P2.12): der verschlüsselte Weg ist DER Standard-Sendeweg
+    # für DMs/Gruppen — derselbe Rahmen wie der Klartext-Sendepfad (10/s, gleiche
+    # Begründung: Hintergrund-Sync ist genau der Verkehr, für den man eine Bremse
+    # will). Ein Gerät, das pusht, schiebt hier Zeilen durch; ohne Grenze wäre
+    # die Postfach-Tabelle der billigste Müllplatz des Dienstes.
+    if not ratelimit.check("message", user.id):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded")
 
     # 1. Obergrenzen ZUERST (Bughunt 2026-08-28 (Missbrauch), FIX 4) —
     # reiner Strukturcheck auf dem Rumpf, keine DB. Vorher liefen
@@ -397,6 +398,7 @@ async def postfach_einliefern(
             recipient_ids=push_empfaenger,
             author_name=user.username,
             channel_id=cid_int,
+            manager=getattr(request.app.state, "connection_manager", None),
         )
 
     return PostfachEinliefernResponse(

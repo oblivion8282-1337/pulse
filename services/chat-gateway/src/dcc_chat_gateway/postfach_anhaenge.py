@@ -27,7 +27,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import exists, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.models import DmAnhangBezug, DmZustellung, MessageAttachment
@@ -105,37 +105,42 @@ async def bezuege_anlegen(
         session.add(DmAnhangBezug(nutzlast_id=nutzlast_id, anhang_id=anhang_id))
 
 
-async def darf_anhang_abrufen(
+async def anhang_abruffrist(
     session: AsyncSession, *, anhang_id: int, device_pubkey: str, user_id: int
-) -> bool:
-    """Hat DIESES Geraet einen Umschlag, der diesen Anhang oeffnen kann?
+) -> datetime | None:
+    """Die spaeteste Frist der Zustellungen DIESES Geraets zu diesem Anhang.
 
-    Fail-closed: nur eine noch offene Zustellung an genau dieses Geraet UND
-    dieses Konto (zwei unabhaengige Bedingungen, wie beim Abholen und
-    Quittieren) auf eine Nutzlast, die den Anhang traegt, gibt das Recht.
-    Wer nur im selben Kanal sitzt, bekommt nichts — der Dateischluessel
-    steckt im Umschlag, und wer keinen hat, koennte mit den Bytes ohnehin
-    nichts anfangen.
+    Fail-closed wie zuvor: nur eine noch
+    nicht gefegte Zustellung an genau dieses Geraet UND dieses Konto
+    (zwei unabhaengige Bedingungen, wie beim Abholen und Quittieren) auf
+    eine Nutzlast, die den Anhang traegt, gibt das Recht. Wer nur im
+    selben Kanal sitzt, bekommt nichts — der Dateischluessel steckt im
+    Umschlag, und wer keinen hat, koennte mit den Bytes ohnehin nichts
+    anfangen.
+
+    Statt eines Ja/Nein liefert sie die Frist gleich mit: die Route
+    (``routes/postfach_anhaenge.py``) meldet einen ABGELAUFENEN Anhang
+    mit 410 ``anhang_abgelaufen``, statt ihn wie jede fremde Kennung mit
+    404 zu verneinen. ``None`` heisst: kein Recht.
 
     Dass das Recht mit der Zustellung endet, ist Absicht und hat eine Folge
     fuer den Klienten: **er muss den Anhang holen, BEVOR er quittiert.**
     Nach der Quittung faellt die Nutzlast, und mit ihr der Anhang selbst.
     """
-    # Ueber die Zustellung, nicht ueber die Nutzlast: eine Zustellung kann
-    # ohne ihre Nutzlast nicht existieren (Fremdschluessel mit Kaskade), der
-    # Umweg ueber ``DmNutzlast`` waere eine dritte Tabelle ohne Aussage.
-    return (
+    fristen = (
         await session.execute(
-            select(
-                exists().where(
-                    DmAnhangBezug.anhang_id == anhang_id,
-                    DmZustellung.nutzlast_id == DmAnhangBezug.nutzlast_id,
-                    DmZustellung.empfaenger_device_pubkey == device_pubkey,
-                    DmZustellung.empfaenger_user_id == user_id,
-                )
+            select(DmZustellung.verfaellt_am)
+            .join(DmAnhangBezug, DmAnhangBezug.nutzlast_id == DmZustellung.nutzlast_id)
+            .where(
+                DmAnhangBezug.anhang_id == anhang_id,
+                DmZustellung.empfaenger_device_pubkey == device_pubkey,
+                DmZustellung.empfaenger_user_id == user_id,
             )
         )
-    ).scalar_one()
+    ).scalars().all()
+    # Das Günstigste: eine noch gültige Zustellung unter mehreren (der
+    # Anhang kann in einem zweiten Umschlag erneut gekommen sein) trägt.
+    return max(fristen) if fristen else None
 
 
-__all__ = ["binde_anhaenge", "bezuege_anlegen", "darf_anhang_abrufen"]
+__all__ = ["anhang_abruffrist", "binde_anhaenge", "bezuege_anlegen"]

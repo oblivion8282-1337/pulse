@@ -5,6 +5,7 @@ chat-gateway (voice-signaling does not own the auth DB)."""
 from __future__ import annotations
 
 import asyncio
+import secrets
 from datetime import timedelta
 from typing import Annotated
 
@@ -138,7 +139,12 @@ async def issue_token(
         can_subscribe=True,
         can_publish_data=True,
     )
-    identity = f"user-{user.id}"
+    # Pro Join eine eigene Teilnehmer-Identität (`user-<id>~<zufall>`): LiveKit
+    # ersetzt bei gleicher Identität die alte Verbindung — derselbe Account an
+    # zweitem Gerät (PC + Handy) flog beim Beitreten immer zuerst raus. Der
+    # Suffix ist pro Token neu; `user_id_from_identity` (webhook) und die
+    # Kick-/Update-Pfade (livekit_client) lösen ihn wieder auf den Nutzer auf.
+    identity = f"user-{user.id}~{secrets.token_hex(4)}"
     builder = (
         lk.AccessToken(settings.livekit_api_key, settings.livekit_api_secret)
         .with_identity(identity)

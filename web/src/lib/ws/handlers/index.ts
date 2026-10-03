@@ -20,6 +20,7 @@ import * as remote from './remote';
 import * as devices from './devices';
 import * as friends from './friends';
 import * as profile from './profile';
+import * as anrufe from './anrufe';
 import * as ready from './ready';
 import * as error from './error';
 import * as admin from './admin';
@@ -44,6 +45,7 @@ export function registerAllHandlers(
   devices.register();
   friends.register();
   profile.register();
+  anrufe.register(ctx);
   error.register();
   admin.register();
 }

@@ -5,6 +5,8 @@
   import GuildRail from '$lib/components/GuildRail.svelte';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
   import MobileChatsList from '$lib/components/mobile/MobileChatsList.svelte';
+  import GruppenSheet from '$lib/components/mobile/GruppenSheet.svelte';
+  import { anrufe } from '$lib/anrufe/anruf.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { auth } from '$lib/stores/auth.svelte';
@@ -106,6 +108,13 @@
   // Umschalten zwischen Gespraechen (Laden, Abonnieren, Nachhol-Bestellungen)
   // ausgelagert — s. `chat/dmKanalWechsel.svelte.ts`.
   const kanalWechsel = erstelleDmKanalWechsel(cloudRoute);
+  // SYNCHRON im Setup, vor dem ersten Rendern: Altbestand leeren, damit die
+  // Liste leer startet und nicht einen Frame lang die obersten Nachrichten
+  // blitzt, bevor der Sprung nach unten kommt (s. `vorbereiten`/`switchTo`).
+  // Bewusst nur der Eingangswert: spaetere Kanalwechsel im selben Dokument
+  // laeuft der switchTo-Effekt (der leert ebenfalls).
+  // svelte-ignore state_referenced_locally
+  if (dmChannelId) kanalWechsel.vorbereiten(dmChannelId);
   const pendingOptimisticTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   // Mirrors the channel-page effect: when the DM id in the URL changes, load
@@ -168,6 +177,20 @@
       }
     : undefined;
 
+  /** Gruppen-Blatt (Mitglieder/Verlassen) — nur sinnvoll, solange eine Gruppe offen ist. */
+  let gruppenBlattOffen = $state(false);
+
+  /** Anruf aus der offenen DM bzw. der offenen Gruppe (Anrufe-Epic C/D). */
+  function anrufStartenFuer(art: 'dm' | 'gruppe'): void {
+    if (art === 'dm') {
+      if (!activeDM) return;
+      const name = userCache.displayName(activeDM.other_user_id);
+      void anrufe.starten('dm', activeDM.id, name);
+    } else if (aktiveGruppe) {
+      void anrufe.starten('gruppe', aktiveGruppe.id, aktiveGruppe.name);
+    }
+  }
+
   // Sende-Einstieg (Gruppe / verschluesselte DM / Klartext-DM) ausgelagert —
   // s. `chat/dmSenden.ts`.
   function sendMessage(
@@ -193,12 +216,25 @@
     });
   }
 
+  // Aktions-Umschläge (Reaktion/Bearbeitung/Löschen, P1.5): bei einer DM
+  // läuft der Frame per Olm-Paarung an die Gegenstelle, in einer
+  // verschlüsselten privaten Gruppe per Megolm durch den Gruppen-Sendeweg —
+  // `gruppe` sagt `cloudNachrichtAktionen`, welcher Weg es ist.
   const editMessage = (msg: Message, content: string) =>
-    nachrichtBearbeiten(msg, content, cloudRoute);
+    nachrichtBearbeiten(msg, content, cloudRoute, {
+      partnerId: activeDM?.other_user_id,
+      gruppe: aktiveGruppe !== undefined
+    });
   const deleteMessage = (msg: Message) =>
-    nachrichtLoeschen(msg, cloudRoute, { partnerId: activeDM?.other_user_id });
+    nachrichtLoeschen(msg, cloudRoute, {
+      partnerId: activeDM?.other_user_id,
+      gruppe: aktiveGruppe !== undefined
+    });
   const toggleReaction = (msg: Message, emoji: string, currentlyMine: boolean) =>
-    reaktionUmschalten(msg, emoji, currentlyMine, cloudRoute);
+    reaktionUmschalten(msg, emoji, currentlyMine, cloudRoute, {
+      partnerId: activeDM?.other_user_id,
+      gruppe: aktiveGruppe !== undefined
+    });
 
   async function togglePin(msg: Message) {
     try {
@@ -267,7 +303,9 @@
     <!-- Dieselbe Ansicht wie bei einer DM, nur mit anderer Huelle im Kopf und
          Zeilen- statt Sprechblasen-Darstellung. Eine eigene Gruppen-Ansicht
          daneben haette Anhaenge, Antworten, Reaktionen und das Aktionsblatt
-         still verloren. -->
+         still verloren. Eine private Gruppe ist von Geburt an verschluesselt
+         (Spec §9) — dieselben Umschlaege wie der DM-Zweig, nur durch den
+         Gruppen-Sendeweg (`krypto/gruppe/frameSenden.ts`). -->
     <ChatView
       sendReport
       channel={synthChannel}
@@ -277,9 +315,14 @@
       onBack={() => goto('/app/@me')}
       cloudScoped
       showMemberList={false}
+      verschluesselteAnhaenge={PRIVATE_GRUPPEN_ENABLED}
+      reaktionUmschlag={PRIVATE_GRUPPEN_ENABLED}
+      bearbeitungErlaubt={PRIVATE_GRUPPEN_ENABLED}
       onEditMessage={editMessage}
       onDeleteMessage={deleteMessage}
       onToggleReaction={toggleReaction}
+      onGruppenBlatt={() => (gruppenBlattOffen = true)}
+      onAnrufen={() => anrufStartenFuer('gruppe')}
     />
   {:else if activeDM && synthChannel}
     {#snippet leereNachrichten()}
@@ -295,6 +338,8 @@
         onBack={() => goto('/app/@me')}
         cloudScoped
         verschluesselteAnhaenge={E2E_DMS_ENABLED}
+        reaktionUmschlag={E2E_DMS_ENABLED}
+        bearbeitungErlaubt={E2E_DMS_ENABLED}
         showMemberList={false}
         composerDisabled={dmSperre !== null}
         composerDisabledReason={m.dm_page_composer_disabled_reason()}
@@ -302,6 +347,7 @@
         onDeleteMessage={deleteMessage}
         onToggleReaction={toggleReaction}
         onTogglePin={togglePin}
+        onAnrufen={() => anrufStartenFuer('dm')}
         leerHinweis={sicherungHinweis && !browserWarnung ? leereNachrichten : undefined}
       />
   {:else}
@@ -319,4 +365,13 @@
     </section>
   {/if}
   </div>
+{/if}
+
+{#if aktiveGruppe && gruppenBlattOffen}
+  <GruppenSheet
+    gruppe={aktiveGruppe}
+    bind:open={gruppenBlattOffen}
+    onVerlassen={() => goto('/app/@me')}
+    onAnrufen={() => anrufStartenFuer('gruppe')}
+  />
 {/if}

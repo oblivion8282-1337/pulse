@@ -24,6 +24,9 @@
    */
   import type { Snippet } from 'svelte';
   import { longpress } from '$lib/utils/longpress';
+  import { swipetoreply } from '$lib/utils/swipetoreply';
+  import { pfeilDeckkraft } from '$lib/utils/swipeKern';
+  import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
   import type { Message } from '$lib/api/types';
   import PinIcon from '@lucide/svelte/icons/pin';
   import { m } from '$lib/paraglide/messages.js';
@@ -32,10 +35,12 @@
     message,
     time,
     eigen,
+    leseBestaetigt = undefined,
     isContinuation = false,
     isGroupEnd = true,
     highlight = false,
     onLongPress,
+    onSwipeReply,
     body,
     actions
   }: {
@@ -43,13 +48,23 @@
     time: string;
     /** Vom angemeldeten Nutzer selbst — bestimmt Seite und Farbe. */
     eigen: boolean;
+    /** Lesebestätigung für EIGENE DM-Nachrichten (P0.2): `false` = nur
+     *  gesendet (einfaches Häkchen), `true` = von der Gegenstelle gelesen
+     *  (doppeltes), `undefined` = keine Auskunft (Fremdnachricht, ältere
+     *  Gegenstelle) → gar kein Häkchen. */
+    leseBestaetigt?: boolean;
     isContinuation?: boolean;
     isGroupEnd?: boolean;
     highlight?: boolean;
-    onLongPress: () => void;
+    onLongPress: (e: PointerEvent) => void;
+    /** Swipe-to-reply (P1.6, nur Touch): löst die Antwort auf diese Nachricht aus. */
+    onSwipeReply: () => void;
     body: Snippet;
     actions: Snippet;
   } = $props();
+
+  /** Live-Versatz der Blase (px) — steuert die Pfeil-Deckkraft beim Zug. */
+  let swipeOffset = $state(0);
 
   /** Angepinnt → Nadel neben der Uhrzeit, Blase bekommt einen Hauch Ton. */
   const pinned = $derived(!!message.pinned_at);
@@ -73,7 +88,25 @@
   data-eigen={eigen}
   use:longpress={{ onLongPress }}
 >
-  <div class="flex max-w-[78%] min-w-0 flex-col {eigen ? 'items-end' : 'items-start'}">
+  <!-- Antwort-Pfeil der Swipe-Geste: an der Zug-Gegenseite, Deckkraft aus
+       dem Live-Versatz. `eigen`-Blasen ziehen nach links (Pfeil rechts),
+       fremde nach rechts (Pfeil links). -->
+  {#if swipeOffset !== 0}
+    <span
+      class="text-primary absolute inset-y-0 flex items-center {eigen
+        ? 'right-4'
+        : 'left-4'}"
+      style="opacity: {pfeilDeckkraft(swipeOffset)}"
+      aria-hidden="true"
+    >
+      <CornerDownRightIcon class="size-5" />
+    </span>
+  {/if}
+  <div
+    class="flex max-w-[78%] min-w-0 flex-col {eigen ? 'items-end' : 'items-start'}"
+    style="touch-action: pan-y"
+    use:swipetoreply={{ onReply: onSwipeReply, onMove: (o) => (swipeOffset = o) }}
+  >
     <div
       class="min-w-0 px-3 py-2 {eigen
         ? 'accent-gradient-deep text-white'
@@ -99,6 +132,37 @@
               aria-label={m.message_pinned_badge()}
               data-testid="message-pinned-badge"
             />
+          {/if}
+          {#if eigen && leseBestaetigt !== undefined}
+            <!-- Häkchen-Wege: einfach = zugestellt an den Server, doppelt =
+                 von der Gegenstelle gelesen (WhatsApp-Semantik, P0.2). -->
+            <svg
+              viewBox="0 0 16 12"
+              class="mr-1 inline size-3 align-baseline opacity-70"
+              aria-label={leseBestaetigt
+                ? m.message_lesebestaetigung_gelesen()
+                : m.message_lesebestaetigung_gesendet()}
+              role="img"
+            >
+              <path
+                d="M1 6.5 4.5 10 11 2.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              {#if leseBestaetigt}
+                <path
+                  d="M6.5 8 7.5 9.5 14 2"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              {/if}
+            </svg>
           {/if}
           {time}</span
         >

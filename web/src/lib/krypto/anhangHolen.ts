@@ -38,6 +38,7 @@ import { anhangBytesLesen, anhangBytesSichern } from '../verlauf/db';
 import { entschluessele, schluesselAusText } from './anhangKrypto';
 import { sichererBlobTyp } from './sichererBlobTyp';
 import { geraeteKennung } from './geraeteKennung';
+import { istAnhangAbgelaufenFehler } from './anhangAbgelaufen';
 
 /** Typ des Vorschaubildes — `attachments/vorschaubild.ts` erzeugt immer WebP.
  *  Steht hier noch einmal, weil der Empfaenger die Datei nicht importiert
@@ -53,7 +54,8 @@ function cloudRoute(): { serverId?: string } {
 /** Holt die kurzlebigen signierten Adressen fuer EINEN Anhang. Wirft, wenn
  *  sich die eigene Geraetekennung nicht ermitteln laesst (nicht angemeldet)
  *  oder der Server das Recht verweigert (404 — keine offene Zustellung
- *  mehr). */
+ *  mehr; 410 `anhang_abgelaufen`, wenn die Frist der eigenen Zustellung
+ *  vorueber ist). */
 async function adressenHolen(anhangId: string): Promise<{ url: string; thumb: string | null }> {
   const antwort = await postfachApi.anhangAdresse(
     anhangId,
@@ -178,7 +180,9 @@ export async function anhangSichern(kanalId: string, anhang: Attachment): Promis
  * dessen Klumpen inzwischen mit der letzten Zustellung gefallen ist. Die
  * Oberflaeche zeigt dann ihren neutralen Platzhalter — der Aufrufer soll das
  * NICHT als Fehler behandeln, es ist ein endgueltiger, nicht behebbarer
- * Zustand.
+ * Zustand. WEISS der Server dagegen, dass die eigene Zustellung abgelaufen
+ * ist (410 `anhang_abgelaufen`), wirft `anhangBlob` einen
+ * 410 `anhang_abgelaufen` — dafuer gibt es eine eigene Meldung.
  */
 export async function anhangBlob(
   anhangId: string,
@@ -201,7 +205,7 @@ export async function anhangBlob(
     const url = thumb ? adressen.thumb : adressen.url;
     if (!url) return null;
     return await klumpenOeffnen(url, schluesselText, wirkTyp);
-  } catch {
+  } catch (fehler) {
     // Serverweg tot (Zustellung gefallen / verschlüsselter Anhang, den der
     // Server nie sah): letzter Ausweg ist das Sicherungs-Archiv, wenn
     // dieses Gerät es geöffnet hat. Dynamischer Import, damit der
@@ -210,6 +214,10 @@ export async function anhangBlob(
     try {
       return await archivAnhangHolen(anhangId);
     } catch {
+      // Auch das Archiv hat nichts: erst jetzt wird der Grund zur Meldung.
+      // Abgelaufen wird DURGEREICHT (die Oberfläche zeigt „Anhang
+      // abgelaufen“), alles andere bleibt das neutrale `null`.
+      if (istAnhangAbgelaufenFehler(fehler)) throw fehler;
       return null;
     }
   }

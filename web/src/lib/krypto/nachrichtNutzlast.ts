@@ -10,7 +10,7 @@
  * ist die Datei entfallen (Spec §3b).
  *
  * FASSUNG 1: JSON `{v:1, text: string, id?: string, replyToId?: string,
- * anhaenge?: AnhangAngabe[]}`.
+ * anhaenge?: AnhangAngabe[], geloescht?: true, reaktion?: ReaktionsAngabe}`.
  *
  * **Die Fassungsnummer bleibt bei 1, obwohl `anhaenge` neu ist — das ist
  * Absicht, nicht Nachlaessigkeit.** `leseNachrichtNutzlast` prueft `v ===
@@ -75,7 +75,38 @@ export type AnhangAngabe = {
   breite: number | null;
   hoehe: number | null;
   vorschau: { schluessel: string; breite: number; hoehe: number } | null;
+  /** Gemessene Dauer in Sekunden, NUR bei Sprachnachrichten (aus dem
+   *  `aufnahmeDauerRegister`). Optional ⇒ additiv ⇒ die Fassungsnummer der
+   *  Nutzlast bleibt dafür bei 1 (Modulkopf). Der WebM-Container trägt
+   *  selbst keine brauchbare Dauer — ohne dieses Feld zeigt der Player beim
+   *  Empfänger aufgeblähte Werte (Testrunde 2026-09-11). */
+  dauerSekunden?: number;
 };
+
+/**
+ * Reaktions-Umschlag (Uebergabe P1.5): `ziel` ist die KANONISCHE ID der
+ * Nachricht, auf die reagiert wird (`kanonischeAntwortId.ts` — dieselbe
+ * Uebersetzung wie bei `replyToId`, aus demselben Grund: die lokale ID ist
+ * je Geraet verschieden). `entfernen` nimmt die eigene Reaktion zurueck.
+ * Der Absender steht nicht in der Nutzlast — er ist der Sitzungs-Partner
+ * (`absenderErmitteln.ts`), und nur der darf seine Reaktion entfernen
+ * (`reaktionen.ts`).
+ */
+export type ReaktionsAngabe = { ziel: string; emoji: string; entfernen?: true };
+
+/** Bearbeitungs-Frame (P1.5 Teil 2): referenziert die Nachricht mit der
+ *  kanonischen/localen ID und trägt den NEUEN Inhalt. Der Absender steht
+ *  wie bei Reaktionen außerhalb — der Sitzungs-Partner ist der Autor. */
+export type BearbeitungsAngabe = { ziel: string; inhalt: string };
+
+/** Anruf-Schlüssel-Frame (E2EE-Anrufe, 2026-09-09): `schluessel` ist der EINE
+ *  LiveKit-E2EE-Schlüssel des Anrufs — 32 Zufallsbytes des Initiators, base64
+ *  —, `anrufId` die Server-ID des Anrufs, unter der der Empfaenger ihn im
+ *  Anruf-Store (`anruf.svelte.ts`) wiederfindet. Reist über denselben
+ *  verschlüsselten Sendeweg wie die anderen Frames: DM per Olm
+ *  (`senden.ts::sendeAnrufSchluessel`), Gruppe per Megolm
+ *  (`gruppe/frameSenden.ts::sendeGruppenAnrufSchluessel`). */
+export type AnrufSchluesselAngabe = { anrufId: string; schluessel: string };
 
 export type NachrichtNutzlast = {
   text: string;
@@ -94,6 +125,16 @@ export type NachrichtNutzlast = {
   /** Lösch-Frame (2026-09-02): `true` = die Nachricht mit dieser ID wurde
    *  vom Autor gelöscht — Empfaenger entfernen sie lokal (Grabstein). */
   geloescht?: true;
+  /** Reaktions-Umschlag (s. `ReaktionsAngabe`) — wie `geloescht` ein Frame
+   *  ohne Text, der sich auf eine ANDERE Nachricht bezieht. */
+  reaktion?: ReaktionsAngabe;
+  /** Bearbeitungs-Umschlag (P1.5 Teil 2) — wie `reaktion` ein Frame ohne
+   *  eigenen Text, dessen `inhalt` den Text der Ziel-Nachricht ERSETZT. */
+  bearbeitung?: BearbeitungsAngabe;
+  /** Anruf-Schlüssel-Frame (E2EE-Anrufe) — wie `reaktion` ein Frame ohne
+   *  eigenen Text; er gehört zu einem LAUFENDEN Anruf, nicht zu einer
+   *  Nachricht (`AnrufSchluesselAngabe`). */
+  anrufSchluessel?: AnrufSchluesselAngabe;
   /** Leer, wenn die Nutzlast keine Anhaenge trug ODER von einem Sender vor
    *  Etappe E stammt — beides sieht beim Lesen gleich aus und soll es auch. */
   anhaenge: AnhangAngabe[];
@@ -186,6 +227,163 @@ export function baueLoeschNutzlast(
   return new TextEncoder().encode(JSON.stringify(objekt));
 }
 
+/** Reaktions-Umschlag: Frame ohne Text und ohne eigene ID — er IST keine
+ *  Nachricht, sondern bezieht sich auf eine (`ReaktionsAngabe.ziel`, kanonisch).
+ *  Derselbe verschluesselte Sendeweg wie der Loesch-Frame. */
+export function baueReaktionsNutzlast(
+  zielNachrichtId: string,
+  emoji: string,
+  entfernen: boolean
+): Uint8Array {
+  const reaktion: ReaktionsAngabe = { ziel: zielNachrichtId, emoji };
+  if (entfernen) reaktion.entfernen = true;
+  return new TextEncoder().encode(JSON.stringify({ v: FASSUNG, text: '', reaktion }));
+}
+
+/** Fail-closed wie `leseAnhang`: ein Frame ohne Ziel oder Emoji ist keine
+ *  Reaktion — und faellt dann als leere Textnachricht NICHT in die Anzeige,
+ *  weil `zustellungOeffnen` nur ein gelesenes `reaktion` als Frame behandelt;
+ *  der Rest liest sich als gewoehnliche (leere) Nutzlast. */
+function leseReaktion(wert: unknown): ReaktionsAngabe | null {
+  if (wert === null || typeof wert !== 'object') return null;
+  const r = wert as Record<string, unknown>;
+  if (typeof r.ziel !== 'string' || r.ziel === '' || typeof r.emoji !== 'string' || r.emoji === '') {
+    return null;
+  }
+  return { ziel: r.ziel, emoji: r.emoji, ...(r.entfernen === true ? { entfernen: true as const } : {}) };
+}
+
+/** Fail-closed wie `leseReaktion`: ein Frame ohne Ziel oder Inhalt ist keine
+ *  Bearbeitung — und faellt dann als leere Textnachricht NICHT in die Anzeige,
+ *  weil `zustellungOeffnen` nur ein gelesenes `bearbeitung` als Frame behandelt;
+ *  der Rest liest sich als gewoehnliche (leere) Nutzlast. */
+function leseBearbeitung(wert: unknown): BearbeitungsAngabe | null {
+  if (wert === null || typeof wert !== 'object') return null;
+  const b = wert as Record<string, unknown>;
+  if (typeof b.ziel !== 'string' || b.ziel === '' || typeof b.inhalt !== 'string' || b.inhalt === '') {
+    return null;
+  }
+  return { ziel: b.ziel, inhalt: b.inhalt };
+}
+
+/** Bearbeitungs-Umschlag: Frame ohne Text und ohne eigene ID — er IST keine
+ *  Nachricht, sondern ersetzt den Text der Ziel-Nachricht. Derselbe
+ *  verschluesselte Sendeweg wie Loesch- und Reaktions-Frame. */
+export function baueBearbeitungsNutzlast(zielNachrichtId: string, inhalt: string): Uint8Array {
+  const bearbeitung: BearbeitungsAngabe = { ziel: zielNachrichtId, inhalt };
+  return new TextEncoder().encode(JSON.stringify({ v: FASSUNG, text: '', bearbeitung }));
+}
+
+/** Anruf-Schlüssel-Umschlag: Frame ohne Text — er gehört zu einem Anruf,
+ *  nicht zu einer Nachricht. Derselbe verschluesselte Sendeweg wie Loesch-,
+ *  Reaktions- und Bearbeitungs-Frame (DM: Olm, Gruppe: Megolm). */
+export function baueAnrufSchluesselNutzlast(anrufId: string, schluessel: string): Uint8Array {
+  return new TextEncoder().encode(
+    JSON.stringify({ v: FASSUNG, text: '', anrufSchluessel: { anrufId, schluessel } })
+  );
+}
+
+/** Fail-closed wie `leseReaktion`: ein Frame ohne anrufId oder Schlüssel ist
+ *  keiner — der Rest liest sich dann als gewöhnliche leere Nutzlast. Ob der
+ *  Schlüssel WIRKLICH 32 Bytes sind, prueft erst der Anruf-Store beim Merken
+ *  (dort liegt atob, hier nicht — importfrei). */
+function leseAnrufSchluessel(wert: unknown): AnrufSchluesselAngabe | null {
+  if (wert === null || typeof wert !== 'object') return null;
+  const a = wert as Record<string, unknown>;
+  if (
+    typeof a.anrufId !== 'string' ||
+    a.anrufId === '' ||
+    typeof a.schluessel !== 'string' ||
+    a.schluessel === ''
+  ) {
+    return null;
+  }
+  return { anrufId: a.anrufId, schluessel: a.schluessel };
+}
+
+/**
+ * Ein erkannter Aktions-Frame samt allem, was der Abholzyklus zum Anwenden
+ * braucht — strukturell identisch zu den drei Frame-Zweigen von
+ * `zustellungOeffnen.ts::ZustellungOffenErgebnis` (dort steht der Vertrag des
+ * Zyklus, hier die Erkennung; absichtlich zwei Typen, damit diese Datei
+ * importfrei bleibt).
+ *
+ * Die Erkennung ist GEMEINSAM fuer beide Empfangswege — den Olm-Weg der DMs
+ * und den Megolm-Weg der Gruppen (`gruppe/empfangen.ts`): eine
+ * Aktions-Nutzlast bedeutet ueberall dasselbe, und zwei Kopien der
+ * Fallunterscheidung liefen auseinander. `autorId` steht nicht IN der
+ * Nutzlast — er ist beim Olm-Weg der Sitzungs-Partner, beim Megolm-Weg der
+ * Zustellungs-Absender, und wird hier nur durchgereicht.
+ */
+export type RahmenErgebnis =
+  | { art: 'loeschung'; id: string; channelId: string; nachrichtId: string; absenderUserId: string }
+  | {
+      art: 'reaktion';
+      id: string;
+      channelId: string;
+      autorId: string;
+      ziel: string;
+      emoji: string;
+      entfernen: boolean;
+    }
+  | { art: 'bearbeitung'; id: string; channelId: string; ziel: string; inhalt: string }
+  | {
+      art: 'anrufSchluessel';
+      id: string;
+      channelId: string;
+      autorId: string;
+      anrufId: string;
+      schluessel: string;
+    };
+
+/** Liest aus einer geoeffneten Nutzlast einen Aktions-Frame — `null`, wenn es
+ *  eine gewoehnliche Nachricht ist (der Aufrufer baut dann selbst die
+ *  Anzeige-Form). Ein Loesch-Frame ohne ID ist keiner und faellt durch,
+ *  fail-closed wie die Leser oben. */
+export function rahmenAusNutzlast(
+  gelesen: NachrichtNutzlast,
+  id: string,
+  channelId: string,
+  autorId: string
+): RahmenErgebnis | null {
+  if (gelesen.geloescht && gelesen.id !== null) {
+    // absenderUserId = die authentisierte Zuschreibung des Aufrufers — nur
+    // der Verfasser darf seine Sätze löschen (s. `loeschZiel.ts`).
+    return { art: 'loeschung', id, channelId, nachrichtId: gelesen.id, absenderUserId: autorId };
+  }
+  if (gelesen.reaktion) {
+    return {
+      art: 'reaktion',
+      id,
+      channelId,
+      autorId,
+      ziel: gelesen.reaktion.ziel,
+      emoji: gelesen.reaktion.emoji,
+      entfernen: gelesen.reaktion.entfernen === true
+    };
+  }
+  if (gelesen.bearbeitung) {
+    return {
+      art: 'bearbeitung',
+      id,
+      channelId,
+      ziel: gelesen.bearbeitung.ziel,
+      inhalt: gelesen.bearbeitung.inhalt
+    };
+  }
+  if (gelesen.anrufSchluessel) {
+    return {
+      art: 'anrufSchluessel',
+      id,
+      channelId,
+      autorId,
+      anrufId: gelesen.anrufSchluessel.anrufId,
+      schluessel: gelesen.anrufSchluessel.schluessel
+    };
+  }
+  return null;
+}
+
 export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
   const roh = new TextDecoder().decode(bytes);
   try {
@@ -204,6 +402,9 @@ export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
           if (gelesen) anhaenge.push(gelesen);
         }
       }
+      const reaktion = leseReaktion(o.reaktion);
+      const bearbeitung = leseBearbeitung(o.bearbeitung);
+      const anrufSchluessel = leseAnrufSchluessel(o.anrufSchluessel);
       return {
         text: o.text as string,
         id: typeof o.id === 'string' ? o.id : null,
@@ -211,7 +412,10 @@ export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
         absenderNutzer: typeof o.absenderNutzer === 'string' ? o.absenderNutzer : null,
         absenderGeraet: typeof o.absenderGeraet === 'string' ? o.absenderGeraet : null,
         anhaenge,
-        ...(o.geloescht === true ? { geloescht: true as const } : {})
+        ...(o.geloescht === true ? { geloescht: true as const } : {}),
+        ...(reaktion ? { reaktion } : {}),
+        ...(bearbeitung ? { bearbeitung } : {}),
+        ...(anrufSchluessel ? { anrufSchluessel } : {})
       };
     }
   } catch {

@@ -9,6 +9,9 @@
   import HashIcon from '@lucide/svelte/icons/hash';
   import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import UsersIcon from '@lucide/svelte/icons/users';
+  import PhoneIcon from '@lucide/svelte/icons/phone';
+  import ImagesIcon from '@lucide/svelte/icons/images';
+  import MedienuebersichtSheet from '$lib/components/chat/MedienuebersichtSheet.svelte';
   import MessageInput, { ZEICHEN_LIMIT } from './MessageInput.svelte';
   import MessageList from './MessageList.svelte';
   import MemberList from './MemberList.svelte';
@@ -61,10 +64,18 @@
     composerDisabledReason = '',
     cloudScoped = false,
     verschluesselteAnhaenge = false,
+    reaktionUmschlag = false,
     onEditMessage,
     onDeleteMessage,
     onToggleReaction,
-    onTogglePin
+    onTogglePin,
+    /** Nur 'gruppe': oeffnet das Gruppen-Blatt (Mitglieder, Verlassen). */
+    onGruppenBlatt,
+    /** Nur verschluesselte Gespraechefaeden (DM und private Gruppe): die
+     *  Nachricht per Umschlag bearbeitbar (P1.5 Teil 2). */
+    bearbeitungErlaubt = false,
+    /** Nur 'dm': startet einen Anruf an die Gegenstelle (Anrufe-Epic C). */
+    onAnrufen
   }: {
     channel: Channel | null;
     messages: Message[];
@@ -99,6 +110,13 @@
      *  durchgereicht. Hebt zugleich die Klartext-Sperre auf, s.
      *  `attachmentsAllowed`. */
     verschluesselteAnhaenge?: boolean;
+    /** Reaktionen auf verschluesselte Nachrichten als Postfach-Umschlag
+     *  (P1.5). Setzen die Zweige verschluesselter Gespraechefaeden: DM und
+     *  private Gruppe (dort geht der Frame durch den Gruppen-Sendeweg, s.
+     *  `krypto/gruppe/frameSenden.ts`). Ohne den Schalter bleibt der
+     *  Reaktions-Eintrag gesperrt — der Server-Weg endet fuer eine
+     *  verschluesselte Nachricht im 404. */
+    reaktionUmschlag?: boolean;
     /** Hide the member-list toggle + inline panel (DMs have no member list). */
     showMemberList?: boolean;
     /** Lock the composer (no typing, no submit). Drives the DM hard-cut
@@ -110,6 +128,9 @@
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
     /** Pin anpinnen/lösen — Implementierung in den Seiten (Toast bei Fehler). */
     onTogglePin?: (m: Message) => void;
+    onGruppenBlatt?: () => void;
+    onAnrufen?: () => void;
+    bearbeitungErlaubt?: boolean;
   } = $props();
 
   // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs,
@@ -118,6 +139,9 @@
   let namePrefix = $derived(NAMENS_PRAEFIX[headerKind]);
 
   let replyTarget = $state<Message | null>(null);
+  /** Medienübersicht (P1.7) — Knopf nur mit mindestens einem Anhang. */
+  let medienOffen = $state(false);
+  let hatMedien = $derived(messages.some((n) => (n.attachments ?? []).length > 0));
 
   // Zeichenzähler-Stand des Composers (0 = unsichtbar). Rendering in der
   // reservierten Tippanzeige-Zeile — s. `zeichenExtern` in MessageInput.
@@ -475,6 +499,41 @@
           </DropdownMenu.Content>
         </DropdownMenu.Root>
       {/if}
+      {#if headerKind === 'gruppe' && onGruppenBlatt}
+        <Button
+          variant="ghost"
+          size="icon"
+          class="ml-auto"
+          onclick={onGruppenBlatt}
+          aria-label={pm.gruppen_blatt_oeffnen()}
+          data-testid="group-sheet-toggle"
+        >
+          <UsersIcon class="text-text-muted size-4" />
+        </Button>
+      {/if}
+      {#if hatMedien}
+        <Button
+          variant="ghost"
+          size="icon"
+          onclick={() => (medienOffen = true)}
+          aria-label={pm.medien_titel()}
+          data-testid="media-sheet-toggle"
+        >
+          <ImagesIcon class="text-text-muted size-4" />
+        </Button>
+      {/if}
+      {#if headerKind === 'dm' && onAnrufen}
+        <Button
+          variant="ghost"
+          size="icon"
+          class="ml-auto"
+          onclick={onAnrufen}
+          aria-label={pm.anruf_starten()}
+          data-testid="dm-call-button"
+        >
+          <PhoneIcon class="text-text-muted size-4" />
+        </Button>
+      {/if}
       {#if showMemberList}
         <Button
           variant="ghost"
@@ -502,6 +561,8 @@
       {namePrefix}
       {isOwner}
       {canPin}
+      {reaktionUmschlag}
+      {bearbeitungErlaubt}
       route={messageRoute}
       bind:jumper={jumpToMessage}
       onSetReplyTarget={(m) => (replyTarget = m)}
@@ -564,7 +625,7 @@
       onTyping={notifyTyping}
       channelId={channel.id}
       placeholder={viewport.isMobile
-        ? `${namePrefix}${channel.name}`
+        ? pm.message_input_placeholder()
         : pm.chat_view_message_placeholder({ preposition: headerKind === 'dm' ? pm.chat_view_placeholder_to() : pm.chat_view_placeholder_in(), prefix: namePrefix, name: channel.name })}
       onSend={handleSend}
       sendReport={sendReport}
@@ -613,3 +674,7 @@
     }
   }
 </style>
+
+{#if medienOffen}
+  <MedienuebersichtSheet bind:open={medienOffen} {messages} />
+{/if}

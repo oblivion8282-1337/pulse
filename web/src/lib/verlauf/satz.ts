@@ -104,6 +104,13 @@ export type SatzAlsNachricht = {
   /** Wie `Message.krypto_id` (`api/types.ts`) — dort optional-ohne-`null`,
    *  deshalb `undefined` statt `null` bei Fehlen (s. `satzZuNachricht`). */
   krypto_id?: string;
+  /** Reaktionen auf eine VERSCHLUESSELTE Nachricht in der Anzeige-Form von
+   *  `Message.reactions` (strukturell `ReactionAggregate`). Rechnet nicht
+   *  `satzZuNachricht` (das „ich" darin braucht das Konto, das diese Datei
+   *  nicht kennen darf), sondern `verlauf/index.ts::verlaufLesen` aus
+   *  `Satz.reaktionen` — Klartext-Saetze haben das Feld nie, ihre
+   *  Reaktionen kommen vom Server. */
+  reactions?: { emoji: string; count: number; me: boolean }[];
   /** Nur VERSCHLUESSELTE Anhaenge (Etappe E), s. `satzZuNachricht`.
    *  Strukturell der Ausschnitt von `$lib/api/types::Attachment`, den diese
    *  Datei ohne Import beschreiben kann — **mit jenem Typ synchron halten**,

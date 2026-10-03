@@ -23,6 +23,7 @@ import { activeServer } from './active-server.svelte';
 // Stellen unten.
 import { geraeteGeheimnisWischen } from '$lib/krypto/geraeteGeheimnis';
 import { geraeteKennungWischen } from '$lib/krypto/geraeteKennung';
+import { keypairStore } from '$lib/identity/keypair.svelte';
 import { clearLegacyStreamCredentials } from '$lib/stream/persistence';
 import { renewSession } from '$lib/api/cookie-client';
 
@@ -237,6 +238,8 @@ class AuthStore {
       // signOut(): ohne das erbt der neue User am selben Gerät dessen
       // Klartext-Vorschauen von Erwähnungen/DMs. Fire-and-forget/best-effort.
       void import('$lib/notifications/pushSubscribe').then((m) => m.unsubscribeUser());
+      // FCM-Token ebenso (P0.1) — gleiche Erb-Baisse, gleiche Entsaftung.
+      void import('$lib/platform/fcm').then((m) => m.abmeldeFcmToken());
       // Self-Host-Connections + Session-Tokens des Vorgängers schließen.
       for (const s of serversStore.servers) {
         if (s.isCloud) continue;
@@ -313,21 +316,30 @@ class AuthStore {
       // Community gecacht und hat keinen Bezug zum Konto — der nächste Nutzer
       // am selben Fenster sähe sonst die Geräte, die der vorige sehen durfte.
       void import('$lib/devices/store.svelte').then((mod) => mod.deviceStore.reset());
-      // Identitäts-Material des Vorgängers (IndexedDB) + Legacy-Stream-Keys
-      // wischen — vollständig awaiten, BEVOR der nachfolgende Issue-Flow einen
-      // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
-      await Promise.allSettled([
-        profileStatementStore.wipe(),
-        // Pickle-Geheimnis und Gerätekennung gehören in dieselbe Zeile wie
-        // das Keypair: solange der Pickle-Schlüssel aus dem Keypair abgeleitet
-        // wurde, machte dessen Löschen den eingefrorenen Krypto-Zustand
-        // unlesbar (so steht es im Kopf von `krypto/account.svelte.ts`). Seit
-        // der Schlüssel aus einem eigenen Geheimnis kommt, tut das nur noch
-        // dieser Aufruf — ohne ihn läse der nächste Nutzer am selben Fenster
-        // den Zustand des vorigen. Die Kennung ebenso: sie käme sonst mit dem
-        // neuen Cert in Widerspruch.
-        geraeteGeheimnisWischen(),
-        geraeteKennungWischen(),
+        // Identitäts-Material des Vorgängers (IndexedDB) + Legacy-Stream-Keys
+        // wischen — vollständig awaiten, BEVOR der nachfolgende Issue-Flow einen
+        // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
+        await Promise.allSettled([
+          profileStatementStore.wipe(),
+          // Pickle-Geheimnis und Gerätekennung gehören in dieselbe Zeile wie
+          // das Keypair: solange der Pickle-Schlüssel aus dem Keypair abgeleitet
+          // wurde, machte dessen Löschen den eingefrorenen Krypto-Zustand
+          // unlesbar (so steht es im Kopf von `krypto/account.svelte.ts`). Seit
+          // der Schlüssel aus einem eigenen Geheimnis kommt, tut das nur noch
+          // dieser Aufruf — ohne ihn läse der nächste Nutzer am selben Fenster
+          // den Zustand des vorigen. Die Kennung ebenso: sie käme sonst mit dem
+          // neuen Cert in Widerspruch.
+          geraeteGeheimnisWischen(),
+          geraeteKennungWischen(),
+          // Das Keypair SELBST auch — Befund B2 (Testrunde 2026-09-11): ohne
+          // diesen Wisch leitete `geraeteKennung()` die Kennung des Vorgängers
+          // frisch aus dem überlebenden Keypair her (der Pubkey hat in
+          // `kennungWaehlen` Vorrang), `PUT /keys/bundle` lief 409
+          // (`geraet_gehoert_anderem_konto`) und der neue Nutzer hing an der
+          // Geräte-Wand, ohne sichtbare Anleitung. Mit Wisch startet der
+          // Issue-Flow den normalen Erstlauf (Keypair erzeugen, Bündel
+          // veröffentlichen).
+          keypairStore.wipe(),
         // Sicherungs-Wissen (DEK, Google-Token, Klartext-Puffer) gehört dem
         // vorigen Konto — ohne Wisch brächte der nächste Nutzer Archiv und
         // Schlüssel zusammen (Review 2026-08-31, Befund 2).
@@ -361,6 +373,9 @@ class AuthStore {
     const pushBearer =
       (activeServer.current?.isCloud ?? true) ? (currentAccessToken() ?? undefined) : undefined;
     void import('$lib/notifications/pushSubscribe').then((m) => m.unsubscribeUser(pushBearer));
+    // FCM-Token des Android-Geräts ebenso abmelden (P0.1) — sonst klingelt
+    // hier weiter die Post des Vorgängers. Best-effort wie oben.
+    void import('$lib/platform/fcm').then((m) => m.abmeldeFcmToken(pushBearer));
     clearTokens();
     // Voice-Resume verwerfen — nach explizitem Logout darf der nächste Boot
     // nicht in den alten Channel zurückspringen.
