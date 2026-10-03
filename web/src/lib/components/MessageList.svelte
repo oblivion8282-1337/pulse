@@ -16,6 +16,7 @@
   } from '$lib/nachrichten/klebezustand';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -769,13 +770,17 @@
      nach oben und die Sprungmarken. Fuer einen kosmetischen Randfall, der nur
      bei ganz neuen Gespraechen sichtbar ist, ist das der falsche Preis. -->
 <div class="relative flex-1 min-h-0" bind:this={wrapperEl} data-testid="message-list">
-  {#if !initialBereit}
+  {#if !initialBereit && viewport.istHandy}
     <!-- Erstladung-Sperre (WhatsApp-Prinzip): die Liste ist ans Ende
          gepinnt, sobald der erste Frame gemessen ist — vorher ist der
          Schätzbereich der Virtualisierung leer, und ein sofortiges
          Runterwischen wandert ins Unendliche. Der Spinner blockt die
          Berührung, bis gepinnt ist; leere Gespraäche entlassen sich per
          Fallback-Timer selbst. -->
+    <!-- NUR Handy: der Desktop hat den Verlauf lokal sofort — dort war das
+         Blitzen bei JEDEM Kanalwechsel reiner Rückschritt (Michaels Wunsch
+         03.10.). Die Sperre selbst (pin + Ruhe-Frist) bleibt an, nur die
+         Fläche ist nicht mehr zu sehen. -->
     <!-- bg-bg-panel + Blur, NICHT bg-bg: das Token `--color-bg` existiert in
          der Glasshouse-Palette nicht — die Fläche war rgba(0,0,0,0), der
          Spinner schwebte frei, und beim Eintritt blitzten Leer-State-Text
