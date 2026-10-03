@@ -85,7 +85,12 @@ export function nativeComponents(
   const garnet: ServiceSpec = {
     name: 'garnet',
     command: resolveNativeBin('garnet/GarnetServer'),
-    args: ['--bind', '127.0.0.1', '--port', String(p.garnet), '--logger-level', 'Warning'],
+    args: ['--bind', '127.0.0.1', '--port', String(p.garnet), '--logger-level', 'Warning',
+      // Container-Redis hat Lua immer an — die Services nutzen EVAL breit
+      // (auth-hook Consume-once, watch-keys, media-svc, voice-webhook).
+      // transaction-mode schließt die Keys während der Ausführung ≙
+      // Redis-Atomizität, die die Skripte voraussetzen.
+      '--lua', '--lua-transaction-mode'],
     // Release-Zip ist runtime-abhängig → DOTNET_ROOT auf die gebündelte
     // .NET-Runtime (fetch-win-native.ps1 legt native-bin/dotnet/ an).
     env: { DOTNET_ROOT: join(nativeRoot(), 'native-bin', 'dotnet') },
