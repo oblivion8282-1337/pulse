@@ -870,7 +870,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       typeof opts === 'object' && opts !== null &&
       (opts as { confirmTakeover?: unknown }).confirmTakeover === true;
     console.log('[provision] cloud call …');
-    const result = await provision(PROD_URL, { confirmTakeover }, () => getAccessToken(PROD_URL));
+    // Realm-Kette wie login/logout/me: gepairt → Instanz-Cloud, sonst Dev-URL,
+    // sonst Produktion. Hartcodiertes PROD_URL fragte im Dev-Cloud-Betrieb
+    // nach der falschen Session → "bitte zuerst einloggen" trotz Login.
+    const provisionOrigin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+    const result = await provision(provisionOrigin, { confirmTakeover }, () => getAccessToken(provisionOrigin));
     console.log('[provision] fertig:', JSON.stringify(result).slice(0, 200));
     if (result.ok) {
       setCreds(result.creds);
