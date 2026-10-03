@@ -28,7 +28,7 @@ test('renderNativeEnv: Container-Port-Vertrag + Pflicht-Variablen', () => {
   const env = renderNativeEnv(dirs, SECRETS, IDENTITY);
   // Ports spiegeln den allinone-Internraum (Caddyfile-Template hardcodet sie)
   assert.equal(env.DATABASE_URL, `postgresql+asyncpg://pulse:${SECRETS.postgresPassword}@127.0.0.1:${NATIVE_PORTS.postgres}/dcc`);
-  assert.equal(env.REDIS_URL, `redis://127.0.0.1:${NATIVE_PORTS.garnet}/0`);
+  assert.equal(env.REDIS_URL, `redis://127.0.0.1:${NATIVE_PORTS.garnet}/0?protocol=2`);
   assert.equal(env.CHAT_GATEWAY_URL, `http://127.0.0.1:${NATIVE_PORTS.chat}`);
   assert.equal(env.LIVEKIT_API_URL, `http://127.0.0.1:${NATIVE_PORTS.livekitApi}`);
   // App-Host-Semantik wie im Container (renderContainerEnv)

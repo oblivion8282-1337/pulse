@@ -42,8 +42,12 @@ export function renderNativeEnv(
     POSTGRES_PORT: String(p.postgres),
     DATABASE_URL: `postgresql+asyncpg://pulse:${secrets.postgresPassword}@127.0.0.1:${p.postgres}/dcc`,
 
-    // Redis/Garnet (local-only bind, no auth — single-machine threat model)
-    REDIS_URL: `redis://127.0.0.1:${p.garnet}/0`,
+    // Redis/Garnet (local-only bind, no auth — single-machine threat model).
+    // protocol=2 ZWINGEND: redis-py 8.x verhandelt sonst RESP3, und Garnet
+    // 2.2.0 desynced bei MGET unter RESP3 (Timeout → Ready-Frame des
+    // Chat-Gateways stirbt → Rail/Channels leer). Echter Redis im Container
+    // hätte beides verkraftet — nativ ist RESP2 der gemeinsame Nenner.
+    REDIS_URL: `redis://127.0.0.1:${p.garnet}/0?protocol=2`,
 
     // JWT (RS256 chat-gateway issuer)
     JWT_PRIVATE_KEY_FILE: join(keys, 'jwt_private.pem'),
