@@ -15,7 +15,7 @@
   import { readState } from '$lib/stores/readState.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
-  import { APP_START_SERVER_DECKEL_MS } from '$lib/api/constants';
+  import { serverState } from '$lib/ws/server-state.svelte';
   import { watchFehlerWacht } from '$lib/watch/fehlerwacht.svelte';
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initActivityHeartbeat, disposeActivityHeartbeat } from '$lib/ws/activity';
@@ -211,6 +211,10 @@
     // Eintragungen gibt) und damit den Bildschirm dieses Rechners wach.
     // Nach dem Laden, weil erst dann beide Listen vorliegen.
     void geraeteAnmeldung.abgleichenMitServern(serversStore.servers.map((s) => s.id));
+    // Server-State-Spiegel App-weit (vorher in der GuildRail — die lebt nur
+    // auf Seiten, die sie rendern): Die „Verbinde mit …“-Anzeige der
+    // Startseite braucht ihn zuverlässig. start() ist idempotent.
+    serverState.start();
     void gateway.connect().catch((e) => console.error('gateway connect', e));
     // Global-Friends Stufe 1: die Cloud-Connection ist die globale Social-Quelle
     // (Freunde/DMs/Requests/Blocks/Freund-Presence) und muss dauerhaft connected
@@ -230,23 +234,16 @@
     await Promise.all([
       directMessages.hydrate().catch((e) => console.error('directMessages.hydrate failed', e)),
       capabilities.hydrate().catch((e) => console.error('capabilities.hydrate failed', e)),
-      // App-Hosting (2026-10-03): Ein NICHT-Cloud-Server als letzter aktiver
-      // darf den Start nicht mit seiner Verbindungszeremonie festhalten —
-      // nach 5 s wird entlassen, der Server verbindet im Hintergrund weiter.
-      // Cloud als aktiver wartet unverändert voll (seedt die Social-Stores,
-      // ist real in <1 s ready; ein Deckel ließe die Freundesliste leer
-      // flackern — genau der Fall, den das CloudConn-wait unten verhindert).
-      gateway
-        .waitForReady(
-          activeServer.current?.isCloud === false ? APP_START_SERVER_DECKEL_MS : undefined
-        )
-        .catch((e) => console.error('gateway ready', e)),
-      // Auf den Cloud-ready warten, damit die Social-Stores vor dem ersten Paint
-      // geseedet sind (sonst flackert die Freundesliste leer). Nur wenn Cloud
-      // ≠ aktiv — sonst deckt `gateway.waitForReady()` es bereits ab.
+      // Start-Entkopplung (2026-10-03): Das erste Bild wartet NUR noch auf die
+      // Cloud (Social-Stores vor dem Paint, real <1 s). Ein Nicht-Cloud-Server
+      // als letzter aktiver wird nicht mehr awaited — seine Verbindung baut
+      // sich im Hintergrund auf, die Startseite zeigt „Verbinde mit …“, und
+      // die Stores füllen sich über den Ready-Frame, sobald er steht.
+      // Ist die Cloud selbst aktiv, deckt `gateway.waitForReady()` es ab
+      // (derselbe Socket wie cloudConn — dann existiert cloudConn nicht).
       cloudConn
         ? cloudConn.waitForReady().catch((e) => console.error('cloud gateway ready', e))
-        : Promise.resolve()
+        : gateway.waitForReady().catch((e) => console.error('gateway ready', e))
     ]);
     hydrated = true;
 
@@ -355,6 +352,7 @@
 
   onDestroy(() => {
     disposeActivityHeartbeat();
+    serverState.stop();
     pendingInstanceApps.stop();
     appHostAnwesenheit.stop();
     pendingComplaints.stop();

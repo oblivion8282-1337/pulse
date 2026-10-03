@@ -7,13 +7,16 @@
  * mehr — scheitert der Direktpfad, wirft die Weiche einen erklärten
  * `DirectUnavailableError` (offline / keine Direktverbindung / Identität
  * geändert) und meldet den Zustand an den directStatus-Store fürs UI.
- * VPS-Server verhalten sich wie bisher (Hostname IST deren Weg).
+ * VPS-Server: Der Direktpfad ist nur eine Optimierung und darf seit
+ * 2026-10-03 den ERSTEN Request nicht mehr aufhalten — Abfrage läuft sofort
+ * über den Hostnamen, ein Aufbau wird höchsten angestoßen und von den
+ * nachfolgenden Requests genutzt, sobald er steht.
  */
 
 import { m } from '$lib/paraglide/messages.js';
 import { directStatus } from '$lib/stores/directStatus.svelte';
 import { appHostAnwesenheit } from '$lib/stores/appHostAnwesenheit.svelte';
-import { getDirectConnectionDetailed } from './registry';
+import { getDirectConnection, getDirectConnectionDetailed } from './registry';
 import { isDirectOnly, directFailureMessageKey, type DirectFailureReason } from './policy';
 
 /** Harter Fehlzustand eines Direct-only-Servers — trägt den Grund für UI-Logik
@@ -56,30 +59,44 @@ export async function transportFetch(
 ): Promise<Response> {
   if (directEligible(server)) {
     const instanceId = server!.instance_id!;
-    // Schlafend bekannte App-Hosts gar nicht erst anrufen (2026-10-03): Die
-    // Anwesenheit ist ein billiger Cloud-Lookup; ein Dial auf einen toten
-    // Server verbrennt dagegen die vollen ICE-Timeouts (bis ~11 s).
-    if (isDirectOnly(server) && (await appHostAnwesenheit.istOffline(instanceId))) {
-      directStatus.report(instanceId, 'offline');
-      throw new DirectUnavailableError('offline');
-    }
-    const result = await getDirectConnectionDetailed(instanceId, server);
-    if (result.ok && result.conn.isOpen) {
-      try {
-        const resp = await result.conn.fetch(toPath(url), init);
-        directStatus.clear(instanceId);
-        return resp;
-      } catch {
-        // Verbindung starb mitten im Request.
-        if (isDirectOnly(server)) {
+    if (isDirectOnly(server)) {
+      // App-Host (Direct-only): Anwesenheit prüfen, dann dialen — der
+      // Direktweg ist der einzige Weg, hier darf (und muss) gewartet werden.
+      if (await appHostAnwesenheit.istOffline(instanceId)) {
+        directStatus.report(instanceId, 'offline');
+        throw new DirectUnavailableError('offline');
+      }
+      const result = await getDirectConnectionDetailed(instanceId, server);
+      if (result.ok && result.conn.isOpen) {
+        try {
+          const resp = await result.conn.fetch(toPath(url), init);
+          directStatus.clear(instanceId);
+          return resp;
+        } catch {
+          // Verbindung starb mitten im Request.
           directStatus.report(instanceId, 'ice-failed');
           throw new DirectUnavailableError('ice-failed');
         }
-        // VPS: Hostname-Versuch, nicht scheitern.
       }
-    } else if (!result.ok && isDirectOnly(server)) {
-      directStatus.report(instanceId, result.reason);
-      throw new DirectUnavailableError(result.reason);
+      const reason: DirectFailureReason = result.ok ? 'ice-failed' : result.reason;
+      directStatus.report(instanceId, reason);
+      throw new DirectUnavailableError(reason);
+    }
+    // VPS (2026-10-03): Steht die Direktverbindung, sie nutzen — sonst SOFORT
+    // über den Hostname und den Aufbau nur noch anstoßen. Er darf die erste
+    // Abfrage nicht mehr blockieren; steht er später, nehmen ihn die
+    // nachfolgenden Requests und der Gateway mit.
+    const offen = getDirectConnection(instanceId);
+    if (offen) {
+      try {
+        const resp = await offen.fetch(toPath(url), init);
+        directStatus.clear(instanceId);
+        return resp;
+      } catch {
+        // Verbindung starb mitten im Request → Hostname, nicht scheitern.
+      }
+    } else {
+      void getDirectConnectionDetailed(instanceId, server).catch(() => undefined);
     }
   }
   return fetch(url, init);
