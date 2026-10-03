@@ -13,6 +13,7 @@ import { classifyMintStatus, redeemBootstrap, type BootstrapCreds } from './loca
 import { aktiveAppHostInstanz, bewerteAnlage } from './serverAnlage';
 import { classifyDeleteStatus, type CloudDeleteVerdict } from './serverGiveUp';
 import { classifyCloudStatus } from './serverCloudStatus';
+import { pulseSessionAusSetCookie } from './serverSession';
 
 interface InstanceOut { id: string; status: string; origin?: string }
 
@@ -26,16 +27,51 @@ async function sessionCookie(cloudOrigin: string): Promise<string> {
 // (Spinner, kein Fehlerpfad). 30 s decken selbst zähe Cloud-Runden.
 const NET_FRIST_MS = 30_000;
 
-/** POST /session/renew mit dem durablen Bearer-Token → die Cloud setzt einen
- *  frischen 30-Min-`pulse_session`-Cookie (Set-Cookie landet automatisch im
- *  net-Cookie-Jar der Default-Session). Die Instanz-Endpoints sind cookie-only
- *  (`_require_user` in routes_instance_applications.py — kein Bearer-Pfad),
- *  deshalb prägen wir den Cookie neu, statt den Bearer direkt zu schicken. */
+/** POST /session/renew mit dem durablen Bearer-Token → die Cloud mintet einen
+ *  frischen 30-Min-`pulse_session`-Cookie. Die Instanz-Endpoints sind
+ *  cookie-only (`_require_user` in routes_instance_applications.py — kein
+ *  Bearer-Pfad), deshalb prägen wir den Cookie neu, statt den Bearer direkt zu
+ *  schicken.
+ *
+ *  Bughunt 2026-10-03: `net` läuft mit Electron-Default
+ *  `useSessionCookies: false` — es sendet also KEIN Jar-Cookie mit (gut! Der
+ *  Renew muss eine dem Browser bekannte Session nie weg-rotieren: genau das
+ *  passierte beim Boot-Renew der Web-App und hinterließ ein revoktes Cookie im
+ *  Jar), speichert aber AUCH das Set-Cookie der Antwort nicht selbst. Deshalb
+ *  wird der neue Wert aus den Response-Headern gelesen und explizit per
+ *  session.cookies.set() ins Jar gelegt — der frühere Glaube, das Set-Cookie
+ *  „landet automatisch im net-Cookie-Jar", galt nicht für diesen Weg. */
 function renewSessionCookie(cloudOrigin: string, bearer: string): Promise<void> {
   return new Promise((resolve) => {
-    const req = net.request({ method: 'POST', url: `${cloudOrigin}/api/auth/session/renew` });
+    const req = net.request({
+      method: 'POST',
+      url: `${cloudOrigin}/api/auth/session/renew`,
+      useSessionCookies: false,
+    });
     req.setHeader('Authorization', `Bearer ${bearer}`);
-    req.on('response', (res) => { res.on('data', () => {}); res.on('end', () => resolve()); });
+    req.on('response', (res) => {
+      res.resume(); // Inhalt egal — nur Status-Header zählen; Socket freigeben
+      res.on('end', () => {
+        const roh = res.headers['set-cookie'];
+        const liste = Array.isArray(roh) ? roh : roh ? [roh] : undefined;
+        const frisch = pulseSessionAusSetCookie(liste);
+        if (!frisch) return resolve(); // Renew fehlgeschlagen → '' → "nicht eingeloggt"
+        session.defaultSession.cookies
+          .set({
+            url: cloudOrigin,
+            name: 'pulse_session',
+            value: frisch.value,
+            secure: true,
+            httpOnly: true,
+            sameSite: 'strict',
+            expirationDate: Math.floor(Date.now() / 1000) + frisch.maxAgeSek,
+          })
+          .then(
+            () => resolve(),
+            () => resolve(),
+          );
+      });
+    });
     req.on('error', () => resolve());
     req.end();
   });
@@ -150,17 +186,20 @@ export async function provision(
 
     // 1. Aktive App-Host-Instanz des Users finden. NUR origin=app_host — das
     //    Pairing rotiert client_secret + Tunnel-Token und darf eine laufende
-    //    VPS-Instanz desselben Users nie treffen.
-    const list = await netJson('GET', `${cloudOrigin}/api/auth/me/instances`, cookie);
+    //    VPS-Instanz desselben Users nie treffen. Der Cookie kann durch die
+    //    401-Heilung in holeInstanzen erneuert worden sein — weiter unten
+    //    fährt list.cookie, nicht das eingangs gelesene.
+    const list = await holeInstanzen(cloudOrigin, getBearer);
     if (list.status === 0) return { ok: false, error: 'Cloud nicht erreichbar — Internetverbindung?' };
     if (list.status !== 200 || !Array.isArray(list.json)) {
       return { ok: false, error: `Instanzen nicht ladbar (HTTP ${list.status}). Eingeloggt + freigegeben?` };
     }
+    const { cookie: sessionCookie } = list;
     const liste = list.json as InstanceOut[];
     const gefunden = aktiveAppHostInstanz(liste);
     if (gefunden) {
       const inst = liste.find((i) => i.id === gefunden.id) as InstanceOut;
-      return proceedWithInstance(inst, cookie, cloudOrigin, opts);
+      return proceedWithInstance(inst, sessionCookie, cloudOrigin, opts);
     }
 
     // Selbstbedienung (Heim-Server 2026-09-27): keine Instanz da → selbst
@@ -169,22 +208,47 @@ export async function provision(
     // braucht die Server-App nicht, weil der Bootstrap-Redeem unten das
     // Secret ohnehin rotiert. 409 = parallel doch eine entstanden (Race) →
     // Liste neu lesen; alles andere ist ein echter Fehler.
-    const create = await netJson('POST', `${cloudOrigin}/api/auth/me/instances`, cookie, {});
+    const create = await netJson('POST', `${cloudOrigin}/api/auth/me/instances`, sessionCookie, {});
     const anlage = bewerteAnlage(create.status, create.json);
     if (anlage.art === 'ok') {
-      return proceedWithInstance({ id: anlage.instanzId } as InstanceOut, cookie, cloudOrigin, opts);
+      return proceedWithInstance({ id: anlage.instanzId } as InstanceOut, sessionCookie, cloudOrigin, opts);
     }
     if (anlage.art === 'konflikt') {
-      const relist = await netJson('GET', `${cloudOrigin}/api/auth/me/instances`, cookie);
+      const relist = await netJson('GET', `${cloudOrigin}/api/auth/me/instances`, sessionCookie);
       const again = aktiveAppHostInstanz(relist.json);
       if (!again) return { ok: false, error: 'Instanz-Anlage widersprüchlich — erneut versuchen.' };
       const againFull = (relist.json as InstanceOut[]).find((i) => i.id === again!.id) as InstanceOut;
-      return proceedWithInstance(againFull, cookie, cloudOrigin, opts);
+      return proceedWithInstance(againFull, sessionCookie, cloudOrigin, opts);
     }
     return { ok: false, error: `Server-Registrierung fehlgeschlagen (HTTP ${anlage.status}).` };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** GET /me/instances mit 401-Heilung (Bughunt 2026-10-03): Ein Jar-Cookie kann
+ *  serverseitig tot sein, obwohl die dauerhaften Tokens gesund sind — die
+ *  Web-App rotierte die Session (Boot-Renew), und ihr Set-Cookie ging beim
+ *  Umschalten auf server.html verloren. ensureSessionCookie vertraut dem
+ *  vorhandenen Cookie blind, deshalb: bei 401 das Jar-Cookie verwerfen, per
+ *  Bearer neu prägen, EINMAL erneut versuchen. Liefert Status+Liste UND den
+ *  ggf. erneuerten Cookie — der Mint unten muss auf demselben Stand fahren. */
+async function holeInstanzen(
+  cloudOrigin: string,
+  getBearer?: () => Promise<string | null>,
+): Promise<{ status: number; json: unknown; cookie: string }> {
+  let cookie = (await ensureSessionCookie(cloudOrigin, getBearer)) ?? '';
+  let list = cookie
+    ? await netJson('GET', `${cloudOrigin}/api/auth/me/instances`, cookie)
+    : { status: 401 as number, json: null as unknown };
+  if (list.status === 401) {
+    await session.defaultSession.cookies.remove(cloudOrigin, 'pulse_session').catch(() => {});
+    cookie = (await ensureSessionCookie(cloudOrigin, getBearer)) ?? '';
+    list = cookie
+      ? await netJson('GET', `${cloudOrigin}/api/auth/me/instances`, cookie)
+      : list;
+  }
+  return { status: list.status, json: list.json, cookie };
 }
 
 /** Schritt 2+3 der Provisionierung für eine gefundene Instanz: Bootstrap-Token

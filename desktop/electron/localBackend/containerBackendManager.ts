@@ -29,9 +29,74 @@ import { detectRuntime, ensureMachine, rtExec, type ContainerRuntime } from './c
 import { waitFor, httpHealth } from './health.ts';
 import { startUdpRelay, type UdpRelay } from './udpRelay.ts';
 import { startTcpRelay, type TcpRelay } from './tcpRelay.ts';
+import { startUdpGatewayRelay, probeGateway, type UdpGatewayRelay } from './udpGateway.ts';
 
 export const CONTAINER_NAME = 'pulse-host';
 export const DATA_VOLUME = 'pulse-host-data';
+
+// ── macOS-Medienpfad (gvproxy) ──────────────────────────────────────────────
+// Die podman-machine auf macOS published UDP nicht in die VM (nachgewiesen
+// 2026-10-03: Pakete an published UDP-Ports kommen nie im Container an, auch
+// nicht nach Outbound-Aktivität) — die UDP-Publishes aus MEDIA_PORT_ARGS sind
+// dort toter Ballast. Stattdessen: kein UDP-Publish, dafür der TCP-Port des
+// UDP-Gateways (s6-Service im Image, nur 127.0.0.1), und die Server-App
+// bindet die Medien-UDP-Ports selbst und kapselt jeden Client-Flow per
+// TCP-Frames dorthin (udpGateway.ts). Windows bleibt beim host-networking-
+// Weg mit dem VM-IP-Relay, Linux beim klassischen Publish (nativer NAT).
+export const UDP_GATEWAY_PORT = 55981;
+export const UDP_MEDIA_PORTS = [3478, 7900, 8189, 7882, 7883, 7884, 7885, 7886, 7887, 7888, 7889, 7890, 7891, 7892];
+
+/** Fallback für Images OHNE udp-gateway-s6-Service (Stand < 0.1.93): das
+ *  App-Start-Skript pusht das Gateway per exec -d in den laufenden Container.
+ *  Komplett inline, damit kein Datei-Mount nötig ist. */
+const UDP_GATEWAY_SNIPPET = `
+import socket, struct, threading
+LISTEN = ("0.0.0.0", 55981)
+def recvn(conn, n):
+    buf = b""
+    while len(buf) < n:
+        chunk = conn.recv(n - len(buf))
+        if not chunk:
+            raise ConnectionError
+        buf += chunk
+    return buf
+def handle(conn):
+    udp = None
+    try:
+        port = struct.unpack(">H", recvn(conn, 2))[0]
+        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp.bind(("127.0.0.1", 0))
+        udp.settimeout(180)
+        server_addr = ("127.0.0.1", port)
+        def udp_to_tcp():
+            try:
+                while True:
+                    data, _ = udp.recvfrom(65535)
+                    conn.sendall(struct.pack(">H", len(data)) + data)
+            except Exception:
+                pass
+        threading.Thread(target=udp_to_tcp, daemon=True).start()
+        while True:
+            (ln,) = struct.unpack(">H", recvn(conn, 2))
+            udp.sendto(recvn(conn, ln), server_addr)
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+def main():
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(LISTEN)
+    srv.listen(128)
+    print("[udp-gateway] bereit auf 55981/tcp", flush=True)
+    while True:
+        conn, _ = srv.accept()
+        threading.Thread(target=handle, args=(conn,), daemon=True).start()
+main()
+`;
 
 // ── Benutzer-Welten ─────────────────────────────────────────────────────────
 // Jedes Cloud-Konto bekommt auf diesem Gerät seine EIGENE Welt: eigener
@@ -247,6 +312,7 @@ export class ContainerBackendManager {
   private rt: ContainerRuntime | null = null;
   private relay: UdpRelay | null = null;
   private tcpRelay: TcpRelay | null = null;
+  private gatewayRelay: UdpGatewayRelay | null = null;
 
   /** Runtime lazy erkennen + cachen (einmal gefunden, bleibt sie stehen). */
   private async ensureRuntime(): Promise<ContainerRuntime | null> {
@@ -333,8 +399,11 @@ export class ContainerBackendManager {
     // Gleiche Bedingung wie der Netz-Modus in Schritt 4 (hostNet): nur im
     // VM-Betrieb muss die Host-IP in den Container gerendert werden. Linux
     // lässt STUN/srflx laufen — dort ist der Internetweg damit bewiesen.
+    // macOS ebenfalls: LiveKit/LiveMedia kündigen statt der Container-IP die
+    // Mac-LAN-IP an, an der das Host-UDP-Gateway-Relay lauscht (gvproxy
+    // reicht UDP nicht durch — Windows-Voice-Muster, mac-Nachbau 2026-10-03).
     const vmAnnounceIp =
-      process.platform === 'win32' && rt.kind === 'podman' ? hostLanIpv4s()[0] : undefined;
+      process.platform !== 'linux' && rt.kind === 'podman' ? hostLanIpv4s()[0] : undefined;
     writeFileSync(envFile, renderContainerEnv(creds, adminEmail, hostLanIpv4s(), vmAnnounceIp), {
       encoding: 'utf8',
       mode: 0o600,
@@ -386,9 +455,19 @@ export class ContainerBackendManager {
     if (hostNet && !vmIp) {
       throw new Error('podman-machine-VM-IP nicht ermittelbar (host-Networking)');
     }
+    // macOS (gvproxy): UDP-Publishes raus (kommen nie an), dafür den
+    // TCP-Port des UDP-Gateways — nur 127.0.0.1, der Weg ist Loopback.
+    const udpViaGateway = process.platform === 'darwin';
     const netArgs = hostNet
       ? ['--network', 'host']
-      : ['-p', `127.0.0.1:${HOST_HTTP_PORT}:8080`, ...MEDIA_PORT_ARGS];
+      : udpViaGateway
+        ? [
+            '-p', `127.0.0.1:${HOST_HTTP_PORT}:8080`,
+            '-p', '0.0.0.0:1936:1936/tcp',
+            '-p', '0.0.0.0:3478:3478/tcp',
+            '-p', `127.0.0.1:${UDP_GATEWAY_PORT}:${UDP_GATEWAY_PORT}/tcp`,
+          ]
+        : ['-p', `127.0.0.1:${HOST_HTTP_PORT}:8080`, ...MEDIA_PORT_ARGS];
 
     // 5. Alten Container ersetzen (Recreate statt Restart → nimmt frisch
     //    gepullte Images + Env-Änderungen mit; /data lebt im Named Volume).
@@ -423,6 +502,31 @@ export class ContainerBackendManager {
     //    LAN-IP) + RTMPS-TCP (Owner-Streaming auf localhost:1936) — beide
     //    binden mit `--network host` nur in der VM, der Relay überbrückt sie.
     await this.ensureRelay(vmIp);
+
+    // 8. macOS: UDP-Medien-Ports am Host binden und per TCP-Frames durch das
+    //    Container-Gateway reichen (udpViaGateway — gvproxy leitet UDP nicht).
+    //    Gateway fehlt (altes Image) → einmalig per exec -d nachstarten.
+    if (udpViaGateway) {
+      const gwHost = '127.0.0.1';
+      const bereit = await probeGateway(gwHost, UDP_GATEWAY_PORT);
+      if (!bereit) {
+        progress('gateway');
+        const exec = await rtExec(
+          rt,
+          ['exec', '-d', containerName(), '/opt/pulse/venv/bin/python3', '-c', UDP_GATEWAY_SNIPPET],
+          { timeoutMs: 30_000 },
+        );
+        if (exec.code !== 0) {
+          throw new Error(`udp-gateway exec fehlgeschlagen: ${exec.stderr.slice(0, 300)}`);
+        }
+        const ok = await waitFor(() => probeGateway(gwHost, UDP_GATEWAY_PORT), 20_000, 1_000).catch(() => false);
+        if (!ok) throw new Error('udp-gateway im Container nicht erreichbar');
+      }
+      this.gatewayRelay = await startUdpGatewayRelay(
+        UDP_MEDIA_PORTS, gwHost, UDP_GATEWAY_PORT,
+        (msg) => console.log(msg),
+      );
+    }
   }
 
   async stop(): Promise<void> {
@@ -430,6 +534,8 @@ export class ContainerBackendManager {
     this.relay = null;
     this.tcpRelay?.close();
     this.tcpRelay = null;
+    this.gatewayRelay?.close();
+    this.gatewayRelay = null;
     const rt = await this.ensureRuntime();
     if (!rt) return;
     // -t 20: Postgres im Container sauber runterfahren lassen.
