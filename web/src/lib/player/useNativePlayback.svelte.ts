@@ -33,13 +33,13 @@ export interface NativePlaybackArgs {
   tenBit?: boolean;
   /**
    * Kann dieser Stream im Browser der Plattform überhaupt laufen? Konkreter
-   * Fall: HEVC. Auf Linux lässt sich der H265-Track gar nicht verhandeln
-   * (Chromium ohne Hardware-Dekodierung); auf Windows/macOS ginge der
-   * `<video>`-Weg inzwischen (Messung korrigiert am 2026-09-13: die erste
-   * Absage war ein Sender-Bug, kein Browser-Bug), aber das eigene Fenster
-   * bringt Zero-Copy und 10 bit mit — deshalb bleibt der Zwang eine
-   * Qualitätsentscheidung. Der Zuschauer müsste den Player sonst selbst
-   * finden (`erzwungen`, s. unten).
+   * Fall: HEVC auf Linux — dort lässt sich der H265-Track gar nicht
+   * verhandeln. Auf Windows/macOS geht der `<video>`-Weg (Messung korrigiert
+   * am 2026-09-13: die erste Absage war ein Sender-Bug, kein Browser-Bug);
+   * Michaels Entscheidung vom 2026-10-03 setzt `nurNativ` deshalb NUR noch
+   * auf Linux. HEVC 8 bit verhält sich dort wie H264/AV1: Kachel zuerst,
+   * eigenes Fenster nur auf Entkoppeln. (Vom 2026-09-13 bis dahin galt der
+   * Zwang auf allen Plattformen als Qualitätsentscheidung.)
    */
   nurNativ?: boolean;
 }
