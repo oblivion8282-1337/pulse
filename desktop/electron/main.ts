@@ -67,7 +67,7 @@ import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds, loadCredsFuer, saveCredsFuer,
   probeUrl, sanitize, type BootstrapCreds,
 } from './localBackend/pairing';
-import { provision, deleteInstanceRegistration, fetchCloudStatus, fetchMe } from './serverProvision';
+import { provision, deleteInstanceRegistration, fetchCloudStatus, fetchMe, setzeMintRueckruf } from './serverProvision';
 import {
   createTokenGetter, saveAuth, loadAuth, clearAuth, revokeRefresh,
   WEB_ACCESS_KEY, WEB_REFRESH_KEY,
@@ -445,8 +445,9 @@ function createWindow(): void {
       // Landingpage. Server-App-Login → `/login` (NICHT `/app`: jede
       // Navigation dorthin gilt startLoginWatch als Login-Erfolg);
       // Normal-App → `/app` (die Hülle schickt Ohne-Sitzung nach /login).
-      mainWindow.loadURL(new URL('/login', PROD_URL).href);
-      startLoginWatch(mainWindow);
+      const bootLoginOrigin = DEV_URL ?? PROD_URL;
+      mainWindow.loadURL(new URL('/login', bootLoginOrigin).href);
+      startLoginWatch(mainWindow, bootLoginOrigin);
     }
   } else {
     void mainWindow.loadURL(new URL('/app', TARGET_URL).href);
@@ -461,31 +462,50 @@ function createWindow(): void {
  *  wie der Login-Erfolg. Der frühere 1,5-s-Cookie-Poll allein ließ die volle
  *  Chat-Oberfläche bis zum nächsten Tick aufblitzen; er bleibt nur als Netz
  *  für Wege ohne Navigation (z.B. Session war beim Start schon gültig). */
-/** Nach dem Login die Web-App-Tokens (localStorage der howispulse.com-Seite) in
- *  den durablen Store der Server-App übernehmen — damit die Cloud-Calls
- *  (me/cloudStatus/provision/giveUp) App-Neustarts überleben, statt am 30-Min-
- *  Cookie zu hängen (serverAuth). Best effort: schlägt das Lesen fehl, bleibt
- *  der Cookie-Fallback. */
+/** Nach dem Login die Web-App-Tokens in den durablen Store der Server-App
+ *  übernehmen — damit die Cloud-Calls (me/cloudStatus/provision/giveUp)
+ *  App-Neustarts überleben (serverAuth).
+ *
+ *  Zwei Quellen, der Reihe nach:
+ *  1. LEGACY: Token-Paar im localStorage der Cloud-Seite (bis Security-Audit
+ *     2026-09-16 — der refresh_token lebte dort).
+ *  2. COOKIE-MODUS (aktuelle Web-App): localStorage ist leer, der refresh
+ *     reist im HttpOnly-pulse_rt-Cookie. Ein in-page /api/auth/refresh mit
+ *     credentials:'include' mintet den access_token im Body — und der Browser
+ *     persistiert die rotierte pulse_rt gleich mit in den Cookie-Store (das
+ *     ist der entscheidende Punkt: net.request mit handgebautem Cookie-Header
+ *     würde die Rotation VERWERFEN und den rt damit töten). Der gespeicherte
+ *  refreshToken bleibt leer — createTokenGetter überspringt den Body-Refresh
+ *  dann, und serverProvision mintet über den Cookie nach. */
 async function captureAuthTokens(win: BrowserWindow): Promise<void> {
   try {
     const t = await win.webContents.executeJavaScript(
       `({ a: window.localStorage.getItem(${JSON.stringify(WEB_ACCESS_KEY)}), r: window.localStorage.getItem(${JSON.stringify(WEB_REFRESH_KEY)}) })`,
       true,
     );
-    if (t && typeof t.a === 'string' && typeof t.r === 'string') {
+    if (t && typeof t.a === 'string' && typeof t.r === 'string' && t.a && t.r) {
       saveAuth({ get: storeGet, set: storeSet }, { accessToken: t.a, refreshToken: t.r });
+      return;
     }
-  } catch { /* localStorage nicht lesbar → Cookie-Fallback */ }
+    const minted = await win.webContents.executeJavaScript(
+      `fetch('/api/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: '{}' })
+         .then(r => r.ok ? r.json() : null).catch(() => null)`,
+      true,
+    ) as { access_token?: unknown } | null;
+    if (minted && typeof minted.access_token === 'string' && minted.access_token) {
+      saveAuth({ get: storeGet, set: storeSet }, { accessToken: minted.access_token, refreshToken: '' });
+    }
+  } catch { /* localStorage/fetch nicht lesbar → Cookie-Fallback */ }
 }
 
-function startLoginWatch(win: BrowserWindow): void {
+function startLoginWatch(win: BrowserWindow, loginOrigin: string): void {
   let done = false;
   const toServer = async () => {
     if (done || win.isDestroyed()) return;
     done = true;
     clearInterval(timer);
     // Tokens VOR dem Wechsel auf server.html greifen — danach ist die
-    // howispulse.com-Seite (mit dem localStorage) weg.
+    // Cloud-Seite (mit localStorage + Cookie-Kontext) weg.
     await captureAuthTokens(win);
     if (win.isDestroyed()) return;
     void win.loadFile(path.join(__dirname, 'server.html'));
@@ -497,12 +517,14 @@ function startLoginWatch(win: BrowserWindow): void {
   };
   win.webContents.on('did-navigate-in-page', onNav);
   win.webContents.on('did-navigate', onNav);
-  // Poll-Fallback für Wege ohne Navigation (Session war beim Start schon gültig).
-  // `timer` wird erst asynchron (im Callback/`toServer`) gelesen → const genügt.
+  // Poll-Fallback für Wege ohne Navigation (Session war beim Start schon
+  // gültig). Der Cookie gehört zur LOGIN-Cloud — hartcodiertes PROD_URL fand
+  // im Dev-Cloud-Betrieb nie einen pulse_session und ließ das Fenster auf der
+  // Login-Seite hängen.
   const timer = setInterval(async () => {
     if (win.isDestroyed()) { clearInterval(timer); return; }
     try {
-      const cookies = await session.defaultSession.cookies.get({ name: 'pulse_session', url: PROD_URL });
+      const cookies = await session.defaultSession.cookies.get({ name: 'pulse_session', url: loginOrigin });
       if (cookies.length) toServer();
     } catch { /* ignore — retry */ }
   }, 1500);
@@ -575,6 +597,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // keine/tote Tokens → die Calls fallen auf den 30-Min-Cookie zurück bzw.
   // melden "nicht eingeloggt".
   const getAccessToken = createTokenGetter(hostStore);
+  // Cookie-Mint-Rückruf (serverProvision): über den pulse_rt-Cookie gemintete
+  // Access-Tokens dauerhaft im Store ablegen — der rt selbst bleibt im
+  // HttpOnly-Cookie-Store der Session (30 Tage, überlebt App-Neustarts).
+  setzeMintRueckruf((_origin, tokens) => {
+    saveAuth(hostStore, tokens);
+  });
 
   /** Die Container-Welt, die der Manager GERADE sieht ('null' = Legacy). */
   let aktiveContainerWelt: string | null = weltUser && String(legacyCreds?.ownerId ?? '') !== weltUser
@@ -922,8 +950,9 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       // meldete im Dev-Cloud-Betrieb bei der FALSchen Cloud an — /me (und
       // damit das "Angemeldet als") fragt die Instanz-Cloud und fand nie
       // Tokens.
-      await win.loadURL(creds?.cloudOrigin ?? DEV_URL ?? PROD_URL);
-      startLoginWatch(win);
+      const loginOrigin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+      await win.loadURL(loginOrigin + '/login');
+      startLoginWatch(win, loginOrigin);
     }
     return { ok: true };
   });
@@ -949,8 +978,9 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     await syncLifecycleFromContainer().catch(() => {});
     const win = getWin();
     if (win && !win.isDestroyed()) {
-      await win.loadURL(PROD_URL);
-      startLoginWatch(win);
+      const logoutOrigin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+      await win.loadURL(new URL('/login', logoutOrigin).href);
+      startLoginWatch(win, logoutOrigin);
     }
     return { ok: true };
   });
