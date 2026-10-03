@@ -15,7 +15,7 @@
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import electron from 'electron';
+import * as electron from 'electron';
 
 import type { NativeDataDirs } from './types.ts';
 
@@ -24,7 +24,18 @@ type ElectronWithResources = { resourcesPath?: string };
 /** Root des nativen Ressourcen-Baums (native-bin/python/services/templates). */
 export function nativeRoot(env: Record<string, string | undefined> = process.env): string {
   if (env.PULSE_NATIVE_ROOT) return env.PULSE_NATIVE_ROOT;
-  const resourcesPath = (electron as unknown as ElectronWithResources).resourcesPath;
+  // KEIN Default-Import: electron exportiert __esModule:true (seit 28), der
+  // esbuild-Interop baut dann KEIN .default — `import electron from` +
+  // `.resourcesPath` war im gepackten Build undefined → TypeError →
+  // runtimeAvailable false → misleading Podman-Fehler (0.1.93-Deploy, hier
+  // nie aufgefallen, weil Dev immer mit PULSE_NATIVE_ROOT lief). Der
+  // Namespace-Zugriff greift auf die echten Exports durch.
+  let resourcesPath: string | undefined;
+  try {
+    resourcesPath = (electron as unknown as ElectronWithResources).resourcesPath;
+  } catch {
+    resourcesPath = undefined;
+  }
   if (resourcesPath && existsSync(join(resourcesPath, 'native'))) {
     return join(resourcesPath, 'native');
   }
