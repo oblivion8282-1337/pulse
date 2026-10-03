@@ -57,6 +57,7 @@ import { handleDeepLink, extractPulseUrl, takePendingInvite, isValidFqdn } from 
 import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
 import { ContainerBackendManager, resolveImage, HOST_HTTP_PORT, setzeContainerWelt } from './localBackend/containerBackendManager';
+import { NativeBackendManager, setzeNativeWelt } from './localBackend/nativeBackend/nativeBackendManager';
 import { wslReady, installWsl, inFlatpak } from './localBackend/containerRuntime';
 import { volumeSizeBytes, exportVolume, importVolume, lastAutoBackupAt } from './localBackend/dataTools';
 import { httpHealth } from './localBackend/health';
@@ -66,7 +67,7 @@ import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds, loadCredsFuer, saveCredsFuer,
   probeUrl, sanitize, type BootstrapCreds,
 } from './localBackend/pairing';
-import { provision, deleteInstanceRegistration, fetchCloudStatus, fetchMe } from './serverProvision';
+import { provision, deleteInstanceRegistration, fetchCloudStatus, fetchMe, setzeMintRueckruf } from './serverProvision';
 import {
   createTokenGetter, saveAuth, loadAuth, clearAuth, revokeRefresh,
   WEB_ACCESS_KEY, WEB_REFRESH_KEY,
@@ -444,8 +445,9 @@ function createWindow(): void {
       // Landingpage. Server-App-Login → `/login` (NICHT `/app`: jede
       // Navigation dorthin gilt startLoginWatch als Login-Erfolg);
       // Normal-App → `/app` (die Hülle schickt Ohne-Sitzung nach /login).
-      mainWindow.loadURL(new URL('/login', PROD_URL).href);
-      startLoginWatch(mainWindow);
+      const bootLoginOrigin = DEV_URL ?? PROD_URL;
+      mainWindow.loadURL(new URL('/login', bootLoginOrigin).href);
+      startLoginWatch(mainWindow, bootLoginOrigin);
     }
   } else {
     void mainWindow.loadURL(new URL('/app', TARGET_URL).href);
@@ -460,31 +462,50 @@ function createWindow(): void {
  *  wie der Login-Erfolg. Der frühere 1,5-s-Cookie-Poll allein ließ die volle
  *  Chat-Oberfläche bis zum nächsten Tick aufblitzen; er bleibt nur als Netz
  *  für Wege ohne Navigation (z.B. Session war beim Start schon gültig). */
-/** Nach dem Login die Web-App-Tokens (localStorage der howispulse.com-Seite) in
- *  den durablen Store der Server-App übernehmen — damit die Cloud-Calls
- *  (me/cloudStatus/provision/giveUp) App-Neustarts überleben, statt am 30-Min-
- *  Cookie zu hängen (serverAuth). Best effort: schlägt das Lesen fehl, bleibt
- *  der Cookie-Fallback. */
+/** Nach dem Login die Web-App-Tokens in den durablen Store der Server-App
+ *  übernehmen — damit die Cloud-Calls (me/cloudStatus/provision/giveUp)
+ *  App-Neustarts überleben (serverAuth).
+ *
+ *  Zwei Quellen, der Reihe nach:
+ *  1. LEGACY: Token-Paar im localStorage der Cloud-Seite (bis Security-Audit
+ *     2026-09-16 — der refresh_token lebte dort).
+ *  2. COOKIE-MODUS (aktuelle Web-App): localStorage ist leer, der refresh
+ *     reist im HttpOnly-pulse_rt-Cookie. Ein in-page /api/auth/refresh mit
+ *     credentials:'include' mintet den access_token im Body — und der Browser
+ *     persistiert die rotierte pulse_rt gleich mit in den Cookie-Store (das
+ *     ist der entscheidende Punkt: net.request mit handgebautem Cookie-Header
+ *     würde die Rotation VERWERFEN und den rt damit töten). Der gespeicherte
+ *  refreshToken bleibt leer — createTokenGetter überspringt den Body-Refresh
+ *  dann, und serverProvision mintet über den Cookie nach. */
 async function captureAuthTokens(win: BrowserWindow): Promise<void> {
   try {
     const t = await win.webContents.executeJavaScript(
       `({ a: window.localStorage.getItem(${JSON.stringify(WEB_ACCESS_KEY)}), r: window.localStorage.getItem(${JSON.stringify(WEB_REFRESH_KEY)}) })`,
       true,
     );
-    if (t && typeof t.a === 'string' && typeof t.r === 'string') {
+    if (t && typeof t.a === 'string' && typeof t.r === 'string' && t.a && t.r) {
       saveAuth({ get: storeGet, set: storeSet }, { accessToken: t.a, refreshToken: t.r });
+      return;
     }
-  } catch { /* localStorage nicht lesbar → Cookie-Fallback */ }
+    const minted = await win.webContents.executeJavaScript(
+      `fetch('/api/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: '{}' })
+         .then(r => r.ok ? r.json() : null).catch(() => null)`,
+      true,
+    ) as { access_token?: unknown } | null;
+    if (minted && typeof minted.access_token === 'string' && minted.access_token) {
+      saveAuth({ get: storeGet, set: storeSet }, { accessToken: minted.access_token, refreshToken: '' });
+    }
+  } catch { /* localStorage/fetch nicht lesbar → Cookie-Fallback */ }
 }
 
-function startLoginWatch(win: BrowserWindow): void {
+function startLoginWatch(win: BrowserWindow, loginOrigin: string): void {
   let done = false;
   const toServer = async () => {
     if (done || win.isDestroyed()) return;
     done = true;
     clearInterval(timer);
     // Tokens VOR dem Wechsel auf server.html greifen — danach ist die
-    // howispulse.com-Seite (mit dem localStorage) weg.
+    // Cloud-Seite (mit localStorage + Cookie-Kontext) weg.
     await captureAuthTokens(win);
     if (win.isDestroyed()) return;
     void win.loadFile(path.join(__dirname, 'server.html'));
@@ -496,12 +517,14 @@ function startLoginWatch(win: BrowserWindow): void {
   };
   win.webContents.on('did-navigate-in-page', onNav);
   win.webContents.on('did-navigate', onNav);
-  // Poll-Fallback für Wege ohne Navigation (Session war beim Start schon gültig).
-  // `timer` wird erst asynchron (im Callback/`toServer`) gelesen → const genügt.
+  // Poll-Fallback für Wege ohne Navigation (Session war beim Start schon
+  // gültig). Der Cookie gehört zur LOGIN-Cloud — hartcodiertes PROD_URL fand
+  // im Dev-Cloud-Betrieb nie einen pulse_session und ließ das Fenster auf der
+  // Login-Seite hängen.
   const timer = setInterval(async () => {
     if (win.isDestroyed()) { clearInterval(timer); return; }
     try {
-      const cookies = await session.defaultSession.cookies.get({ name: 'pulse_session', url: PROD_URL });
+      const cookies = await session.defaultSession.cookies.get({ name: 'pulse_session', url: loginOrigin });
       if (cookies.length) toServer();
     } catch { /* ignore — retry */ }
   }, 1500);
@@ -539,7 +562,15 @@ function _openExternalIfWebUrl(url: string): void {
 // der ganze Server-Stack läuft als EIN allinone-Container (inkl. frpc-Tunnel).
 
 function wireHost(getWin: () => Electron.BrowserWindow | null): void {
-  const manager = new ContainerBackendManager();
+  // Backend-Wahl: Windows fährt NATIV (Prozessbaum statt Container) — kein
+  // WSL2, keine Virtualisierung im BIOS. PULSE_HOST_BACKEND=container optiert
+  // den Podman/Docker-Pfad zurück (Dev/Test). Andere Plattformen bleiben beim
+  // Container (macOS: gebündeltes Podman; Linux: System-Runtime).
+  const NATIVE_BACKEND =
+    process.platform === 'win32' && process.env.PULSE_HOST_BACKEND !== 'container';
+  const manager: ContainerBackendManager | NativeBackendManager = NATIVE_BACKEND
+    ? new NativeBackendManager()
+    : new ContainerBackendManager();
   const hostStore = { get: storeGet, set: (k: string, v: unknown) => storeSet(k, v) };
   // Benutzer-Welten (2026-10-01): die Welt (Container/Volume/Creds) gehört dem
   // Konto, das in der Server-App angemeldet ist. Beim Benutzerwechsel stoppt
@@ -557,6 +588,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   if (weltUser && String(legacyCreds?.ownerId ?? '') !== weltUser) {
     setCreds(loadCredsFuer(hostStore, weltUser));
     setzeContainerWelt(`u${weltUser}`);
+    setzeNativeWelt(`u${weltUser}`);
   } else {
     setCreds(legacyCreds); // Bestands-Welt: suffix-lose Namen, ohne Migration
   }
@@ -565,6 +597,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // keine/tote Tokens → die Calls fallen auf den 30-Min-Cookie zurück bzw.
   // melden "nicht eingeloggt".
   const getAccessToken = createTokenGetter(hostStore);
+  // Cookie-Mint-Rückruf (serverProvision): über den pulse_rt-Cookie gemintete
+  // Access-Tokens dauerhaft im Store ablegen — der rt selbst bleibt im
+  // HttpOnly-Cookie-Store der Session (30 Tage, überlebt App-Neustarts).
+  setzeMintRueckruf((_origin, tokens) => {
+    saveAuth(hostStore, tokens);
+  });
 
   /** Die Container-Welt, die der Manager GERADE sieht ('null' = Legacy). */
   let aktiveContainerWelt: string | null = weltUser && String(legacyCreds?.ownerId ?? '') !== weltUser
@@ -588,6 +626,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     storeSet('pulse.host.weltUser', userId);
     setCreds(gehoertLegacy ? legacy : loadCredsFuer(hostStore, userId));
     setzeContainerWelt(neueWelt);
+    setzeNativeWelt(neueWelt);
     const weltGewechselt = neueWelt !== alteWelt;
     aktiveContainerWelt = neueWelt;
     await syncLifecycleFromContainer().catch(() => {});
@@ -605,8 +644,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
 
   const deps: HostDeps = {
     // Windows + Podman: podman machine braucht WSL2. Docker Desktop verwaltet
-    // seine WSL-Umgebung selbst → Check nur für den Podman-Pfad.
+    // seine WSL-Umgebung selbst → Check nur für den Podman-Pfad. NATIV
+    // (Windows-Default): keine Virtualisierung nötig — nur gebündelte Binaries.
     checkPrereqs: async () => {
+      if (NATIVE_BACKEND) {
+        return (await manager.runtimeAvailable()) ? 'ok' : 'not-possible-here';
+      }
       if (process.platform !== 'win32') return 'ok';
       const rt = await manager.runtime();
       if (rt?.kind !== 'podman') return 'ok';
@@ -827,7 +870,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       typeof opts === 'object' && opts !== null &&
       (opts as { confirmTakeover?: unknown }).confirmTakeover === true;
     console.log('[provision] cloud call …');
-    const result = await provision(PROD_URL, { confirmTakeover }, () => getAccessToken(PROD_URL));
+    // Realm-Kette wie login/logout/me: gepairt → Instanz-Cloud, sonst Dev-URL,
+    // sonst Produktion. Hartcodiertes PROD_URL fragte im Dev-Cloud-Betrieb
+    // nach der falschen Session → "bitte zuerst einloggen" trotz Login.
+    const provisionOrigin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+    const result = await provision(provisionOrigin, { confirmTakeover }, () => getAccessToken(provisionOrigin));
     console.log('[provision] fertig:', JSON.stringify(result).slice(0, 200));
     if (result.ok) {
       setCreds(result.creds);
@@ -863,7 +910,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // der Creds. null bei fehlender Session → die UI blendet die Zeile aus.
   ipcMain.handle('host:me', async (e) => {
     if (!localSenderOnly(e)) return null;
-    const origin = creds?.cloudOrigin ?? PROD_URL;
+    // Dasselbe Realm wie host:login/-logout: gepairt → cloudOrigin, sonst
+    // DEV_URL, sonst Produktion (sonst fragt /me im Dev nach Prod-Tokens).
+    const origin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+    const tokens = loadAuth(hostStore);
     const me = await fetchMe(origin, () => getAccessToken(origin)).catch(() => null);
     // Die Anmeldung bestimmt die Welt: beim ersten /me nach Login/Start auf
     // den angemeldeten Benutzer umschalten (asynchron — der Aufruf kehrt
@@ -879,7 +929,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
         })
         .catch(() => {});
     }
-    return me;
+    // hatTokens: Escape-Hatch für die UI — Tokens vorhanden, aber /me fällt
+    // durch (falsches Realm, abgelaufen, Netz) → "Abmelden" zeigen statt
+    // "Anmelden", sonst hängt der User in einer Session fest, die er nicht
+    // mehr loswird (beide Knöpfe wären falsch versteckt).
+    return me ? { ...me, hatTokens: !!tokens } : { hatTokens: !!tokens };
   });
   // "Abmelden": Session-Cookies der Cloud löschen und zurück zum Login
   // navigieren — danach kann sich ein ANDERER User anmelden. Das Pairing
@@ -895,14 +949,20 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!localSenderOnly(e)) return { ok: false };
     const win = getWin();
     if (win && !win.isDestroyed()) {
-      await win.loadURL(PROD_URL);
-      startLoginWatch(win);
+      // Dasselbe Realm wie die Status-Abfrage (host:me): gepairt → cloudOrigin,
+      // sonst Dev-URL (falls gesetzt), sonst Produktion. Hardcoded PROD_URL
+      // meldete im Dev-Cloud-Betrieb bei der FALSchen Cloud an — /me (und
+      // damit das "Angemeldet als") fragt die Instanz-Cloud und fand nie
+      // Tokens.
+      const loginOrigin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+      await win.loadURL(loginOrigin + '/login');
+      startLoginWatch(win, loginOrigin);
     }
     return { ok: true };
   });
   ipcMain.handle('host:logout', async (e) => {
     if (!localSenderOnly(e)) return { ok: false };
-    const origin = creds?.cloudOrigin ?? PROD_URL;
+    const origin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
     // Durablen Refresh-Token serverseitig entwerten (best effort) + lokal löschen.
     const tokens = loadAuth(hostStore);
     if (tokens) await revokeRefresh(origin, tokens.refreshToken);
@@ -922,8 +982,9 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     await syncLifecycleFromContainer().catch(() => {});
     const win = getWin();
     if (win && !win.isDestroyed()) {
-      await win.loadURL(PROD_URL);
-      startLoginWatch(win);
+      const logoutOrigin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+      await win.loadURL(new URL('/login', logoutOrigin).href);
+      startLoginWatch(win, logoutOrigin);
     }
     return { ok: true };
   });
@@ -943,7 +1004,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     let sizeBytes: number | null = null;
     let lastAutoBackup: number | null = null;
     const rt = await manager.runtime().catch(() => null);
-    if (rt && creds) {
+    if (NATIVE_BACKEND && rt) {
+      // Nativer Pfad: kein Volume — Größen aus dem Datenverzeichnis.
+      const info = await (manager as NativeBackendManager).dataInfo().catch(() => null);
+      if (info) { sizeBytes = info.sizeBytes; lastAutoBackup = info.lastAutoBackupAt; }
+    } else if (rt && rt.kind !== 'native' && creds) {
       const running = await manager.isContainerRunning().catch(() => false);
       sizeBytes = await volumeSizeBytes(rt, resolveImage().image, running).catch(() => null);
       // Automatische pg_dumps des Backup-Services — ohne sie würde die UI
@@ -973,17 +1038,30 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     };
 
     const rt = await manager.runtime().catch(() => null);
-    push(
-      'runtime', S('Container-Runtime', 'Container runtime'), !!rt,
-      S('Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
-        'Docker or Podman was not found on this device.'),
-      S('Docker installieren und die Server-App neu starten.',
-        'Install Docker and restart the server app.'),
-    );
+    if (NATIVE_BACKEND) {
+      push(
+        'runtime', S('Server-Komponenten', 'Server components'), !!rt,
+        S('Die gebündelten Server-Bausteine fehlen auf diesem Gerät.',
+          'The bundled server components are missing on this device.'),
+        S('Server-App neu installieren.', 'Reinstall the server app.'),
+      );
+    } else {
+      push(
+        'runtime', S('Container-Runtime', 'Container runtime'), !!rt,
+        S('Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
+          'Docker or Podman was not found on this device.'),
+        S('Docker installieren und die Server-App neu starten.',
+          'Install Docker and restart the server app.'),
+      );
+    }
     const laeuft = rt ? await manager.isContainerRunning().catch(() => false) : false;
     push(
-      'container', S('Server-Container', 'Server container'), laeuft,
-      S('Der Server-Container ist gestoppt.', 'The server container is stopped.'),
+      'container',
+      NATIVE_BACKEND ? S('Server-Prozesse', 'Server processes') : S('Server-Container', 'Server container'),
+      laeuft,
+      NATIVE_BACKEND
+        ? S('Die Server-Prozesse laufen nicht.', 'The server processes are not running.')
+        : S('Der Server-Container ist gestoppt.', 'The server container is stopped.'),
       S('Knopf „Server starten“ oben betätigen.', 'Press the "Start server" button above.'),
     );
     let healthOk = false;
@@ -1003,9 +1081,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       S('Eine Minute warten. Bleibt der Schritt rot: Server stoppen und wieder starten.',
         'Wait a minute. If it stays red: stop and start the server again.'),
     );
-    const backup = rt && laeuft
+    const backup = rt && laeuft && rt.kind !== 'native'
       ? await lastAutoBackupAt(rt, resolveImage().image, true).catch(() => null)
-      : null;
+      : NATIVE_BACKEND && laeuft
+        ? await (manager as NativeBackendManager).dataInfo().then((i) => i.lastAutoBackupAt).catch(() => null)
+        : null;
     push(
       'backup', S('Automatisches Backup', 'Automatic backup'), !!backup,
       S('Es gibt noch keinen automatischen Datenbank-Snapshot.',
@@ -1102,6 +1182,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!rt) return { ok: false, error: 'Keine Container-Runtime gefunden.' };
     return withContainerStopped(async () => {
       step('exporting');
+      // Nativer Pfad: tar aus dem Datenverzeichnis statt Volume-Export.
+      if (rt.kind === 'native') {
+        const result = await (manager as NativeBackendManager).exportData(sel.filePath as string);
+        if (result.ok) storeSet('pulse.host.lastBackupAt', Date.now());
+        return result;
+      }
       const result = await exportVolume(rt, resolveImage().image, sel.filePath as string);
       if (result.ok) storeSet('pulse.host.lastBackupAt', Date.now());
       return result;
@@ -1125,6 +1211,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!rt) return { ok: false, error: 'Keine Container-Runtime gefunden.' };
     return withContainerStopped(async () => {
       step('importing');
+      if (rt.kind === 'native') {
+        const r = await (manager as NativeBackendManager).importData(sel.filePaths[0]);
+        return r.ok; // gleiche boolesche Semantik wie importVolume
+      }
       return importVolume(rt, resolveImage().image, sel.filePaths[0]);
     });
   });

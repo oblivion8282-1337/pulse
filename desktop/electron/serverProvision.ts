@@ -17,6 +17,13 @@ import { pulseSessionAusSetCookie } from './serverSession';
 
 interface InstanceOut { id: string; status: string; origin?: string }
 
+/** Mint-Rückruf: main setzt ihn, damit der über den pulse_rt-Cookie gemintete
+ *  Access-Token dauerhaft im Store landet (cross-Modul ohne Store-Import). */
+let onMintedTokens: ((origin: string, tokens: { accessToken: string; refreshToken: string }) => void) | null = null;
+export function setzeMintRueckruf(cb: (typeof onMintedTokens)): void {
+  onMintedTokens = cb;
+}
+
 async function sessionCookie(cloudOrigin: string): Promise<string> {
   const cookies = await session.defaultSession.cookies.get({ name: 'pulse_session', url: cloudOrigin });
   return cookies.length ? `pulse_session=${cookies[0].value}` : '';
@@ -88,7 +95,28 @@ async function ensureSessionCookie(
   const existing = await sessionCookie(cloudOrigin);
   if (existing) return existing;
   if (!getBearer) return '';
-  const bearer = await getBearer();
+  let bearer = await getBearer();
+  // Cookie-Modus (Security-Audit 2026-09-16): refresh_token reist im HttpOnly-
+  // pulse_rt-Cookie, der Store trägt keinen. net.fetch läuft durch Chromiums
+  // Netzwerkstack der Default-Session — der rt-Cookie geht mit UND die
+  // Rotation (Set-Cookie) landet zurück im Cookie-Store, was der Body-Refresh
+  // (serverAuth.refreshTokens) nicht leisten kann.
+  if (!bearer) {
+    try {
+      const r = await net.fetch(`${cloudOrigin}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (r.ok) {
+        const j = (await r.json()) as { access_token?: unknown };
+        if (typeof j.access_token === 'string' && j.access_token) {
+          onMintedTokens?.(cloudOrigin, { accessToken: j.access_token, refreshToken: '' });
+          bearer = j.access_token;
+        }
+      }
+    } catch { /* Netzfehler → weiter ohne Bearer */ }
+  }
   if (!bearer) return '';
   await renewSessionCookie(cloudOrigin, bearer);
   // Nach dem Set-Cookie erneut lesen; schlug der Renew fehl, ist es weiter ''

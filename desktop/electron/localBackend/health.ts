@@ -48,3 +48,28 @@ export async function waitFor(
   }
   throw new Error(`waitFor: timed out after ${totalMs}ms`);
 }
+
+// ---------------------------------------------------------------------------
+// tcpProbe
+// ---------------------------------------------------------------------------
+
+/**
+ * Port-Offen-Check (TCP-Connect) — für Dienste ohne HTTP-Health-Endpunkt
+ * (Garnet/Redis, weed, LiveKit-RPC). Gibt true zurück, wenn sich innerhalb
+ * von `timeoutMs` eine Verbindung aufbauen lässt.
+ */
+export async function tcpProbe(port: number, host = '127.0.0.1', timeoutMs = 1500): Promise<boolean> {
+  const net = await import('node:net');
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    const done = (ok: boolean): void => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => done(true));
+    socket.once('timeout', () => done(false));
+    socket.once('error', () => done(false));
+    socket.connect(port, host);
+  });
+}

@@ -75,6 +75,14 @@ async fn connect_and_serve(
     // Answers kommen aus spawned Tasks → über einen Kanal in den Sink.
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(16);
 
+    // Keepalive + Zombie-Erkennung: hinter NAT stirbt das TCP-Mapping nach
+    // Minuten Funkstille (FritzBox), OHNE dass eine der Seiten es merkt —
+    // der Socket bleibt "offen", die Cloud schreibt Offers in die Leere
+    // (HTTP 504/409 für Clients), und der Adapter horcht für immer ins
+    // Nichts. Der Heartbeat läuft über HTTP und sieht davon nichts.
+    // Alle 25 s ein Ping hält das Mapping frisch; bleibt >90 s jede Antwort
+    // aus, gilt die Verbindung als tot → break → Reconnect mit Backoff.
+    let mut last_seen = tokio::time::Instant::now();
     loop {
         tokio::select! {
             answer = rx.recv() => {
@@ -83,6 +91,7 @@ async fn connect_and_serve(
             }
             msg = source.next() => {
                 let msg = msg.context("Signal-WS beendet")??;
+                last_seen = tokio::time::Instant::now();
                 let WsMessage::Text(text) = msg else { continue };
                 let Ok(frame) = serde_json::from_str::<SignalIn>(&text) else { continue };
                 match frame {
@@ -107,6 +116,13 @@ async fn connect_and_serve(
                     }
                     SignalIn::Unknown => {}
                 }
+            }
+            () = tokio::time::sleep(Duration::from_secs(25)) => {
+                if last_seen.elapsed() > Duration::from_secs(90) {
+                    eprintln!("[signal] Signal-WS stumm (>90s ohne Empfang) — Neuaufbau");
+                    break;
+                }
+                sink.send(WsMessage::Ping(Vec::new().into())).await?;
             }
         }
     }

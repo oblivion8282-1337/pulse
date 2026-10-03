@@ -143,6 +143,9 @@ desktop/resources-podman/*
 !desktop/resources-podman/README.md
 desktop/resources-podman-mac/*
 !desktop/resources-podman-mac/README.md
+# Nativer Windows-Backend-Pfad (Server-App ohne WSL2) — gebaute Binaries +
+# venv, nur via scripts/fetch-win-native.ps1 / CI.
+desktop/resources-native/*
 
 # Nebenprodukte der Pruefstand-Browserlaeufe (SDP-Mitschriften je Lauf)
 streaming/testbench/sdp-*.txt

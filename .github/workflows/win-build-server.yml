@@ -5,9 +5,12 @@ name: win-build-server
 # unter https://howispulse.com/updates/win-server/ ausliefert. electron-updater in
 # der Server-App pollt dort `latest.yml`.
 #
-# Gegenstück zu win-build.yml (Client-Installer), aber OHNE Rust/FFmpeg/HQ-Sidecar
-# — die Server-App streamt nicht selbst (das tut der allinone-Container). Sie
-# bündelt nur Podman (Container-Runtime fürs App-Hosting). Eigener Feed
+# Gegenstück zu win-build.yml (Client-Installer), aber ohne FFmpeg/HQ-Sidecar
+# — die Server-App streamt nicht selbst. Seit 0.1.92 ist das NATIVE Backend
+# der Windows-Default (kein WSL2, keine Virtualisierung): fetch-win-native.ps1
+# bündelt alle nativen Bausteine (Downloads + weed.exe aus Go-Source +
+# direct-adapter.exe aus Rust-Source + uv-Python-venv). Das gebündelte Podman
+# bleibt als Notfall-Fluchtweg (PULSE_HOST_BACKEND=container). Eigener Feed
 # /updates/win-server/, getrennt vom Client-Feed /updates/win/.
 #
 # ACHTUNG (wie beim Client): ein Windows-Release erreicht Bestandsclients NUR mit
@@ -21,6 +24,9 @@ on:
     branches: [main]
     paths:
       - 'desktop/**'
+      - 'services/**'
+      - 'shared/**'
+      - 'infra/self-host/direct-adapter/**'
       - '.github/workflows/win-build-server.yml'
   workflow_dispatch: {}
 
@@ -65,6 +71,26 @@ jobs:
           Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\podman-extract"
           Copy-Item "$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\podman.exe","$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\gvproxy.exe","$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\win-sshproxy.exe" -Destination desktop\resources-podman\
           Get-ChildItem desktop\resources-podman\
+
+      # ── Native Backend (Windows-Default, kein WSL2) ─────────────────────────
+      # weed.exe: SeaweedFS hat kein volles Windows-Release → aus dem Source
+      # gebaut (-WeedSource). direct-adapter.exe: cargo (-AdapterSource).
+      # venv: uv. Alles Weitere (caddy/garnet+dotnet/livekit/mediamtx/pg/frpc,
+      # Service-Quellen, Templates) lädt fetch-win-native.ps1 idempotent.
+      - name: Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Native Backend-Bausteine bündeln
+        shell: pwsh
+        run: desktop/scripts/fetch-win-native.ps1 -WeedSource -AdapterSource
 
       # esbuild-Server-Bundle + electron-builder → desktop/release-server/:
       #   Pulse-Server-Setup-<version>.exe  (NSIS-Installer)

@@ -152,11 +152,15 @@ async function loadIdentity() {
   // Kein Namensschild (2026-10-01): die Anmeldung am Anfang bestimmt die Welt.
   // Wichtig ist nur der Sitzungszustand — und der /me-Aufruf selbst, der
   // MAIN-seitig den Benutzer-Weltwechsel treibt.
+  // hatTokens (MAIN: Tokens im Store, aber /me fiel durch — falsches Realm,
+  // Refresh tot …): "Abmelden" statt "Anmelden" zeigen, sonst hängt der User
+  // in einer Session fest, die er nicht mehr loswird.
+  const hatTokens = !!(me && me.hatTokens);
   $('identRow').classList.remove('hidden');
-  $('btnLogout').classList.toggle('hidden', !loggedIn);
+  $('btnLogout').classList.toggle('hidden', !(loggedIn || hatTokens));
   // "Anmelden" nur zeigen, wenn keine Session da ist (gepairter Server ohne
   // durablen Login → damit sich die Identität überhaupt etablieren lässt).
-  $('btnLogin').classList.toggle('hidden', loggedIn);
+  $('btnLogin').classList.toggle('hidden', loggedIn || hatTokens);
 }
 
 // "Deine Daten": Größe + letztes Backup. Die Größenermittlung startet ggf.

@@ -145,6 +145,12 @@ export function createTokenGetter(
     const t = loadAuth(store);
     if (!t) return null;
     if (!isAccessExpired(t.accessToken)) return t.accessToken;
+    // Cookie-Modus (Security-Audit 2026-09-16: refresh_token nur noch im
+    // HttpOnly-pulse_rt-Cookie, nie im localStorage): ohne gespeicherten
+    // Refresh-Token KEINEN Body-Refresh ansetzen — der ginge mit leerem Token
+    // als 401 durch und clearAuth würde auch den noch gültigen Access-Token
+    // wischen. Caller mintet stattdessen über den Cookie (serverProvision).
+    if (!t.refreshToken) return null;
     // Single-Flight: parallele Aufrufer teilen denselben Refresh, sonst würde
     // der zweite den schon rotierten Token wiederverwenden → Family-Revoke.
     if (!inFlight) {
