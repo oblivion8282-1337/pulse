@@ -58,6 +58,7 @@
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { appHostAnwesenheit } from '$lib/stores/appHostAnwesenheit.svelte';
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import ServerInfoDialog from './sidebar/ServerInfoDialog.svelte';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
@@ -431,6 +432,11 @@
       {@const sectionGuilds = serverGuilds.get(server.id)}
       {@const sState = serverState.get(server.id).state}
       {@const isServerAdmin = isAdminOnServer(server)}
+      <!-- App-Hosting (2026-10-03): messbar schlafender Server → ganze Sektion
+           gedimmt. Bewusst weiterhin klickbar — die Anwesenheit kann im
+           nächsten Takt wieder „an“ sagen. -->
+      {@const serverSchlaeft =
+        !server.isCloud && server.origin === 'app_host' && appHostAnwesenheit.schlaeft(server.instance_id)}
       {#if sectionIdx > 0}
         <div class="bg-border my-2 h-px w-8 shrink-0" aria-hidden="true"></div>
       {/if}
@@ -444,11 +450,12 @@
           {#snippet child({ props: ctxProps })}
             <button
               {...ctxProps}
-              class="relative flex min-h-6 w-full shrink-0 items-center justify-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-bold tracking-wide transition-colors hover:bg-bg-hover data-[active=true]:text-primary {server.isCloud ? 'uppercase' : ''}"
+              class="relative flex min-h-6 w-full shrink-0 items-center justify-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-bold tracking-wide transition-colors hover:bg-bg-hover data-[active=true]:text-primary {server.isCloud ? 'uppercase' : ''} {serverSchlaeft ? 'opacity-50' : ''}"
               data-active={isActiveServer}
               onclick={() => activeServer.set(server.id)}
               data-testid={`server-${server.id}`}
               aria-label={serverDisplayName(server)}
+              title={serverSchlaeft ? m.server_schlaeft_hint() : undefined}
             >
               <!-- Cloud-Server: Marken-Label "PULSE" ohne Status-Dot
                    (immer da, kein Verbindungszustand nötig). Selbst-
@@ -578,7 +585,7 @@
                         {...tipProps}
                         class="relative flex size-12 items-center justify-center overflow-hidden rounded-xl text-xs font-bold text-white transition-all md:size-10 hover:rounded-md data-[active=true]:rounded-md data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)] {suspendedLook
                           ? 'opacity-40 grayscale'
-                          : ''}"
+                          : ''} {serverSchlaeft ? 'opacity-40 grayscale' : ''}"
                         style={iconSrc
                           ? ''
                           : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}

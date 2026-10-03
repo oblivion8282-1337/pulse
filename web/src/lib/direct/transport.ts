@@ -12,6 +12,7 @@
 
 import { m } from '$lib/paraglide/messages.js';
 import { directStatus } from '$lib/stores/directStatus.svelte';
+import { appHostAnwesenheit } from '$lib/stores/appHostAnwesenheit.svelte';
 import { getDirectConnectionDetailed } from './registry';
 import { isDirectOnly, directFailureMessageKey, type DirectFailureReason } from './policy';
 
@@ -55,6 +56,13 @@ export async function transportFetch(
 ): Promise<Response> {
   if (directEligible(server)) {
     const instanceId = server!.instance_id!;
+    // Schlafend bekannte App-Hosts gar nicht erst anrufen (2026-10-03): Die
+    // Anwesenheit ist ein billiger Cloud-Lookup; ein Dial auf einen toten
+    // Server verbrennt dagegen die vollen ICE-Timeouts (bis ~11 s).
+    if (isDirectOnly(server) && (await appHostAnwesenheit.istOffline(instanceId))) {
+      directStatus.report(instanceId, 'offline');
+      throw new DirectUnavailableError('offline');
+    }
     const result = await getDirectConnectionDetailed(instanceId, server);
     if (result.ok && result.conn.isOpen) {
       try {

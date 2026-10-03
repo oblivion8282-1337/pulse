@@ -35,7 +35,7 @@ import { CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
  * einem solchen Origin braucht der Client den Direktpfad ohnehin nicht (der
  * aktive Server ist dann der lokale), V1-Grenze wie bisher.
  */
-function cloudAuthBasis(): string {
+export function cloudAuthBasis(): string {
   const hier = typeof location !== 'undefined' ? location.origin : '';
   if (hier.startsWith('http')) return `${hier}/api/auth`;
   return `${CLOUD_HOSTNAME}/api/auth`;

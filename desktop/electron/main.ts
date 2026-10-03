@@ -547,11 +547,18 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   const legacyCreds = loadCreds(hostStore);
   let weltUser: string | null = (storeGet('pulse.host.weltUser') as string | undefined) ?? null;
   let creds: BootstrapCreds | null;
+  /** Jede creds-Änderung läuft hierdurch: der Manager braucht den aktuellen
+   *  Stand für den Abschieds-Call beim Stopp — auch wenn er den Container
+   *  dieser Sitzung nur adoptiert hat (nie start() sah). */
+  const setCreds = (c: BootstrapCreds | null): void => {
+    creds = c;
+    manager.setzeCreds(c);
+  };
   if (weltUser && String(legacyCreds?.ownerId ?? '') !== weltUser) {
-    creds = loadCredsFuer(hostStore, weltUser);
+    setCreds(loadCredsFuer(hostStore, weltUser));
     setzeContainerWelt(`u${weltUser}`);
   } else {
-    creds = legacyCreds; // Bestands-Welt: suffix-lose Namen, ohne Migration
+    setCreds(legacyCreds); // Bestands-Welt: suffix-lose Namen, ohne Migration
   }
   // Durabler Cloud-Login (serverAuth): liefert einen gültigen Bearer-Token für
   // die Cloud-Calls und refresht bei Ablauf (überlebt App-Neustarts). null →
@@ -579,7 +586,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     }
     weltUser = userId;
     storeSet('pulse.host.weltUser', userId);
-    creds = gehoertLegacy ? legacy : loadCredsFuer(hostStore, userId);
+    setCreds(gehoertLegacy ? legacy : loadCredsFuer(hostStore, userId));
     setzeContainerWelt(neueWelt);
     const weltGewechselt = neueWelt !== alteWelt;
     aktiveContainerWelt = neueWelt;
@@ -789,7 +796,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       const cloudOrigin = creds?.cloudOrigin ?? DEV_URL ?? 'https://howispulse.com';
       const fresh = await redeemBootstrap(token, cloudOrigin);
       saveCreds(hostStore, fresh);
-      creds = fresh;
+      setCreds(fresh);
       ensureAutostartDefault();
       return { paired: true, status: sanitize(fresh) };
     } catch {
@@ -802,7 +809,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:unpair', (e) => {
     if (!localSenderOnly(e)) return;
     clearCreds(hostStore);
-    creds = null;
+    setCreds(null);
     // "Gerät zurücksetzen" nach einer Ablöse: der Container wurde schon vor
     // 'superseded' gestoppt (checkSupersedeOnce) — nur die Phase muss zurück
     // auf 'idle', sonst hängt die UI im Ablöse-Hinweis fest.
@@ -823,7 +830,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     const result = await provision(PROD_URL, { confirmTakeover }, () => getAccessToken(PROD_URL));
     console.log('[provision] fertig:', JSON.stringify(result).slice(0, 200));
     if (result.ok) {
-      creds = result.creds;
+      setCreds(result.creds);
       // Bestands-Welt bleibt am Legacy-Schlüssel (suffix-lose Namen); jedes
       // andere Konto bekommt eigene Creds + eine eigene Welt.
       const legacyOwner = String(loadCreds(hostStore)?.ownerId ?? '');
@@ -1139,7 +1146,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       },
       clearPairing: () => {
         clearCreds(hostStore);
-        creds = null;
+        setCreds(null);
         hl.resetToIdle();
       },
       removeDataVolume: () => manager.removeDataVolume(),

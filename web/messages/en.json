@@ -3089,5 +3089,8 @@
   "wiederherstellung_wahrheit_oauth": "Cloud logins (Dropbox, Google Drive) age: an old package brings back the key, not the access — that has to be granted again.",
   "wiederherstellung_wahrheit_ordner": "A sync folder can't be restored fully automatically — it has to be chosen again on the new device.",
   "server_app_download_windows_btn": "Download Server app for Windows",
-  "server_app_download_mac_btn": "Download Server app for macOS"
+  "server_app_download_mac_btn": "Download Server app for macOS",
+  "server_schlaeft_hint": "Server app is off — communities are temporarily unavailable",
+  "server_schlaeft_seite_titel": "This community is currently unavailable",
+  "server_schlaeft_seite_text": "The computer hosting this community is turned off. Once it's back on, you can try again."
 }

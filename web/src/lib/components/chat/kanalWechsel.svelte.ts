@@ -14,6 +14,8 @@ import { untrack } from 'svelte';
 import { goto } from '$app/navigation';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+import { appHostAnwesenheit } from '$lib/stores/appHostAnwesenheit.svelte';
+import { serversStore } from '$lib/api/servers.svelte';
 import { messages } from '$lib/stores/messages.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
 import { readState } from '$lib/stores/readState.svelte';
@@ -28,6 +30,10 @@ import { m as pm } from '$lib/paraglide/messages.js';
 export function erstelleKanalWechsel() {
   let resolving = $state(true);
   let loadError = $state<string | null>(null);
+  // App-Hosting (2026-10-03): Der Server dieser Community schläft messbar —
+  // statt des technischen Fehlertexts zeigt die Seite die verständliche
+  // „Rechner ist aus"-Tafel (Retry misst die Anwesenheit frisch nach).
+  let serverSchlaeft = $state(false);
   let prevGuild = $state('');
   let prevChannel = $state('');
   let switchGen = $state(0);
@@ -44,6 +50,7 @@ export function erstelleKanalWechsel() {
     if (g !== prevG) {
       resolving = true;
       loadError = null;
+      serverSchlaeft = false;
       try {
         // `ensureChannels` hits the post-Ready prefetch cache if it ran
         // through; falls back to a single `listChannels` otherwise. The
@@ -52,6 +59,11 @@ export function erstelleKanalWechsel() {
         await guilds.ensureChannels(g);
       } catch (err) {
         if (isStale()) return;
+        if (await schlaeftServerVon(g)) {
+          serverSchlaeft = true;
+          resolving = false;
+          return;
+        }
         loadError = err instanceof Error ? err.message : pm.channel_page_channels_load_error();
         resolving = false;
         return;
@@ -108,6 +120,11 @@ export function erstelleKanalWechsel() {
           }
         } catch (err) {
           if (isStale()) return;
+          if (await schlaeftServerVon(g)) {
+            serverSchlaeft = true;
+            resolving = false;
+            return;
+          }
           loadError = err instanceof Error ? err.message : pm.channel_page_messages_load_error();
           resolving = false;
           return;
@@ -139,6 +156,15 @@ export function erstelleKanalWechsel() {
     if (isStale()) return;
     loadError = null;
     resolving = false;
+  }
+
+  /** True, wenn der App-Host-Server dieser Community messbar schläft —
+   *  bestimmt die Tafel statt des rohen Ladefehlers. */
+  async function schlaeftServerVon(g: string): Promise<boolean> {
+    const sid = serverGuilds.serverIdForGuild(g);
+    const entry = sid ? serversStore.find(sid) : undefined;
+    if (entry?.origin !== 'app_host' || !entry.instance_id) return false;
+    return appHostAnwesenheit.istOffline(entry.instance_id);
   }
 
   // WS reconnect path: connection.ts calls messages.clearChannel(cid) for every
@@ -174,8 +200,16 @@ export function erstelleKanalWechsel() {
   // Wechsel noch einmal versuchen (wie ein frischer Seitenaufruf).
   function retry(g: string, c: string) {
     loadError = null;
+    serverSchlaeft = false;
     prevGuild = '';
     prevChannel = '';
+    // Ein gerade gestarteter Host-Rechner soll sofort erkannt werden —
+    // der normale Cache dürfte noch „aus“ sagen (Frist 75 s).
+    const sid = serverGuilds.serverIdForGuild(g);
+    const entry = sid ? serversStore.find(sid) : undefined;
+    if (entry?.origin === 'app_host' && entry.instance_id) {
+      void appHostAnwesenheit.messeJetzt(entry.instance_id);
+    }
     void switchTo(g, c);
   }
 
@@ -212,6 +246,9 @@ export function erstelleKanalWechsel() {
     },
     get loadError() {
       return loadError;
+    },
+    get serverSchlaeft() {
+      return serverSchlaeft;
     },
     switchTo,
     nachladenWennNoetig,

@@ -16,6 +16,12 @@ export const RECONNECT_BACKOFF_MS: readonly number[] = [
   1000, 2000, 4000, 8000, 16000, 32000, 60000, 120000, 300000,
 ];
 
+/** Wie lange der App-Start maximal auf das „bereit“-Signal des AKTIVEN
+ *  Nicht-Cloud-Servers wartet (App-Hosting, 2026-10-03): Ein schlafender
+ *  App-Host als letzter aktiver Server darf den Start nicht festhalten —
+ *  danach rendert die App, die Verbindung läuft im Hintergrund weiter. */
+export const APP_START_SERVER_DECKEL_MS = 5_000;
+
 /**
  * Chat-WS-Keepalive (half-open-Detection). Der Browser kann eine still
  * gestorbene TCP-Verbindung nicht erkennen (kein `close`-Event), also senden

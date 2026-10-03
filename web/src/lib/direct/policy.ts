@@ -31,6 +31,26 @@ export function isDirectOnly(server: DirectPolicyServer | null | undefined): boo
 }
 
 /**
+ * Deutet eine Telefonbuch-Abfrage (GET …/direct-endpoint) für die
+ * App-Host-Anwesenheit. Bewusst konservativ (2026-10-03): Nur eine POSITIVE
+ * Cloud-Antwort macht „offline" —
+ *  - 404: kein (aktueller) Eintrag → offline (Abschied oder nie gestartet),
+ *  - 200 + online:false → offline (Herzschlag zu alt),
+ *  - 200 + online:true → online,
+ *  - alles andere (401, 5xx, …) → 'unbekannt': Deploy-Blip/Netz darf einen
+ *    wachenden Server nicht fälschlich für tot erklären — die Weichen
+ *    verhalten sich dann wie bisher (Dial-Versuch) statt zu blocken.
+ */
+export function deuteTelefonbuch(
+  status: number,
+  online: boolean | undefined,
+): 'online' | 'offline' | 'unbekannt' {
+  if (status === 404) return 'offline';
+  if (status >= 200 && status < 300) return online === true ? 'online' : 'offline';
+  return 'unbekannt';
+}
+
+/**
  * True, wenn ein 404 des Telefonbuch-Lookups für diese Sitzung als endgültig
  * gelten darf — dann muss der Klient nicht alle 60 s erneut fragen.
  *

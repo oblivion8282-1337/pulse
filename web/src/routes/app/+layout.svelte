@@ -6,6 +6,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { appHostAnwesenheit } from '$lib/stores/appHostAnwesenheit.svelte';
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { sweepDeletedServers } from '$lib/api/deleted-instance-sweep';
@@ -14,6 +15,7 @@
   import { readState } from '$lib/stores/readState.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
+  import { APP_START_SERVER_DECKEL_MS } from '$lib/api/constants';
   import { watchFehlerWacht } from '$lib/watch/fehlerwacht.svelte';
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initActivityHeartbeat, disposeActivityHeartbeat } from '$lib/ws/activity';
@@ -228,7 +230,17 @@
     await Promise.all([
       directMessages.hydrate().catch((e) => console.error('directMessages.hydrate failed', e)),
       capabilities.hydrate().catch((e) => console.error('capabilities.hydrate failed', e)),
-      gateway.waitForReady().catch((e) => console.error('gateway ready', e)),
+      // App-Hosting (2026-10-03): Ein NICHT-Cloud-Server als letzter aktiver
+      // darf den Start nicht mit seiner Verbindungszeremonie festhalten —
+      // nach 5 s wird entlassen, der Server verbindet im Hintergrund weiter.
+      // Cloud als aktiver wartet unverändert voll (seedt die Social-Stores,
+      // ist real in <1 s ready; ein Deckel ließe die Freundesliste leer
+      // flackern — genau der Fall, den das CloudConn-wait unten verhindert).
+      gateway
+        .waitForReady(
+          activeServer.current?.isCloud === false ? APP_START_SERVER_DECKEL_MS : undefined
+        )
+        .catch((e) => console.error('gateway ready', e)),
       // Auf den Cloud-ready warten, damit die Social-Stores vor dem ersten Paint
       // geseedet sind (sonst flackert die Freundesliste leer). Nur wenn Cloud
       // ≠ aktiv — sonst deckt `gateway.waitForReady()` es bereits ab.
@@ -257,6 +269,9 @@
     // Cloud-Admin-Benachrichtigung: pollt offene Self-Host-Anträge (Badge im
     // UserFooter + Toast bei Zuwachs). Interner Guard pollt nur für Admins.
     pendingInstanceApps.start();
+    // App-Hosting-Anwesenheit: hält den „schläft der Server?"-Stand frisch,
+    // damit Klicks auf ausgeschaltete App-Hosts sofort beantwortet werden.
+    appHostAnwesenheit.start();
     // Dasselbe für offene Betreiber-Beschwerden (gelbe Badge im UserFooter).
     pendingComplaints.start();
     // Owner-Benachrichtigung: toastet, wenn ein eigener Antrag genehmigt/
@@ -341,6 +356,7 @@
   onDestroy(() => {
     disposeActivityHeartbeat();
     pendingInstanceApps.stop();
+    appHostAnwesenheit.stop();
     pendingComplaints.stop();
     myInstanceApplications.stop();
     _stoppeKanalFestigung?.();
