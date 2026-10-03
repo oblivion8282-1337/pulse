@@ -19,3 +19,6 @@ stun = "0.17.1"
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "time", "net", "sync", "io-util"] }
 tokio-tungstenite = { version = "0.29.0", features = ["rustls-tls-webpki-roots"] }
 webrtc = { version = "0.17.1", features = ["pem"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }

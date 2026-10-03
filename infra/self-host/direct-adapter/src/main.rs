@@ -45,6 +45,41 @@ async fn main() -> Result<()> {
     );
 
     let socket = UdpSocket::bind(("0.0.0.0", cfg.direct_port)).await?;
+    // Windows meldet auf einem UDP-Socket, dessen letzter Empfänger weg ist
+    // (Peer-Reload/-Close → ICMP Port Unreachable), den NÄCHSTEN recv als
+    // WSAECONNRESET. webrtc-ices UDPMux-Readloop bricht bei jedem Fehler ≠
+    // TimedOut ab (`udp_mux/mod.rs`: break) — danach beantwortet dieser Port
+    // keine STUN-Bindings mehr, jede künftige Session stirbt in `checking`
+    // bis zum Prozess-Restart (Prod-E2E 2026-10-03: erste Session ging,
+    // danach kam keine einzige mehr durch). SIO_UDP_CONNRESET=FALSE schaltet
+    // das OS-Signal an der Quelle ab (pion/libdatachannel machen dasselbe).
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawSocket;
+        use windows_sys::Win32::Networking::WinSock::{WSAIoctl, SOCKET};
+        const SIO_UDP_CONNRESET: u32 = 0x9800_000C;
+        let mut off: u32 = 0; // FALSE
+        let mut returned = 0u32;
+        let rc = unsafe {
+            WSAIoctl(
+                socket.as_raw_socket() as SOCKET,
+                SIO_UDP_CONNRESET,
+                &mut off as *mut u32 as *const core::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+                std::ptr::null_mut(),
+                0,
+                &mut returned,
+                std::ptr::null_mut(),
+                None,
+            )
+        };
+        if rc != 0 {
+            eprintln!(
+                "[direct-adapter] WARNUNG: SIO_UDP_CONNRESET fehlgeschlagen — \
+                 UDPMux kann nach Peer-Trennung verstummen"
+            );
+        }
+    }
     // Fail-open: EIN STUN-Timeout beim Start darf den ganzen Heim-Server nicht
     // mitreissen — so kam es durch (das restart-gate hielt bei seinem Exit
     // sogar Postgres/Redis an, Mac-E2E 2026-09-28). Der Heartbeat korrigiert
