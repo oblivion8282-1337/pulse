@@ -102,8 +102,22 @@ if (-not (Test-Path (Join-Path $Bin "weed.exe"))) {
             git clone --depth 1 --branch "$WeedVersion" https://github.com/seaweedfs/seaweedfs.git $src
         }
         Push-Location (Join-Path $src "weed")
+        # CGO aus: cgofuse (weed mount) verlangt sonst WinFsp-C-Header, die
+        # weder der Runner noch ein normaler Rechner hat — der Pulse-Stack
+        # nutzt mount NICHT (master/volume/filer/s3 sind reines Go; cgofuse
+        # hat einen !cgo-Fallback). Der CI-Lauf vom 2026-10-03 scheiterte
+        # genau daran (fuse_common.h nicht gefunden) und wurde vom
+        # fehlenden weed-Check maskiert.
+        $env:CGO_ENABLED = "0"
         go build -trimpath -ldflags "-s -w" -o (Join-Path $Bin "weed.exe") .
+        $goExit = $LASTEXITCODE
+        Remove-Item Env:CGO_ENABLED -ErrorAction SilentlyContinue
         Pop-Location
+        # Native Befehle werfen in PS nicht — ohne diesen Check lief der CI-Build
+        # (2026-10-03) komplett durch, aber OHNE weed.exe (go-Fehler maskiert).
+        if ($goExit -ne 0 -or -not (Test-Path (Join-Path $Bin "weed.exe"))) {
+            throw "go build weed.exe fehlgeschlagen (Exit $goExit) — Log oben"
+        }
     } else {
         throw "weed.exe fehlt — CI-Artifact oder -WeedSource verwenden (kein offizielles Windows-Release, siehe Kopf)."
     }
@@ -171,6 +185,17 @@ Copy-Item (Join-Path $Repo "infra\self-host\s6\etc\caddy\Caddyfile.template") $t
 Copy-Item (Join-Path $Repo "desktop\electron\gen_selfsigned_cert.py") $Root -Force
 
 Write-Host "`nresources-native fertig: $Root"
+
+# Pflicht-Binaries: fehlt auch nur eine, ist der Installer unbrauchbar —
+# lieber hier hart scheitern als Stillstand beim Nutzer (0.1.93-Lektion:
+# still fehlendes weed.exe fiel erst im Feld auf).
+foreach ($required in @("caddy.exe", "frpc.exe", "livekit-server.exe", "mediamtx.exe", "weed.exe", "direct-adapter.exe", "garnet\GarnetServer.exe", "dotnet\dotnet.exe", "pg\bin\postgres.exe")) {
+    if (-not (Test-Path (Join-Path $Bin $required))) {
+        throw "Pflicht-Binary fehlt: $required"
+    }
+}
+if (-not (Test-Path (Join-Path $venv "Scripts\python.exe"))) { throw "venv-Python fehlt" }
+
 # pwsh -File gibt sonst den Exit-Code des LETZTEN nativen Befehls zurück —
 # robocopy meldet 1 bei Erfolg ("Dateien kopiert"), der CI-Schritt failte
 # trotz vollständigem Lauf (Win-Runner, 2026-10-03). Explizit 0 setzen.
