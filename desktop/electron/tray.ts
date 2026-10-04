@@ -19,6 +19,8 @@ import { Tray, Menu, BrowserWindow, app, nativeImage } from 'electron';
 import * as path from 'node:path';
 
 let tray: Tray | null = null;
+/** Letzte createTray-Argumente — recreateTray baut damit identisch neu. */
+let lastCreateArgs: [() => BrowserWindow | null, () => void, { variant?: 'client' | 'server' }?] | null = null;
 /** Lazy-cached nativeImage instances, keyed by state name. */
 const icons = new Map<string, Electron.NativeImage>();
 /** 'server-' in der Server-App → lädt tray-server-*.png (Herzschlag) statt der
@@ -96,6 +98,7 @@ export function createTray(
   opts: { variant?: 'client' | 'server' } = {}
 ): Tray {
   iconPrefix = opts.variant === 'server' ? 'server-' : '';
+  lastCreateArgs = [getWindow, requestQuit, opts];
   // Initial state = "normal" so we always have SOMETHING drawn, even before the
   // renderer pushes its first status update (avoids a brief Electron-default-icon flash).
   const icon = loadIcon('normal');
@@ -126,6 +129,17 @@ export function createTray(
   });
 
   return tray;
+}
+
+/** Tray einmalig neu registrieren. Kam die App per Autostart hoch, war der
+ *  SNI-Host (Shell-Leiste) evtl. noch nicht da — das Symbol ging dann
+ *  verloren und der Daemon lief komplett unsichtbar (Befund 2026-10-04).
+ *  Baut das Tray mit den letzten createTray-Argumenten neu auf. */
+export function recreateTray(): void {
+  if (!tray || !lastCreateArgs) return;
+  tray.destroy();
+  tray = null;
+  createTray(...lastCreateArgs);
 }
 
 /** Tooltip + OS taskbar badge (macOS Dock, Windows taskbar) aus dem
