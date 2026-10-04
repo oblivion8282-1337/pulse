@@ -2,16 +2,40 @@
   import { settings, NOISE_GATE_DB_MIN, NOISE_GATE_DB_MAX } from '$lib/stores/settings.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { micTest } from '$lib/voice/micTest.svelte';
-  import { isMobile } from '$lib/platform/runtime';
+  import { isMobile, isCapacitorAndroid } from '$lib/platform/runtime';
+  import { listAudioRoutes, setAudioRoute, type AudioRouteList } from '$lib/platform/audioRoute';
   import { deviceDisplayName } from '$lib/voice/devices';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
   import Switch from '$lib/components/form/Switch.svelte';
   import Select from '$lib/components/form/Select.svelte';
   import MicGainControl from './MicGainControl.svelte';
   import OutputVolumeControl from './OutputVolumeControl.svelte';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import VolumeIcon from '@lucide/svelte/icons/volume-2';
+  import EarIcon from '@lucide/svelte/icons/ear';
+  import BluetoothIcon from '@lucide/svelte/icons/bluetooth';
+
+  // Android: die WebView kann Audioausgänge weder auflisten noch umschalten
+  // (setSinkId/`audiooutput`-Enumeration fehlen). Die Ausgabe läuft daher über
+  // das native AudioRoute-Plugin — dieselbe Liste wie im Route-Popup der
+  // Sprachleiste (Lautsprecher, Hörmuschel, verbundenes Bluetooth). Wenn BT
+  // verbunden/trennt, liefert ein frisches listAudioRoutes die Liste neu.
+  const istAndroid = isCapacitorAndroid();
+  let routeListe = $state<AudioRouteList | null>(null);
+  onMount(() => {
+    if (!istAndroid) return;
+    void listAudioRoutes().then((r) => (routeListe = r));
+  });
+  async function waehleRouteAuswahl(route: 'speaker' | 'earpiece'): Promise<void> {
+    await setAudioRoute(route);
+    routeListe = await listAudioRoutes();
+  }
+  async function waehleRouteGeraet(id: number): Promise<void> {
+    await setAudioRoute(undefined, id);
+    routeListe = await listAudioRoutes();
+  }
 
   // Standalone mic test: runs while this tab is open and we're NOT in a voice
   // channel, so the level meter moves and "hear yourself" works without joining.
@@ -250,15 +274,45 @@
     <!-- Ausgabegerät -->
     <div class="flex flex-col gap-2">
       <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_output_device_label()}</span>
-      <Select
-        class="h-11 md:h-9"
-        value={voice.selectedOutputDeviceId}
-        options={ausgabeOptionen}
-        placeholder={m.settings_audio_video_join_voice_to_see_devices()}
-        onchange={(v) => void onOutputChange(v)}
-        data-testid="settings-output-device"
-        disabled={voice.outputDevices.length === 0}
-      />
+      {#if istAndroid}
+        <!-- Native Routen (siehe Kommentar oben): Lautsprecher, Hörmuschel
+             und jedes verbundene Bluetooth-Gerät — mit BT-Icon. -->
+        <div class="flex flex-col gap-1" data-testid="settings-output-routes">
+          <button
+            class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe?.current === 'earpiece' ? 'bg-bg-hover font-semibold' : ''}"
+            onclick={() => void waehleRouteAuswahl('earpiece')}
+          >
+            <EarIcon class="size-4" />
+            {m.voice_bar_route_name_hoermuschel()}
+          </button>
+          <button
+            class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe?.current === 'speaker' || routeListe?.current === 'auto' ? 'bg-bg-hover font-semibold' : ''}"
+            onclick={() => void waehleRouteAuswahl('speaker')}
+          >
+            <VolumeIcon class="size-4" />
+            {m.voice_bar_route_name_lautsprecher()}
+          </button>
+          {#each routeListe?.devices.filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET') ?? [] as d (d.id)}
+            <button
+              class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe?.current === 'device' && routeListe.currentDeviceId === d.id ? 'bg-bg-hover font-semibold' : ''}"
+              onclick={() => void waehleRouteGeraet(d.id)}
+            >
+              <BluetoothIcon class="size-4" />
+              <span class="truncate">{d.name && d.name.trim() ? d.name : m.voice_bar_route_name_bt()}</span>
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <Select
+          class="h-11 md:h-9"
+          value={voice.selectedOutputDeviceId}
+          options={ausgabeOptionen}
+          placeholder={m.settings_audio_video_join_voice_to_see_devices()}
+          onchange={(v) => void onOutputChange(v)}
+          data-testid="settings-output-device"
+          disabled={voice.outputDevices.length === 0}
+        />
+      {/if}
     </div>
 
     <!-- Wiedergabe-Lautstärke -->

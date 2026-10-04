@@ -5,6 +5,7 @@
   import MicIcon from '@lucide/svelte/icons/mic';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import ShieldIcon from '@lucide/svelte/icons/shield';
+  import BluetoothIcon from '@lucide/svelte/icons/bluetooth';
   import HeadphonesIcon from '@lucide/svelte/icons/headphones';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
@@ -291,7 +292,7 @@
                   class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe.current === 'device' && routeListe.currentDeviceId === d.id ? 'bg-bg-hover font-semibold' : ''}"
                   onclick={() => void waehleGeraet(d.id)}
                 >
-                  <Volume2Icon class="size-4" />
+                  <BluetoothIcon class="size-4" />
                   <span class="truncate">{d.name && d.name.trim() ? d.name : m.voice_bar_route_name_bt()}</span>
                 </button>
               {/each}
