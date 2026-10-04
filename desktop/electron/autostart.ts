@@ -20,9 +20,14 @@ import { join } from 'node:path';
 export const FLATPAK_SERVER_APP_ID = 'com.howispulse.PulseServer';
 
 /** Exec-Zeile für die .desktop-Datei. execPath in Anführungszeichen —
- *  Installationspfade mit Leerzeichen sind sonst kaputte Exec-Keys. */
+ *  Installationspfade mit Leerzeichen sind sonst kaputte Exec-Keys. Der
+ *  `--autostarted`-Schalter teilt der App mit, dass sie per Autostart kam —
+ *  sie zeigt dann einmalig eine Hintergrund-Benachrichtigung (der Daemon
+ *  startet ohne Fenster, sonst wäre er komplett unsichtbar). */
 export function linuxExecLine(flatpak: boolean, execPath: string): string {
-  return flatpak ? `flatpak run ${FLATPAK_SERVER_APP_ID}` : `"${execPath}"`;
+  return flatpak
+    ? `flatpak run ${FLATPAK_SERVER_APP_ID} --autostarted`
+    : `"${execPath}" --autostarted`;
 }
 
 /** Inhalt der XDG-Autostart-Datei. X-Flatpak markiert den Eintrag als

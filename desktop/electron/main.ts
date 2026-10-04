@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage, Notification } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -46,7 +46,7 @@ import { RemoteEingabe } from './remoteInputHost';
 import { zielFuerAblage, rolleLesen, endeAnstoss } from './ablageWeiche';
 import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
-import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
+import { createTray, recreateTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
 import { wireNotify } from './notify';
 import { wireSicherungRuecklauf } from './sicherungRuecklauf';
 import { wirePower } from './power';
@@ -778,13 +778,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       home: os.homedir(),
     });
 
-  // Default AN beim ERSTEN Pairing (Server soll ohne Zutun dauerlaufen) —
-  // danach entscheidet nur noch der Schalter, nie wieder der Default.
-  const ensureAutostartDefault = (): void => {
-    if (!SERVER_MODE || storeGet('serverAutostart') !== undefined) return;
-    storeSet('serverAutostart', true);
-    osApplyAutostart(true);
-  };
+  // Kein stiller Autostart-Default mehr: Autostart läuft ausschließlich, wenn
+  // der Nutzer den Schalter in den Settings aktiviert (Befund 2026-10-04 —
+  // der alte „Default AN beim ersten Pairing" ließ den Daemon unbemerkt im
+  // Hintergrund laufen). `serverAutostart` bleibt bis zur ersten bewussten
+  // Setzung undefined; der Boot-Abgleich unten greift nur bei `=== true`.
 
   if (SERVER_MODE) {
     // Boot-Sequenz: erst Zustands-Abgleich (Update-Check braucht Phase 'live'),
@@ -850,7 +848,6 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       const fresh = await redeemBootstrap(token, cloudOrigin);
       saveCreds(hostStore, fresh);
       setCreds(fresh);
-      ensureAutostartDefault();
       return { paired: true, status: sanitize(fresh) };
     } catch {
       // Generische Meldung — NIE eine aus dem Netz-/Fetch-Layer stammende
@@ -896,7 +893,6 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       weltUser = String(result.creds.ownerId);
       storeSet('pulse.host.weltUser', weltUser);
       setzeContainerWelt(legacyOwner === weltUser ? null : `u${weltUser}`);
-      ensureAutostartDefault();
       return { ok: true };
     }
     // Übernahme-Frage ist kein Fehler — Provisionierung pausiert nur, bis der
@@ -2287,6 +2283,38 @@ async function bootServer(): Promise<void> {
   createTray(() => mainWindow, quitApp, { variant: 'server' });
   wireTrayIpc();
   stopUpdater = startUpdater(() => mainWindow);
+
+  // Per Autostart gestartet? Dann einmalig sichtbar machen: Der Daemon startet
+  // bewusst ohne Fenster — war der Tray-Host (Shell-Leiste) noch nicht hoch,
+  // lief er komplett unsichtbar (Befund 2026-10-04, Michaels Meldung „ich
+  // habe davon gar nichts mitbekommen").
+  if (process.argv.includes('--autostarted')) {
+    setTimeout(() => {
+      try {
+        if (!Notification.isSupported()) return;
+        const n = new Notification({
+          title: 'Pulse Server',
+          body: 'Läuft im Hintergrund — Symbol in der Leiste zum Öffnen oder Beenden.',
+          silent: true,
+        });
+        n.on('click', () => {
+          const w = mainWindow;
+          if (!w || w.isDestroyed()) return;
+          if (w.isMinimized()) w.restore();
+          w.show();
+          w.focus();
+        });
+        n.show();
+      } catch {
+        // rein kosmetisch — nie wegen einer Notification booten scheitern.
+      }
+    }, 5_000);
+  }
+
+  // Tray-Host war evtl. noch nicht da, als das Symbol registriert wurde
+  // (Autostart mitten im Session-Hochlauf): einmalig neu registrieren, damit
+  // das Symbol nicht verloren bleibt.
+  setTimeout(() => recreateTray(), 20_000);
 }
 
 app.whenReady().then(() => void (SERVER_MODE ? bootServer() : bootClient()));

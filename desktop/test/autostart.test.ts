@@ -8,9 +8,9 @@ import {
   type AutostartDeps,
 } from '../electron/autostart.ts';
 
-test('linuxExecLine: Flatpak → flatpak run <app-id>, sonst gequoteter Binary-Pfad', () => {
-  assert.equal(linuxExecLine(true, '/usr/bin/x'), `flatpak run ${FLATPAK_SERVER_APP_ID}`);
-  assert.equal(linuxExecLine(false, '/opt/My App/pulse'), '"/opt/My App/pulse"');
+test('linuxExecLine: Flatpak → flatpak run <app-id> --autostarted, sonst gequoteter Binary-Pfad', () => {
+  assert.equal(linuxExecLine(true, '/usr/bin/x'), `flatpak run ${FLATPAK_SERVER_APP_ID} --autostarted`);
+  assert.equal(linuxExecLine(false, '/opt/My App/pulse'), '"/opt/My App/pulse" --autostarted');
 });
 
 test('autostartDesktopEntry: XDG-Pflichtfelder + X-Flatpak nur im Flatpak', () => {
@@ -36,7 +36,7 @@ test('applyAutostart linux: enabled schreibt .desktop, disabled entfernt sie', (
     const file = join(home, '.config', 'autostart', 'pulse-server.desktop');
     assert.deepEqual(applyAutostart(true, linuxDeps(home)), { ok: true });
     assert.equal(existsSync(file), true);
-    assert.match(readFileSync(file, 'utf8'), /^Exec="\/usr\/bin\/pulse-server"$/m);
+    assert.match(readFileSync(file, 'utf8'), /^Exec="\/usr\/bin\/pulse-server" --autostarted$/m);
     assert.deepEqual(applyAutostart(false, linuxDeps(home)), { ok: true });
     assert.equal(existsSync(file), false);
     // disabled ohne existierende Datei bleibt ok (idempotent).
