@@ -180,6 +180,21 @@ livekit) pick the new limits up on their next restart.
   version bump, nginx routing) → `rsync` the changed `infra/` files to
   `~/pulse/infra/`, then on the server `cd ~/pulse/infra/prod && docker compose
   up -d` (and for new env vars: edit `~/pulse/infra/prod/.env` first).
+- **Archive closet secret (05.10.2026):** the DM-archive needs
+  `ARCHIV_SCHRANK_SECRET` in the server `.env` (base64, 32 bytes — see
+  `.env.example`). All app services load the whole `.env` via
+  `x-app-common.env_file`, so NO compose change is needed; after adding the
+  line, restart the auth service once (`docker compose up -d auth`) — the
+  5-min cron only recreates containers on IMAGE changes. Without the secret
+  the archive feature stays off (auth answers 503 on key setup), everything
+  else is unaffected. One-time from the machine with deploy access:
+
+  ```sh
+  rsync -av --exclude .env --exclude secrets --exclude target --exclude node_modules infra/ michael@159.195.150.54:~/pulse/infra/
+  ssh michael@159.195.150.54 'grep -q ARCHIV_SCHRANK_SECRET ~/pulse/infra/prod/.env || echo "ARCHIV_SCHRANK_SECRET=$(openssl rand -base64 32)" >> ~/pulse/infra/prod/.env'
+  ssh michael@159.195.150.54 'cd ~/pulse/infra/prod && docker compose up -d auth'
+  ```
+
 - **Migrations** run automatically — `pulse_migrate_auth` / `pulse_migrate_chat`
   (the auth/chat images with `alembic upgrade head`) run before the services on
   every `up`.
