@@ -202,6 +202,19 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
           /* die Sicherung darf den Kanalwechsel nie stören — s. andock.ts */
         });
     }
+
+    // Server-Archiv nachziehen (Übergabe 2026-10-04 §5): auf einem Gerät
+    // ohne lokalen Bestand füllt es den Verlauf aus der verschlüsselten
+    // Server-Kopie (120 Tage, nur E2EE-DMs). Fire-and-forget, dedupet über
+    // die Ids im lokalen Store, wirft nie (s. `archiv/lesen.ts`).
+    void import('$lib/archiv/lesen')
+      .then((m) => m.archivNachziehen(cid))
+      .then(async (angekommen) => {
+        if (angekommen === 0 || isStale()) return;
+        const frisch = await verlaufLesen(cid, { anzahl: 50 });
+        if (isStale()) return;
+        messages.prepend(cid, verlaufMergen(frisch, []));
+      });
     cloudGateway.subscribe(cid);
     // Backfill anything that landed while the subscription was dropped.
     // Nicht fuer Gruppen: `gapFill` holt ueber die Klartext-Route nach, die

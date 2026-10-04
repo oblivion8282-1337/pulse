@@ -46,6 +46,11 @@
       // (Konsistenz mit dem Login-Pfad; bei frischer Registration ohnehin No-Op).
       await auth.setUser(await me());
 
+      // Archiv-Erstanlage (Übergabe §5) — fire-and-forget wie beim Login.
+      if (auth.user) {
+        void import('$lib/archiv/konto').then((m) => m.archivBeimLogin(auth.user!.id, password));
+      }
+
       // Profil-Auffrischung starten. Der Ausweis-Fluss, der hier früher lief,
       // ist mit dem Gerätezertifikat entfallen — es gibt nichts mehr
       // auszustellen. Fire-and-forget, weil ein ``await`` die Navigation

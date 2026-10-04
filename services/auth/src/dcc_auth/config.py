@@ -246,6 +246,14 @@ class Settings(BaseSettings):
     # deleting auth-side and orphaning chat-side rows.
     internal_service_secret: str | None = None
     chat_gateway_url: str = "http://chat-gateway:8000"
+
+    # Server-Schrank-Geheimnis fürs DM-Archiv (Übergabe 2026-10-04 §5):
+    # base64(32 Bytes), AUSSERHALB der Datenbank (Env/Config). Es wickelt
+    # den privaten Archiv-Schlüssel zusätzlich zum Passwort-Wrap — NUR der
+    # Passwort-Reset öffnet es, um unter das neue Passwort neu zu wickeln.
+    # Ungesetzt (Dev): Anlage/Reset des Archiv-Schlüssels 503en bzw.
+    # überspringen den Re-Wrap; der Klient behandelt das als „kein Archiv“.
+    archiv_schrank_secret: str | None = None
     # ``DELETE /me`` blocks on the chat-gateway purge — message-hard-delete on
     # a chatty user can be slow. 30 s is generous compared to the 5 s used
     # for voice-evict; if your deployment's purge takes longer you have a

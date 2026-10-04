@@ -341,6 +341,12 @@ export async function sendeVerschluesselt(
     anhaenge: nachricht.attachments
   });
 
+  // Server-Archiv (Übergabe 2026-10-04 §5): die Zustellung ist durch, die
+  // Nachricht liegt lokal — jetzt der verschlüsselte Abgleich beim Server
+  // (120 Tage). Fire-and-forget, wirft nie (s. `archiv/senden.ts`): das
+  // Archiv darf den Sendeweg nie aufhalten oder scheitern lassen.
+  void import('$lib/archiv/senden').then((m) => m.archiviereGesendet(kanalId, empfaengerUserId, nachricht));
+
   return { art: 'verschluesselt', nachricht };
 }
 

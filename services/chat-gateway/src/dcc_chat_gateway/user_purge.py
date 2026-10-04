@@ -34,6 +34,7 @@ from dcc_chat_gateway.device_meldungen import device_out
 from dcc_chat_gateway.models import (
     MENTION_TYPE_USER,
     Anruf,
+    ArchivKanalSchluessel,
     ART_DM,
     Channel,
     CommunityInviteNotification,
@@ -366,6 +367,14 @@ async def _purge_db(
     # einleiter_id). DM-Anrufe räumt `_delete_dm_channels` mit dem Kanal weg;
     # hier geht es um die Gruppen-Anrufe.
     await session.execute(sa_delete(Anruf).where(Anruf.einleiter_id == user_id))
+
+    # 8d. Archiv-Kanal-Schlüssel-Wraps des Kontos (Übergabe §5). Die
+    # archiv_zeilen bleiben: sie sind Teil des Verlaufs des ÜBRIGEN
+    # Teilnehmers (dessen Server-Kopie), und Chiffre ohne seinen
+    # Kanal-Schlüssel-Wrap ist für den Gelöschten ohnehin wertlos.
+    await session.execute(
+        sa_delete(ArchivKanalSchluessel).where(ArchivKanalSchluessel.user_id == user_id)
+    )
 
     # 9. DM channels the user was a participant in (1:1 → drop the
     # whole channel + every message in it).

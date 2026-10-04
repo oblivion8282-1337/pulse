@@ -344,6 +344,9 @@ class AuthStore {
         // vorigen Konto — ohne Wisch brächte der nächste Nutzer Archiv und
         // Schlüssel zusammen (Review 2026-08-31, Befund 2).
         import('$lib/sicherung/andock').then((m) => m.sicherungBeiAbmeldungWischen()),
+        // Archiv-Schlüssel des Vorgängers ebenso (Übergabe §5).
+        import('$lib/archiv/konto').then((m) => m.archivCacheVerwerfen(prev!)),
+        import('$lib/archiv/kanalSchluessel').then((m) => m.kanalSchluesselVerwerfen()),
         clearLegacyStreamCredentials(),
       ]);
     }
@@ -355,6 +358,9 @@ class AuthStore {
   }
 
   signOut(): void {
+    // Konto-Id VOR dem Nullen sichern — der Archiv-Cache-Wisch unten braucht
+    // die Kennung des Abgemeldeten (Übergabe §5).
+    const vorigerKonto = this.user?.id ?? null;
     // Web-Push-Abo abmelden (Bughunt 2026-08-17, chat.md): sonst bleibt es
     // beim Service Worker UND beim Server (user_id, endpoint) stehen, und auf
     // einem geteilten Browserprofil laufen die Klartext-Vorschauen fremder
@@ -443,6 +449,12 @@ class AuthStore {
     // Sicherungs-Wissen (DEK, Google-Refresh-Token, Klartext-Puffer) —
     // derselbe Grund wie im Kontowechsel-Pfad oben (Review 2026-08-31).
     void import('$lib/sicherung/andock').then((m) => m.sicherungBeiAbmeldungWischen());
+    // Archiv-Schlüssel vom Gerät werfen (Übergabe §5) — der nächste Nutzer am
+    // selben Profil darf den entsperreten Privatschlüssel nicht erben.
+    if (vorigerKonto) {
+      void import('$lib/archiv/konto').then((m) => m.archivCacheVerwerfen(vorigerKonto));
+    }
+    void import('$lib/archiv/kanalSchluessel').then((m) => m.kanalSchluesselVerwerfen());
     // Self-Hosts (Hostnames + pairwise_subs) aus der gerätelokalen Liste
     // entfernen — konsistent zum Account-Switch-Pfad (_enforceDeviceOwner).
     // silent=true: kein Tresor-Push, der den Server-Tresor leeren würde.

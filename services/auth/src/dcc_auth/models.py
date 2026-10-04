@@ -23,6 +23,10 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects import sqlite as _sqlite
+
+# Archiv-Schlüssel-Tabelle (Übergabe §5) — Import registriert die Zeile in
+# Base.metadata (create_all in Tests, alembic autogenerate).
+from dcc_auth.models_archiv import ArchivSchluessel  # noqa: E402,F401
 from sqlalchemy.dialects.postgresql import INET as PG_INET
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID

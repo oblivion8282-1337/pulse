@@ -99,8 +99,10 @@ def _isolate_settings(_registry_cert):
     # Patch already-imported references in other modules.
     import dcc_auth.security as security
     import dcc_auth.snowflake as snowflake_mod
+    import dcc_auth.routes_archiv as routes_archiv
     security.get_settings = _provider  # type: ignore[assignment]
     snowflake_mod.get_settings = _provider  # type: ignore[assignment]
+    routes_archiv.get_settings = _provider  # type: ignore[assignment]
     snowflake_mod._gen = None
     reset_signer()
 

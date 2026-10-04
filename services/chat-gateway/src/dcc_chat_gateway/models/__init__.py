@@ -24,6 +24,11 @@ from dcc_chat_gateway.models.anrufe import (
     ZUSTAND_KLINGELND,
     ZUSTAND_LAEUFEND,
 )
+from dcc_chat_gateway.models.archiv import (
+    ARCHIV_VORHALTE_TAGE,
+    ArchivKanalSchluessel,
+    ArchivZeile,
+)
 from dcc_chat_gateway.models.admin import AdminAuditLog, ChatSettings
 from dcc_chat_gateway.models.channels import (
     CHANNEL_TYPE_DROPBOX,
