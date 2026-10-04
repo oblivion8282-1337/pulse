@@ -58,6 +58,9 @@ public class SpeakerphoneRouter {
     public static final int ROUTE_AUTO = 0;
     public static final int ROUTE_SPEAKER = 1;
     public static final int ROUTE_EARPIECE = 2;
+    /** Route auf EIN konkretes Gerät (aus listRoutes gewählt — z. B. ein
+     *  bestimmtes BT-Headset). {@link #routeDeviceId} trägt die Geräte-Id. */
+    public static final int ROUTE_DEVICE = 3;
 
     private static final String TAG = "PulseAudio";
 
@@ -69,6 +72,9 @@ public class SpeakerphoneRouter {
 
     /** Aktuelle Routing-Wahl. ``volatile``: vom Plugin-Thread setzbar. */
     private volatile int route = ROUTE_AUTO;
+    /** Geräte-Id für {@link #ROUTE_DEVICE} (getUserChoices aus dem Auswahl-
+     *  Popover). 0 = ungesetzt. */
+    private volatile int routeDeviceId = 0;
 
     private AudioManager.OnModeChangedListener modeListener;
     private AudioManager.OnCommunicationDeviceChangedListener commDeviceListener;
@@ -147,7 +153,15 @@ public class SpeakerphoneRouter {
                             || audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
                     for (AudioDeviceInfo d : addedDevices) {
                         if (d.isSink() && (d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-                                || d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)) {
+                                || d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                                || d.getType() == AudioDeviceInfo.TYPE_BLE_HEADSET)) {
+                            // BT verbindet sich während des Calls → es übernimmt
+                            // SOFORT die Wiedergabe (Nutzerwunsch 2026-10-04):
+                            // zurück auf AUTO — das bevorzugt BT-SCO/BLE vor
+                            // Lautsprecher und Hörmuschel — statt an einer alten
+                            // Lautsprecher-/Hörmuschel-Wahl festzuhalten.
+                            route = ROUTE_AUTO;
+                            routeDeviceId = 0;
                             // API<31: apply() hat keinen SCO-Hebel — startBluetoothSco
                             // nachholen, falls BT erst nach dem Join verbindet (sonst
                             // bleibt es trotz Recovery auf dem leisen A2DP).
@@ -205,9 +219,11 @@ public class SpeakerphoneRouter {
     }
 
     /** Manueller Umschalter aus dem UI (AudioRoute-Plugin). ``ROUTE_AUTO`` stellt
-     *  das automatische Verhalten wieder her. */
+     *  das automatische Verhalten wieder her. Löscht auch eine Geräte-Pin —
+     *  Hörmuschel/Lautsprecher/auto ist immer eine bewusste NEU-Wahl. */
     public void setRoute(int newRoute) {
         this.route = newRoute;
+        if (newRoute != ROUTE_DEVICE) this.routeDeviceId = 0;
         applyWithReassert();
     }
 
@@ -297,8 +313,38 @@ public class SpeakerphoneRouter {
         switch (route) {
             case ROUTE_SPEAKER: return "speaker";
             case ROUTE_EARPIECE: return "earpiece";
+            case ROUTE_DEVICE: return "device";
             default: return "auto";
         }
+    }
+
+    /** Route auf ein konkretes Gerät aus dem Auswahl-Popup (AudioRoute-Plugin). */
+    public void setRouteDevice(int deviceId) {
+        this.routeDeviceId = deviceId;
+        this.route = deviceId > 0 ? ROUTE_DEVICE : ROUTE_AUTO;
+        applyWithReassert();
+    }
+
+    public int getRouteDeviceId() {
+        return routeDeviceId;
+    }
+
+    /** Verfügbare Auswahl für das Web-Popup: Hörmuschel, Lautsprecher und alle
+     *  comm-fähigen Bluetooth-Geräte (SCO/BLE) mit Namen und Ids. */
+    public java.util.List<AudioDeviceInfo> listSelectableDevices() {
+        java.util.List<AudioDeviceInfo> out = new java.util.ArrayList<>();
+        if (audioManager == null) return out;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return out;
+        for (AudioDeviceInfo d : audioManager.getAvailableCommunicationDevices()) {
+            int t = d.getType();
+            if (t == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                    || t == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                    || t == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                    || t == AudioDeviceInfo.TYPE_BLE_HEADSET) {
+                out.add(d);
+            }
+        }
+        return out;
     }
 
     private int targetDeviceType() {
@@ -331,11 +377,28 @@ public class SpeakerphoneRouter {
                 // setCommunicationDevice wirkt NUR in MODE_IN_COMMUNICATION.
                 if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
                 AudioDeviceInfo target = pickTargetDevice();
+                if (target == null && route == ROUTE_DEVICE) {
+                    // Gewähltes BT-Gerät ist verschwunden (ausgeschaltet/ausser
+                    // Reichweite) → zurück auf Auto statt auf dem Pin zu bleiben.
+                    route = ROUTE_AUTO;
+                    routeDeviceId = 0;
+                    target = pickTargetDevice();
+                }
                 if (target != null) {
                     boolean ok = audioManager.setCommunicationDevice(target);
                     if (!ok) {
                         Log.w(TAG, "setCommunicationDevice returned false for type " + target.getType());
                     }
+                    // Samsung/OneUI-Quirk (2026-10-04, S22 Ultra): der OS-Zustand
+                    // schaltet korrekt auf BUILTIN_SPEAKER, aber Chromiums WebRTC-
+                    // Track bleibt beim Start auf der Hörmuschel gepinnt —
+                    // setCommunicationDevice allein re-routet ihn nicht. Das
+                    // deprecated setSpeakerphoneOn greift an derselben Stelle,
+                    // an der die Track-Verdrahtung hängt, und zwingt die
+                    // Umschaltung; ohne BT-Fall ist es exakt deckungsgleich mit
+                    // der Wahl oben (AUTO+BT → BT-SCO, hier NICHT anfassen).
+                    boolean speakerTarget = target.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
+                    audioManager.setSpeakerphoneOn(speakerTarget);
                 }
             } else {
                 // API 24–30: deprecated, aber der einzige Weg. Bei ROUTE_AUTO + BT
@@ -356,6 +419,14 @@ public class SpeakerphoneRouter {
      *  gemeldet, aber SCO-Gerät noch nicht als comm-Gerät verfügbar). */
     private AudioDeviceInfo pickTargetDevice() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null;
+        // Aus dem Popup gewähltes Gerät: exakt dieses, solange es erreichbar
+        // ist. Verschwunden (BT aus) → AUTO-Fallback unten.
+        if (route == ROUTE_DEVICE && routeDeviceId > 0) {
+            for (AudioDeviceInfo d : audioManager.getAvailableCommunicationDevices()) {
+                if (d.getId() == routeDeviceId) return d;
+            }
+            return null;
+        }
         int type = targetDeviceType();
         if (route == ROUTE_AUTO && type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                 && hasBluetoothAudioRoute()) {

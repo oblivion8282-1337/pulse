@@ -26,7 +26,7 @@
   import StreamStatusBar from '$lib/stream/components/StreamStatusBar.svelte';
   import { onMount } from 'svelte';
   import { isCapacitorAndroid } from '$lib/platform/runtime';
-  import { setAudioRoute, getAudioRoute } from '$lib/platform/audioRoute';
+  import { setAudioRoute, getAudioRoute, listAudioRoutes, type AudioRoute, type AudioRouteList } from '$lib/platform/audioRoute';
 
   // Camera-toggle gate: same shape as the HQ-stream button. Hide when
   // the channel's resolved permissions lack USE_VIDEO. Falls back to
@@ -36,20 +36,36 @@
   // unconditionally in the LiveKit token, so a determined user could
   // still publish video via DevTools. A backend gate via
   // ``can_publish_sources`` is the proper follow-up.
-  // Manueller Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App
-  // (ruft das native AudioRoute-Plugin). Default = Lautsprecher; Tippen
-  // erzwingt Hörmuschel bzw. zurück. Onmount mit dem nativen Stand sync.
+  // Route-Auswahl-Popup — nur in der Android-App (natives AudioRoute-Plugin).
+  // Tippen poppt eine kleine Liste auf: Hörmuschel, Lautsprecher und jedes
+  // verbundene Bluetooth-Gerät; die Wahl geht als feste Route ans native
+  // Routing. Onmount mit dem nativen Stand sync.
   const showAudioRouteToggle = isCapacitorAndroid();
-  let speakerOn = $state(true);
+  let routeMenuOffen = $state(false);
+  let routeListe = $state<AudioRouteList | null>(null);
   onMount(() => {
     if (!showAudioRouteToggle) return;
     void getAudioRoute().then((r) => {
-      speakerOn = r !== 'earpiece';
+      if (routeListe === null && r !== 'earpiece') {
+        routeListe = { current: 'speaker', currentDeviceId: 0, devices: [] };
+      } else if (routeListe === null) {
+        routeListe = { current: 'earpiece', currentDeviceId: 0, devices: [] };
+      }
     });
   });
-  function toggleAudioRoute(): void {
-    speakerOn = !speakerOn;
-    void setAudioRoute(speakerOn ? 'speaker' : 'earpiece');
+  async function oeffneRouteMenue(): Promise<void> {
+    routeMenuOffen = !routeMenuOffen;
+    if (routeMenuOffen) routeListe = await listAudioRoutes();
+  }
+  function waehleFestenWeg(r: AudioRoute): void {
+    routeMenuOffen = false;
+    routeListe = { current: r, currentDeviceId: 0, devices: routeListe?.devices ?? [] };
+    void setAudioRoute(r);
+  }
+  async function waehleGeraet(id: number): Promise<void> {
+    routeMenuOffen = false;
+    routeListe = { current: 'device', currentDeviceId: id, devices: routeListe?.devices ?? [] };
+    await setAudioRoute(undefined, id);
   }
 
   let canUseCamera = $derived.by(() => {
@@ -219,31 +235,69 @@
 
       <!-- Watch-Party auf Mobil ausgeblendet — Desktop-Feature (s. Phase 6). -->
       {#if showAudioRouteToggle}
-        <!-- Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App
-             (nativer AudioRoute-Toggle). Behebt den earpiece-Default im
-             Kommunikationsmodus. -->
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <Button
-                {...props}
-                variant={speakerOn ? 'default' : 'ghost'}
-                size="icon-sm"
-                class={btnCls}
-                onclick={toggleAudioRoute}
-                data-testid="voice-audio-route-toggle"
-                aria-label={speakerOn
-                  ? m.voice_bar_route_to_speaker()
-                  : m.voice_bar_route_to_earpiece()}
+        <!-- Route-Auswahl: Tippen poppt die Geräteliste auf (Hörmuschel,
+             Lautsprecher, verbundenes Bluetooth). Nur in der Android-App. -->
+        <div class="relative">
+          {#if routeMenuOffen}
+            <!-- Klick-Fänger: Popup schließt bei Tippen daneben. -->
+            <button
+              class="fixed inset-0 z-20"
+              aria-label="close"
+              onclick={() => (routeMenuOffen = false)}
+            ></button>
+          {/if}
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <Button
+                  {...props}
+                  variant={routeListe?.current === 'earpiece' ? 'ghost' : 'default'}
+                  size="icon-sm"
+                  class={btnCls}
+                  onclick={oeffneRouteMenue}
+                  data-testid="voice-audio-route-toggle"
+                  aria-label={m.voice_bar_route_menu()}
+                >
+                  {#if routeListe?.current === 'earpiece'}<EarIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
+                </Button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              {m.voice_bar_route_menu()}
+            </Tooltip.Content>
+          </Tooltip.Root>
+          {#if routeMenuOffen && routeListe}
+            <div
+              class="bg-bg-panel border-border absolute bottom-full left-1/2 z-30 mb-2 w-52 -translate-x-1/2 rounded-xl border p-1 shadow-lg"
+              data-testid="voice-audio-route-menu"
+            >
+              <p class="text-text-muted px-2 py-1 text-xs font-semibold">{m.voice_bar_route_menu()}</p>
+              <button
+                class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe.current === 'earpiece' ? 'bg-bg-hover font-semibold' : ''}"
+                onclick={() => waehleFestenWeg('earpiece')}
               >
-                {#if speakerOn}<Volume2Icon class={iconCls} />{:else}<EarIcon class={iconCls} />{/if}
-              </Button>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content>
-            {speakerOn ? m.voice_bar_route_speaker_hint() : m.voice_bar_route_earpiece_hint()}
-          </Tooltip.Content>
-        </Tooltip.Root>
+                <EarIcon class="size-4" />
+                {m.voice_bar_route_name_hoermuschel()}
+              </button>
+              <button
+                class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe.current === 'speaker' || routeListe.current === 'auto' ? 'bg-bg-hover font-semibold' : ''}"
+                onclick={() => waehleFestenWeg('speaker')}
+              >
+                <Volume2Icon class="size-4" />
+                {m.voice_bar_route_name_lautsprecher()}
+              </button>
+              {#each routeListe.devices.filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET') as d (d.id)}
+                <button
+                  class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe.current === 'device' && routeListe.currentDeviceId === d.id ? 'bg-bg-hover font-semibold' : ''}"
+                  onclick={() => void waehleGeraet(d.id)}
+                >
+                  <Volume2Icon class="size-4" />
+                  <span class="truncate">{d.name && d.name.trim() ? d.name : m.voice_bar_route_name_bt()}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
       {/if}
       {#if voice.channelId && !viewport.isMobile}
         <WatchPartyStartButton channelId={voice.channelId} />
