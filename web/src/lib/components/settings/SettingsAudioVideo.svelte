@@ -2,16 +2,60 @@
   import { settings, NOISE_GATE_DB_MIN, NOISE_GATE_DB_MAX } from '$lib/stores/settings.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { micTest } from '$lib/voice/micTest.svelte';
-  import { isMobile } from '$lib/platform/runtime';
+  import { isMobile, isCapacitorAndroid } from '$lib/platform/runtime';
+  import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
   import { deviceDisplayName } from '$lib/voice/devices';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
   import Switch from '$lib/components/form/Switch.svelte';
   import Select from '$lib/components/form/Select.svelte';
   import MicGainControl from './MicGainControl.svelte';
   import OutputVolumeControl from './OutputVolumeControl.svelte';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+
+  // Android: die WebView kann Audioausgänge weder auflisten noch umschalten
+  // (setSinkId/`audiooutput`-Enumeration fehlen). Die Ausgabe läuft daher über
+  // das native AudioRoute-Plugin — der Stand lebt im geteilten audioRouteState:
+  // eine Änderung im Route-Popup des Sprachkanals erscheint hier SOFORT (und
+  // umgekehrt), und BT verbinden/trennen frischt die Liste über devicechange.
+  const istAndroid = isCapacitorAndroid();
+  onMount(() => {
+    if (!istAndroid) return;
+    void audioRouteState.aktualisieren();
+  });
+  /** Optionen: Hörmuschel/Lautsprecher fix + jedes verbundene BT-Gerät. */
+  let routeOptionen = $derived(
+    audioRouteState.liste
+      ? [
+          { value: 'earpiece', label: m.voice_bar_route_name_hoermuschel() },
+          { value: 'speaker', label: m.voice_bar_route_name_lautsprecher() },
+          ...audioRouteState.liste.devices
+            .filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET')
+            .map((d) => ({
+              value: 'device:' + d.id,
+              label: d.name && d.name.trim() ? d.name : m.voice_bar_route_name_bt()
+            }))
+        ]
+      : []
+  );
+  /** Der geschlossene Select zeigt das AKTUELLE Ausgabegerät. */
+  let routeWert = $derived(
+    !audioRouteState.liste
+      ? ''
+      : audioRouteState.liste.current === 'device'
+        ? 'device:' + audioRouteState.liste.currentDeviceId
+        : audioRouteState.liste.current === 'earpiece'
+          ? 'earpiece'
+          : 'speaker'
+  );
+  function onRouteChange(v: string): void {
+    if (v.startsWith('device:')) {
+      void audioRouteState.geraetWaehlen(Number(v.slice('device:'.length)));
+      return;
+    }
+    void audioRouteState.festenWegWaehlen(v as 'speaker' | 'earpiece');
+  }
 
   // Standalone mic test: runs while this tab is open and we're NOT in a voice
   // channel, so the level meter moves and "hear yourself" works without joining.
@@ -141,6 +185,60 @@
       label: deviceDisplayName(d, m.settings_audio_video_microphone()),
     })),
   );
+
+  // Android, Eingabe kuratiert (Nutzerwunsch 2026-10-04): NUR verbundene
+  // Geräte — das Telefonmikrofon plus das BT-Mikrofon, wenn ein BT-Gerät
+  // verbunden ist. Keine Geister-Einträge von bereits getrennten Geräten.
+  let verbundeneBtNamen = $derived(
+    (audioRouteState.liste?.devices ?? [])
+      .filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET')
+      .map((d) => (d.name && d.name.trim() ? d.name.trim().toLowerCase() : ''))
+      .filter(Boolean)
+  );
+  let eingabeOptionenAndroid = $derived.by(() => {
+    // Chromium labelt BT-Mikrofone generisch („Bluetooth headset") statt mit
+    // dem Produktnamen — erkenne sie am Label-Teil „bluetooth" ODER am
+    // Produktnamen (manche Versionen tragen ihn doch).
+    const btEingaenge = voice.inputDevices.filter(
+      (d) =>
+        d.label &&
+        (d.label.toLowerCase().includes('bluetooth') ||
+          verbundeneBtNamen.some((n) => d.label.toLowerCase().includes(n)))
+    );
+    // Telefonmikrofon = default oder das erste Eingabegerät OHNE BT-Namen.
+    const telefon =
+      voice.inputDevices.find((d) => d.deviceId === 'default') ??
+      voice.inputDevices.find(
+        (d) => !btEingaenge.some((b) => b.deviceId === d.deviceId)
+      );
+    // Anzeige-Name: der hübsche native Produktname (EarFun …), wenn bekannt.
+    const hübsch = (label: string): string => {
+      const treffer = (audioRouteState.liste?.devices ?? []).find(
+        (r) => r.type.startsWith('BLUETOOTH') || r.type === 'BLE_HEADSET'
+      );
+      return treffer?.name && treffer.name.trim() ? treffer.name : label;
+    };
+    const optionen = [];
+    if (telefon) {
+      optionen.push({ value: telefon.deviceId, label: m.settings_audio_video_microphone() });
+    }
+    for (const b of btEingaenge) {
+      optionen.push({
+        value: b.deviceId,
+        label: b.label.toLowerCase().includes('bluetooth') ? hübsch(b.label) : b.label
+      });
+    }
+    return optionen;
+  });
+  /** Geschlossener Select: das aktuell aktive Eingabegerät — und wenn das
+   *  nicht mehr in der kuratierten Liste liegt (BT gerade getrennt), das
+   *  Telefonmikrofon als Default. */
+  let eingabeWertAndroid = $derived.by(() => {
+    if (eingabeOptionenAndroid.some((o) => o.value === voice.selectedInputDeviceId)) {
+      return voice.selectedInputDeviceId;
+    }
+    return eingabeOptionenAndroid[0]?.value ?? '';
+  });
   let ausgabeOptionen = $derived(
     voice.outputDevices.map((d) => ({
       value: d.deviceId,
@@ -155,15 +253,28 @@
     <!-- Eingabegerät + Pegelanzeige -->
     <div class="flex flex-col gap-2">
       <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_input_device_label()}</span>
-      <Select
-        class="h-11 md:h-9"
-        value={voice.selectedInputDeviceId}
-        options={eingabeOptionen}
-        placeholder={m.settings_audio_video_join_voice_to_see_devices()}
-        onchange={(v) => void onInputChange(v)}
-        data-testid="settings-input-device"
-        disabled={voice.inputDevices.length === 0}
-      />
+      {#if istAndroid}
+        <!-- Kuratiert: nur das Telefonmikrofon + das verbundene BT-Mikrofon. -->
+        <Select
+          class="h-11 md:h-9"
+          value={eingabeWertAndroid}
+          options={eingabeOptionenAndroid}
+          placeholder={m.settings_audio_video_join_voice_to_see_devices()}
+          onchange={(v) => void onInputChange(v)}
+          data-testid="settings-input-device"
+          disabled={eingabeOptionenAndroid.length === 0}
+        />
+      {:else}
+        <Select
+          class="h-11 md:h-9"
+          value={voice.selectedInputDeviceId}
+          options={eingabeOptionen}
+          placeholder={m.settings_audio_video_join_voice_to_see_devices()}
+          onchange={(v) => void onInputChange(v)}
+          data-testid="settings-input-device"
+          disabled={voice.inputDevices.length === 0}
+        />
+      {/if}
       <div class="flex items-center gap-2">
         <div class="bg-bg-input relative h-2 flex-1 overflow-hidden rounded-full" data-testid="settings-mic-level">
           <!-- RMS-Füllung: das was die Gate-Schwelle vergleicht (short-window RMS). -->
@@ -245,15 +356,29 @@
     <!-- Ausgabegerät -->
     <div class="flex flex-col gap-2">
       <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_output_device_label()}</span>
-      <Select
-        class="h-11 md:h-9"
-        value={voice.selectedOutputDeviceId}
-        options={ausgabeOptionen}
-        placeholder={m.settings_audio_video_join_voice_to_see_devices()}
-        onchange={(v) => void onOutputChange(v)}
-        data-testid="settings-output-device"
-        disabled={voice.outputDevices.length === 0}
-      />
+      {#if istAndroid}
+        <!-- Native Routen (siehe Kommentar oben): ein Select zeigt das AKTUELLE
+             Gerät geschlossen an und öffnet bei Tipp die Liste nach unten —
+             Lautsprecher, Hörmuschel und jedes verbundene Bluetooth-Gerät. -->
+        <Select
+          class="h-11 md:h-9"
+          value={routeWert}
+          options={routeOptionen}
+          placeholder={m.settings_audio_video_join_voice_to_see_devices()}
+          onchange={(v) => onRouteChange(v)}
+          data-testid="settings-output-routes"
+        />
+      {:else}
+        <Select
+          class="h-11 md:h-9"
+          value={voice.selectedOutputDeviceId}
+          options={ausgabeOptionen}
+          placeholder={m.settings_audio_video_join_voice_to_see_devices()}
+          onchange={(v) => void onOutputChange(v)}
+          data-testid="settings-output-device"
+          disabled={voice.outputDevices.length === 0}
+        />
+      {/if}
     </div>
 
     <!-- Wiedergabe-Lautstärke -->

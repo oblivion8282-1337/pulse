@@ -29,12 +29,21 @@ public class AudioRoutePlugin extends Plugin {
 
     @PluginMethod
     public void setRoute(PluginCall call) {
-        String route = call.getString("route", "auto");
+        // Auswahl aus dem Route-Popup: entweder ein fester Weg (speaker/
+        // earpiece/auto) ODER ein konkretes Gerät (deviceId — BT aus listRoutes).
+        Integer deviceId = call.getInt("deviceId");
         SpeakerphoneRouter r = router();
         if (r == null) {
             call.reject("audio router unavailable");
             return;
         }
+        if (deviceId != null && deviceId > 0) {
+            final int id = deviceId;
+            getActivity().runOnUiThread(() -> r.setRouteDevice(id));
+            call.resolve();
+            return;
+        }
+        String route = call.getString("route", "auto");
         final int mode;
         if ("speaker".equals(route)) {
             mode = SpeakerphoneRouter.ROUTE_SPEAKER;
@@ -47,6 +56,33 @@ public class AudioRoutePlugin extends Plugin {
         // AudioManager-Calls auf den Main-Thread (Listener-Registrierung etc.).
         getActivity().runOnUiThread(() -> r.setRoute(mode));
         call.resolve();
+    }
+
+    /**
+     * Auswahl-Liste für das Route-Popup: die aktuelle Wahl plus alle
+     * umschaltbaren Geräte (Hörmuschel, Lautsprecher, verbundenes Bluetooth —
+     * SCO/BLE) mit stabilen Ids für {@link #setRoute}.
+     */
+    @PluginMethod
+    public void listRoutes(PluginCall call) {
+        SpeakerphoneRouter r = router();
+        if (r == null) {
+            call.reject("audio router unavailable");
+            return;
+        }
+        JSObject ret = new JSObject();
+        ret.put("current", r.routeName());
+        ret.put("currentDeviceId", r.getRouteDeviceId());
+        JSArray devices = new JSArray();
+        for (AudioDeviceInfo d : r.listSelectableDevices()) {
+            JSObject o = new JSObject();
+            o.put("id", d.getId());
+            o.put("type", deviceTypeName(d.getType()));
+            o.put("name", String.valueOf(d.getProductName()));
+            devices.put(o);
+        }
+        ret.put("devices", devices);
+        call.resolve(ret);
     }
 
     /**
