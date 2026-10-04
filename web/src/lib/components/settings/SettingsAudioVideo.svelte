@@ -189,6 +189,47 @@
       label: deviceDisplayName(d, m.settings_audio_video_microphone()),
     })),
   );
+
+  // Android, Eingabe kuratiert (Nutzerwunsch 2026-10-04): NUR verbundene
+  // Geräte — das Telefonmikrofon plus das BT-Mikrofon, wenn ein BT-Gerät
+  // verbunden ist. Keine Geister-Einträge von bereits getrennten Geräten.
+  let verbundeneBtNamen = $derived(
+    (audioRouteState.liste?.devices ?? [])
+      .filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET')
+      .map((d) => (d.name && d.name.trim() ? d.name.trim().toLowerCase() : ''))
+      .filter(Boolean)
+  );
+  let eingabeOptionenAndroid = $derived.by(() => {
+    const btEingaenge = voice.inputDevices.filter((d) =>
+      verbundeneBtNamen.some((n) => d.label.toLowerCase().includes(n))
+    );
+    // Telefonmikrofon = default oder das erste Eingabegerät OHNE BT-Namen.
+    const telefon =
+      voice.inputDevices.find((d) => d.deviceId === 'default') ??
+      voice.inputDevices.find(
+        (d) => !btEingaenge.some((b) => b.deviceId === d.deviceId)
+      );
+    const optionen = [];
+    if (telefon) {
+      optionen.push({ value: telefon.deviceId, label: m.settings_audio_video_microphone() });
+    }
+    for (const b of btEingaenge) {
+      optionen.push({
+        value: b.deviceId,
+        label: b.label || m.voice_bar_route_name_bt()
+      });
+    }
+    return optionen;
+  });
+  /** Geschlossener Select: das aktuell aktive Eingabegerät — und wenn das
+   *  nicht mehr in der kuratierten Liste liegt (BT gerade getrennt), das
+   *  Telefonmikrofon als Default. */
+  let eingabeWertAndroid = $derived.by(() => {
+    if (eingabeOptionenAndroid.some((o) => o.value === voice.selectedInputDeviceId)) {
+      return voice.selectedInputDeviceId;
+    }
+    return eingabeOptionenAndroid[0]?.value ?? '';
+  });
   let ausgabeOptionen = $derived(
     voice.outputDevices.map((d) => ({
       value: d.deviceId,
@@ -203,15 +244,28 @@
     <!-- Eingabegerät + Pegelanzeige -->
     <div class="flex flex-col gap-2">
       <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_input_device_label()}</span>
-      <Select
-        class="h-11 md:h-9"
-        value={voice.selectedInputDeviceId}
-        options={eingabeOptionen}
-        placeholder={m.settings_audio_video_join_voice_to_see_devices()}
-        onchange={(v) => void onInputChange(v)}
-        data-testid="settings-input-device"
-        disabled={voice.inputDevices.length === 0}
-      />
+      {#if istAndroid}
+        <!-- Kuratiert: nur das Telefonmikrofon + das verbundene BT-Mikrofon. -->
+        <Select
+          class="h-11 md:h-9"
+          value={eingabeWertAndroid}
+          options={eingabeOptionenAndroid}
+          placeholder={m.settings_audio_video_join_voice_to_see_devices()}
+          onchange={(v) => void onInputChange(v)}
+          data-testid="settings-input-device"
+          disabled={eingabeOptionenAndroid.length === 0}
+        />
+      {:else}
+        <Select
+          class="h-11 md:h-9"
+          value={voice.selectedInputDeviceId}
+          options={eingabeOptionen}
+          placeholder={m.settings_audio_video_join_voice_to_see_devices()}
+          onchange={(v) => void onInputChange(v)}
+          data-testid="settings-input-device"
+          disabled={voice.inputDevices.length === 0}
+        />
+      {/if}
       <div class="flex items-center gap-2">
         <div class="bg-bg-input relative h-2 flex-1 overflow-hidden rounded-full" data-testid="settings-mic-level">
           <!-- RMS-Füllung: das was die Gate-Schwelle vergleicht (short-window RMS). -->
