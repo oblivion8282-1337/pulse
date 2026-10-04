@@ -35,6 +35,7 @@
   import { guildIconSrc } from '$lib/guildIcon';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
+	import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
   import { communityInvites } from '$lib/stores/communityInvites.svelte';
@@ -113,6 +114,7 @@
   // Liste (vgl. den getrennten Zähler in DMChannelList).
   let homeBadgeCount = $derived(
     readState.sumUnread(directMessages.list.map((dm) => dm.id)) +
+      readState.sumUnread(privateGruppen.list.map((g) => g.id)) +
       friendRequests.incomingList.length + communityInvites.count
   );
 
