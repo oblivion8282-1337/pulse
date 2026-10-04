@@ -240,32 +240,24 @@
               onclick={() => (routeMenuOffen = false)}
             ></button>
           {/if}
-          <Tooltip.Root>
-            <Tooltip.Trigger>
-              {#snippet child({ props })}
-                <Button
-                  {...props}
-                  variant={audioRouteState.liste?.current === 'earpiece' ? 'ghost' : 'default'}
-                  size="icon-sm"
-                  class={btnCls}
-                  onclick={oeffneRouteMenue}
-                  data-testid="voice-audio-route-toggle"
-                  aria-label={m.voice_bar_route_menu()}
-                >
-                  {#if audioRouteState.liste?.current === 'earpiece'}<EarIcon class={iconCls} />{:else if audioRouteState.liste?.current === 'device'}<BluetoothIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
-                </Button>
-              {/snippet}
-            </Tooltip.Trigger>
-            <Tooltip.Content>
-              {m.voice_bar_route_menu()}
-            </Tooltip.Content>
-          </Tooltip.Root>
+          <!-- Kein Tooltip hier: auf dem Handy poppte beim Tippen das
+               „Audio-Ausgabe"-Bubble statt der Geräteliste — die Liste selbst
+               ist selbsterklärend. -->
+          <Button
+            variant={audioRouteState.liste?.current === 'earpiece' ? 'ghost' : 'default'}
+            size="icon-sm"
+            class={btnCls}
+            onclick={oeffneRouteMenue}
+            data-testid="voice-audio-route-toggle"
+            aria-label={m.voice_bar_route_menu()}
+          >
+            {#if audioRouteState.liste?.current === 'earpiece'}<EarIcon class={iconCls} />{:else if audioRouteState.liste?.current === 'device'}<BluetoothIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
+          </Button>
           {#if routeMenuOffen && audioRouteState.liste}
             <div
               class="bg-bg-panel border-border absolute bottom-full left-1/2 z-30 mb-2 w-52 -translate-x-1/2 rounded-xl border p-1 shadow-lg"
               data-testid="voice-audio-route-menu"
             >
-              <p class="text-text-muted px-2 py-1 text-xs font-semibold">{m.voice_bar_route_menu()}</p>
               <button
                 class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {audioRouteState.liste.current === 'earpiece' ? 'bg-bg-hover font-semibold' : ''}"
                 onclick={() => waehleFestenWeg('earpiece')}
