@@ -388,6 +388,21 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "used_bytes": 0,
         "trash_retention_days": 30,
     },
+    "gruppe_neu": {
+        "op": "gruppe_neu",
+        "gruppe_id": "42",
+    },
+    "gruppe_lesestand": {
+        "op": "gruppe_lesestand",
+        "gruppe_id": "42",
+        "user_id": "3",
+        "last_read_message_id": "1",
+    },
+    "zustellung_bestaetigt": {
+        "op": "zustellung_bestaetigt",
+        "channel_id": "2",
+        "user_id": "3",
+    },
 }
 
 
