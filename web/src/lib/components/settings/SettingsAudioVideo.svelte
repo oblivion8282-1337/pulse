@@ -3,7 +3,7 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { micTest } from '$lib/voice/micTest.svelte';
   import { isMobile, isCapacitorAndroid } from '$lib/platform/runtime';
-  import { listAudioRoutes, setAudioRoute, type AudioRouteList } from '$lib/platform/audioRoute';
+  import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
   import { deviceDisplayName } from '$lib/voice/devices';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
   import Switch from '$lib/components/form/Switch.svelte';
@@ -16,22 +16,21 @@
 
   // Android: die WebView kann Audioausgänge weder auflisten noch umschalten
   // (setSinkId/`audiooutput`-Enumeration fehlen). Die Ausgabe läuft daher über
-  // das native AudioRoute-Plugin — dieselbe Liste wie im Route-Popup der
-  // Sprachleiste (Lautsprecher, Hörmuschel, verbundenes Bluetooth). Wenn BT
-  // verbunden/trennt, liefert ein frisches listAudioRoutes die Liste neu.
+  // das native AudioRoute-Plugin — der Stand lebt im geteilten audioRouteState:
+  // eine Änderung im Route-Popup des Sprachkanals erscheint hier SOFORT (und
+  // umgekehrt), und BT verbinden/trennen frischt die Liste über devicechange.
   const istAndroid = isCapacitorAndroid();
-  let routeListe = $state<AudioRouteList | null>(null);
   onMount(() => {
     if (!istAndroid) return;
-    void listAudioRoutes().then((r) => (routeListe = r));
+    void audioRouteState.aktualisieren();
   });
   /** Optionen: Hörmuschel/Lautsprecher fix + jedes verbundene BT-Gerät. */
   let routeOptionen = $derived(
-    routeListe
+    audioRouteState.liste
       ? [
           { value: 'earpiece', label: m.voice_bar_route_name_hoermuschel() },
           { value: 'speaker', label: m.voice_bar_route_name_lautsprecher() },
-          ...routeListe.devices
+          ...audioRouteState.liste.devices
             .filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET')
             .map((d) => ({
               value: 'device:' + d.id,
@@ -42,28 +41,20 @@
   );
   /** Der geschlossene Select zeigt das AKTUELLE Ausgabegerät. */
   let routeWert = $derived(
-    !routeListe
+    !audioRouteState.liste
       ? ''
-      : routeListe.current === 'device'
-        ? 'device:' + routeListe.currentDeviceId
-        : routeListe.current === 'earpiece'
+      : audioRouteState.liste.current === 'device'
+        ? 'device:' + audioRouteState.liste.currentDeviceId
+        : audioRouteState.liste.current === 'earpiece'
           ? 'earpiece'
           : 'speaker'
   );
   function onRouteChange(v: string): void {
     if (v.startsWith('device:')) {
-      void waehleRouteGeraet(Number(v.slice('device:'.length)));
+      void audioRouteState.geraetWaehlen(Number(v.slice('device:'.length)));
       return;
     }
-    void waehleRouteAuswahl(v as 'speaker' | 'earpiece');
-  }
-  async function waehleRouteAuswahl(route: 'speaker' | 'earpiece'): Promise<void> {
-    await setAudioRoute(route);
-    routeListe = await listAudioRoutes();
-  }
-  async function waehleRouteGeraet(id: number): Promise<void> {
-    await setAudioRoute(undefined, id);
-    routeListe = await listAudioRoutes();
+    void audioRouteState.festenWegWaehlen(v as 'speaker' | 'earpiece');
   }
 
   // Standalone mic test: runs while this tab is open and we're NOT in a voice

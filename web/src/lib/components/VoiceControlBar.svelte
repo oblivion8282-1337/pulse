@@ -27,7 +27,8 @@
   import StreamStatusBar from '$lib/stream/components/StreamStatusBar.svelte';
   import { onMount } from 'svelte';
   import { isCapacitorAndroid } from '$lib/platform/runtime';
-  import { setAudioRoute, getAudioRoute, listAudioRoutes, type AudioRoute, type AudioRouteList } from '$lib/platform/audioRoute';
+  import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
+  import { type AudioRoute } from '$lib/platform/audioRoute';
 
   // Camera-toggle gate: same shape as the HQ-stream button. Hide when
   // the channel's resolved permissions lack USE_VIDEO. Falls back to
@@ -40,33 +41,25 @@
   // Route-Auswahl-Popup — nur in der Android-App (natives AudioRoute-Plugin).
   // Tippen poppt eine kleine Liste auf: Hörmuschel, Lautsprecher und jedes
   // verbundene Bluetooth-Gerät; die Wahl geht als feste Route ans native
-  // Routing. Onmount mit dem nativen Stand sync.
+  // Routing. Der Stand lebt im geteilten audioRouteState — Einstellungen und
+  // Popup sehen jede Änderung der jeweils anderen Stelle sofort.
   const showAudioRouteToggle = isCapacitorAndroid();
   let routeMenuOffen = $state(false);
-  let routeListe = $state<AudioRouteList | null>(null);
   onMount(() => {
     if (!showAudioRouteToggle) return;
-    void getAudioRoute().then((r) => {
-      if (routeListe === null && r !== 'earpiece') {
-        routeListe = { current: 'speaker', currentDeviceId: 0, devices: [] };
-      } else if (routeListe === null) {
-        routeListe = { current: 'earpiece', currentDeviceId: 0, devices: [] };
-      }
-    });
+    void audioRouteState.aktualisieren();
   });
   async function oeffneRouteMenue(): Promise<void> {
     routeMenuOffen = !routeMenuOffen;
-    if (routeMenuOffen) routeListe = await listAudioRoutes();
+    if (routeMenuOffen) await audioRouteState.aktualisieren();
   }
   function waehleFestenWeg(r: AudioRoute): void {
     routeMenuOffen = false;
-    routeListe = { current: r, currentDeviceId: 0, devices: routeListe?.devices ?? [] };
-    void setAudioRoute(r);
+    void audioRouteState.festenWegWaehlen(r);
   }
   async function waehleGeraet(id: number): Promise<void> {
     routeMenuOffen = false;
-    routeListe = { current: 'device', currentDeviceId: id, devices: routeListe?.devices ?? [] };
-    await setAudioRoute(undefined, id);
+    await audioRouteState.geraetWaehlen(id);
   }
 
   let canUseCamera = $derived.by(() => {
@@ -252,14 +245,14 @@
               {#snippet child({ props })}
                 <Button
                   {...props}
-                  variant={routeListe?.current === 'earpiece' ? 'ghost' : 'default'}
+                  variant={audioRouteState.liste?.current === 'earpiece' ? 'ghost' : 'default'}
                   size="icon-sm"
                   class={btnCls}
                   onclick={oeffneRouteMenue}
                   data-testid="voice-audio-route-toggle"
                   aria-label={m.voice_bar_route_menu()}
                 >
-                  {#if routeListe?.current === 'earpiece'}<EarIcon class={iconCls} />{:else if routeListe?.current === 'device'}<BluetoothIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
+                  {#if audioRouteState.liste?.current === 'earpiece'}<EarIcon class={iconCls} />{:else if audioRouteState.liste?.current === 'device'}<BluetoothIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
                 </Button>
               {/snippet}
             </Tooltip.Trigger>
@@ -267,29 +260,29 @@
               {m.voice_bar_route_menu()}
             </Tooltip.Content>
           </Tooltip.Root>
-          {#if routeMenuOffen && routeListe}
+          {#if routeMenuOffen && audioRouteState.liste}
             <div
               class="bg-bg-panel border-border absolute bottom-full left-1/2 z-30 mb-2 w-52 -translate-x-1/2 rounded-xl border p-1 shadow-lg"
               data-testid="voice-audio-route-menu"
             >
               <p class="text-text-muted px-2 py-1 text-xs font-semibold">{m.voice_bar_route_menu()}</p>
               <button
-                class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe.current === 'earpiece' ? 'bg-bg-hover font-semibold' : ''}"
+                class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {audioRouteState.liste.current === 'earpiece' ? 'bg-bg-hover font-semibold' : ''}"
                 onclick={() => waehleFestenWeg('earpiece')}
               >
                 <EarIcon class="size-4" />
                 {m.voice_bar_route_name_hoermuschel()}
               </button>
               <button
-                class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe.current === 'speaker' || routeListe.current === 'auto' ? 'bg-bg-hover font-semibold' : ''}"
+                class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {audioRouteState.liste.current === 'speaker' || audioRouteState.liste.current === 'auto' ? 'bg-bg-hover font-semibold' : ''}"
                 onclick={() => waehleFestenWeg('speaker')}
               >
                 <Volume2Icon class="size-4" />
                 {m.voice_bar_route_name_lautsprecher()}
               </button>
-              {#each routeListe.devices.filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET') as d (d.id)}
+              {#each audioRouteState.liste.devices.filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET') as d (d.id)}
                 <button
-                  class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe.current === 'device' && routeListe.currentDeviceId === d.id ? 'bg-bg-hover font-semibold' : ''}"
+                  class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {audioRouteState.liste.current === 'device' && audioRouteState.liste.currentDeviceId === d.id ? 'bg-bg-hover font-semibold' : ''}"
                   onclick={() => void waehleGeraet(d.id)}
                 >
                   <BluetoothIcon class="size-4" />

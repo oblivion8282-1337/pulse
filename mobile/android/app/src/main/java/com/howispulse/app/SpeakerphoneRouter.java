@@ -179,7 +179,22 @@ public class SpeakerphoneRouter {
                     }
                 }
                 @Override
-                public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) { /* no-op */ }
+                public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) {
+                    // BT weg während des Calls → NICHT auf der toten Route kleben
+                    // bleiben: apply() fällt mit ROUTE_DEVICE automatisch auf AUTO
+                    // zurück (Lautsprecher), AUTO bevorzugt ein restliches BT.
+                    // (2026-10-04: vorher no-op — die Auswahl blieb am toten Gerät.)
+                    if (!voiceActive
+                            || audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
+                    for (AudioDeviceInfo d : removedDevices) {
+                        if (d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                                || d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                                || d.getType() == AudioDeviceInfo.TYPE_BLE_HEADSET) {
+                            applyWithReassert();
+                            break;
+                        }
+                    }
+                }
             };
             try {
                 audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler);
