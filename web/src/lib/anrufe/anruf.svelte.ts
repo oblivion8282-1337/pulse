@@ -149,6 +149,11 @@ class AnrufStore {
    *  Doppel-Tipp auf Annehmen durften früher zwei Räume bauen — der erste
    *  blieb als verwaiste Verbindung mit offenem Mikro zurück (Echo). */
   #verbindenLaeuft = false;
+  /** Die Annahme, die DIESES Gerät gerade durchführt — `call_angenommen`
+   *  geht an alle Geräte des Kontos, auch an das annehmende selbst; ohne
+   *  diesen Merker riss der Zweitgeräte-Abbau dem annehmenden Gerät den
+   *  eigenen Anruf weg (Allein-Probe 05.10.). */
+  #annahmeLaeuftFuer: string | null = null;
   /** Von `track.attach()` erzeugte Audio-Elemente — beim Abbau entfernen. */
   #ferneStimmen: HTMLMediaElement[] = [];
   /** In einem WS-Handler gesetzte Endes-Info für das gerade Abgebaute. */
@@ -309,6 +314,7 @@ class AnrufStore {
     const anruf = this.aktiv;
     if (!anruf || anruf.rolle !== 'eingehend') return;
     if (this.#verbindenLaeuft) return; // Doppel-Tipp auf Annehmen
+    this.#annahmeLaeuftFuer = anruf.id;
     this.#setGegenstelle(gegenstelle);
     this.#klingelWeckerLoeschen();
     try {
@@ -426,6 +432,7 @@ class AnrufStore {
    *  abräumen (früher feuerte der 45-s-Wecker ein „ablehnen“, das den
    *  laufenden Anruf auf dem anderen Gerät totlegte, Befund 03.10.). */
   zweitgeraetAngenommen(callId: string): void {
+    if (this.#annahmeLaeuftFuer === callId) return; // dieses Gerät selbst nimmt an
     const anruf = this.aktiv;
     if (
       !anruf ||
@@ -604,6 +611,7 @@ class AnrufStore {
     // Klingel-Notification auf dem Sperrbildschirm entfernen — deckt ablehnen,
     // auflegen, call_ende, Klingel-Timeout und Annahme-Fehlschlag ab.
     void nativBeenden();
+    this.#annahmeLaeuftFuer = null;
     this.#abbauGen++;
     // Auch der Klingel-Wecker gehört zum Aufräumen — sonst feuert der Wecker
     // eines beendeten Anrufs in den NÄCHSTEN hinein und legt ihn still weg.
