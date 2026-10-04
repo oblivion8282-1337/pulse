@@ -58,6 +58,10 @@ const PURE_SOCIAL_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   // abonnieren, sonst kommt keine Benachrichtigung und keine Live-
   // Nachricht (Befund 05.10.). Hintergrund-Tab ausdrücklich eingeschlossen.
   'gruppe_neu',
+  // Lese-/Zustellungs-Rückläufe: der blaue bzw. graue Doppel-Haken muss
+  // auch dann kommen, wenn das Sender-Fenster im Hintergrund liegt.
+  'gruppe_lesestand',
+  'zustellung_bestaetigt',
 ]);
 
 /**

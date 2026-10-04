@@ -261,3 +261,30 @@ class GruppeNeuEvent(BaseModel):
 
     op: Literal["gruppe_neu"] = "gruppe_neu"
     gruppe_id: str
+
+
+class ZustellungBestaetigtEvent(BaseModel):
+    """``op="zustellung_bestaetigt"`` — an den Absender: ein Empfangskonto
+    hat die Umschläge dieses Kanals abgeholt und gesichert (Quittung,
+    ``postfach_quittung``). Zweiter grauer Haken der WhatsApp-Treppe
+    (Befund 05.10.): gesendet → angekommen → gelesen."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Literal["zustellung_bestaetigt"] = "zustellung_bestaetigt"
+    channel_id: str
+    user_id: str
+
+
+class GruppeLesestandEvent(BaseModel):
+    """``op="gruppe_lesestand"`` — an alle Mitglieder: ein Mitglied hat die
+    Gruppe bis ``last_read_message_id`` gelesen. Der Haken an der Bubble
+    wird blau, wenn ALLE anderen Mitglieder durch sind (Befund 05.10.,
+    Michaels Wahl „Haken wenn alle gelesen")."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Literal["gruppe_lesestand"] = "gruppe_lesestand"
+    gruppe_id: str
+    user_id: str
+    last_read_message_id: str

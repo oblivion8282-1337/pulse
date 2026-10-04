@@ -178,6 +178,23 @@ export type ServerEvent =
       gruppe_id: string;
     }
   | {
+      // Gruppen-Lesestand (Übergabe 05.10., „Haken wenn alle gelesen"): ein
+      // Mitglied hat die Gruppe bis zu dieser Id gelesen. Geht an alle
+      // Mitglieder — auch an den Lesenden (andere Geräte).
+      op: 'gruppe_lesestand';
+      gruppe_id: string;
+      user_id: string;
+      last_read_message_id: string;
+    }
+  | {
+      // Quittung eines Empfangsgeräts (WhatsApp „doppelter grauer Haken"):
+      // die Umschläge dieses Kanals sind dort abgeholt und gesichert. Geht
+      // an den Absender.
+      op: 'zustellung_bestaetigt';
+      channel_id: string;
+      user_id: string;
+    }
+  | {
       // Serverseitiger Lesefortschritt (P0.2) — an beide Teilnehmer: der
       // Partner baut Lese-Häkchen, die anderen Geräte des Lesenden
       // löschen ihre Ungelesen-Zähler. Numerisch-opake ID.

@@ -40,12 +40,18 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import IntegrityError
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
-from dcc_chat_gateway.models import PrivateGroupChannel, PrivateGroupMember
+from dcc_chat_gateway.models import (
+    GruppenLesestand,
+    PrivateGroupChannel,
+    PrivateGroupMember,
+)
 from dcc_chat_gateway.private_gruppen_atomar import (
     ersteller_erbe_uebertragen,
     gruppe_loeschen_wenn_leer,
@@ -374,3 +380,67 @@ async def gruppe_verlassen(
         return None
     mitglieder = await _mitglieder_laden(session, gruppe_id)
     return _wire(gruppe, mitglieder)
+
+
+class GruppenLesestandIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    last_read_message_id: int
+
+
+@router.put("/gruppen/{gruppe_id}/lesestand", status_code=status.HTTP_204_NO_CONTENT)
+async def gruppen_lesestand_setzen(
+    gruppe_id: int,
+    body: GruppenLesestandIn,
+    session: SessionDep,
+    user: CurrentUser,
+    request: Request,
+) -> None:
+    """Serverseitiger Lesefortschritt des Aufrufers in dieser Gruppe
+    (Übergabe 05.10. — Gruppen-Lesebestätigung „Haken wenn alle gelesen").
+    Monotoner Upsert wie ``dm_lesestand``: ein veralteter Stand darf nicht
+    zurückschieben. Das Ereignis geht an ALLE Mitglieder — die Absender
+    rechnen daraus den blauen Haken."""
+    from dcc_shared.events import GruppeLesestandEvent
+
+    gruppe, _ = await _gruppe_fuer_mitglied_laden(session, gruppe_id, user.id)
+    if gruppe is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="gruppe_not_found")
+
+    stmt = (
+        pg_insert(GruppenLesestand)
+        .values(
+            gruppe_id=gruppe_id,
+            user_id=user.id,
+            last_read_message_id=body.last_read_message_id,
+        )
+        .on_conflict_do_update(
+            index_elements=[GruppenLesestand.gruppe_id, GruppenLesestand.user_id],
+            set_={
+                "last_read_message_id": pg_insert(GruppenLesestand).excluded.last_read_message_id,
+                "gelesen_am": func.now(),
+            },
+            where=pg_insert(GruppenLesestand).excluded.last_read_message_id
+            > GruppenLesestand.last_read_message_id,
+        )
+        .returning(GruppenLesestand.last_read_message_id)
+    )
+    gespeichert = (await session.execute(stmt)).scalar_one_or_none()
+    await session.commit()
+
+    mitglieder = await _mitglieder_laden(session, gruppe_id)
+    manager = getattr(request.app.state, "connection_manager", None)
+    if manager is None or gespeichert is None:
+        return
+    for mitglied in mitglieder:
+        try:
+            await manager.publish_user_event(
+                mitglied.user_id,
+                GruppeLesestandEvent(
+                    gruppe_id=str(gruppe_id),
+                    user_id=str(user.id),
+                    last_read_message_id=str(gespeichert),
+                ),
+            )
+        except Exception:
+            log.exception("gruppe_lesestand publish failed for user %s", mitglied.user_id)

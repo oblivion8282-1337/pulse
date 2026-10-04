@@ -249,7 +249,16 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     // bumped in via dm_bump while we weren't subscribed (those don't land
     // in `messages.byChannel`, so `latestSeen` can lag behind).
     readState.markRead(cid);
+    // Gruppen-Lesebestätigung (Übergabe 05.10.): den eigenen Stand beim
+    // Server melden — daraus rechnen die ABSENDER den blauen Haken („alle
+    // haben gelesen"). Fire-and-forget; eine verpasste Meldung holt der
+    // nächste Öffnen-Lauf nach.
     untrack(() => (prevDM = cid));
+    if (istGruppe && latestSeen) {
+      void import('$lib/api/gruppen')
+        .then((m) => m.gruppenLesestandSetzen(cid, latestSeen))
+        .catch(() => undefined);
+    }
     loadError = null;
     resolving = false;
   }

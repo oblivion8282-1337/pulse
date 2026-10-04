@@ -35,7 +35,9 @@
     message,
     time,
     eigen,
+    pending = false,
     leseBestaetigt = undefined,
+    zugestellt = undefined,
     isContinuation = false,
     isGroupEnd = true,
     highlight = false,
@@ -53,6 +55,12 @@
      *  (doppeltes), `undefined` = keine Auskunft (Fremdnachricht, ältere
      *  Gegenstelle) → gar kein Häkchen. */
     leseBestaetigt?: boolean;
+    /** Noch nicht zugestellt (optimistische Kopie): Uhr statt Häkchen
+     *  (WhatsApp-„Treppe", Befund 05.10.). */
+    pending?: boolean;
+    /** Angekommen bei allen Empfängern (doppelter GRAUER Haken) — Gruppen
+     *  und DMs; solange der blaue (gelesen) noch nicht z greift. */
+    zugestellt?: boolean;
     isContinuation?: boolean;
     isGroupEnd?: boolean;
     highlight?: boolean;
@@ -133,31 +141,46 @@
               data-testid="message-pinned-badge"
             />
           {/if}
-          {#if eigen && leseBestaetigt !== undefined}
-            <!-- Häkchen-Wege: einfach = zugestellt an den Server, doppelt =
-                 von der Gegenstelle gelesen (WhatsApp-Semantik, P0.2). -->
+          {#if eigen && pending}
+            <!-- Noch nicht zugestellt (optimistisch gesendet): Uhr, grau. -->
             <svg
-              viewBox="0 0 16 12"
+              viewBox="0 0 12 12"
               class="mr-1 inline size-3 align-baseline opacity-70"
+              aria-label={m.message_lesebestaetigung_gesendet()}
+              role="img"
+            >
+              <circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4" />
+              <path d="M6 3.4v2.8l1.9 1.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </svg>
+          {:else if eigen && (leseBestaetigt !== undefined || zugestellt !== undefined)}
+            <!-- Häkchen-Treppe (WhatsApp-Semantik): einfach grau = gesendet,
+                 doppelt grau = bei allen angekommen, doppelt BLAU = gelesen.
+                 Die blaue Fassung darf die Zeilenfarbe brechen — das Blau
+                 ist genau das Signal (Befund 05.10.). -->
+            <svg
+              viewBox="0 0 18 12"
+              class="mr-1 inline size-3.5 align-baseline {leseBestaetigt
+                ? 'text-[#53bdeb] opacity-100'
+                : 'opacity-70'}"
               aria-label={leseBestaetigt
                 ? m.message_lesebestaetigung_gelesen()
                 : m.message_lesebestaetigung_gesendet()}
               role="img"
             >
               <path
-                d="M1 6.5 4.5 10 11 2.5"
+                d="M1 6.5 4.5 10 10.5 3"
                 fill="none"
                 stroke="currentColor"
-                stroke-width="1.8"
+                stroke-width="1.7"
                 stroke-linecap="round"
                 stroke-linejoin="round"
               />
-              {#if leseBestaetigt}
+              {#if leseBestaetigt || zugestellt}
                 <path
-                  d="M6.5 8 7.5 9.5 14 2"
+                  d="M6.9 9 8 10.3 15.4 2.8"
                   fill="none"
                   stroke="currentColor"
-                  stroke-width="1.8"
+                  stroke-width="1.7"
                   stroke-linecap="round"
                   stroke-linejoin="round"
                 />

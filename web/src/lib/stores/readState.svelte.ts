@@ -33,6 +33,16 @@ class ReadState {
    *  Lese-Häkchen an der Bubble. Nur in-memory: die Wahrheit liegt auf dem
    *  Server, der ready-Rahmen und `dm_lesestand`-Events liefern sie nach. */
   partnerLastReadByChannel = $state<Record<string, string>>({});
+  /** Gruppen-Lesestand je Mitglied (Befund 05.10., „Haken wenn alle
+   *  gelesen"): gruppe → user → Wasserzeichen. Nur in-memory — die Quelle
+   *  ist das `gruppe_lesestand`-Ereignis; nach einem Reload füllen die
+   *  Ereignisse des nächsten Nachrichtenverkehrs das Feld wieder. */
+  gruppenLesestand = $state<Record<string, Record<string, string>>>({});
+  /** Zustellungs-Quittungen (WhatsApp „doppelter grauer Haken"): kanal →
+   *  empfangendes Konto → lokale Empfangszeit des Ereignisses (ms). Die
+   *  ECHTE Uhr des Empfangsgeräts ist irrelevant — gemessen wird, wann
+   *  DIESEM Klienten die Quittung zuflog. In-memory, wie oben. */
+  zustellungAngekommen = $state<Record<string, Record<string, number>>>({});
   /** Per-channel unread @-mention counter — bumped by the WS handler
    *  when a `mention_added` event (or an inline `message` whose mentions
    *  include the current user) lands for a channel the user isn't
@@ -337,6 +347,48 @@ class ReadState {
       this.write(this.unreadKey, this.unreadCountByChannel);
     }, 200);
   }
+  /** Quittung eines Empfangskontos verbuchen (aus `zustellung_bestaetigt`). */
+  angekommenMelden(channelId: string, userId: string, ms: number): void {
+    const jeKanal = this.zustellungAngekommen[channelId] ?? {};
+    const bisher = jeKanal[userId] ?? 0;
+    if (ms <= bisher) return;
+    this.zustellungAngekommen = {
+      ...this.zustellungAngekommen,
+      [channelId]: { ...jeKanal, [userId]: ms }
+    };
+  }
+
+  /** Ist meine Nachricht in diesem Kanal bei ALLEN genannten Konten
+   *  angekommen (doppelter grauer Haken)? DMs nennen nur die Gegenseite,
+   *  Gruppen alle anderen Mitglieder. `false`, wenn eine Ankunft fehlt. */
+  angekommenAlle(channelId: string, konten: string[], seitMs: number): boolean {
+    if (konten.length === 0) return false;
+    const jeKanal = this.zustellungAngekommen[channelId] ?? {};
+    return konten.every((u) => (jeKanal[u] ?? 0) > seitMs);
+  }
+
+  /** Gruppen-Lesestand eines Mitglieds verbuchen (aus `gruppe_lesestand`). */
+  gruppenLesestandMelden(gruppeId: string, userId: string, wasserzeichen: string): void {
+    const jeGruppe = this.gruppenLesestand[gruppeId] ?? {};
+    this.gruppenLesestand = {
+      ...this.gruppenLesestand,
+      [gruppeId]: { ...jeGruppe, [userId]: vorwaertsMerge(jeGruppe[userId], wasserzeichen) }
+    };
+  }
+
+  /** Haben ALLE genannten Mitglieder (ohne mich) bis zum Anker gelesen?
+   *  `null`, wenn noch kein Stand vorliegt — die Anzeige bleibt dann beim
+   *  einfachen Haken, statt voreilig blau zu werden. */
+  gruppeAlleGelesen(gruppeId: string, mitgliederOhneIch: string[], anker: string): boolean | null {
+    const jeGruppe = this.gruppenLesestand[gruppeId];
+    if (!jeGruppe || mitgliederOhneIch.length === 0) return null;
+    for (const u of mitgliederOhneIch) {
+      const stand = jeGruppe[u];
+      if (!stand || compareSnowflakeId(stand, anker) < 0) return false;
+    }
+    return true;
+  }
+
 }
 
 export const readState = new ReadState();

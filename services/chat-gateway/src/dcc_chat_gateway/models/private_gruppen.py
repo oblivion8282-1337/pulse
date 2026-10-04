@@ -83,3 +83,14 @@ class PrivateGroupMember(Base):
         Index("ix_private_group_members_gruppe", "gruppe_id"),
         Index("ix_private_group_members_user", "user_id"),
     )
+
+
+class GruppenLesestand(Base):
+    __tablename__ = "gruppen_lesestand"
+
+    gruppe_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    last_read_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    gelesen_am: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

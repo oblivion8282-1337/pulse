@@ -20,6 +20,7 @@
   import type { Message } from '$lib/api/types';
   import PinIcon from '@lucide/svelte/icons/pin';
   import { m } from '$lib/paraglide/messages.js';
+	import { auth } from '$lib/stores/auth.svelte';
 
   let {
     message,
@@ -27,6 +28,9 @@
     authorStyle = '',
     url,
     time,
+    pending = false,
+    leseBestaetigt = undefined,
+    zugestellt = undefined,
     isContinuation = false,
     highlight = false,
     onLongPress,
@@ -39,6 +43,13 @@
     authorStyle?: string;
     url: string | null;
     time: string;
+    /** WhatsApp-Treppe (Befund 05.10.): Uhr = nicht zugestellt, einfach
+     *  grau = gesendet, doppelt grau = angekommen, doppelt blau = alle
+     *  haben gelesen. Nur für eigene Nachrichten in DMs/privaten Gruppen
+     *  gesetzt; Community-Kanäle tragen keine Haken. */
+    pending?: boolean;
+    leseBestaetigt?: boolean;
+    zugestellt?: boolean;
     isContinuation?: boolean;
     highlight?: boolean;
     onLongPress: () => void;
@@ -50,6 +61,9 @@
 
   /** Angepinnt → dezente Tönung + Nadel neben der Uhrzeit. */
   const pinned = $derived(!!message.pinned_at);
+  /** Eigene Nachricht? Bestimmt, ob die Haken-Treppe überhaupt erscheint
+   *  (nur der Absender sieht Zustände — WhatsApp-Semantik). */
+  const eigen = $derived(message.author_id === auth.user?.id);
 </script>
 
 <!--
@@ -72,7 +86,27 @@
   data-message-id={message.id}
   use:longpress={{ onLongPress }}
 >
-  {#if isContinuation}
+  {#snippet haeckel()}
+  {#if eigen && pending}
+    <svg viewBox="0 0 12 12" class="text-text-muted inline size-3 align-baseline opacity-70" aria-label={m.message_lesebestaetigung_gesendet()} role="img">
+      <circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4" />
+      <path d="M6 3.4v2.8l1.9 1.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+    </svg>
+  {:else if eigen && (leseBestaetigt !== undefined || zugestellt !== undefined)}
+    <svg
+      viewBox="0 0 18 12"
+      class="mr-1 inline size-3.5 align-baseline {leseBestaetigt ? 'text-[#53bdeb] opacity-100' : 'text-text-muted opacity-70'}"
+      aria-label={leseBestaetigt ? m.message_lesebestaetigung_gelesen() : m.message_lesebestaetigung_gesendet()}
+      role="img"
+    >
+      <path d="M1 6.5 4.5 10 10.5 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+      {#if leseBestaetigt || zugestellt}
+        <path d="M6.9 9 8 10.3 15.4 2.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+      {/if}
+    </svg>
+  {/if}
+{/snippet}
+{#if isContinuation}
     <div class="flex w-10 shrink-0 items-center justify-end gap-1">
       {#if pinned}
         <!-- Auch Fortsetzungen ohne Namenszeile müssen den Pin zeigen. -->
@@ -83,6 +117,7 @@
         />
       {/if}
       <span class="text-text-muted hidden text-2xs group-hover:block pointer-coarse:block">{time}</span>
+      {@render haeckel()}
     </div>
     <div class="min-w-0 flex-1">
       {@render body()}
@@ -132,6 +167,7 @@
           {/snippet}
         </UserProfilePopover>
         <span class="text-text-muted text-xs">{time}</span>
+        {@render haeckel()}
         {#if pinned}
           <PinIcon
             class="text-primary size-3 shrink-0"

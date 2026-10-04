@@ -16,6 +16,9 @@
   import { m } from '$lib/paraglide/messages.js';
   import { blocks } from '$lib/stores/blocks.svelte';
   import { readState } from '$lib/stores/readState.svelte';
+import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
+import { directMessages } from '$lib/stores/directMessages.svelte';
+import { auth } from '$lib/stores/auth.svelte';
   import { lesestandAnker } from '$lib/stores/lesestandKern';
   import { nachrichtVonBlockiertem } from '$lib/nachrichten/blockierteAnzeige';
 
@@ -139,6 +142,43 @@
     // eigenen Zweitgerät (Nachricht unter der Zustellungs-ID abgelegt)
     // springt `krypto_id` ein.
     return readState.istGelesen(nachricht.channel_id, lesestandAnker(nachricht)) ?? undefined;
+  }
+
+  /** Gruppen-Lesebestätigung (Befund 05.10., Michaels Wahl „Haken wenn
+   *  alle gelesen"): blau erst, wenn ALLE anderen Mitglieder bis zu dieser
+   *  Nachricht durch sind — sonst verbleibt der einfache Haken. */
+  const gruppenLesestand = $derived(privateGruppen.byId[message.channel_id]);
+  /** Diese Nachricht liegt in einer privaten Gruppe (statt einer DM)? */
+  const gruppe = $derived(privateGruppen.byId[message.channel_id] ?? undefined);
+
+  function gruppeAlleGelesenFuer(nachricht: Message): boolean | undefined {
+    if (layout !== 'bubble' && layout !== 'row') return undefined;
+    if (!istEigene || nachricht.id.startsWith('tmp-')) return undefined;
+    const gruppe = gruppenLesestand;
+    if (!gruppe) return undefined;
+    const ich = auth.user?.id;
+    if (!ich) return undefined;
+    const andere = gruppe.members.map((m) => m.user_id).filter((u) => u !== ich);
+    return readState.gruppeAlleGelesen(nachricht.channel_id, andere, lesestandAnker(nachricht)) ?? undefined;
+  }
+
+  /** Angekommen bei allen Mitgliedern (doppelter GRAUER Haken)? Holt die
+   *  Quittungs-Zeitpunkte aus dem Store; solange eine fehlt, bleibt der
+   *  einfache Haken. */
+  function angekommenFuer(nachricht: Message): boolean | undefined {
+    if (layout !== 'bubble' && layout !== 'row') return undefined;
+    if (!istEigene || nachricht.id.startsWith('tmp-')) return undefined;
+    const ich = auth.user?.id;
+    if (!ich) return undefined;
+    // Nur DMs und private Gruppen haben Quittungen — Community-Kanäle
+    // kennen das Konzept nicht (undefined = gar kein Haken, wie bisher).
+    const gruppe = privateGruppen.byId[nachricht.channel_id];
+    const dm = directMessages.byId[nachricht.channel_id];
+    if (!gruppe && !dm) return undefined;
+    const konten = gruppe
+      ? gruppe.members.map((m) => m.user_id).filter((u) => u !== ich)
+      : [dm.other_user_id];
+    return readState.angekommenAlle(nachricht.channel_id, konten, Date.parse(nachricht.created_at));
   }
 
   // Eine verschluesselte DM hat keine `messages`-Zeile — `createOperatorReport`
@@ -324,7 +364,9 @@
     {message}
     {time}
     eigen={istEigene}
-    leseBestaetigt={leseBestaetigtFuer(message)}
+    pending={isPending}
+    leseBestaetigt={gruppe ? gruppeAlleGelesenFuer(message) : leseBestaetigtFuer(message)}
+    zugestellt={gruppe && gruppeAlleGelesenFuer(message) !== true ? angekommenFuer(message) : undefined}
     onSwipeReply={() => onReply(message)}
     {isContinuation}
     {isGroupEnd}
@@ -342,6 +384,9 @@
     {time}
     {isContinuation}
     {highlight}
+    pending={isPending}
+    leseBestaetigt={gruppe ? gruppeAlleGelesenFuer(message) : leseBestaetigtFuer(message)}
+    zugestellt={gruppe && gruppeAlleGelesenFuer(message) !== true ? angekommenFuer(message) : undefined}
     onLongPress={openSheet}
     {guildId}
     {body}

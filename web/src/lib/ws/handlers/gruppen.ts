@@ -17,6 +17,7 @@ import { registerWsHandler } from '../handler-registry';
 import { gruppenApi } from '$lib/api/gruppen';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 import { cloudGateway } from '$lib/ws/connection';
+import { readState } from '$lib/stores/readState.svelte';
 
 export function register(_ctx: HandlerContext): void {
   registerWsHandler('gruppe_neu', () => {
@@ -32,5 +33,13 @@ export function register(_ctx: HandlerContext): void {
       .catch(() => {
         // Der ready-Lauf holt denselben Stand ohnehin — still.
       });
+  });
+
+  registerWsHandler('gruppe_lesestand', (evt) => {
+    readState.gruppenLesestandMelden(evt.gruppe_id, evt.user_id, evt.last_read_message_id);
+  });
+
+  registerWsHandler('zustellung_bestaetigt', (evt) => {
+    readState.angekommenMelden(evt.channel_id, evt.user_id, Date.now());
   });
 }
