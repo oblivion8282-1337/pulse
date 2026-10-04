@@ -13,9 +13,6 @@
   import { onDestroy, onMount, untrack } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
-  import VolumeIcon from '@lucide/svelte/icons/volume-2';
-  import EarIcon from '@lucide/svelte/icons/ear';
-  import BluetoothIcon from '@lucide/svelte/icons/bluetooth';
 
   // Android: die WebView kann Audioausgänge weder auflisten noch umschalten
   // (setSinkId/`audiooutput`-Enumeration fehlen). Die Ausgabe läuft daher über
@@ -28,6 +25,38 @@
     if (!istAndroid) return;
     void listAudioRoutes().then((r) => (routeListe = r));
   });
+  /** Optionen: Hörmuschel/Lautsprecher fix + jedes verbundene BT-Gerät. */
+  let routeOptionen = $derived(
+    routeListe
+      ? [
+          { value: 'earpiece', label: m.voice_bar_route_name_hoermuschel() },
+          { value: 'speaker', label: m.voice_bar_route_name_lautsprecher() },
+          ...routeListe.devices
+            .filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET')
+            .map((d) => ({
+              value: 'device:' + d.id,
+              label: d.name && d.name.trim() ? d.name : m.voice_bar_route_name_bt()
+            }))
+        ]
+      : []
+  );
+  /** Der geschlossene Select zeigt das AKTUELLE Ausgabegerät. */
+  let routeWert = $derived(
+    !routeListe
+      ? ''
+      : routeListe.current === 'device'
+        ? 'device:' + routeListe.currentDeviceId
+        : routeListe.current === 'earpiece'
+          ? 'earpiece'
+          : 'speaker'
+  );
+  function onRouteChange(v: string): void {
+    if (v.startsWith('device:')) {
+      void waehleRouteGeraet(Number(v.slice('device:'.length)));
+      return;
+    }
+    void waehleRouteAuswahl(v as 'speaker' | 'earpiece');
+  }
   async function waehleRouteAuswahl(route: 'speaker' | 'earpiece'): Promise<void> {
     await setAudioRoute(route);
     routeListe = await listAudioRoutes();
@@ -275,33 +304,17 @@
     <div class="flex flex-col gap-2">
       <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_output_device_label()}</span>
       {#if istAndroid}
-        <!-- Native Routen (siehe Kommentar oben): Lautsprecher, Hörmuschel
-             und jedes verbundene Bluetooth-Gerät — mit BT-Icon. -->
-        <div class="flex flex-col gap-1" data-testid="settings-output-routes">
-          <button
-            class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe?.current === 'earpiece' ? 'bg-bg-hover font-semibold' : ''}"
-            onclick={() => void waehleRouteAuswahl('earpiece')}
-          >
-            <EarIcon class="size-4" />
-            {m.voice_bar_route_name_hoermuschel()}
-          </button>
-          <button
-            class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe?.current === 'speaker' || routeListe?.current === 'auto' ? 'bg-bg-hover font-semibold' : ''}"
-            onclick={() => void waehleRouteAuswahl('speaker')}
-          >
-            <VolumeIcon class="size-4" />
-            {m.voice_bar_route_name_lautsprecher()}
-          </button>
-          {#each routeListe?.devices.filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET') ?? [] as d (d.id)}
-            <button
-              class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {routeListe?.current === 'device' && routeListe.currentDeviceId === d.id ? 'bg-bg-hover font-semibold' : ''}"
-              onclick={() => void waehleRouteGeraet(d.id)}
-            >
-              <BluetoothIcon class="size-4" />
-              <span class="truncate">{d.name && d.name.trim() ? d.name : m.voice_bar_route_name_bt()}</span>
-            </button>
-          {/each}
-        </div>
+        <!-- Native Routen (siehe Kommentar oben): ein Select zeigt das AKTUELLE
+             Gerät geschlossen an und öffnet bei Tipp die Liste nach unten —
+             Lautsprecher, Hörmuschel und jedes verbundene Bluetooth-Gerät. -->
+        <Select
+          class="h-11 md:h-9"
+          value={routeWert}
+          options={routeOptionen}
+          placeholder={m.settings_audio_video_join_voice_to_see_devices()}
+          onchange={(v) => onRouteChange(v)}
+          data-testid="settings-output-routes"
+        />
       {:else}
         <Select
           class="h-11 md:h-9"

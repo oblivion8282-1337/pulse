@@ -375,7 +375,21 @@ public class SpeakerphoneRouter {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 // setCommunicationDevice wirkt NUR in MODE_IN_COMMUNICATION.
-                if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
+                // Chromium zieht den Modus zwischendurch auf NORMAL (z. B. bei
+                // Mic-Mute) — dann verpassen wir KEIN Change-Event mehr und eine
+                // frische Routen-Wahl verpuffte lautlos (Befund „switcht nicht
+                // immer", 2026-10-04). Solange ein Call aktiv ist, stellen wir
+                // den Modus deshalb HIER selbst wieder her; ausserhalb eines
+                // Calls gibt es nichts zu routen → return.
+                if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) {
+                    if (!voiceActive) return;
+                    try {
+                        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                    } catch (Exception e) {
+                        Log.w(TAG, "re-assert MODE_IN_COMMUNICATION (apply) failed", e);
+                    }
+                    if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
+                }
                 AudioDeviceInfo target = pickTargetDevice();
                 if (target == null && route == ROUTE_DEVICE) {
                     // Gewähltes BT-Gerät ist verschwunden (ausgeschaltet/ausser
@@ -464,10 +478,37 @@ public class SpeakerphoneRouter {
         return null;
     }
 
-    /** Das verbundene BT-SCO-Gerät unter den verfügbaren Communication-Devices.
+    /** Das verbundene BT-Gerät unter den verfügbaren Communication-Devices —
+     *  klassisches SCO-Headset ODER modernes BLE-Headset (API 33+, meldet sich
+     *  nie als SCO; ohne BLE-Check „switcht" es nicht, Befund 2026-10-04).
      *  {@code null}, wenn BT (noch) nicht als comm-Gerät gemeldet ist. */
     private AudioDeviceInfo findBluetoothCommDevice() {
-        return findDeviceByType(AudioDeviceInfo.TYPE_BLUETOOTH_SCO);
+        AudioDeviceInfo sco = findDeviceByType(AudioDeviceInfo.TYPE_BLUETOOTH_SCO);
+        if (sco != null) return sco;
+        return findDeviceByType(AudioDeviceInfo.TYPE_BLE_HEADSET);
+    }
+
+    /** True, wenn ein Bluetooth-Ausgang existiert — in den Outputs (SCO/A2DP)
+     *  ODER als comm-fähiges Gerät (SCO/BLE). Der comm-Geräte-Scan ist nötig,
+     *  weil BLE-Headsets in getDevices(OUTPUTS) fehlen können. */
+    private boolean hasBluetoothAudioRoute() {
+        if (audioManager == null) return false;
+        for (AudioDeviceInfo d : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+            if (d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                    || d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                    || d.getType() == AudioDeviceInfo.TYPE_BLE_HEADSET) {
+                return true;
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            for (AudioDeviceInfo d : audioManager.getAvailableCommunicationDevices()) {
+                if (d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                        || d.getType() == AudioDeviceInfo.TYPE_BLE_HEADSET) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** True, wenn ein kabelgebundenes/USB-Headset angeschlossen ist (in AUTO
@@ -488,18 +529,6 @@ public class SpeakerphoneRouter {
         return false;
     }
 
-    /** True, wenn ein Bluetooth-Audio-Ausgabegerät (A2DP Media oder SCO Telefonie)
-     *  verbunden ist. */
-    private boolean hasBluetoothAudioRoute() {
-        if (audioManager == null) return false;
-        for (AudioDeviceInfo d : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
-            if (d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-                    || d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     /** Hardware-Lautstärketasten auf den Voice-Call-Stream lenken (statt MEDIA).
      *  Das ist der Hebel gegen „volles Aufdrehen, kaum Ton" — der User regelt

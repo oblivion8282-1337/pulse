@@ -259,7 +259,7 @@
                   data-testid="voice-audio-route-toggle"
                   aria-label={m.voice_bar_route_menu()}
                 >
-                  {#if routeListe?.current === 'earpiece'}<EarIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
+                  {#if routeListe?.current === 'earpiece'}<EarIcon class={iconCls} />{:else if routeListe?.current === 'device'}<BluetoothIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
                 </Button>
               {/snippet}
             </Tooltip.Trigger>
