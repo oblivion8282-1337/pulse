@@ -156,12 +156,21 @@ public class SpeakerphoneRouter {
                                 || d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
                                 || d.getType() == AudioDeviceInfo.TYPE_BLE_HEADSET)) {
                             // BT verbindet sich während des Calls → es übernimmt
-                            // SOFORT die Wiedergabe (Nutzerwunsch 2026-10-04):
-                            // zurück auf AUTO — das bevorzugt BT-SCO/BLE vor
-                            // Lautsprecher und Hörmuschel — statt an einer alten
-                            // Lautsprecher-/Hörmuschel-Wahl festzuhalten.
-                            route = ROUTE_AUTO;
-                            routeDeviceId = 0;
+                            // SOFORT die Wiedergabe (Nutzerwunsch 2026-10-04) —
+                            // und zwar als Geräte-Pin (ROUTE_DEVICE), nicht nur
+                            // AUTO: nur so sieht die UI (Route-Icon, Popup,
+                            // Einstellungen) BT als aktive Wahl, statt weiter
+                            // „Lautsprecher" zu behaupten. Gerät verschwindet →
+                            // der ROUTE_DEVICE-Fallback in apply() kehrt zu AUTO
+                            // zurück (Lautsprecher).
+                            AudioDeviceInfo neu = findBluetoothCommDevice();
+                            if (neu != null) {
+                                route = ROUTE_DEVICE;
+                                routeDeviceId = neu.getId();
+                            } else {
+                                route = ROUTE_AUTO;
+                                routeDeviceId = 0;
+                            }
                             // API<31: apply() hat keinen SCO-Hebel — startBluetoothSco
                             // nachholen, falls BT erst nach dem Join verbindet (sonst
                             // bleibt es trotz Recovery auf dem leisen A2DP).
