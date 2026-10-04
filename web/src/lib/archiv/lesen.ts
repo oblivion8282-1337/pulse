@@ -90,9 +90,10 @@ export async function archivNachziehen(kanalId: string, maxSeiten = 4): Promise<
 						await entschluesseleZeile(kanalSchluessel, vonB64(zeile.nutzlast_b64))
 					);
 					nachrichten.push(zuNachricht(zeile, JSON.parse(klarText) as ArchivKlar));
-				} catch {
+				} catch (e) {
 					// Eine unlesbare Zeile (kaputter Wrap, fremde Fassung) blockiert
 					// nicht die übrigen — der Rest des Archivs bleibt verwertbar.
+					console.info('[archiv] lesen: Zeile unlesbar', (e as Error).message);
 				}
 			}
 			if (nachrichten.length > 0) {

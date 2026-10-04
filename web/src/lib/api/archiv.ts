@@ -26,9 +26,12 @@ export async function archivEinliefern(zeilen: Array<{ id: string; channel_id: s
 		{
 			method: 'POST',
 			endpoint: 'chat',
+			// Ids als STRINGS in JSON — Number() verliert bei Snowflake-Ids
+			// (17 Stellen > 2^53) Präzision, der Server sah dann falsche Kanäle.
+			// Pydantic wandelt Ziffern-Strings beim Server sauber nach int.
 			body: {
-				zeilen: zeilen.map((z) => ({ ...z, id: Number(z.id), channel_id: Number(z.channel_id) })),
-				wraps: wraps.map((w) => ({ ...w, channel_id: Number(w.channel_id), user_id: Number(w.user_id) }))
+				zeilen: zeilen.map((z) => ({ id: String(z.id), channel_id: String(z.channel_id), nutzlast_b64: z.nutzlast_b64 })),
+				wraps: wraps.map((w) => ({ channel_id: String(w.channel_id), user_id: String(w.user_id), wrap_b64: w.wrap_b64 }))
 			}
 		}
 	);

@@ -349,6 +349,11 @@ export default async function globalSetup() {
     DATABASE_URL: `postgresql+asyncpg://${pgUser}:${pgPassword}@localhost:${pgPort}/${testDb}`,
     REDIS_URL: `redis://localhost:6380/${redisDb}`,
     AUTH_JWKS_URL: `http://127.0.0.1:${E2E_AUTH_PORT}/.well-known/jwks.json`,
+    // Der chat-gateway fragt Archiv-Public-Keys beim AUTH-Dienst — ohne
+    // diese Zeile landete die Anfrage beim DEV-auth (8001), der die
+    // Test-Konten nicht kennt, und jede Seite erzeugte einen eigenen
+    // Archiv-Kanal-Schlüssel (Zeilen des Partners unlesbar).
+    AUTH_SVC_URL: `http://127.0.0.1:${E2E_AUTH_PORT}`,
     JWT_PRIVATE_KEY_FILE: resolve(ROOT, 'secrets/jwt_private.pem'),
     JWT_PUBLIC_KEY_FILE: resolve(ROOT, 'secrets/jwt_public.pem'),
     CORS_ALLOW_ORIGINS: `${E2E_BASE_URL},http://localhost:${E2E_WEB_PORT}`,

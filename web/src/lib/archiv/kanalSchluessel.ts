@@ -66,7 +66,14 @@ export async function kanalSchluesselHolen(
 		return schluessel;
 	}
 
-	// Erstanlage: Schlüssel erzeugen, für beide wickeln, hochladen.
+	// Erstanlage NUR mit Partner-Public-Key (fail-closed): ohne ihn könnte
+	// nur der Absender je öffnen — und ein zweiter Schlüssel des Partners
+	// würde das Kanal-Universum SPLITTEN (dessen Zeilen wären für die
+	// Gegenseite für immer unlesbar). Der nächste Sendeweg versucht es
+	// erneut, wenn der Partner seinen Schlüssel eingerichtet hat.
+	if (!fremdPubkey) {
+		throw new Error('archiv: kein Archiv-Public-Key des Partners — Erstanlage vertagt');
+	}
 	const schluessel = new Uint8Array(SCHLUESSEL_LAENGE);
 	globalThis.crypto.getRandomValues(schluessel);
 	const kontoId = auth.user?.id;

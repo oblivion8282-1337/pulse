@@ -106,7 +106,8 @@ export async function archivBeimLogin(
 		};
 		await cacheSetzen(kontoId, paar);
 		return true;
-	} catch {
+	} catch (e) {
+		console.warn('[archiv] Entsperrung beim Login fehlgeschlagen', e);
 		return false;
 	}
 }

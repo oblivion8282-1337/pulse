@@ -48,7 +48,9 @@ async function einliefern(
 	const paar = await archivPaar(kontoId);
 	if (!paar) return; // Archiv auf diesem Gerät nicht entsperrt — kein Zwang
 
-	const pubkeys = await archivPubkeys([kontoId, empfaengerId]);
+	// NUR den Partner fragen — die Route erlaubt nur echte DM-Partner, und
+	// die eigene Id wäre ihr eigener Partner nie (404, sonst stiller Abbruch).
+	const pubkeys = await archivPubkeys([empfaengerId]);
 	const fremd = pubkeys[empfaengerId] ?? null;
 
 	// Kanal-Schlüssel zuerst (Erstanlage wickelt hier für beide Seiten).
