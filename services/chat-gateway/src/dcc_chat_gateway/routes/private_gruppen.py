@@ -35,7 +35,9 @@ Hinzufuegen NICHT gegen eine Blockierung geprueft werden kann.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -49,6 +51,8 @@ from dcc_chat_gateway.private_gruppen_atomar import (
     gruppe_loeschen_wenn_leer,
 )
 from dcc_chat_gateway.routes._deps import CloudOnly
+
+log = logging.getLogger(__name__)
 from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.schemas import (
     PrivateGroupCreateIn,
@@ -178,9 +182,26 @@ async def _entferne_mitglied(session, gruppe: PrivateGroupChannel, user_id: int)
 # ─── Routen ─────────────────────────────────────────────────────────────────
 
 
+async def _gruppe_neu_publizieren(request: Request, konten: list[int], gruppe_id: int) -> None:
+    """`gruppe_neu` an die Mitglieder — der Weckruf, damit ihre Klienten
+    GET /gruppen nachziehen und abonnieren (Befund 05.10.: ohne Ereignis
+    erfuhren andere Mitglieder von einer neuen Gruppe erst beim nächsten
+    ready — keine Benachrichtigung, keine Live-Nachricht). Best-effort."""
+    manager = getattr(request.app.state, "connection_manager", None)
+    if manager is None:
+        return
+    from dcc_shared.events import GruppeNeuEvent
+
+    for konto in set(konten):
+        try:
+            await manager.publish_user_event(konto, GruppeNeuEvent(gruppe_id=str(gruppe_id)))
+        except Exception:
+            log.exception("gruppe_neu publish failed for user %s", konto)
+
+
 @router.post("/gruppen", status_code=status.HTTP_201_CREATED)
 async def gruppe_erstellen(
-    body: PrivateGroupCreateIn, session: SessionDep, user: CurrentUser
+    body: PrivateGroupCreateIn, session: SessionDep, user: CurrentUser, request: Request
 ) -> PrivateGroupOut:
     # Der Schalter selbst sitzt seit ``require_private_groups_enabled`` als
     # Router-Dependency (oben) — sie deckt jetzt alle sechs Routen ab, nicht
@@ -218,6 +239,7 @@ async def gruppe_erstellen(
     session.add(gruppe)
     session.add(PrivateGroupMember(id=next_id(), gruppe_id=gruppe.id, user_id=user.id))
     await session.commit()
+    await _gruppe_neu_publizieren(request, [user.id], gruppe.id)
     mitglieder = await _mitglieder_laden(session, gruppe.id)
     return _wire(gruppe, mitglieder)
 
@@ -253,7 +275,11 @@ async def gruppe_lesen(
 
 @router.post("/gruppen/{gruppe_id}/mitglieder", status_code=status.HTTP_201_CREATED)
 async def mitglied_hinzufuegen(
-    gruppe_id: int, body: PrivateGroupMemberAddIn, session: SessionDep, user: CurrentUser
+    gruppe_id: int,
+    body: PrivateGroupMemberAddIn,
+    session: SessionDep,
+    user: CurrentUser,
+    request: Request,
 ) -> PrivateGroupOut:
     gruppe, _ = await _gruppe_fuer_mitglied_laden(session, gruppe_id, user.id)
     if gruppe.ersteller_id != user.id:
@@ -309,6 +335,7 @@ async def mitglied_hinzufuegen(
         await session.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, detail="already_a_member") from None
     mitglieder = await _mitglieder_laden(session, gruppe_id)
+    await _gruppe_neu_publizieren(request, [m.user_id for m in mitglieder], gruppe_id)
     return _wire(gruppe, mitglieder)
 
 

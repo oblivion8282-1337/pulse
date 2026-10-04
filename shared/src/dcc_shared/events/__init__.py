@@ -71,6 +71,7 @@ from __future__ import annotations
 from dcc_shared.events._base import _EventBase
 from dcc_shared.events.applications import ApplicationDecidedEvent
 from dcc_shared.events.chat import (
+    GruppeNeuEvent,
     ChannelBumpEvent,
     DmBumpEvent,
     DmLesestandEvent,
@@ -177,6 +178,7 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "dm_lesestand": DmLesestandEvent,
     # ---- Anruf-Signalisierung (Anrufe-Epic B) — ephemeral
     "call_klingelt": CallKlingeltEvent,
+    "gruppe_neu": GruppeNeuEvent,
     "call_angenommen": CallAngenommenEvent,
     "call_abgelehnt": CallAbgelehntEvent,
     "call_ende": CallEndeEvent,
@@ -248,6 +250,7 @@ __all__ = [
     "DmBumpEvent",
     "DmLesestandEvent",
     "CallKlingeltEvent",
+    "GruppeNeuEvent",
     "CallAngenommenEvent",
     "CallAbgelehntEvent",
     "CallEndeEvent",

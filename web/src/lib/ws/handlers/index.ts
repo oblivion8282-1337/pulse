@@ -19,6 +19,7 @@ import * as watch from './watch';
 import * as remote from './remote';
 import * as devices from './devices';
 import * as friends from './friends';
+import * as gruppen from './gruppen';
 import * as profile from './profile';
 import * as anrufe from './anrufe';
 import * as ready from './ready';
@@ -44,6 +45,7 @@ export function registerAllHandlers(
   remote.register();
   devices.register();
   friends.register();
+  gruppen.register(ctx);
   profile.register();
   anrufe.register(ctx);
   error.register();

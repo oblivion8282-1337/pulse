@@ -54,6 +54,10 @@ const PURE_SOCIAL_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   // Stack: Empfänger mit aktivem Self-Host sah die Nachricht nicht,
   // Absender schon.
   'postfach_neu',
+  // Neue private Gruppe / neues Mitglied: der Empfänger muss den Kanal
+  // abonnieren, sonst kommt keine Benachrichtigung und keine Live-
+  // Nachricht (Befund 05.10.). Hintergrund-Tab ausdrücklich eingeschlossen.
+  'gruppe_neu',
 ]);
 
 /**

@@ -171,6 +171,13 @@ export type ServerEvent =
       anzahl: number;
     }
   | {
+      // Private Gruppe neu / Mitglieder gewonnen — der Klient zieht
+      // GET /gruppen nach und abonniert die Kanäle (sonst keine
+      // Benachrichtigung, keine Live-Nachricht, Befund 05.10.).
+      op: 'gruppe_neu';
+      gruppe_id: string;
+    }
+  | {
       // Serverseitiger Lesefortschritt (P0.2) — an beide Teilnehmer: der
       // Partner baut Lese-Häkchen, die anderen Geräte des Lesenden
       // löschen ihre Ungelesen-Zähler. Numerisch-opake ID.

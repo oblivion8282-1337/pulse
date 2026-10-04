@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from pydantic import BaseModel, ConfigDict
+
 from dcc_shared.events._base import _EventBase
 
 
@@ -238,3 +240,24 @@ class MentionAddedEvent(_EventBase):
 
     op: Literal["mention_added"] = "mention_added"
     data: MentionAddedData
+
+
+# ---- User-Events (publish_user_event) --------------------------------------
+
+
+class GruppeNeuEvent(BaseModel):
+    """``op="gruppe_neu"`` — an alle Mitglieder (inkl. Ersteller): eine
+    private Gruppe ist neu oder hat Mitglieder gewonnen. Der Klient zieht
+    ``GET /gruppen`` nach und abonniert die Kanäle neu.
+
+    Etappe G2 kannte bewusst kein Mitgliederwechsel-Ereignis — die Folge
+    (Befund 05.10.): wer bei einer neu angelegten Gruppe nicht selbst der
+    Ersteller war, erfuhr von ihr erst beim nächsten ``ready``; bis dahin
+    kein Abo, kein ``postfach_neu``, keine Benachrichtigung, keine
+    Live-Nachricht.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Literal["gruppe_neu"] = "gruppe_neu"
+    gruppe_id: str
