@@ -2072,9 +2072,26 @@ function wireScreenShare(): void {
 // **Ausnahme: die Dev-Zweitinstanz** (`PULSE_DEV_ZWEITINSTANZ=1`) will genau
 // KEINE Fensterübergabe — sie ist der Steuernde im Selbsttest auf einer
 // Maschine und hat ihr eigenes Profilverzeichnis (s. oben).
-if (!DEV_ZWEITINSTANZ && !app.requestSingleInstanceLock()) {
+if (!DEV_ZWEITINSTANZ && !acquireSingleInstanceLock()) {
   app.quit();
   process.exit(0);
+}
+
+/** Single-Instance-Lock mit Retry: Bei Doppelstart im selben Augenblick
+ *  (z.B. zwei Autostart-Wege treffen zusammen) kann der zweite Prozess den
+ *  Lock des noch hochfahrenden ersten verfehlen — unter Flatpak blieb die
+ *  Zweitinstanz sonst als Voll-Instanz neben der ersten stehen. Kurz warten
+ *  und erneut versuchen, ehe wir zugunsten der laufenden Instanz aufhören. */
+function acquireSingleInstanceLock(): boolean {
+  const RETRY_DELAY_MS = 500;
+  const RETRIES = 6;
+  let locked = app.requestSingleInstanceLock();
+  for (let i = 0; !locked && i < RETRIES; i++) {
+    // Synchrones Warten (Boot läuft noch vor app.whenReady, kein Event-Loop):
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RETRY_DELAY_MS);
+    locked = app.requestSingleInstanceLock();
+  }
+  return locked;
 }
 
 app.on('second-instance', (_event, argv) => {
@@ -2198,8 +2215,22 @@ async function bootClient(): Promise<void> {
   // Die Cleanup-Funktion auf Modul-Scope, damit `before-quit` sie immer findet.
   stopUpdater = startUpdater(() => mainWindow);
 
-  // Tray-Status IPC
+  wireTrayIpc();
+}
+
+/** Tray-IPC (Status + Live-Badge-Image) — nutzt sowohl das Client- als auch
+ *  das Server-Fenster (dessen Login-Phase lädt die Web-SPA). MUSS in beiden
+ *  Boot-Pfänden registriert sein; fehlte er im Server-Boot → „No handler
+ *  registered" und das Server-Tray bekam niemals ein Badge.
+ *
+ *  Im SERVER_MODE werden die Pushes aber ignoriert: TraySync in der Web-SPA
+ *  malt das Client-Mark (Kreise) und würde damit den Server-Heartbeat im Tray
+ *  ersetzen — und das Bild bliebe stehen, selbst nachdem das Fenster auf
+ *  server.html navigiert ist (dort zeichnet kein Renderer mehr dagegen). Das
+ *  Server-Tray gehört dem Main-Prozess (tray.ts, variant 'server'). */
+function wireTrayIpc(): void {
   ipcMain.on('tray:setStatus', (_e, payload: unknown) => {
+    if (SERVER_MODE) return;
     if (!payload || typeof payload !== 'object') return;
     const p = payload as Record<string, unknown>;
     const bool = (k: string): boolean | undefined => {
@@ -2218,8 +2249,8 @@ async function bootClient(): Promise<void> {
     });
   });
 
-  // Tray-Image IPC
   ipcMain.handle('tray:setImage', (_e, dataUrl: unknown) => {
+    if (SERVER_MODE) return false;
     if (typeof dataUrl !== 'string') return false;
     setTrayImageFromDataUrl(dataUrl);
     return true;
@@ -2228,7 +2259,10 @@ async function bootClient(): Promise<void> {
 
 // Server-App-Boot: Update-Splash (eigener /updates/win-server/-Feed, Server-
 // Icon) + Host-IPC (Lochungs-Modus) + Fenster (server.html) + Tray + In-App-
-// Updater — aber kein Client-Sidecar/ScreenShare/DeepLink.
+// Updater — kein Client-ScreenShare/DeepLink. Sidecar/Shortcuts/Invites/Tray-
+// IPC sind dennoch verdrahtet: die Login-Phase lädt die Web-SPA und die ruft
+// dieselben Bridge-Kanäle wie im Client auf (fehlte die Verdrahtung → „No
+// handler registered"-Spam und tote Bridges im Server-Fenster).
 async function bootServer(): Promise<void> {
   // initStore() ZUERST: wireHost() liest beim Verdrahten die Pairing-Creds
   // (loadCreds); ohne initStore() ist jeder storeGet/storeSet ein No-Op → die
@@ -2246,8 +2280,12 @@ async function bootServer(): Promise<void> {
   wireNotify(() => mainWindow);
   wirePower();
   wireClipboard();
+  wireInvitePull();
+  wireSidecar();
+  wireGlobalShortcuts(() => mainWindow);
   createWindow();
   createTray(() => mainWindow, quitApp, { variant: 'server' });
+  wireTrayIpc();
   stopUpdater = startUpdater(() => mainWindow);
 }
 
