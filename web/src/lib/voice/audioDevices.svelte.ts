@@ -112,11 +112,14 @@ export class AudioDevices {
         : undefined;
     const btName = btGeraet?.name?.trim();
     if (btName) {
-      // BT-Mikrofon anhand des Namens finden (Chromium trägt denselben
-      // Produktnamen wie die native Seite, z. B. „EarFun Wave Pro").
-      const btInput = this.inputs.find(
-        (d) => d.label && btName.length > 0 && d.label.toLowerCase().includes(btName.toLowerCase())
-      );
+      // BT-Mikrofon finden: Chromium labelt es generisch („Bluetooth headset"),
+      // manche Versionen tragen den Produktnamen — beides akzeptieren.
+      const nieder = btName.toLowerCase();
+      const btInput = this.inputs.find((d) => {
+        if (!d.label) return false;
+        const label = d.label.toLowerCase();
+        return label.includes('bluetooth') || (nieder.length > 0 && label.includes(nieder));
+      });
       if (btInput && this.selectedInputId !== btInput.deviceId) {
         this.#eingabeVorBt = this.#eingabeVorBt ?? (this.selectedInputId || settings.audio.inputDeviceId);
         await this.setInput(room, btInput.deviceId);

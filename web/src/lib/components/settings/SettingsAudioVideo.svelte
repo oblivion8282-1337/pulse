@@ -200,8 +200,14 @@
       .filter(Boolean)
   );
   let eingabeOptionenAndroid = $derived.by(() => {
-    const btEingaenge = voice.inputDevices.filter((d) =>
-      verbundeneBtNamen.some((n) => d.label.toLowerCase().includes(n))
+    // Chromium labelt BT-Mikrofone generisch („Bluetooth headset") statt mit
+    // dem Produktnamen — erkenne sie am Label-Teil „bluetooth" ODER am
+    // Produktnamen (manche Versionen tragen ihn doch).
+    const btEingaenge = voice.inputDevices.filter(
+      (d) =>
+        d.label &&
+        (d.label.toLowerCase().includes('bluetooth') ||
+          verbundeneBtNamen.some((n) => d.label.toLowerCase().includes(n)))
     );
     // Telefonmikrofon = default oder das erste Eingabegerät OHNE BT-Namen.
     const telefon =
@@ -209,6 +215,13 @@
       voice.inputDevices.find(
         (d) => !btEingaenge.some((b) => b.deviceId === d.deviceId)
       );
+    // Anzeige-Name: der hübsche native Produktname (EarFun …), wenn bekannt.
+    const hübsch = (label: string): string => {
+      const treffer = (audioRouteState.liste?.devices ?? []).find(
+        (r) => r.type.startsWith('BLUETOOTH') || r.type === 'BLE_HEADSET'
+      );
+      return treffer?.name && treffer.name.trim() ? treffer.name : label;
+    };
     const optionen = [];
     if (telefon) {
       optionen.push({ value: telefon.deviceId, label: m.settings_audio_video_microphone() });
@@ -216,7 +229,7 @@
     for (const b of btEingaenge) {
       optionen.push({
         value: b.deviceId,
-        label: b.label || m.voice_bar_route_name_bt()
+        label: b.label.toLowerCase().includes('bluetooth') ? hübsch(b.label) : b.label
       });
     }
     return optionen;
