@@ -83,6 +83,19 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
         () => privateGruppen.bereit
       );
       if (isStale()) return;
+      if (!istGruppe) {
+        // Der Store war schon befüllt, kennt die Id aber trotzdem nicht —
+        // z. B. auf einem Zweitgerät angelegt, während dieses Gerät nur den
+        // älteren ready-Seed hält. Einmalig GET /gruppen nachziehen und
+        // neu entscheiden, BEVOR die Id in den DM-/Kanal-Weg fällt
+        // (Befund 05.10.: sonst 404 auf /channels/<id>/messages).
+        await gruppenApi
+          .auflisten()
+          .then((gruppen) => privateGruppen.seed(gruppen))
+          .catch(() => {});
+        if (isStale()) return;
+        istGruppe = untrack(() => privateGruppen.istGruppe(cid));
+      }
     }
 
     if (istGruppe) {
@@ -205,9 +218,10 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
 
     // Server-Archiv nachziehen (Übergabe 2026-10-04 §5): auf einem Gerät
     // ohne lokalen Bestand füllt es den Verlauf aus der verschlüsselten
-    // Server-Kopie (120 Tage, nur E2EE-DMs). Fire-and-forget, dedupet über
-    // die Ids im lokalen Store, wirft nie (s. `archiv/lesen.ts`).
-    void import('$lib/archiv/lesen')
+    // Server-Kopie (120 Tage, NUR E2EE-DMs — Gruppen fragen die Route gar
+    // nicht an, sie antwortet ihnen 404, Befund 05.10.). Fire-and-forget,
+    // dedupet über die Ids im lokalen Store, wirft nie (s. `archiv/lesen.ts`).
+    if (!istGruppe) void import('$lib/archiv/lesen')
       .then((m) => m.archivNachziehen(cid))
       .then(async (angekommen) => {
         if (angekommen === 0 || isStale()) return;

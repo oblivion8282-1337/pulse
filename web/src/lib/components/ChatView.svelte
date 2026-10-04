@@ -269,7 +269,11 @@
   let pins = $derived(channel ? (messageStore.pinsByChannel[channel.id] ?? null) : null);
   function ladePins() {
     const cid = channel?.id;
-    if (!cid) return;
+    // Pins sind ein Community-Kanal-Konzept (Route /channels/<id>/pins lebt
+    // auf der messages-Tabelle) — DMs und private Gruppen hätten sie nie;
+    // ohne Gate lieferte jeder Öffnen einen 404-Posten in der Konsole
+    // (Befund 05.10.).
+    if (!cid || !channel?.guild_id) return;
     void chatApi
       .listPins(cid, messageRoute)
       .then((list) => messageStore.setPins(cid, list))

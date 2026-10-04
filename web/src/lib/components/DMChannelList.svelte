@@ -185,7 +185,7 @@
          legt, muss sie an jeder Stelle danach wieder auseinandersortieren.
          Der Abschnitt fehlt ganz, solange es keine Gruppe gibt — ein leerer
          Titel waere eine Ankuendigung ohne Inhalt. -->
-    {#if onSelectGruppe && privateGruppen.list.length > 0}
+    {#if privateGruppen.list.length > 0}
       <div class="my-3 hairline bg-border" aria-hidden="true"></div>
       <p class="text-text-muted px-3 pb-1 text-2xs font-semibold uppercase tracking-wider">
         {m.dm_list_gruppen_heading()}
@@ -197,7 +197,7 @@
           class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
           data-active={activeDMId === gruppe.id}
           data-unread={isUnread}
-          onclick={() => onSelectGruppe(gruppe.id)}
+          onclick={() => (onSelectGruppe ? onSelectGruppe(gruppe.id) : goto(`/app/@me/${gruppe.id}`))}
           data-testid={`gruppe-${gruppe.id}`}
         >
           <UsersIcon
