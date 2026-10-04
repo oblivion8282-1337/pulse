@@ -71,8 +71,12 @@ from __future__ import annotations
 from dcc_shared.events._base import _EventBase
 from dcc_shared.events.applications import ApplicationDecidedEvent
 from dcc_shared.events.chat import (
+    GruppeLesestandEvent,
+    GruppeNeuEvent,
+    ZustellungBestaetigtEvent,
     ChannelBumpEvent,
     DmBumpEvent,
+    DmLesestandEvent,
     MentionAddedData,
     MentionAddedEvent,
     MessageDeleteData,
@@ -93,6 +97,12 @@ from dcc_shared.events.chat import (
     WatchChatMessageEvent,
     WatchChatReactionData,
     WatchChatReactionEvent,
+)
+from dcc_shared.events.anrufe import (
+    CallAbgelehntEvent,
+    CallAngenommenEvent,
+    CallEndeEvent,
+    CallKlingeltEvent,
 )
 from dcc_shared.events.community import CommunityInviteReceivedEvent
 from dcc_shared.events.friends import (
@@ -166,6 +176,16 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     # ---- channel-bump / dm-bump (cross-channel notification)
     "channel_bump": ChannelBumpEvent,
     "dm_bump": DmBumpEvent,
+    # ---- serverseitiger Lesefortschritt (P0.2)
+    "dm_lesestand": DmLesestandEvent,
+    # ---- Anruf-Signalisierung (Anrufe-Epic B) — ephemeral
+    "call_klingelt": CallKlingeltEvent,
+    "gruppe_neu": GruppeNeuEvent,
+    "gruppe_lesestand": GruppeLesestandEvent,
+    "zustellung_bestaetigt": ZustellungBestaetigtEvent,
+    "call_angenommen": CallAngenommenEvent,
+    "call_abgelehnt": CallAbgelehntEvent,
+    "call_ende": CallEndeEvent,
     # ---- ephemeral typing indicator
     "typing": TypingEvent,
     # ---- pinned messages (chat-channel)
@@ -232,6 +252,14 @@ __all__ = [
     # chat
     "ChannelBumpEvent",
     "DmBumpEvent",
+    "DmLesestandEvent",
+    "CallKlingeltEvent",
+    "GruppeNeuEvent",
+    "GruppeLesestandEvent",
+    "ZustellungBestaetigtEvent",
+    "CallAngenommenEvent",
+    "CallAbgelehntEvent",
+    "CallEndeEvent",
     "MentionAddedData",
     "MentionAddedEvent",
     "MessageDeleteData",

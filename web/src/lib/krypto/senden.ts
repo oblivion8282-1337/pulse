@@ -74,7 +74,14 @@ import {
   partnerSchluesselLesen,
   partnerSchluesselMerken
 } from './sitzungen';
-import { baueNachrichtNutzlast, baueLoeschNutzlast, type AnhangAngabe } from './nachrichtNutzlast';
+import {
+  baueNachrichtNutzlast,
+  baueBearbeitungsNutzlast,
+  baueLoeschNutzlast,
+  baueReaktionsNutzlast,
+  baueAnrufSchluesselNutzlast,
+  type AnhangAngabe
+} from './nachrichtNutzlast';
 import { anhangAngabeZuAttachment } from './anhangAnzeige';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
 import { geraetebuendelAuthentifizieren } from './geraetePinnung';
@@ -334,7 +341,36 @@ export async function sendeVerschluesselt(
     anhaenge: nachricht.attachments
   });
 
+  // Server-Archiv (Übergabe 2026-10-04 §5): die Zustellung ist durch, die
+  // Nachricht liegt lokal — jetzt der verschlüsselte Abgleich beim Server
+  // (120 Tage). Fire-and-forget, wirft nie (s. `archiv/senden.ts`): das
+  // Archiv darf den Sendeweg nie aufhalten oder scheitern lassen.
+  void import('$lib/archiv/senden').then((m) => m.archiviereGesendet(kanalId, empfaengerUserId, nachricht));
+
   return { art: 'verschluesselt', nachricht };
+}
+
+/**
+ * Ein Frame ohne eigene Nachricht (Loeschen, Reaktion): derselbe
+ * verschluesselte Sendeweg wie `sendeVerschluesselt` — an die Gegenstelle UND
+ * die eigenen anderen Geraete (`zielgeraeteBerechnen`) —, aber ohne lokale
+ * Ablage und ohne DM-Listen-Nachzug: ein Frame ist keine Nachricht. `true`,
+ * wenn der Frame zugestellt wurde; was lokal daraus folgt, entscheidet der
+ * Aufrufer.
+ */
+async function versendeFrame(
+  kanalId: string,
+  empfaengerUserId: string,
+  klartextBytes: Uint8Array
+): Promise<boolean> {
+  const eigeneUserId = auth.user?.id ?? null;
+  if (eigeneUserId === null) return false;
+  const eigeneKennung = await geraeteKennung();
+  const buendel = await keysApi.claim([eigeneUserId, empfaengerUserId], cloudRoute());
+  const ziel = zielgeraeteBerechnen(buendel, eigeneUserId, empfaengerUserId, eigeneKennung);
+  if (ziel.length === 0) return false;
+  const status = await versendeUmschlaege(kanalId, ziel, eigeneKennung, klartextBytes);
+  return status === 'verschluesselt';
 }
 
 /**
@@ -349,17 +385,69 @@ export async function sendeLoeschung(
   empfaengerUserId: string,
   nachrichtId: string
 ): Promise<boolean> {
+  // Absender-Bindung im Frame (Bughunt 2026-09-23): ohne sie könnte ein
+  // fremder Lösch-Frame Sätze eines anderen Kontos als berechtigt
+  // einstufen lassen — die Empfänger prüfen Zuschreibung gegen Metadaten.
   const eigeneUserId = auth.user?.id ?? null;
   if (eigeneUserId === null) return false;
   const eigeneKennung = await geraeteKennung();
-  const buendel = await keysApi.claim([eigeneUserId, empfaengerUserId], cloudRoute());
-  const ziel = zielgeraeteBerechnen(buendel, eigeneUserId, empfaengerUserId, eigeneKennung);
-  if (ziel.length === 0) return false;
-  const status = await versendeUmschlaege(
+  return versendeFrame(
     kanalId,
-    ziel,
-    eigeneKennung,
+    empfaengerUserId,
     baueLoeschNutzlast(nachrichtId, { nutzer: eigeneUserId, geraet: eigeneKennung })
   );
-  return status === 'verschluesselt';
+}
+
+/**
+ * Reagiert auf eine verschluesselte Nachricht (Uebergabe P1.5): ein
+ * Reaktions-Umschlag (`baueReaktionsNutzlast`) an alle Zielgeraete —
+ * dadurch sehen auch die eigenen anderen Geraete die Reaktion.
+ * `zielNachrichtId` MUSS die KANONISCHE Form sein (`kanonischeAntwortId.ts`).
+ * `true` nur bei Zustellung; der Aufrufer wendet die Reaktion erst DANN lokal
+ * an (`verlaufReaktionAnwenden`), wie der Klartext-Weg auf sein WS-Echo wartet.
+ */
+export function sendeReaktion(
+  kanalId: string,
+  empfaengerUserId: string,
+  zielNachrichtId: string,
+  emoji: string,
+  entfernen: boolean
+): Promise<boolean> {
+  return versendeFrame(
+    kanalId,
+    empfaengerUserId,
+    baueReaktionsNutzlast(zielNachrichtId, emoji, entfernen)
+  );
+}
+
+/**
+ * Bearbeitet eine verschluesselte Nachricht (P1.5 Teil 2): ein
+ * Bearbeitungs-Umschlag (`baueBearbeitungsNutzlast`) an alle Zielgeraete.
+ * `zielNachrichtId` MUSS die KANONISCHE Form sein. `true` nur bei Zustellung;
+ * der Aufrufer wendet den neuen Inhalt erst DANN lokal an.
+ */
+export function sendeBearbeitung(
+  kanalId: string,
+  empfaengerUserId: string,
+  zielNachrichtId: string,
+  inhalt: string
+): Promise<boolean> {
+  return versendeFrame(kanalId, empfaengerUserId, baueBearbeitungsNutzlast(zielNachrichtId, inhalt));
+}
+
+/**
+ * Verschickt den E2EE-Schluessel eines Anrufs (E2EE-Anrufe, 2026-09-09):
+ * ein Anruf-Schluessel-Frame (`baueAnrufSchluesselNutzlast`) an alle
+ * Zielgeraete der Gegenstelle UND die eigenen anderen — jedes Geraet beider
+ * Konten kann so am Anruf teilnehmen. `true` nur bei Zustellung; der
+ * Aufrufer (`anruf.svelte.ts`) bricht den Anruf ab, wenn sie misslingt —
+ * fail-closed, kein unverschluesselter Anruf.
+ */
+export function sendeAnrufSchluessel(
+  kanalId: string,
+  empfaengerUserId: string,
+  anrufId: string,
+  schluessel: string
+): Promise<boolean> {
+  return versendeFrame(kanalId, empfaengerUserId, baueAnrufSchluesselNutzlast(anrufId, schluessel));
 }

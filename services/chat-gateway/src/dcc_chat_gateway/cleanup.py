@@ -40,10 +40,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.ablage_zwischenlager_pflege import sweep_alte_zwischenlager_dateien
+from dcc_chat_gateway.anruf_pflege import sweep_haengende_anrufe
 from dcc_chat_gateway.config import Settings
 from dcc_chat_gateway.models import CommunityInviteNotification, WebPushSubscription
 from dcc_chat_gateway.kopplung_pflege import sweep_verfallene_kopplungen
 from dcc_chat_gateway.routes.ablage_pulse import sweep_stehengebliebene_ankuendigungen
+from dcc_chat_gateway.routes.archiv import sweep_abgelaufene_archiv_zeilen
 from dcc_chat_gateway.postfach_pflege import (
     sweep_abgelaufene_anhaenge,
     sweep_verfallene_zustellungen,
@@ -156,6 +158,18 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
         except Exception:  # noqa: BLE001 — best effort, s. Reaper-Vorbild
             log.warning("ablage_pulse_ankuendigung_purge_fehlgeschlagen")
     log.info("ablage_pulse_pflege_done ankuendigungen=%d", ankuendigungen)
+
+    # Hängende Anruf-Zeilen (abgestürzte Klienten, Befund 03.10.) —
+    # dieselbe Schleife, derselbe Takt.
+    async with session_factory() as session:
+        anrufe = await sweep_haengende_anrufe(session)
+    log.info("anruf_pflege_done beendet=%d", anrufe)
+
+    # Archiv-Zeilen jenseits der Vorhaltezeit (120 Tage, Übergabe §5.1) —
+    # dieselbe Schleife, derselbe Takt.
+    async with session_factory() as session:
+        archiv = await sweep_abgelaufene_archiv_zeilen(session)
+    log.info("archiv_pflege_done geloescht=%d", archiv)
 
     return deleted
 

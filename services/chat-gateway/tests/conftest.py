@@ -231,6 +231,7 @@ async def app(session_factory, _auth_signer):
     import dcc_chat_gateway.routes.ws_ops as routes_ws_ops
     import dcc_chat_gateway.routes.ws_ops_handlers as routes_ws_ops_handlers
     import dcc_chat_gateway.routes.ws_ready as routes_ws_ready
+    import dcc_chat_gateway.fcm as fcm_mod
     from redis.asyncio import Redis
 
     from dcc_chat_gateway.pubsub import ConnectionManager
@@ -243,10 +244,12 @@ async def app(session_factory, _auth_signer):
     original_factory_handlers = routes_ws_ops_handlers.SessionLocal
     original_factory_send = routes_ws_op_send.SessionLocal
     original_factory_ready = routes_ws_ready.SessionLocal
+    original_factory_fcm = fcm_mod.SessionLocal
     routes_ws_ops.SessionLocal = session_factory
     routes_ws_ops_handlers.SessionLocal = session_factory
     routes_ws_op_send.SessionLocal = session_factory
     routes_ws_ready.SessionLocal = session_factory
+    fcm_mod.SessionLocal = session_factory
 
     application = create_app(skip_redis=True)
     redis = Redis.from_url(_TEST_SETTINGS.redis_url, decode_responses=False)
@@ -274,6 +277,7 @@ async def app(session_factory, _auth_signer):
         routes_ws_ops_handlers.SessionLocal = original_factory_handlers
         routes_ws_op_send.SessionLocal = original_factory_send
         routes_ws_ready.SessionLocal = original_factory_ready
+        fcm_mod.SessionLocal = original_factory_fcm
 
 
 @pytest_asyncio.fixture
@@ -296,6 +300,7 @@ async def ws_app(_auth_signer, tmp_path):
     import dcc_chat_gateway.routes.ws_ops as routes_ws_ops
     import dcc_chat_gateway.routes.ws_ops_handlers as routes_ws_ops_handlers
     import dcc_chat_gateway.routes.ws_ready as routes_ws_ready
+    import dcc_chat_gateway.fcm as fcm_mod
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     db_url = f"sqlite+aiosqlite:///{tmp_path / 'ws_test.db'}"
@@ -321,10 +326,12 @@ async def ws_app(_auth_signer, tmp_path):
     original_factory_handlers = routes_ws_ops_handlers.SessionLocal
     original_factory_send = routes_ws_op_send.SessionLocal
     original_factory_ready = routes_ws_ready.SessionLocal
+    original_factory_fcm = fcm_mod.SessionLocal
     routes_ws_ops.SessionLocal = runtime_factory
     routes_ws_ops_handlers.SessionLocal = runtime_factory
     routes_ws_op_send.SessionLocal = runtime_factory
     routes_ws_ready.SessionLocal = runtime_factory
+    fcm_mod.SessionLocal = runtime_factory
 
     # Phase 3.1 JWKS cold-start gate: seed the JWKS into the test-Redis so
     # the lifespan finds it and sets jwks_ready=True. Without this every ws_app
@@ -355,6 +362,7 @@ async def ws_app(_auth_signer, tmp_path):
         routes_ws_ops_handlers.SessionLocal = original_factory_handlers
         routes_ws_op_send.SessionLocal = original_factory_send
         routes_ws_ready.SessionLocal = original_factory_ready
+        fcm_mod.SessionLocal = original_factory_fcm
         try:
             await runtime_engine.dispose()
         except Exception:

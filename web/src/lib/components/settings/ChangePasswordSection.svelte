@@ -11,6 +11,7 @@
   import KeyRoundIcon from '@lucide/svelte/icons/key-round';
   import { changePassword } from '$lib/api/auth';
   import { ApiError } from '$lib/api/client';
+  import { auth } from '$lib/stores/auth.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import FieldLabel from '$lib/components/form/FieldLabel.svelte';
@@ -42,6 +43,14 @@
     busy = true;
     try {
       await changePassword(current, next);
+      // Archiv-Schlüssel unter das neue Passwort neu wickeln (Übergabe §5) —
+      // best-effort: schlägt es fehl, öffnet der nächste Login den alten
+      // Wrap nicht und das Archiv richtet sich neu ein (Verlust nur lokal).
+      if (auth.user) {
+        await import('$lib/archiv/konto')
+          .then((m) => m.archivBeimPasswortwechsel(auth.user!.id, current, next))
+          .catch(() => undefined);
+      }
       current = '';
       next = '';
       confirm = '';

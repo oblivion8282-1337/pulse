@@ -138,6 +138,11 @@ export type Attachment = {
   height?: number | null;
   thumb_width?: number | null;
   thumb_height?: number | null;
+  /** Gemessene Dauer in Sekunden — nur bei Sprachnachrichten (aus der
+   *  verschlüsselten Nutzlast, `AnhangAngabe.dauerSekunden`). Der WebM-
+   *  Container selbst trägt keine brauchbare Dauer, deshalb muss die
+   *  ECHTE Zahl mitreisen; der Klartext-Server-Pfad kennt sie (noch) nicht. */
+  dauerSekunden?: number | null;
   /** Presigned MinIO GET URL — ~30 min TTL, auto-refresh on 403 via
    *  `chatApi.refreshAttachmentDownloadUrl`. Bei einem VERSCHLUESSELTEN
    *  Anhang leer: dort gibt der Server eine Adresse nur gegen einen
@@ -224,6 +229,13 @@ export type DMChannel = {
   last_message_preview?: string | null;
   last_message_author_id?: string | null;
   last_message_at?: string | null;
+  /**
+   * Serverseitiger Lesefortschritt (P0.2): eigener Stand und der der
+   * Gegenstelle — numerisch-opak, verglichen über `compareSnowflakeId`.
+   * Optional für Rückwärtskompatibilität mit älteren ready-Rahmen.
+   */
+  last_read_message_id?: string | null;
+  partner_last_read_message_id?: string | null;
   /**
    * Server-resolved gate: true iff a friendship exists AND no block sits
    * between the two users in either direction. Drives the hard-cut DM

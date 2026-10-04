@@ -15,6 +15,11 @@
   import { renderMessage } from './messageRender';
   import { m } from '$lib/paraglide/messages.js';
   import { blocks } from '$lib/stores/blocks.svelte';
+  import { readState } from '$lib/stores/readState.svelte';
+import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
+import { directMessages } from '$lib/stores/directMessages.svelte';
+import { auth } from '$lib/stores/auth.svelte';
+  import { lesestandAnker } from '$lib/stores/lesestandKern';
   import { nachrichtVonBlockiertem } from '$lib/nachrichten/blockierteAnzeige';
 
   let {
@@ -33,6 +38,9 @@
     canPin = false,
     /** Ob der aktuelle User Nachrichten anderer melden darf (= nicht eigen). */
     canReport = false,
+    /** Reagieren erlaubt — `MessageList::canReactMessage` rechnet das vor.
+     *  Ohne Angabe (andere Aufrufer) gilt der alte Stand: nur unverschluesselt. */
+    canReact = undefined as boolean | undefined,
     /** Direktnachricht-Kontext: eine Meldung geht ans Betreiberteam statt an
      *  einen Community-Moderator (es gibt hier keinen). */
     isDirect = false,
@@ -69,6 +77,7 @@
     canDelete: boolean;
     canPin?: boolean;
     canReport?: boolean;
+    canReact?: boolean;
     isDirect?: boolean;
     guildId?: string;
     layout?: 'row' | 'bubble';
@@ -115,6 +124,62 @@
   // so edit / delete / react would hit `/messages/tmp-…` and 4xx. Gate them
   // until the echo swaps in the persisted message.
   const isPending = $derived(message.id.startsWith('tmp-'));
+
+  // Reagieren: im Klartext-Weg ueber den Server; bei einer verschluesselten
+  // Nachricht nur, wo die Liste es ausdruecklich erlaubt (Reaktions-Umschlag,
+  // P1.5, DM). Ohne Vorgabe der alte Stand: verschluesselt = gesperrt.
+  const kannReagieren = $derived(canReact ?? !message.verschluesselt);
+
+  /** Lese-Häkchen (P0.2) — nur eigene DM-Nachrichten (bubble): true = von
+   *  der Gegenstelle gelesen, false = nur zugestellt, undefined = keine
+   *  Auskunft (optimistische Kopie, oder Partner-Stand unbekannt). */
+  function leseBestaetigtFuer(nachricht: Message): boolean | undefined {
+    if (layout !== 'bubble' || !istEigene || nachricht.id.startsWith('tmp-')) return undefined;
+    if (!nachricht.channel_id) return undefined;
+    // `null` (kein Partner-Stand) → `undefined` (gar kein Häkchen).
+    // Anker = kanonische ID (B3): die eigene Nachricht trägt hier ihre
+    // lokale ID, der Partner-Stand ist an ebendiese geankert — auf dem
+    // eigenen Zweitgerät (Nachricht unter der Zustellungs-ID abgelegt)
+    // springt `krypto_id` ein.
+    return readState.istGelesen(nachricht.channel_id, lesestandAnker(nachricht)) ?? undefined;
+  }
+
+  /** Gruppen-Lesebestätigung (Befund 05.10., Michaels Wahl „Haken wenn
+   *  alle gelesen"): blau erst, wenn ALLE anderen Mitglieder bis zu dieser
+   *  Nachricht durch sind — sonst verbleibt der einfache Haken. */
+  const gruppenLesestand = $derived(privateGruppen.byId[message.channel_id]);
+  /** Diese Nachricht liegt in einer privaten Gruppe (statt einer DM)? */
+  const gruppe = $derived(privateGruppen.byId[message.channel_id] ?? undefined);
+
+  function gruppeAlleGelesenFuer(nachricht: Message): boolean | undefined {
+    if (layout !== 'bubble' && layout !== 'row') return undefined;
+    if (!istEigene || nachricht.id.startsWith('tmp-')) return undefined;
+    const gruppe = gruppenLesestand;
+    if (!gruppe) return undefined;
+    const ich = auth.user?.id;
+    if (!ich) return undefined;
+    const andere = gruppe.members.map((m) => m.user_id).filter((u) => u !== ich);
+    return readState.gruppeAlleGelesen(nachricht.channel_id, andere, lesestandAnker(nachricht)) ?? undefined;
+  }
+
+  /** Angekommen bei allen Mitgliedern (doppelter GRAUER Haken)? Holt die
+   *  Quittungs-Zeitpunkte aus dem Store; solange eine fehlt, bleibt der
+   *  einfache Haken. */
+  function angekommenFuer(nachricht: Message): boolean | undefined {
+    if (layout !== 'bubble' && layout !== 'row') return undefined;
+    if (!istEigene || nachricht.id.startsWith('tmp-')) return undefined;
+    const ich = auth.user?.id;
+    if (!ich) return undefined;
+    // Nur DMs und private Gruppen haben Quittungen — Community-Kanäle
+    // kennen das Konzept nicht (undefined = gar kein Haken, wie bisher).
+    const gruppe = privateGruppen.byId[nachricht.channel_id];
+    const dm = directMessages.byId[nachricht.channel_id];
+    if (!gruppe && !dm) return undefined;
+    const konten = gruppe
+      ? gruppe.members.map((m) => m.user_id).filter((u) => u !== ich)
+      : [dm.other_user_id];
+    return readState.angekommenAlle(nachricht.channel_id, konten, Date.parse(nachricht.created_at));
+  }
 
   // Eine verschluesselte DM hat keine `messages`-Zeile — `createOperatorReport`
   // (nachrichtenbezogen) faende sie nicht (Bughunt 2026-08-28, Befund 2).
@@ -181,7 +246,7 @@
   }
 
   function handleToggle(emoji: string, mine: boolean) {
-    if (isPending) return;
+    if (isPending || !kannReagieren) return;
     onToggleReaction(message, emoji, mine);
   }
 
@@ -210,9 +275,7 @@
     onReply: () => onReply(message),
     onEdit: startEdit,
     onDelete: () => onDelete(message),
-    // Reaktionen laufen im Klartext-Weg über den Server — für verschlüsselte
-    // Nachrichten gibt es sie (noch) nicht, also kein Reaktions-Eintrag.
-    onReact: message.verschluesselt ? undefined : (e: string) => handleToggle(e, false),
+    onReact: kannReagieren ? (e: string) => handleToggle(e, false) : undefined,
     onReport: () => (reportOpen = true),
     onTogglePin: onTogglePin ? () => onTogglePin(message) : undefined
   });
@@ -257,6 +320,10 @@
         {m.message_item_edit_hint()}
       </div>
     {:else}
+      <!-- Beizeile UNTER dem Medium (WhatsApp-Prinzip): bei Medien steht der
+           Text direkt drunter in derselben Blase; bei reinen Textnachrichten
+           ändert die Reihenfolge nichts (keine Anhänge → kein Block). -->
+      <MessageAttachments {attachments} />
       {#if message.content && !isInviteOnly}
         <div class="text-text-base break-words text-[15px]" data-testid="message-content">
           {@html html}
@@ -271,8 +338,14 @@
       {#each linkEmbeds as embed (embed.url)}
         <LinkEmbed url={embed.url} provider={embed.provider} />
       {/each}
-      <MessageAttachments {attachments} />
-      <MessageReactions messageId={message.id} {reactions} onToggle={handleToggle} />
+      <!-- Verschluesselt: keine `messageId` — der „Wer hat reagiert"-Popover
+           fragt `GET /messages/{id}/reactions`, und die Zeile gibt es nicht
+           (404). Die Pille schaltet dann direkt um (wie im Watch-Chat). -->
+      <MessageReactions
+        messageId={message.verschluesselt ? undefined : message.id}
+        {reactions}
+        onToggle={handleToggle}
+      />
     {/if}
   {/if}
 {/snippet}
@@ -291,6 +364,10 @@
     {message}
     {time}
     eigen={istEigene}
+    pending={isPending}
+    leseBestaetigt={gruppe ? gruppeAlleGelesenFuer(message) : leseBestaetigtFuer(message)}
+    zugestellt={gruppe && gruppeAlleGelesenFuer(message) !== true ? angekommenFuer(message) : undefined}
+    onSwipeReply={() => onReply(message)}
     {isContinuation}
     {isGroupEnd}
     {highlight}
@@ -307,6 +384,9 @@
     {time}
     {isContinuation}
     {highlight}
+    pending={isPending}
+    leseBestaetigt={gruppe ? gruppeAlleGelesenFuer(message) : leseBestaetigtFuer(message)}
+    zugestellt={gruppe && gruppeAlleGelesenFuer(message) !== true ? angekommenFuer(message) : undefined}
     onLongPress={openSheet}
     {guildId}
     {body}

@@ -29,7 +29,13 @@ async def _enable_sqlite_foreign_keys(engine):
     async with engine.begin() as conn:
         await conn.exec_driver_sql("PRAGMA foreign_keys = ON")
 
-from dcc_chat_gateway.models import DmAnhangBezug, DmNutzlast, MessageAttachment
+from dcc_chat_gateway.models import (
+    DmAnhangBezug,
+    DmNutzlast,
+    DmZustellung,
+    MessageAttachment,
+)
+
 
 pytestmark = pytest.mark.usefixtures("cloud_mode")
 
@@ -342,6 +348,145 @@ async def test_fremder_anhang_laesst_sich_nicht_binden(
     assert r.json()["detail"] == "anhang_nicht_verwendbar"
     async with session_factory() as s:
         assert (await s.execute(select(DmNutzlast))).scalars().all() == []
+
+
+# ---------------------------------------------------------------------------
+# Ablauf
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_abgelaufene_zustellung_410_offene_200_gefegt_404(
+    client, app, session_factory, _auth_signer, friend_pair, mock_s3
+):
+    """Der Anhang-Verfall wird sauber GEMELDET (gerettete Idee,
+    UEBERGABE-MOBILE §5): Ist die Frist der eigenen Zustellung vorueber,
+    antwortet die Abrufadresse mit 410 ``anhang_abgelaufen`` statt wie eine
+    fremde Kennung mit 404. Eine offene Zustellung bleibt der Normalweg
+    (200). Nach dem Feegen ist der Grund selbst weg — dann bleibt es bei
+    der generischen 404, damit der Unterschied 410/404 keinem Fremden etwas
+    ueber die Kennung verraet."""
+    from dcc_chat_gateway.postfach_pflege import sweep_verfallene_zustellungen
+
+    token_a, uid_a, token_b, uid_b, dm_id, pub_b = await _aufbau(
+        client, session_factory, _auth_signer, friend_pair
+    )
+    anhang_id = (
+        await _anhang_hochladen(client, token=token_a, channel_id=dm_id)
+    ).json()["id"]
+    r = await _einliefern(
+        client, token=token_a, channel_id=dm_id,
+        empfaenger=[pub_b], anhaenge=[anhang_id],
+    )
+    assert r.status_code == 200, r.text
+
+    # Offene Frist → der Normalweg.
+    ok = await _abrufadresse(client, token=token_b, anhang_id=anhang_id, pubkey=pub_b)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["url"].startswith("https://mock/")
+
+    # Frist um eine Minute überzogen, der Verfallslauf war noch nicht da.
+    async with session_factory() as s:
+        zustellung = (await s.execute(select(DmZustellung))).scalars().one()
+        zustellung.verfaellt_am = datetime.now(UTC) - timedelta(minutes=1)
+        await s.commit()
+
+    abgelaufen = await _abrufadresse(
+        client, token=token_b, anhang_id=anhang_id, pubkey=pub_b
+    )
+    assert abgelaufen.status_code == 410
+    assert abgelaufen.json()["detail"] == "anhang_abgelaufen"
+
+    # Nach dem Feegen: keine Zustellung mehr → die ehrliche Antwort ist die
+    # generische 404 (ein Unterschied hier waere ein Orakel).
+    async with session_factory() as s:
+        await sweep_verfallene_zustellungen(s)
+    weg = await _abrufadresse(client, token=token_b, anhang_id=anhang_id, pubkey=pub_b)
+    assert weg.status_code == 404
+    assert weg.json()["detail"] == "anhang_nicht_gefunden"
+
+
+@pytest.fixture
+def gruppen_an(_isolate_chat_settings):
+    """Wie in ``test_postfach.py``/``test_private_gruppen.py``: der Schalter
+    steht per Vorgabe aus, wer eine Gruppe braucht, fordert ihn ausdruecklich
+    an. Kopiert statt importiert — s. Modulkopf."""
+    _isolate_chat_settings.private_groups_enabled = True
+    return _isolate_chat_settings
+
+
+async def _gruppe_anlegen(client, token_ersteller: str, *mitglied_ids: int) -> str:
+    r = await client.post(
+        "/gruppen", json={"name": "Testgruppe"}, headers=_auth(token_ersteller)
+    )
+    assert r.status_code == 201, r.text
+    gid = r.json()["id"]
+    for uid in mitglied_ids:
+        r = await client.post(
+            f"/gruppen/{gid}/mitglieder",
+            json={"user_id": str(uid)},
+            headers=_auth(token_ersteller),
+        )
+        assert r.status_code == 201, r.text
+    return gid
+
+
+@pytest.mark.asyncio
+async def test_gruppen_anhang_abgelaufen_410_je_eigener_zustellung(
+    client, app, session_factory, _auth_signer, mock_s3, gruppen_an
+):
+    """Derselbe Ablauf-Mechanismus gilt in der PRIVATEN GRUPPE — ohne eigenen
+    Gruppen-Weg: Megolm verschluesselt EINMAL fuer alle (eine Nutzlast, viele
+    Zustellungen), und ``anhang_abruffrist`` fragt nur die EIGENEN
+    Zustellungen ab, nie den Kanal. Deshalb ist der 410 hier derselbe wie bei
+    der DM; der Test haelt das fest, damit eine spaetere Verschärfung der
+    Query den Gruppenfall nicht lautlos verliert (UEBERGABE-MOBILE §5)."""
+    from dcc_chat_gateway.postfach_pflege import sweep_verfallene_zustellungen
+
+    t_a, _uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+    t_c, uid_c = await _register(_auth_signer)
+    gid = await _gruppe_anlegen(client, t_a, uid_b, uid_c)
+    pub_b = await _bundel_seeden(session_factory, user_id=uid_b)
+    pub_c = await _bundel_seeden(session_factory, user_id=uid_c)
+
+    anhang_id = (
+        await _anhang_hochladen(client, token=t_a, channel_id=gid)
+    ).json()["id"]
+    r = await _einliefern(
+        client, token=t_a, channel_id=gid,
+        empfaenger=[pub_b, pub_c], anhaenge=[anhang_id],
+        daten=_b64_unpadded(b"megolm-mit-anhang"),
+    )
+    assert r.status_code == 200, r.text
+
+    # Nur B's Frist laeuft ab — C's Zustellung bleibt gueltig. Genau daran
+    # zeigt sich, dass die Frist an der EIGENEN Zustellung haengt, nicht am
+    # Kanal: derselbe Anhang ist fuer C weiter abrufbar.
+    async with session_factory() as s:
+        zustellungen = (await s.execute(select(DmZustellung))).scalars().all()
+        assert len(zustellungen) == 2
+        for z in zustellungen:
+            if z.empfaenger_device_pubkey == pub_b:
+                z.verfaellt_am = datetime.now(UTC) - timedelta(minutes=1)
+        await s.commit()
+
+    abgelaufen = await _abrufadresse(
+        client, token=t_b, anhang_id=anhang_id, pubkey=pub_b
+    )
+    assert abgelaufen.status_code == 410
+    assert abgelaufen.json()["detail"] == "anhang_abgelaufen"
+
+    ok_c = await _abrufadresse(client, token=t_c, anhang_id=anhang_id, pubkey=pub_c)
+    assert ok_c.status_code == 200, ok_c.text
+
+    # Nach dem Feegen von B's Zustellung: generische 404 wie bei der DM, und
+    # die Nutzlast ueberlebt — C's Zustellung traegt sie weiter.
+    async with session_factory() as s:
+        assert await sweep_verfallene_zustellungen(s) == 1
+    weg = await _abrufadresse(client, token=t_b, anhang_id=anhang_id, pubkey=pub_b)
+    assert weg.status_code == 404
+    assert weg.json()["detail"] == "anhang_nicht_gefunden"
 
 
 # ---------------------------------------------------------------------------

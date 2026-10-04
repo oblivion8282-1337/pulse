@@ -170,6 +170,52 @@ export type ServerEvent =
       channel_id: string;
       anzahl: number;
     }
+  | {
+      // Private Gruppe neu / Mitglieder gewonnen — der Klient zieht
+      // GET /gruppen nach und abonniert die Kanäle (sonst keine
+      // Benachrichtigung, keine Live-Nachricht, Befund 05.10.).
+      op: 'gruppe_neu';
+      gruppe_id: string;
+    }
+  | {
+      // Gruppen-Lesestand (Übergabe 05.10., „Haken wenn alle gelesen"): ein
+      // Mitglied hat die Gruppe bis zu dieser Id gelesen. Geht an alle
+      // Mitglieder — auch an den Lesenden (andere Geräte).
+      op: 'gruppe_lesestand';
+      gruppe_id: string;
+      user_id: string;
+      last_read_message_id: string;
+    }
+  | {
+      // Quittung eines Empfangsgeräts (WhatsApp „doppelter grauer Haken"):
+      // die Umschläge dieses Kanals sind dort abgeholt und gesichert. Geht
+      // an den Absender.
+      op: 'zustellung_bestaetigt';
+      channel_id: string;
+      user_id: string;
+    }
+  | {
+      // Serverseitiger Lesefortschritt (P0.2) — an beide Teilnehmer: der
+      // Partner baut Lese-Häkchen, die anderen Geräte des Lesenden
+      // löschen ihre Ungelesen-Zähler. Numerisch-opake ID.
+      op: 'dm_lesestand';
+      channel_id: string;
+      user_id: string;
+      last_read_message_id: string;
+    }
+  | {
+      // Anruf-Signalisierung (Anrufe-Epic B) — ephemeral an konkrete
+      // Teilnehmerkonten. Medien laufen nach der Annahme über LiveKit.
+      op: 'call_klingelt';
+      call_id: string;
+      art: 'dm' | 'gruppe';
+      channel_id: string;
+      einleiter_id: string;
+      video: boolean;
+    }
+  | { op: 'call_angenommen'; call_id: string; user_id: string }
+  | { op: 'call_abgelehnt'; call_id: string; user_id: string }
+  | { op: 'call_ende'; call_id: string; grund: 'aufgelegt' | 'abgelehnt' | 'verpasst'; dauer_sek: number }
   | { op: 'guild_updated'; guild: GuildPayload }
   | { op: 'guild_deleted'; guild_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }

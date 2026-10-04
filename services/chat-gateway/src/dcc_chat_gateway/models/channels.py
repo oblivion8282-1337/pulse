@@ -118,3 +118,30 @@ class DirectMessageChannel(Base):
         Index("ix_dm_channels_user_a_last_message", "user_a_id", "last_message_id"),
         Index("ix_dm_channels_user_b_last_message", "user_b_id", "last_message_id"),
     )
+
+
+class DmLesestand(Base):
+    """Serverseitiger Lesefortschritt je DM-Teilnehmer (Übergabe P0.2).
+
+    Der Klient hielt "gelesen bis" bisher nur in localStorage — Zähler
+    stimmten nicht geräteübergreifend und überlebten keinen Cache-Clear.
+    ``last_read_message_id`` ist numerisch-opak: Snowflake im Klartext-Weg,
+    die lokale 19-stellige E2EE-ID im verschlüsselten Weg. Der Server sieht
+    damit Lesefortschritt, nie Inhalte — die dokumentierte Abwägung der
+    Übergabe (§5 P0.2).
+    """
+
+    __tablename__ = "dm_lesestand"
+
+    channel_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("chat.direct_message_channels.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    last_read_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    gelesen_am: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_dm_lesestand_user", "user_id"),)

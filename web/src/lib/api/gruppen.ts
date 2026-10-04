@@ -104,3 +104,13 @@ export const gruppenApi = {
     );
   }
 };
+
+/** Serverseitiger Lesefortschritt des Aufrufers in dieser Gruppe
+ *  (Übergabe 05.10., Gruppen-Lesebestätigung). Fire-and-forget vom
+ *  Leseweg — ein Fehlschlag kostet nur den blauen Haken, nie die Nachricht. */
+export async function gruppenLesestandSetzen(gruppeId: string, lastReadMessageId: string): Promise<void> {
+	await request<void>(
+		`/gruppen/${gruppeId}/lesestand`,
+		{ method: 'PUT', endpoint: 'chat', body: { last_read_message_id: lastReadMessageId } }
+	);
+}

@@ -96,15 +96,18 @@ _RULES: dict[str, tuple[int, float]] = {
     # der Anti-Flooding-Bremser des Audits lief nie. 6/Minute: der Client
     # feuert je Voice-Join mit Bluetooth-Gerät einmal.
     "audio_diagnostic": (6, 60.0),
-    # Postfach-Einliefern (Bughunt Runde 35): die Route lief bislang ohne
-    # Bremse; je Anfrage laufen bis 100 Umschlaege mit je bis 64 Empfaenger-
-    # Lookups. 60/Minute je Konto deckelt den Amplifikator weit ueber dem
-    # echten Batch-Bedarf des Klienten.
-    "postfach": (60, 60.0),
     # Web-Push-Abo-Pflege (Bughunt Runde 47): je Aufruf Delete+Select+
     # Upsert+Commit — ohne Bremse fuellte ein Skript die DB mit Churn.
     # 10/Minute: ein Mensch koppelt Geraete, kein Maschinenwerk.
     "push_abo": (10, 60.0),
+    # FCM-Token-Anmeldungen der Android-App (Übergabe P0.1). Der App-Start
+    # upsertet einmal je Gerät — ein Mensch braucht dafür keine zehn Anläufe
+    # je Minute; das Band fängt nur durchgedrehte Clients.
+    "fcm_token": (10, 60.0),
+    # Anrufe anstoßen (Befund 03.10.): je Aufruf klingelt es an ALLE Geräte
+    # aller Gruppenmitglieder — ohne Bremse hammerbar als Klingel-Spam an
+    # ganze Gruppen. 5/Minute: ein Mensch ruft nicht im Minutentakt an.
+    "anruf_start": (5, 60.0),
 }
 
 

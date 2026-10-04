@@ -19,6 +19,9 @@ import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -64,6 +67,9 @@ public class MainActivity extends BridgeActivity {
         // kennt, bevor die WebView lädt (Capacitor-Konvention).
         registerPlugin(AudioRoutePlugin.class);
         registerPlugin(OrientationLockPlugin.class);
+        registerPlugin(ShareReceiverPlugin.class);
+        registerPlugin(AnrufPlugin.class);
+        registerPlugin(VideoCapturePlugin.class);
         super.onCreate(savedInstanceState);
         // Bughunt Runde 45: Capacitor setzt KEINEN DownloadListener — ein
         // Android-WebView wirft Downloads STILLWEGE weg (Blob-URLs aus
@@ -92,6 +98,43 @@ public class MainActivity extends BridgeActivity {
         // Querformat nur mit Stream (s. OrientationLockPlugin): Start immer
         // hochkant — das Web gibt die Sperre frei, sobald ein Stream läuft.
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT);
+        shareAusIntent(getIntent());
+    }
+
+    @Override
+    public void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // singleTask: ein Share in die laufende App kommt hier an.
+        shareAusIntent(intent);
+    }
+
+    /** ACTION_SEND (Übergabe P1.8, Share-Target): EXTRA_TEXT und/oder
+     *  EXTRA_STREAM (Bild) einlesen und an das Plugin weiterreichen.
+     *  Fehler werden bewusst geschluckt — ein kaputter Share darf die App
+     *  nicht umwerfen. */
+    private void shareAusIntent(Intent intent) {
+        if (intent == null) return;
+        if (!Intent.ACTION_SEND.equals(intent.getAction())) return;
+        String text = intent.getStringExtra(Intent.EXTRA_TEXT);
+        android.net.Uri stream = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+        if (text == null && stream == null) return;
+        String imageMime = null;
+        byte[] imageBytes = null;
+        if (stream != null) {
+            try (InputStream in = getContentResolver().openInputStream(stream)) {
+                ByteArrayOutputStream puffer = new ByteArrayOutputStream();
+                byte[] block = new byte[8192];
+                int n;
+                while ((n = in.read(block)) > 0) puffer.write(block, 0, n);
+                imageBytes = puffer.toByteArray();
+                imageMime = intent.getType();
+            } catch (Exception e) {
+                android.util.Log.w("PulseShare", "share image read failed", e);
+            }
+        }
+        if (text == null && imageBytes == null) return;
+        ShareReceiverPlugin.ankommen(text, imageMime, imageBytes);
     }
 
     /** Vom {@link AudioRoutePlugin} genutzt, damit der UI-Umschalter und das
@@ -141,6 +184,9 @@ public class MainActivity extends BridgeActivity {
         // Nach Rückkehr gilt die aktuelle Orientierung wieder (z. B. quer
         // gesperrt mit Stream → Leisten bleiben weg).
         wendeLeistenAn(getResources().getConfiguration().orientation);
+        // App sichtbar → das Web-Overlay zeigt den Anruf, die Sperrbildschirm-
+        // Notification ist redundant (No-op, wenn nichts klingelt).
+        CallForegroundService.beenden(this);
     }
 
     /**
@@ -187,11 +233,25 @@ public class MainActivity extends BridgeActivity {
         // mit SecurityException starten). Noch nicht erteilt → runtime anfragen
         // und den Start zurückstellen, bis der Grant eintrifft.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
+                != PackageManager.PERMISSION_GRANTED
+                || ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                        != PackageManager.PERMISSION_GRANTED) {
             micStartPending = true;
             getPreferences(MODE_PRIVATE).edit().putBoolean("micStartPending", true).apply();
             List<String> need = new ArrayList<>();
-            need.add(Manifest.permission.RECORD_AUDIO);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                    != PackageManager.PERMISSION_GRANTED) {
+                need.add(Manifest.permission.RECORD_AUDIO);
+            }
+            // Kamera gleich mit anfragen: Ein Voice-Call kann sie jederzeit
+            // aktivieren (Kamera-Knopf); eine separate Nachfrage mitten im
+            // Call wäre schlechter Zeitpunkt. Wer sie ablehnt, kann ohne
+            // Kamera weiter telefonieren — die WebView fragt dann nur Mic
+            // durch (Audio-Only-GetUserMedia braucht kein CAMERA-Grant).
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                    != PackageManager.PERMISSION_GRANTED) {
+                need.add(Manifest.permission.CAMERA);
+            }
             if (Build.VERSION.SDK_INT >= 33
                     && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                             != PackageManager.PERMISSION_GRANTED) {

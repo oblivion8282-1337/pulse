@@ -100,23 +100,25 @@ export function erstelleKanalWechsel() {
       // Only text channels have message history + WS subscriptions.
       // Voice channels are handled entirely by VoiceChannelView/LiveKit.
       if (ch && ch.type === 0) {
-        // Cached from an earlier visit? Then its WS subscription lapsed while
-        // we were away — re-subscribe + gap-fill below instead of re-fetching.
-        const alreadyLoaded = !!messages.loadedChannels[target];
+        // Jedes Öffnen lädt dieselbe Sequenz (lokal/Server → setInitial) —
+        // ein wiedergeöffneter Kanal sieht aus und lädt damit genauso wie
+        // beim ersten Besuch. Altbestand vorher leeren (Begründung s.
+        // dmKanalWechsel.svelte.ts); untrack gegen Selbst-Stale-Abort.
+        untrack(() => {
+          if (messages.loadedChannels[target]) messages.setInitial(target, []);
+        });
         try {
-          if (!alreadyLoaded) {
-            // Ablage-Kanal: der Server hat den Klartext nie gesehen (B1) —
-            // lokaler Bestand statt REST, wie bei einer privaten Gruppe
-            // (`dmKanalWechsel.svelte.ts`). `hatServerVerlauf` kennt ihn
-            // schon (hinter `ABLAGE_KANAL_ENABLED`).
-            if (!hatServerVerlauf(target)) {
-              await ladeAblageKanalVerlauf(target);
-              if (isStale()) return;
-            } else {
-              const history = await chatApi.listMessages(target);
-              if (isStale()) return;
-              messages.setInitial(target, history);
-            }
+          // Ablage-Kanal: der Server hat den Klartext nie gesehen (B1) —
+          // lokaler Bestand statt REST, wie bei einer privaten Gruppe
+          // (`dmKanalWechsel.svelte.ts`). `hatServerVerlauf` kennt ihn
+          // schon (hinter `ABLAGE_KANAL_ENABLED`).
+          if (!hatServerVerlauf(target)) {
+            await ladeAblageKanalVerlauf(target);
+            if (isStale()) return;
+          } else {
+            const history = await chatApi.listMessages(target);
+            if (isStale()) return;
+            messages.setInitial(target, history);
           }
         } catch (err) {
           if (isStale()) return;
@@ -165,6 +167,15 @@ export function erstelleKanalWechsel() {
     const entry = sid ? serversStore.find(sid) : undefined;
     if (entry?.origin !== 'app_host' || !entry.instance_id) return false;
     return appHostAnwesenheit.istOffline(entry.instance_id);
+  }
+
+  /** Altbestand des Zielkanals vor dem ersten Rendern leeren (Begründung s.
+   *  `dmKanalWechsel.vorbereiten` — sonst blitzt die Liste einen Frame lang
+   *  den Altbestand, bevor der Sprung nach unten kommt). */
+  function vorbereiten(cid: string) {
+    untrack(() => {
+      if (cid && messages.loadedChannels[cid]) messages.setInitial(cid, []);
+    });
   }
 
   // WS reconnect path: connection.ts calls messages.clearChannel(cid) for every
@@ -250,6 +261,8 @@ export function erstelleKanalWechsel() {
     get serverSchlaeft() {
       return serverSchlaeft;
     },
+
+    vorbereiten,
     switchTo,
     nachladenWennNoetig,
     retry,

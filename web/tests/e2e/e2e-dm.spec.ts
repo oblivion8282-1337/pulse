@@ -334,6 +334,13 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
     }
     alicePage = await aliceCtx.newPage();
     bobPage = await bobCtx.newPage();
+    // Archiv-Diagnose: stille Fehlschläge der Einlieferung sichtbar machen.
+    for (const p of [alicePage, bobPage]) {
+      p.on('console', (msg) => {
+        if (msg.text().includes('[archiv]')) console.log('BROWSER-KONSOLE:', msg.text());
+      });
+      p.on('pageerror', (e) => console.log('BROWSER-FEHLER:', e.message));
+    }
   });
 
   test.afterAll(async () => {
@@ -458,13 +465,16 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
    * waeren hier beide Knoepfe vorhanden (Element existiert unabhaengig vom
    * Hover-CSS, s. `MessageActions.svelte`).
    */
-  test('Bearbeiten bleibt fuer eigene verschluesselte Nachrichten aus, Loeschen ist der E2E-Loesch-Frame (Befund 1, aktualisiert)', async () => {
-    // Ursprung (Befund 1): BEIDE Aktionen waren verboten. Mittlerweile ist
-    // das LOESCHEN fuer eigene verschluesselte Nachrichten implementiert
-    // (`MessageList.svelte::canDeleteMessage` — E2E-Loesch-Frame, nur der
-    // Autor) — Bearbeiten bleibt ausgeschlossen. Beide Nachrichten hier
-    // stammen von Alice, also genau ein Loesch-Knopf je Zeile.
-    await expect(alicePage.getByTestId('message-action-edit')).toHaveCount(0);
+  test('Bearbeiten und Loeschen stehen dem Autor zur Verfuegung (Befund 1, Fassung 2026-10)', async () => {
+    // Ursprung (Befund 1): BEIDE Aktionen waren verboten. Bis 2026-10 galt:
+    // Loeschen ja (E2E-Loesch-Frame, nur der Autor), Bearbeiten nein. Seit
+    // „alle vier Schalter an" (0d93cd43) ist der Bearbeitungs-Umschlag der
+    // Normalweg — `bearbeitungErlaubt` (= E2E_DMS_ENABLED, im Test
+    // eingeschaltet) gibt den Bearbeiten-Knopf für den Autor frei
+    // (`MessageList.svelte::canEditMessage`). Beide Nachrichten hier
+    // stammen von Alice, also je Zeile ein Bearbeiten- und ein
+    // Loesch-Knopf.
+    await expect(alicePage.getByTestId('message-action-edit')).toHaveCount(2);
     await expect(alicePage.getByTestId('message-action-delete')).toHaveCount(2);
   });
 
@@ -614,5 +624,85 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
     // Bleibt trotzdem serverseitig unsichtbar wie jede verschluesselte
     // Nachricht dieses Kanals.
     expect(anzahlKlartextNachrichten(dmChannelId)).toBe(0);
+  });
+
+  test('das Server-Archiv trägt die Zeilen verschlüsselt (Übergabe 2026-10-04 §5)', async () => {
+    // Jede gesendete verschlüsselte Nachricht dieses Kanals liegt als Zeile
+    // im Archiv (120 Tage) — als Chiffre, nie als Klartext.
+    await expect
+      .poll(
+        () =>
+          Number(
+            pgQuery(`select count(*) from chat.archiv_zeilen where channel_id = ${dmChannelId}`)
+          ),
+        { timeout: 20_000 }
+      )
+      .toBeGreaterThan(0);
+    const roh = pgQuery(
+      `select encode(nutzlast, 'base64') from chat.archiv_zeilen where channel_id = ${dmChannelId}`
+    );
+    for (const zeile of roh.split('\n').filter(Boolean)) {
+      const dekodiert = Buffer.from(zeile, 'base64').toString('utf8');
+      expect(dekodiert).not.toContain('nur du und ich sollen das lesen koennen');
+      expect(dekodiert).not.toContain('antworte mir hierauf, verschluesselt');
+      expect(dekodiert).not.toContain('ja, genau darauf');
+    }
+  });
+
+  test('bobs Zweitgerät liest den Verlauf aus dem Archiv (Übergabe 2026-10-04 §5)', async () => {
+    test.setTimeout(240_000);
+    // Frischer Browser-Kontext = frisches Gerät: kein lokaler Bestand, keine
+    // Olm-Sitzungen. Bob meldet sich MIT Passwort an (dabei wird der Archiv-
+    // Schlüssel entsperrt), öffnet den DM-Kanal, und dmKanalWechsel zieht
+    // den Verlauf aus dem verschlüsselten Archiv nach. Der Zweitgeräte-
+    // Beweis ist der eigentliche Sinn des Archivs („überall der exakte
+    // Verlauf“).
+    const browser = bobCtx.browser();
+    if (!browser) throw new Error('kein Browser im Kontext');
+    const bob2Ctx = await browser.newContext();
+    await bob2Ctx.route('**/changelog.json', (route) => route.fulfill({ json: { entries: [] } }));
+    await schalterEinschalten(bob2Ctx);
+    await alsElektronGeraetAusgeben(bob2Ctx);
+    const bob2 = await bob2Ctx.newPage();
+    bob2.on('console', (msg) => {
+      if (msg.text().includes('[archiv]') || msg.text().includes('login') || msg.text().includes('geraete')) {
+        console.log('BOB2-KONSOLE:', msg.text().slice(0, 200));
+      }
+    });
+    bob2.on('pageerror', (e) => console.log('BOB2-FEHLER:', e.message));
+    try {
+      await bob2.goto('/login');
+      await bob2.getByTestId('login-identifier').fill(BOB.email);
+      await bob2.getByTestId('login-password').fill(BOB.password);
+      await bob2.getByTestId('login-submit').click();
+      try {
+        await bob2.waitForURL(/\/app/, { timeout: 60_000 });
+      } catch (e) {
+        await bob2.screenshot({ path: 'test-results/bob2-login-stuck.png', fullPage: true });
+        console.log('BOB2-URL:', bob2.url());
+        throw e;
+      }
+
+      await bob2.goto(`/app/@me/${dmChannelId}`);
+      // Der ARCHIV-Beweis: alices erste Nachricht — dieses Gerät hatte sie
+      // nie lokal, der Klartext steht nur in der verschlüsselten Archiv-Zeile.
+      // (Die virtuelle Liste rendert nur Sichtbares — deshalb die erste
+      // Nachricht als Beweis, nicht die letzte.)
+      // Direkter DOM-Vergleich statt Locator: getByText meldete „nicht
+      // gefunden", während der a11y-Baum den Absatz zeigte — der
+      // waitForFunction-Vergleich gegen body.innerText ist die ehrliche,
+      // robuste Fassung desselben Beweises.
+      await bob2.waitForFunction(
+        (nadel) => document.body.innerText.includes(nadel),
+        'nur du und ich sollen das lesen koennen',
+        { timeout: 150_000, polling: 2_000 }
+      );
+      // Zusatzbeweis über die Zeilenzahl: das Archiv trug MEHRERE Nachrichten
+      // nach (alice und bob haben je mehrere gesendet).
+      const zeilen = await bob2.locator('[data-testid="message-item"]').count();
+      expect(zeilen).toBeGreaterThan(2);
+    } finally {
+      await bob2Ctx.close();
+    }
   });
 });

@@ -166,3 +166,5 @@ dump.rdb
 # VAPID-Schluessel des Web-Push (pro Maschine generiertes Geheimnis,
 # der chat-gateway erzeugt ihn beim ersten Start selbst)
 web/data/
+# Lokaler Dev-Stack auf Windows (scripts/dev-local.mjs): Binaries, Logs, Config
+.dev-local/

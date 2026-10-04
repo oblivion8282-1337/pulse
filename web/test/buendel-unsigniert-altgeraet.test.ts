@@ -10,9 +10,16 @@
  *
  * Regel seit dem Fix: vorzeichenlose Bündel werden je Gerät übersprungen
  * (sichtbar über `melde` im Käfer-Ring); ungültige Signaturen und
- * Pinnungs-Abweichungen werfen weiterhin hart; bleibt kein signiertes
- * Gerät übrig, wirft der Weg denselben Fehler — kein stiller Abstieg in
+ * Pinnungs-Abweichungen werfen weiterhin hart; kein stiller Abstieg in
  * den Klartext-Pfad.
+ *
+ * 05.10.2026, nachgezogen (Befund „es kommen gar keine Nachrichten mehr
+ * durch"): der Gruppen-Verteilweg wirft bei „alles übersprungen" NICHT
+ * mehr — der Wurf riss die lokale Kopie des Absenders mit weg und legte
+ * die Gruppe still. Er liefert jetzt eine LEERE Liste; `senden.ts` hält
+ * die Nachricht lokal fest (`lokal_ohne_zustellung`) und die Oberfläche
+ * sagt es in menschlichen Sätzen. Der DM-Weg behält den Wurf (dort gibt
+ * es keine lokale Ablage auf diesem Weg — die Meldung muss hart sein).
  *
  * Quelltext-Prüfung nach Haus-Stil: die Sendeschleifen ziehen WASM/IDB und
  * sind in Nodes Testlaeufer nicht erreichbar (CLAUDE.md „Die Falle").
@@ -48,12 +55,18 @@ describe('vorzeichenlose Alt-Bündel: überspringen, nicht blockieren', () => {
       assert.match(quelle, /import \{ melde \} from '/);
     });
 
-    it(`${name}: alles übersprungen → derselbe Fehler, kein Klartext-Abstieg`, () => {
-      assert.match(quelle, /throw new BuendelUnsigniertFehler\(unsignierteAltgeraete\[0\]\);/);
+    it(`${name}: der Sprung bleibt sichtbar protokolliert (Käfer-Ring)`, () => {
+      assert.match(quelle, /continue;/);
     });
   }
 
+  it('Gruppen-Verteilweg: alles übersprungen → LEERE Liste statt Wurf (Nachricht bleibt lokal, 05.10.)', () => {
+    assert.doesNotMatch(gruppenQuelle, /throw new BuendelUnsigniertFehler/);
+    assert.match(gruppenQuelle, /return nutzlasten;/);
+  });
+
   it('DM-Weg: der Abstieg „unverschluesselt" bleibt NUR ohne Altgerät-Sprünge erreichbar', () => {
+    assert.match(sendenQuelle, /throw new BuendelUnsigniertFehler\(unsignierteAltgeraete\[0\]\);/);
     const leerstelle = sendenQuelle.indexOf("return 'unverschluesselt';");
     assert.ok(leerstelle > 0, 'Klartext-Rückgabe existiert noch');
     const davor = sendenQuelle.slice(0, leerstelle);

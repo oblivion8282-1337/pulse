@@ -20,6 +20,7 @@
  */
 
 import { compareSnowflakeId } from '$lib/utils/snowflake';
+import { istGelesenBis, vorwaertsMerge } from '$lib/stores/lesestandKern';
 
 const STORAGE_PREFIX = 'pulse.readState.';
 const MENTIONS_PREFIX = 'pulse.mentions.';
@@ -28,6 +29,20 @@ const UNREAD_PREFIX = 'pulse.unread.';
 class ReadState {
   lastReadByChannel = $state<Record<string, string>>({});
   latestByChannel = $state<Record<string, string>>({});
+  /** Serverseitiger Lesestand der GEGENSTELLE je DM (P0.2) — füttert die
+   *  Lese-Häkchen an der Bubble. Nur in-memory: die Wahrheit liegt auf dem
+   *  Server, der ready-Rahmen und `dm_lesestand`-Events liefern sie nach. */
+  partnerLastReadByChannel = $state<Record<string, string>>({});
+  /** Gruppen-Lesestand je Mitglied (Befund 05.10., „Haken wenn alle
+   *  gelesen"): gruppe → user → Wasserzeichen. Nur in-memory — die Quelle
+   *  ist das `gruppe_lesestand`-Ereignis; nach einem Reload füllen die
+   *  Ereignisse des nächsten Nachrichtenverkehrs das Feld wieder. */
+  gruppenLesestand = $state<Record<string, Record<string, string>>>({});
+  /** Zustellungs-Quittungen (WhatsApp „doppelter grauer Haken"): kanal →
+   *  empfangendes Konto → lokale Empfangszeit des Ereignisses (ms). Die
+   *  ECHTE Uhr des Empfangsgeräts ist irrelevant — gemessen wird, wann
+   *  DIESEM Klienten die Quittung zuflog. In-memory, wie oben. */
+  zustellungAngekommen = $state<Record<string, Record<string, number>>>({});
   /** Per-channel unread @-mention counter — bumped by the WS handler
    *  when a `mention_added` event (or an inline `message` whose mentions
    *  include the current user) lands for a channel the user isn't
@@ -91,6 +106,7 @@ class ReadState {
     this.unreadKey = '';
     this.lastReadByChannel = {};
     this.latestByChannel = {};
+    this.partnerLastReadByChannel = {};
     this.mentionCountByChannel = {};
     this.unreadCountByChannel = {};
   }
@@ -120,6 +136,9 @@ class ReadState {
     this.flushPending();
     this.latestByChannel = {};
     this.lastReadByChannel = this.ladeKarte<string>(this.storageKey) ?? {};
+    // Partner-Stand ist sessionseitig vom Server geliefert — der neue
+    // ready-Rahmen füllt ihn nach (gleiches Bild wie nach einem Reload).
+    this.partnerLastReadByChannel = {};
     this.mentionCountByChannel = this.ladeKarte<number>(this.mentionsKey) ?? {};
     this.unreadCountByChannel = this.ladeKarte<number>(this.unreadKey) ?? {};
   }
@@ -175,7 +194,10 @@ class ReadState {
   /** Acknowledge the channel up to (and including) `messageId`. Falls back
    *  to the latest-seen id if none is provided. Persists immediately.
    *  Also clears any pending mention count for the channel — opening a
-   *  channel mark-reads it, so the @-badge goes away in lockstep. */
+   *  channel mark-reads it, so the @-badge goes away in lockstep.
+   *  P0.2: der Fortschritt geht zusätzlich entprellt an den Server
+   *  (`serverSync`-Haken, installiert von `api/lesestand.ts`) — dort ist
+   *  die geräteübergreifende Wahrheit. */
   markRead(channelId: string, messageId?: string): void {
     const target = messageId ?? this.latestByChannel[channelId];
     if (!target) {
@@ -189,9 +211,42 @@ class ReadState {
     if (!prev || compareSnowflakeId(target, prev) > 0) {
       this.lastReadByChannel = { ...this.lastReadByChannel, [channelId]: target };
       this.persist();
+      this.serverSync?.(channelId, target);
     }
     this.clearMentions(channelId);
     this.clearUnread(channelId);
+  }
+
+  /** Hook für den Server-Reporter (`api/lesestand.ts`); null = nur lokal. */
+  private serverSync: ((channelId: string, messageId: string) => void) | null = null;
+  setServerSync(fn: (channelId: string, messageId: string) => void): void {
+    this.serverSync = fn;
+  }
+
+  /** Mergt den EIGENEN Server-Stand in den lokalen — nur vorwärts. Ein
+   *  frisch geladener Tab (oder das zweite Gerät) übernimmt den größeren
+   *  Stand, ohne jemals einen neueren lokalen zu verlieren. */
+  seedOwnLesestand(channelId: string, messageId: string): void {
+    this.lastReadByChannel = {
+      ...this.lastReadByChannel,
+      [channelId]: vorwaertsMerge(this.lastReadByChannel[channelId], messageId)
+    };
+  }
+
+  /** Mergt den Lesestand der Gegenstelle — Quelle ist der ready-Rahmen bzw.
+   *  das `dm_lesestand`-Event; nur vorwärts, Quelle ist der Server. */
+  setPartnerLesestand(channelId: string, messageId: string): void {
+    this.partnerLastReadByChannel = {
+      ...this.partnerLastReadByChannel,
+      [channelId]: vorwaertsMerge(this.partnerLastReadByChannel[channelId], messageId)
+    };
+  }
+
+  /** Lesebestätigung für eine EIGENE Nachricht in dieser DM: mindestens
+   *  eine Gegenstellen-Antwort mit id >= messageId gelesen? `null`, wenn
+   *  kein Partner-Stand bekannt ist (Häkchen zeigt dann nur „gesendet“). */
+  istGelesen(channelId: string, messageId: string): boolean | null {
+    return istGelesenBis(this.partnerLastReadByChannel[channelId], messageId);
   }
 
   isUnread(channelId: string): boolean {
@@ -292,6 +347,48 @@ class ReadState {
       this.write(this.unreadKey, this.unreadCountByChannel);
     }, 200);
   }
+  /** Quittung eines Empfangskontos verbuchen (aus `zustellung_bestaetigt`). */
+  angekommenMelden(channelId: string, userId: string, ms: number): void {
+    const jeKanal = this.zustellungAngekommen[channelId] ?? {};
+    const bisher = jeKanal[userId] ?? 0;
+    if (ms <= bisher) return;
+    this.zustellungAngekommen = {
+      ...this.zustellungAngekommen,
+      [channelId]: { ...jeKanal, [userId]: ms }
+    };
+  }
+
+  /** Ist meine Nachricht in diesem Kanal bei ALLEN genannten Konten
+   *  angekommen (doppelter grauer Haken)? DMs nennen nur die Gegenseite,
+   *  Gruppen alle anderen Mitglieder. `false`, wenn eine Ankunft fehlt. */
+  angekommenAlle(channelId: string, konten: string[], seitMs: number): boolean {
+    if (konten.length === 0) return false;
+    const jeKanal = this.zustellungAngekommen[channelId] ?? {};
+    return konten.every((u) => (jeKanal[u] ?? 0) > seitMs);
+  }
+
+  /** Gruppen-Lesestand eines Mitglieds verbuchen (aus `gruppe_lesestand`). */
+  gruppenLesestandMelden(gruppeId: string, userId: string, wasserzeichen: string): void {
+    const jeGruppe = this.gruppenLesestand[gruppeId] ?? {};
+    this.gruppenLesestand = {
+      ...this.gruppenLesestand,
+      [gruppeId]: { ...jeGruppe, [userId]: vorwaertsMerge(jeGruppe[userId], wasserzeichen) }
+    };
+  }
+
+  /** Haben ALLE genannten Mitglieder (ohne mich) bis zum Anker gelesen?
+   *  `null`, wenn noch kein Stand vorliegt — die Anzeige bleibt dann beim
+   *  einfachen Haken, statt voreilig blau zu werden. */
+  gruppeAlleGelesen(gruppeId: string, mitgliederOhneIch: string[], anker: string): boolean | null {
+    const jeGruppe = this.gruppenLesestand[gruppeId];
+    if (!jeGruppe || mitgliederOhneIch.length === 0) return null;
+    for (const u of mitgliederOhneIch) {
+      const stand = jeGruppe[u];
+      if (!stand || compareSnowflakeId(stand, anker) < 0) return false;
+    }
+    return true;
+  }
+
 }
 
 export const readState = new ReadState();

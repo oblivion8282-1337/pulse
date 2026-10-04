@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
   import { VList, type VListHandle } from 'virtua/svelte';
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import MessageItem from './MessageItem.svelte';
   import { plainifyMentions } from './messageRender';
   import { messages as messageStore } from '$lib/stores/messages.svelte';
@@ -14,6 +16,7 @@
   } from '$lib/nachrichten/klebezustand';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -51,6 +54,14 @@
     route = {},
     /** Pin-Recht vorgerechnet (Guild: MANAGE_MESSAGES; DM: immer wahr). */
     canPin = false,
+    /** Reaktionen auf verschluesselte Nachrichten laufen als Umschlag —
+     *  die Zweige verschluesselter Gespraechefaeden setzen das (DM und
+     *  private Gruppe), s. `ChatView.reaktionUmschlag`. */
+    reaktionUmschlag = false,
+    /** P1.5 Teil 2: verschluesselte Nachrichten duerfen per Umschlag
+     *  bearbeitet werden — die Zweige verschluesselter Gespraechefaeden
+     *  setzen das (analog `reaktionUmschlag`). */
+    bearbeitungErlaubt = false,
     /** Optionaler Inhalt für den Leerraum bei messages.length === 0 —
      *  z. B. der Sicherungs-Frischgerät-Hinweis. Fehlt er, greift der
      *  Standard-Absatz. */
@@ -73,6 +84,8 @@
     isOwner?: boolean;
     route?: { serverId?: string };
     canPin?: boolean;
+    reaktionUmschlag?: boolean;
+    bearbeitungErlaubt?: boolean;
     leerHinweis?: Snippet;
     onSetReplyTarget: (m: Message) => void;
     onEditMessage: (m: Message, newContent: string) => void;
@@ -109,6 +122,10 @@
   // nach. Der Echo-Swap (Laenge gleich) und der Initial-Load animieren
   // bewusst nicht — nur echtes Listenwachstum.
   let freshKey = $state<string | null>(null);
+  /** Neue Nachrichten, die ankamen, waehrend der Nutzer weiter oben liest —
+   *  Zaehler fuer den „Neue Nachrichten“-Knopf; Nullstellung, sobald der
+   *  Blick wieder am Ende ist. */
+  let neueUnten = $state(0);
   let freshTimer: ReturnType<typeof setTimeout> | null = null;
   function markiereFrisch(key: string) {
     freshKey = key;
@@ -127,33 +144,76 @@
   // wodurch Inhalt/Bilder unsichtbar bleiben. Nur `loadOlder()` (der einzige
   // Prepend-Pfad) schaltet es kurzzeitig true.
   let prependShift = $state(false);
+  /** Erste 150 ms nach Kanalwechsel: Runter-Scrollen blockiert. In dem
+   *  Fenster misst die Virtualisierung noch — ein Sofort-Wisch wandert in
+   *  den Leerbereich unter der letzten Nachricht (Nutzerwunsch
+   *  2026-09-25: die ersten 150 ms nicht nach unten scrollen koennen). */
+  let scrollBlockBis = 0;
+  let blockReferenz = 0;
+  /** Erstladung-Sperre: von Kanalöffnung bis der Erst-Pin auf gemessenen
+   *  Inhalt gelandet ist, blockt ein Spinner die Liste. Ohne Sperre wandert
+   *  ein sofortiges Runterwischen in den UNGEMESSENEN Schätzbereich der
+   *  Virtualisierung — endloses Leerscrollen (Testrunde 2026-09-24). */
+  let initialBereit = $state(false);
+  let bereitWache: ReturnType<typeof setTimeout> | undefined;
 
-  // Mess-Sperre nach dem Öffnen: virtua misst Zeilen erst, wenn sie im
-  // Sichtfenster liegen — bis dahin zählt jede ungemessene Zeile mit dem
-  // 48px-Schätzwert (`itemSize`) zur Scrollhöhe. Kurze Folgezeilen sind real
-  // ~30px, die Scrollhöhe ist anfangs also zu groß, und das Rad kann UNTER
-  // die letzte Nachricht in den Leerraum scrollen (nachgemessen: +373px auf
-  // einem 50-Zeilen-Kanal; der Initial-Pin landete 103px unterhalb des
-  // echten Endes). Erst wenn die ResizeObserver der Endzeilen geliefert
-  // haben, schrumpft der Spacer und der Browser klemmt die Position zurück
-  // („die Nachricht geht wieder nach unten"). Für diese Phase liegt der
-  // Viewport still: overflow-y:hidden blockt NUR Nutzer-Gesten (Rad,
-  // Leiste, Tasten) — das programmatische scrollTo des Pins wirkt weiter.
-  // Freigabe, sobald die Scrollhöhe nach der gelandeten Anfangs-Fahrt einen
-  // Frame stabil bleibt, hart begrenzt auf 300ms.
-  let messSperre = $state(false);
-  let messRaf = 0;
-  let messTimer: ReturnType<typeof setTimeout> | null = null;
+  function gibInitialFrei(): void {
+    clearTimeout(bereitWache);
+    // 150 ms RUHE abwarten: auf den lokalen Schwanz folgt der Server-
+    // Nachschlag, der die Liste neu misst — erst wenn der Strom kurz ruhig
+    // ist, wird freigegeben. Und der FREIGABE-Moment endet verbindlich auf
+    // der letzten Nachricht: ein Halb-Scroll waehrend des Ladens bleibt
+    // nicht haengen, der gewollte Stand ist das Listenende.
+    bereitWache = setTimeout(() => {
+      initialBereit = true;
+      // Sanfter Gleitlauf statt hartem Sprung: der Uebergang ins Listenende
+      // ist als kurze Bewegung erkennbar, nicht als Haengen.
+      pinToEnd(true);
+    }, 150);
+  }
 
   function handleVirtuaScroll(offset: number) {
     if (!vlist) return;
+    const size = vlist.getScrollSize();
+    // Vor dem ersten echten Inhalt ist die Größe 0 → nicht auswerten.
+    if (size === 0) return;
     // Wessen Scroll das ist, entscheidet die Rechnung: während einer eigenen
     // Fahrt ans Ende (`pinToEnd`) stellt sie nur scharf — die Zwischenframes
     // der Gleitfahrt liegen noch nicht am Ende und dürfen nicht lösen. Sonst
     // rechnet sie beidseitig, damit ein animierter Rad-Tick nach oben, dessen
     // erste Frames noch in der Toleranzzone liegen, das Kleben nicht wieder
     // scharf stellt (beide Fälle nachgemessen, s. `klebezustand.ts`).
-    klebe = nachScroll(klebe, offset, vlist.getViewportSize(), vlist.getScrollSize());
+    klebe = nachScroll(klebe, offset, vlist.getViewportSize(), size);
+    // Phantomspace unten KLEMMEN: der virtuelle Umfang rechnet mit Schaetzwerten
+    // fuer nie gerenderte Nachrichten und kann ueber dem realen Inhalt liegen —
+    // ohne Klemme scrollt man in die Leere unter der letzten Nachricht. Max.
+    // 30 px Luft zwischen letzter Nachricht und Listenende.
+    if (items.length > 0) {
+      const letzteIndex = items.length - 1;
+      const inhaltBisLetzte =
+        vlist.getItemOffset(letzteIndex) + vlist.getItemSize(letzteIndex);
+      const maxErlaubt = Math.max(0, inhaltBisLetzte + 30 - vlist.getViewportSize());
+      if (offset > maxErlaubt) {
+        vlist.scrollTo(maxErlaubt);
+        return;
+      }
+    }
+    // Erste 150 ms nach Kanalwechsel: nur ABWAERTS blockieren — der Finger
+    // kommt nicht in den Leerbereich unter der letzten Nachricht. Nach oben
+    // (aeltere Nachrichten) bleibt das Scrollen frei; die Referenz folgt
+    // nach unten, damit der Block nicht springt.
+    if (performance.now() < scrollBlockBis) {
+      if (offset > blockReferenz) {
+        blockReferenz = offset;
+        vlist.scrollTo(blockReferenz);
+      } else {
+        blockReferenz = offset;
+      }
+      return;
+    }
+    // Wieder am Ende (klebe rechnet das Kleben): der „Neue Nachrichten“-Zaehler
+    // ist abgearbeitet.
+    if (klebe.klebt && neueUnten !== 0) neueUnten = 0;
     if (
       canPaginate &&
       hasMore &&
@@ -208,42 +268,9 @@
           // Erst JETZT (nach der gelandeten Fahrt) auf ruhige Scrollhöhe
           // warten — die Endzeilen werden durch den Sprung erst gemountet
           // und gemessen; vorher wäre die Höhe oft schon „stabil falsch".
-          if (unbedingt) messphaseFreigebenWennRuhig();
         })
       )
     );
-  }
-
-  function messphaseFreigeben() {
-    if (messRaf) cancelAnimationFrame(messRaf);
-    if (messTimer) clearTimeout(messTimer);
-    messRaf = 0;
-    messTimer = null;
-    messSperre = false;
-  }
-
-  function messphaseSperren() {
-    messSperre = true;
-    if (messTimer) clearTimeout(messTimer);
-    messTimer = setTimeout(messphaseFreigeben, 300);
-  }
-
-  /** Freigabe, sobald die Scrollhöhe einen Frame unverändert bleibt — dann
-   *  stehen die gemessenen Höhen der Endzeilen im Spacer. Ohne diesen Abbruch
-   *  würde die Sperre bei nachladenden Bildern/Avataren Sekunden halten. */
-  function messphaseFreigebenWennRuhig() {
-    if (!messSperre) return;
-    if (messRaf) cancelAnimationFrame(messRaf);
-    let letzteGroesse = -1;
-    const schritt = () => {
-      messRaf = 0;
-      if (!messSperre) return;
-      const groesse = vlist?.getScrollSize() ?? 0;
-      if (groesse > 0 && groesse === letzteGroesse) return messphaseFreigeben();
-      letzteGroesse = groesse;
-      messRaf = requestAnimationFrame(schritt);
-    };
-    messRaf = requestAnimationFrame(schritt);
   }
 
   // Ältere Historie via ?before=<älteste-id> nachladen und vorne einfügen.
@@ -310,8 +337,16 @@
       loadingOlder = false;
       freshKey = null;
       if (freshTimer) clearTimeout(freshTimer);
-      messphaseFreigeben();
       vlist?.scrollToIndex(0);
+      // Sperre an + Fallback: ein wirklich leeres Gespraech (keine messages
+      // in Sicht) entlasst sich nach kurzer Frist selbst — der Spinner
+      // darf dort nie haengen.
+      initialBereit = false;
+      scrollBlockBis = performance.now() + 150;
+      blockReferenz = 0;
+      neueUnten = 0;
+      clearTimeout(bereitWache);
+      bereitWache = setTimeout(() => (initialBereit = true), 1200);
     });
   });
 
@@ -331,10 +366,25 @@
       // laufenden Scroll-Handler) — nicht erst nach tick(), wenn die neue,
       // u.U. >80px hohe Nachricht die Messung schon verfälscht hätte.
       const shouldScroll = isInitialLoad || klebe.klebt;
+      const zuwachs = count - lastCount; // vor dem Ueberschreiben sichern (Zaehler-Bug 03.10.)
       lastCount = count;
       lastSeenId = lastId;
-      if (isInitialLoad) messphaseSperren();
       if (shouldScroll) pinToEndWhenMeasured(isInitialLoad);
+      // Erstladung: etwas Inhalt kam NACH dem Notfall-Timer (langsames Netz,
+      // >1,2 s) — dann ist die Sperre schon auf, ohne dass gepinnt wurde:
+      // wieder schließen und erst nach der Ruhe-Frist mit Pin freigeben.
+      if (isInitialLoad && initialBereit) {
+        initialBereit = false;
+        gibInitialFrei();
+      }
+      // Jeder Nachschub in der Sperrphase stellt die Ruhe-Frist neu: erst
+      // wenn 350 ms lang NICHTS mehr kam (lokal + Server-merge), geht es auf.
+      if (!initialBereit) gibInitialFrei();
+      // Neue Nachrichten, waehrend der Nutzer weiter oben liest: zaehlen
+      // fuer den „Neue Nachrichten“-Knopf — die Leseposition bleibt unberuehrt.
+      if (gewachsen && !isInitialLoad && !klebe.klebt && count > 0) {
+        neueUnten += zuwachs;
+      }
       if (gewachsen && !isInitialLoad && count > 0) {
         markiereFrisch(messages[count - 1].nonce ?? lastId);
       }
@@ -353,6 +403,30 @@
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onGrow);
     ro?.observe(el);
     el.addEventListener('load', onGrow, true);
+    // Messungs-Wachstum: virtua misst Items erst beim Rendern nach — der
+    // Inhalt wächst also UNTER einem unten klebenden Nutzer (48er-Schätzung
+    // vs. reale Medienhöhen) und er scrollt „ins Nichts". Der Wächter hält
+    // den Pin, solange der Nutzer unten klebt.
+    let letzteGemessene = 0;
+    const wache = setInterval(() => {
+      if (!vlist || items.length === 0) {
+        letzteGemessene = 0;
+        return;
+      }
+      const groesse = vlist.getScrollSize();
+      // Lueckenlos solange unten geklebt: jedes Messungs-Nachziehen oberhalb
+      // vergroessert den Inhalt und drueckt das Listenende nach unten — ohne
+      // Neu-Pin driftet die Ansicht vom Ende weg (Scrollbar-Dezentliness).
+      // Bewusst unpinnte Nutzer (weiter oben lesen) werden nicht gestoert.
+      if (!klebe.klebt) {
+        letzteGemessene = groesse;
+        return;
+      }
+      if (Math.abs(groesse - letzteGemessene) > 10) {
+        letzteGemessene = groesse;
+        pinToEnd();
+      }
+    }, 250);
     // Scroll-Absicht des Users schlägt das automatische Ans-Ende-Ziehen — und
     // zwar SOFORT, nicht erst wenn das daraus folgende scroll-Event den
     // Zustand neu berechnet. Ohne das kann ein Bild, das genau in diesem
@@ -360,10 +434,11 @@
     // Hochroll-Versuch wieder nach unten reißen. Die Geste beendet auch eine
     // laufende eigene Fahrt; bleibt der User doch unten, stellt der
     // Scroll-Handler das Kleben im selben Zug wieder scharf.
-    // Während der Mess-Sperre hat die Geste keine Wirkung (der gesperrte
-    // Viewport scrollt nicht) — sie darf das Kleben dann auch nicht lösen.
+    // Während der Erstladung-Sperre (Spinner-Overlay) hat die Geste keine
+    // Wirkung (der gesperrte Viewport scrollt nicht) — sie darf das Kleben
+    // dann auch nicht lösen.
     const unpin = () => {
-      if (!messSperre) klebe = nachNutzergeste(klebe);
+      if (initialBereit) klebe = nachNutzergeste(klebe);
     };
     // Nur nach oben: ein Rad-Tick nach unten führt ohnehin ans Ende.
     const onWheel = (e: WheelEvent) => { if (e.deltaY < 0) unpin(); };
@@ -404,6 +479,7 @@
       el.removeEventListener('touchmove', onTouchMove, true);
       el.removeEventListener('keydown', onKey, true);
       el.removeEventListener('mousedown', onMouseDown, true);
+      clearInterval(wache);
     };
   });
 
@@ -642,10 +718,15 @@
     setTimeout(() => { if (highlightId === parentId) highlightId = null; }, 1500);
   }
 
-  // Verschluesselte DM hat keine `messages`-Zeile (s. `Message.verschluesselt`
-  // in `api/types.ts`) — Bearbeiten/Loeschen liefen sonst in einen 404.
+  // Verschluesselte Nachricht hat keine `messages`-Zeile (s.
+  // `Message.verschluesselt` in `api/types.ts`) — Bearbeiten/Loeschen
+  // liefen sonst in einen 404.
   function canEditMessage(m: Message): boolean {
-    if (m.verschluesselt) return false;
+    // Verschluesselt (P1.5 Teil 2): Bearbeiten läuft als Bearbeitungs-
+    // Umschlag — nur der Autor, nur wenn der Zweig des Gesprächs den
+    // Umschlag freischaltet (`bearbeitungErlaubt`, analog
+    // `reaktionUmschlag`).
+    if (m.verschluesselt) return bearbeitungErlaubt && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
     return !!myId && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
   }
   function canDeleteMessage(m: Message): boolean {
@@ -659,6 +740,13 @@
   function canReportMessage(m: Message): boolean {
     if (!myId) return false;
     return m.author_id !== myId;
+  }
+  // Verschluesselt: Reagieren laeuft als Reaktions-Umschlag (P1.5) — nur wo
+  // der Schalter gesetzt ist (DM oder verschluesselte private Gruppe); sonst
+  // bliebe der Server-Weg mit 404.
+  function canReactMessage(m: Message): boolean {
+    if (m.id.startsWith('tmp-')) return false;
+    return m.verschluesselt ? reaktionUmschlag : true;
   }
   function canPinMessage(m: Message): boolean {
     return canPin && !m.id.startsWith('tmp-') && !m.deleted_at;
@@ -681,7 +769,30 @@
      einer an der Virtualisierung selbst — mit Rueckwirkung auf das Nachladen
      nach oben und die Sprungmarken. Fuer einen kosmetischen Randfall, der nur
      bei ganz neuen Gespraechen sichtbar ist, ist das der falsche Preis. -->
-<div class="flex-1 min-h-0" bind:this={wrapperEl} data-testid="message-list">
+<div class="relative flex-1 min-h-0" bind:this={wrapperEl} data-testid="message-list">
+  {#if !initialBereit && viewport.istHandy}
+    <!-- Erstladung-Sperre (WhatsApp-Prinzip): die Liste ist ans Ende
+         gepinnt, sobald der erste Frame gemessen ist — vorher ist der
+         Schätzbereich der Virtualisierung leer, und ein sofortiges
+         Runterwischen wandert ins Unendliche. Der Spinner blockt die
+         Berührung, bis gepinnt ist; leere Gespraäche entlassen sich per
+         Fallback-Timer selbst. -->
+    <!-- NUR Handy: der Desktop hat den Verlauf lokal sofort — dort war das
+         Blitzen bei JEDEM Kanalwechsel reiner Rückschritt (Michaels Wunsch
+         03.10.). Die Sperre selbst (pin + Ruhe-Frist) bleibt an, nur die
+         Fläche ist nicht mehr zu sehen. -->
+    <!-- bg-bg-panel + Blur, NICHT bg-bg: das Token `--color-bg` existiert in
+         der Glasshouse-Palette nicht — die Fläche war rgba(0,0,0,0), der
+         Spinner schwebte frei, und beim Eintritt blitzten Leer-State-Text
+         und obenliegende Nachrichten durch (Aufnahme 2026-09-25 04:02).
+         panel-solid ist 92 % deckend, der Blur frisst den Rest. -->
+    <div
+      class="absolute inset-0 z-20 flex items-center justify-center bg-bg-panel backdrop-blur-2xl"
+      data-testid="message-list-loading"
+    >
+      <LoaderCircleIcon class="text-primary size-8 animate-spin" />
+    </div>
+  {/if}
   {#if channel}
     {#if messages.length === 0}
       <!-- `{' '}` statt eines Leerzeichens am Ende des Textbausteins: dort wäre es
@@ -725,7 +836,7 @@
         itemSize={48}
         itemSizeEstimate={hoeheNachIndex}
         bufferSize={800}
-        style={`height:100%${messSperre ? ';overflow-y:hidden' : ''}`}
+        style="height:100%; overscroll-behavior-y: contain;"
       >
         {#snippet children(item)}
           {#if item.kind === 'divider'}
@@ -751,6 +862,7 @@
               canDelete={canDeleteMessage(item.message)}
               canReport={canReportMessage(item.message)}
               canPin={canPinMessage(item.message)}
+              canReact={canReactMessage(item.message)}
               isDirect={!channel?.guild_id}
               guildId={channel?.guild_id ?? undefined}
               onReply={onSetReplyTarget}
@@ -763,6 +875,24 @@
           {/if}
         {/snippet}
       </VList>
+      {#if neueUnten > 0 && !klebe.klebt}
+        <!-- „Neue Nachrichten“-Knopf (WhatsApp-Prinzip): neue Nachrichten
+             waehrend des Lesens weiter oben stossen nicht — der Klick holt
+             sie und gleitet ans Ende. -->
+        <button
+          type="button"
+          class="bg-bg-input/95 text-text-bright hover:bg-bg-hover border-border absolute right-3 bottom-3 z-10 flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-semibold shadow-lg backdrop-blur-md transition-transform active:scale-95"
+          onclick={() => {
+            klebe = nachEigenerFahrt(klebe);
+            neueUnten = 0;
+            pinToEnd(true);
+          }}
+          data-testid="message-list-neue-nachrichten"
+        >
+          <ChevronDownIcon class="text-primary size-4" />
+          {pm.chat_neue_nachrichten_button({ anzahl: neueUnten })}
+        </button>
+      {/if}
     {/if}
   {/if}
 </div>

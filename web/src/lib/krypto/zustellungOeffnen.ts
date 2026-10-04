@@ -28,7 +28,10 @@ import {
   mitSitzungssperre,
   partnerSchluesselMerken
 } from './sitzungen';
-import { leseNachrichtNutzlast } from './nachrichtNutzlast';
+import {
+  leseNachrichtNutzlast,
+  rahmenAusNutzlast
+} from './nachrichtNutzlast';
 import { baueEmpfangeneNachricht } from './empfangeneNachricht';
 import { absenderErmitteln } from './absenderErmitteln';
 import { oeffneMitRueckfall } from './sitzungsRueckfall';
@@ -115,6 +118,29 @@ export type ZustellungOffenErgebnis =
        *  (s. `loeschZiel.ts`). */
       absenderUserId: string;
     }
+  /** Reaktions-Umschlag (P1.5): `ziel` ist die KANONISCHE ID der Nachricht,
+   *  `autorId` der Sitzungs-Partner, der reagiert hat. Der Aufrufer wendet
+   *  ihn lokal an und quittiert direkt — nichts abzulegen. */
+  | {
+      art: 'reaktion';
+      id: string;
+      channelId: string;
+      autorId: string;
+      ziel: string;
+      emoji: string;
+      entfernen: boolean;
+    }
+  | { art: 'bearbeitung'; id: string; channelId: string; ziel: string; inhalt: string }
+  /** Anruf-Schluessel-Frame (E2EE-Anrufe): `anrufId` + LiveKit-E2EE-Schluessel
+   *  (`schluessel`, 32 Bytes base64). Der Aufrufer reicht beides an den
+   *  Anruf-Store weiter und quittiert direkt — nichts abzulegen. */
+  | {
+      art: 'anrufSchluessel';
+      id: string;
+      channelId: string;
+      autorId: string;
+      anrufId: string;
+      schluessel: string;    }
   | null;
 
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
@@ -147,13 +173,13 @@ export async function zustellungOeffnen(
   // real entstanden sein und muss geoeffnet werden.
   if (istGruppennachricht(z)) {
     if (!PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) return null;
-    const nachricht = await oeffneGruppennachricht(z);
-    // 'verworfen' (Wiedereinspiel, fremde Absender-Angabe — s.
-    // `gruppe/empfangen.ts`) ist erfolgreich BEHANDELT: quittieren, sonst
-    // versucht der naechste Zyklus denselben Angriff wieder zu oeffnen.
-    if (nachricht === 'verworfen') return { art: 'ohneAblage', id: z.id };
-    return nachricht ? { art: 'neu', nachricht } : null;
-  }
+    // Liefert NEBEN der Nachricht inzwischen auch Aktions-Frames
+    // (Reaktion/Bearbeitung/Loeschung — dieselbe Erkennung wie im Olm-Weg
+    // unten) direkt in der Ergebnis-Form dieses Zyklus, s.
+    // `gruppe/empfangen.ts` — inklusive 'verworfen' => {art:'ohneAblage'}
+    // (Wiedereinspiel, fremde Absender-Angabe): quittierbar, sonst versucht
+    // der naechste Zyklus denselben Angriff wieder zu oeffnen.
+    return oeffneGruppennachricht(z);  }
 
   const absenderUserId = absenderErmitteln(
     z.absender_user_id,
@@ -275,7 +301,9 @@ export async function zustellungOeffnen(
       // dieser Aenderung lieferte reinen, huellenlosen Text, den
       // `leseNachrichtNutzlast` als Legacy-Fall ohne beides erkennt. Die
       // Umsetzung in die Anzeige-Form teilt sich dieser Weg mit dem
-      // Megolm-Weg, s. `empfangeneNachricht.ts`.
+      // Megolm-Weg, s. `empfangeneNachricht.ts`. Die Frame-Erkennung
+      // (Loeschung/Reaktion/Bearbeitung) teilt er sich EBENFALLS mit dem
+      // Megolm-Weg — dieselbe Funktion, dieselbe Bedeutung auf beiden Wegen.
       const gelesen = leseNachrichtNutzlast(klartextBytes);
       // **Absender-Bindung (Bughunt 2026-09-23):** die Nutzlast nennt ihr
       // Geraet; die Metadaten (`z.absender_device_pubkey`) setzt der Server
@@ -313,20 +341,9 @@ export async function zustellungOeffnen(
       // das Fehlen (Sender vor der Aenderung) faellt auf die Metadaten
       // und den DM-Rueckfall (`absenderErmitteln`) zurueck.
       const zuschreibung = gelesen.absenderNutzer ?? absenderUserId;
-      if (gelesen.geloescht && gelesen.id !== null) {
-        // Lösch-Frame (2026-09-02): der Aufrufer entfernt die Nachricht
-        // lokal (Grabstein im Verlauf, damit auch im Archiv) und quittiert
-        // direkt — es gibt nichts anzuzeigen und nichts abzulegen.
-        return {
-          art: 'loeschung',
-          id: z.id,
-          channelId: z.channel_id,
-          nachrichtId: gelesen.id,
-          absenderUserId: zuschreibung
-        };
-      }
-      return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, zuschreibung, gelesen) };
-    } catch (err) {
+      const rahmen = rahmenAusNutzlast(gelesen, z.id, z.channel_id, zuschreibung);
+      if (rahmen) return rahmen;
+      return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, zuschreibung, gelesen) };    } catch (err) {
       if (err instanceof KontoSicherungFehlgeschlagen) {
         // Weiterreichen, NICHT hier verschlucken — `postfachZyklus` laesst
         // NUR diese eine Zustellung liegen (FIX 2, Runde 3), sonst friert die

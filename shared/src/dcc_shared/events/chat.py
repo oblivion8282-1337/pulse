@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from pydantic import BaseModel, ConfigDict
+
 from dcc_shared.events._base import _EventBase
 
 
@@ -198,6 +200,21 @@ class PostfachNeuEvent(_EventBase):
     anzahl: int
 
 
+class DmLesestandEvent(_EventBase):
+    """``op="dm_lesestand"`` — ein DM-Teilnehmer hat bis (inklusive)
+    ``last_read_message_id`` gelesen (Übergabe P0.2). ID numerisch-opak,
+    Details am ``DmLesestand``-Modell des chat-gateway.
+
+    Geht an BEIDE Teilnehmer: der Partner baut daraus die Lese-Häkchen,
+    die anderen Geräte des Lesenden löschen damit ihre Ungelesen-Zähler
+    (geräteübergreifender Stand, der eigentliche Punkt von P0.2)."""
+
+    op: Literal["dm_lesestand"] = "dm_lesestand"
+    channel_id: str
+    user_id: str
+    last_read_message_id: str
+
+
 class TypingEvent(_EventBase):
     """``op="typing"`` — ephemeral "user is typing" ping on a channel.
 
@@ -223,3 +240,51 @@ class MentionAddedEvent(_EventBase):
 
     op: Literal["mention_added"] = "mention_added"
     data: MentionAddedData
+
+
+# ---- User-Events (publish_user_event) --------------------------------------
+
+
+class GruppeNeuEvent(BaseModel):
+    """``op="gruppe_neu"`` — an alle Mitglieder (inkl. Ersteller): eine
+    private Gruppe ist neu oder hat Mitglieder gewonnen. Der Klient zieht
+    ``GET /gruppen`` nach und abonniert die Kanäle neu.
+
+    Etappe G2 kannte bewusst kein Mitgliederwechsel-Ereignis — die Folge
+    (Befund 05.10.): wer bei einer neu angelegten Gruppe nicht selbst der
+    Ersteller war, erfuhr von ihr erst beim nächsten ``ready``; bis dahin
+    kein Abo, kein ``postfach_neu``, keine Benachrichtigung, keine
+    Live-Nachricht.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Literal["gruppe_neu"] = "gruppe_neu"
+    gruppe_id: str
+
+
+class ZustellungBestaetigtEvent(BaseModel):
+    """``op="zustellung_bestaetigt"`` — an den Absender: ein Empfangskonto
+    hat die Umschläge dieses Kanals abgeholt und gesichert (Quittung,
+    ``postfach_quittung``). Zweiter grauer Haken der WhatsApp-Treppe
+    (Befund 05.10.): gesendet → angekommen → gelesen."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Literal["zustellung_bestaetigt"] = "zustellung_bestaetigt"
+    channel_id: str
+    user_id: str
+
+
+class GruppeLesestandEvent(BaseModel):
+    """``op="gruppe_lesestand"`` — an alle Mitglieder: ein Mitglied hat die
+    Gruppe bis ``last_read_message_id`` gelesen. Der Haken an der Bubble
+    wird blau, wenn ALLE anderen Mitglieder durch sind (Befund 05.10.,
+    Michaels Wahl „Haken wenn alle gelesen")."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Literal["gruppe_lesestand"] = "gruppe_lesestand"
+    gruppe_id: str
+    user_id: str
+    last_read_message_id: str

@@ -59,20 +59,18 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
   // dieselbe verschluesselte Nachricht unter verschiedenen lokalen IDs.
   if (aktiveGruppe) {
     const gruppenKanal = aktiveGruppe.id;
-    if (attachmentIds.length > 0 || anhaenge.length > 0) {
-      toast.error(m.gruppe_senden_ohne_anhaenge());
-      return;
-    }
+    // Anhänge fahren seit dem Gruppen-Anhangsweg MIT — verschlüsselt im
+    // Megolm-Frame, die Bytes bleiben serverseitig an die Mitglieds-Zustel-
+    // lungen gebunden (derselbe sterbliche Weg wie bei DMs).
     const kanonischeId = kanonischeAntwortId(replyToId, visibleMessages);
     void import('$lib/krypto/gruppe/sendenMitAnzeige').then(async ({ gruppeSendenMitAnzeige }) => {
       try {
-        const ok = await gruppeSendenMitAnzeige(gruppenKanal, text, kanonischeId);
+        const ok = await gruppeSendenMitAnzeige(gruppenKanal, text, kanonischeId, anhaenge);
         melden?.(ok);
       } catch {
         melden?.(false);
       }
-    });
-    return;
+    });    return;
   }
 
   if (!activeDM) return;
@@ -138,6 +136,14 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
         try {
           if (text) void navigator.clipboard.writeText(text);
         } catch { /* Clipboard verweigert — Toast bleibt die Rückmeldung */ }
+        // Menschen lesen diese Meldung: ein unsigniertes Bündel (altes
+        // Gerät der Gegenseite) bekommt den Klartext-Rat, nie einen
+        // Geräte-Hash (Befund 05.10.).
+        const { BuendelUnsigniertFehler } = await import('$lib/krypto/buendelSignatur');
+        if (err instanceof BuendelUnsigniertFehler) {
+          toast.error(m.dm_senden_altgeraet());
+          return;
+        }
         toast.error(m.dm_page_send_failed(), { description: (err as Error).message });
         return;
       }

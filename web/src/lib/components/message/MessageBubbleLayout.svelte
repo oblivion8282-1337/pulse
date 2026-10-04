@@ -24,6 +24,9 @@
    */
   import type { Snippet } from 'svelte';
   import { longpress } from '$lib/utils/longpress';
+  import { swipetoreply } from '$lib/utils/swipetoreply';
+  import { pfeilDeckkraft } from '$lib/utils/swipeKern';
+  import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
   import type { Message } from '$lib/api/types';
   import PinIcon from '@lucide/svelte/icons/pin';
   import { m } from '$lib/paraglide/messages.js';
@@ -32,10 +35,14 @@
     message,
     time,
     eigen,
+    pending = false,
+    leseBestaetigt = undefined,
+    zugestellt = undefined,
     isContinuation = false,
     isGroupEnd = true,
     highlight = false,
     onLongPress,
+    onSwipeReply,
     body,
     actions
   }: {
@@ -43,13 +50,29 @@
     time: string;
     /** Vom angemeldeten Nutzer selbst — bestimmt Seite und Farbe. */
     eigen: boolean;
+    /** Lesebestätigung für EIGENE DM-Nachrichten (P0.2): `false` = nur
+     *  gesendet (einfaches Häkchen), `true` = von der Gegenstelle gelesen
+     *  (doppeltes), `undefined` = keine Auskunft (Fremdnachricht, ältere
+     *  Gegenstelle) → gar kein Häkchen. */
+    leseBestaetigt?: boolean;
+    /** Noch nicht zugestellt (optimistische Kopie): Uhr statt Häkchen
+     *  (WhatsApp-„Treppe", Befund 05.10.). */
+    pending?: boolean;
+    /** Angekommen bei allen Empfängern (doppelter GRAUER Haken) — Gruppen
+     *  und DMs; solange der blaue (gelesen) noch nicht z greift. */
+    zugestellt?: boolean;
     isContinuation?: boolean;
     isGroupEnd?: boolean;
     highlight?: boolean;
-    onLongPress: () => void;
+    onLongPress: (e: PointerEvent) => void;
+    /** Swipe-to-reply (P1.6, nur Touch): löst die Antwort auf diese Nachricht aus. */
+    onSwipeReply: () => void;
     body: Snippet;
     actions: Snippet;
   } = $props();
+
+  /** Live-Versatz der Blase (px) — steuert die Pfeil-Deckkraft beim Zug. */
+  let swipeOffset = $state(0);
 
   /** Angepinnt → Nadel neben der Uhrzeit, Blase bekommt einen Hauch Ton. */
   const pinned = $derived(!!message.pinned_at);
@@ -73,7 +96,25 @@
   data-eigen={eigen}
   use:longpress={{ onLongPress }}
 >
-  <div class="flex max-w-[78%] min-w-0 flex-col {eigen ? 'items-end' : 'items-start'}">
+  <!-- Antwort-Pfeil der Swipe-Geste: an der Zug-Gegenseite, Deckkraft aus
+       dem Live-Versatz. `eigen`-Blasen ziehen nach links (Pfeil rechts),
+       fremde nach rechts (Pfeil links). -->
+  {#if swipeOffset !== 0}
+    <span
+      class="text-primary absolute inset-y-0 flex items-center {eigen
+        ? 'right-4'
+        : 'left-4'}"
+      style="opacity: {pfeilDeckkraft(swipeOffset)}"
+      aria-hidden="true"
+    >
+      <CornerDownRightIcon class="size-5" />
+    </span>
+  {/if}
+  <div
+    class="flex max-w-[78%] min-w-0 flex-col {eigen ? 'items-end' : 'items-start'}"
+    style="touch-action: pan-y"
+    use:swipetoreply={{ onReply: onSwipeReply, onMove: (o) => (swipeOffset = o) }}
+  >
     <div
       class="min-w-0 px-3 py-2 {eigen
         ? 'accent-gradient-deep text-white'
@@ -99,6 +140,52 @@
               aria-label={m.message_pinned_badge()}
               data-testid="message-pinned-badge"
             />
+          {/if}
+          {#if eigen && pending}
+            <!-- Noch nicht zugestellt (optimistisch gesendet): Uhr, grau. -->
+            <svg
+              viewBox="0 0 12 12"
+              class="mr-1 inline size-3 align-baseline opacity-70"
+              aria-label={m.message_lesebestaetigung_gesendet()}
+              role="img"
+            >
+              <circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4" />
+              <path d="M6 3.4v2.8l1.9 1.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </svg>
+          {:else if eigen && (leseBestaetigt !== undefined || zugestellt !== undefined)}
+            <!-- Häkchen-Treppe (WhatsApp-Semantik): einfach grau = gesendet,
+                 doppelt grau = bei allen angekommen, doppelt BLAU = gelesen.
+                 Die blaue Fassung darf die Zeilenfarbe brechen — das Blau
+                 ist genau das Signal (Befund 05.10.). -->
+            <svg
+              viewBox="0 0 18 12"
+              class="mr-1 inline size-3.5 align-baseline {leseBestaetigt
+                ? 'text-[#53bdeb] opacity-100'
+                : 'opacity-70'}"
+              aria-label={leseBestaetigt
+                ? m.message_lesebestaetigung_gelesen()
+                : m.message_lesebestaetigung_gesendet()}
+              role="img"
+            >
+              <path
+                d="M1 6.5 4.5 10 10.5 3"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              {#if leseBestaetigt || zugestellt}
+                <path
+                  d="M6.9 9 8 10.3 15.4 2.8"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              {/if}
+            </svg>
           {/if}
           {time}</span
         >

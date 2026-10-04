@@ -58,7 +58,8 @@ import { parseMentionMarkers } from '../../components/mentionMarkierungen';
 import { geraeteKennung } from '../geraeteKennung';
 import { lokaleNachrichtId } from '../lokaleNachrichtId';
 import { mitGruppensitzungssperre } from '../sperren';
-import { baueNachrichtNutzlast } from '../nachrichtNutzlast';
+import { baueNachrichtNutzlast, type AnhangAngabe } from '../nachrichtNutzlast';
+import { anhangAngabeZuAttachment } from '../anhangAnzeige';
 import { PRIVATE_GRUPPEN_ENABLED } from '../schalter';
 import { sitzungWaehlen, standNachSendung } from './sitzungswahl';
 import { bloeckeEinliefern, verteilUmschlaege } from './gruppenEinliefern';
@@ -84,9 +85,13 @@ export type GruppenSendeErgebnis =
   /** Schalter aus, kein Nachweis moeglich, oder die Gruppe gibt es nicht
    *  (mehr) — es wurde NICHTS unternommen. */
   | { art: 'nicht_moeglich' }
-  /** Es wurde verschluesselt und eingeliefert, aber nirgends entstand eine
-   *  Zustellung (kein Mitglied hat ein veroeffentlichtes Geraet). */
-  | { art: 'nicht_zugestellt' };
+  /** Verschlüsselt und LOKAL verwahrt (der Absender sieht die eigene
+   *  Nachricht), aber kein Mitglied konnte erreicht werden — z. B. weil
+   *  alle Geräte alte, unsignierte Bündel fahren (Befund 05.10.: früher
+   *  warf dieser Fall, riss die lokale Kopie mit weg und zeigte einen
+   *  Geräte-Hash). Holt nach, sobald sich ein Mitglied neu
+   *  veröffentlicht; diesen Text muss die Oberfläche sagen. */
+  | { art: 'lokal_ohne_zustellung'; nachricht: Message };
 
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
@@ -95,7 +100,8 @@ function cloudRoute(): { serverId?: string } {
 export async function sendeInGruppe(
   kanalId: string,
   klartext: string,
-  replyToId: string | null = null
+  replyToId: string | null = null,
+  anhaenge: AnhangAngabe[] = []
 ): Promise<GruppenSendeErgebnis> {
   // Der Riegel VOR dem ersten Serveraufruf. `gruppenApi` verriegelt selbst
   // noch einmal (s. dort) — hier steht er trotzdem, weil sonst schon die
@@ -171,13 +177,28 @@ export async function sendeInGruppe(
     // Absender-Angabe in der authentisierten Nutzlast (Bughunt 2026-09-23)
     // — der Empfaenger attribuiert daraus, nicht aus Server-Metadaten.
     const geheimtext = stand.sitzung.verschluesseln(
-      baueNachrichtNutzlast(klartext, nachrichtId, replyToId, [], {
+      baueNachrichtNutzlast(klartext, nachrichtId, replyToId, anhaenge, {
         nutzer: eigeneUserId,
         geraet: eigeneKennung
-      })
-    );
+      })    );
     const daten = baueGruppenhuelle(stand.sitzungId, geheimtext);
     const alleGeraete = ziel.map((z) => z.geraet.device_pubkey);
+
+    // Die lokale Nachricht SOFORT nach dem Verschlüsseln bauen (Schritt
+    // 6b): selbst wenn unten niemand erreichbar ist, verliert der Absender
+    // seine eigene Zeile nicht mehr (Befund 05.10.).
+    const nachricht: Message = {
+      id: nachrichtId,
+      channel_id: kanalId,
+      author_id: eigeneUserId,
+      content: klartext,
+      nonce: null,
+      reply_to_id: replyToId,
+      created_at: new Date().toISOString(),
+      mentions: parseMentionMarkers(klartext),
+      verschluesselt: true,
+      ...(anhaenge.length > 0 ? { attachments: anhaenge.map(anhangAngabeZuAttachment) } : {})
+    };
 
     // Schritt 6 — sichern, BEVOR irgendetwas hinausgeht. Die Belieferung
     // (`nachSendung.beliefert`) wird erst nach der tatsaechlichen Zustellung
@@ -190,7 +211,11 @@ export async function sendeInGruppe(
       // Kein Mitglied hat ein veroeffentlichtes Geraet — es gibt niemanden,
       // an den zugestellt werden koennte. Ein Einliefern ohne Empfaenger
       // wuerde der Server ohnehin ablehnen (`empfaenger` min_length=1).
-      return { art: 'nicht_zugestellt' };
+      // Die Nachricht bleibt trotzdem lokal verwahrt (s. Schritt 6b).
+      await verlaufSpeichernPflicht(kanalId, [nachricht]).catch((err) =>
+        verlaufZustand.melde(err)
+      );
+      return { art: 'lokal_ohne_zustellung', nachricht };
     }
 
     // Schritt 7. Zwei Aufteilungen, zwei verschiedene Server-Grenzen:
@@ -223,7 +248,12 @@ export async function sendeInGruppe(
       await bloeckeEinliefern(
         kanalId,
         eigeneKennung,
-        inBloecke(nachrichtUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
+        inBloecke(nachrichtUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE),
+        // Die Anhang-Kennungen NUR bei der Nachricht melden (nicht bei den
+        // Schlüssel-Verteilschlägen): der Server bindet damit die Anhänge an
+        // die Zustellungen — ohne diese Bindung verweigert der Abrufweg
+        // jedem Empfänger die Bytes (404, Testrunde 2026-09-24).
+        anhaenge.map((a) => a.id)
       );
 
     if (nachrichtBeliefert.size === 0) {
@@ -232,9 +262,13 @@ export async function sendeInGruppe(
       // `einliefernEinmal`: ein verschluckter Fehler waere eine Nachricht,
       // die niemand bekommen hat und die niemand vermisst. Warf KEIN Block,
       // hat der Server schlicht jeden angefragten Empfaenger uebersprungen
-      // (z. B. kein Mitglied mit einem Buendel).
+      // (z. B. kein Mitglied mit einem Buendel) — dann bleibt die
+      // Nachricht lokal verwahrt (s. Schritt 6b).
       if (nachrichtFehler) throw nachrichtFehler;
-      return { art: 'nicht_zugestellt' };
+      await verlaufSpeichernPflicht(kanalId, [nachricht]).catch((err) =>
+        verlaufZustand.melde(err)
+      );
+      return { art: 'lokal_ohne_zustellung', nachricht };
     }
 
     // Schritt 8 — jetzt erst gilt der Schluessel als verteilt, und nur an die
@@ -250,18 +284,7 @@ export async function sendeInGruppe(
       });
     }
 
-    // Schritt 9.
-    const nachricht: Message = {
-      id: nachrichtId,
-      channel_id: kanalId,
-      author_id: eigeneUserId,
-      content: klartext,
-      nonce: null,
-      reply_to_id: replyToId,
-      created_at: new Date().toISOString(),
-      mentions: parseMentionMarkers(klartext),
-      verschluesselt: true
-    };
+    // Schritt 9 (die Nachricht entstand schon in Schritt 6b).
     try {
       await verlaufSpeichernPflicht(kanalId, [nachricht]);
     } catch (err) {

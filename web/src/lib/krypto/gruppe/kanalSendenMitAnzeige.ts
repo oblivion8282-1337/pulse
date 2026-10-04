@@ -28,22 +28,47 @@ export async function kanalSendenMitAnzeige(
     const { sendeInKanal } = await import('./kanalSenden');
     ergebnis = await sendeInKanal(state, guildId, kanalId, text, replyToId);
   } catch (err) {
-    toast.error(m.ablage_kanal_senden_fehlgeschlagen(), {
-      description: (err as Error).message
-    });
-    return;
+    // Dieselbe TOFU-Rückfrage wie im Gruppen- und DM-Weg (Befund 05.10.).
+    const { GeraeteIdentitaetGeaendertFehler } = await import('../buendelSignatur');
+    if (err instanceof GeraeteIdentitaetGeaendertFehler) {
+      const { confirmDialog } = await import('$lib/components/feedback/confirm.svelte');
+      const vertrauen = await confirmDialog({
+        title: m.dm_tofu_titel(),
+        description: m.dm_tofu_identitaet_geaendert_frage({ geraet: err.geraet }),
+        confirmLabel: m.direct_trust_accept()
+      });
+      if (!vertrauen) {
+        toast.error(m.ablage_kanal_senden_fehlgeschlagen());
+        return;
+      }
+      const { geraetePinnVergessen } = await import('$lib/krypto/geraetePinnung');
+      await geraetePinnVergessen(err.geraet);
+      try {
+        const { sendeInKanal: erneut } = await import('./kanalSenden');
+        ergebnis = await erneut(state, guildId, kanalId, text, replyToId);
+      } catch {
+        toast.error(m.ablage_kanal_senden_fehlgeschlagen());
+        return;
+      }
+    } else {
+      toast.error(m.ablage_kanal_senden_fehlgeschlagen(), {
+        description: (err as Error).message
+      });
+      return;
+    }
   }
   if (ergebnis.art === 'gesendet') {
     messages.upsert(ergebnis.nachricht);
     return;
   }
-  // Dieselbe Zweiteilung wie bei privaten Gruppen: „nicht moeglich" = es
-  // wurde NICHTS unternommen (Schalter aus, kein Geraeteschluessel) —
-  // „nicht zugestellt" = verschluesselt und eingeliefert, aber niemand mit
-  // veroeffentlichtem Geraet erreichbar.
-  toast.error(
-    ergebnis.art === 'nicht_zugestellt'
-      ? m.ablage_kanal_senden_niemand_erreichbar()
-      : m.ablage_kanal_senden_nicht_moeglich()
-  );
+  if (ergebnis.art === 'lokal_ohne_zustellung') {
+    // Dieselbe Regel wie bei privaten Gruppen (Befund 05.10.): die eigene
+    // Zeile bleibt stehen, ehrlich benannt, dass sie (noch) niemand sieht.
+    messages.upsert(ergebnis.nachricht);
+    toast.warning(m.gruppe_senden_lokal_erfasst());
+    return;
+  }
+  // „nicht moeglich" = es wurde NICHTS unternommen (Schalter aus, kein
+  // Geraeteschluessel).
+  toast.error(m.ablage_kanal_senden_nicht_moeglich());
 }

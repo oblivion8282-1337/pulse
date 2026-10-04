@@ -29,6 +29,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- App Links (Übergabe P1.8): https-Links auf howispulse.com/app
+                 öffnen die App statt dem Browser. autoVerify verlangt die
+                 assetlinks.json unter https://howispulse.com/.well-known/ —
+                 ohne sie (oder mit falschem Fingerabdruck) zeigt Android den
+                 Disambiguator, der Link funktioniert trotzdem. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="howispulse.com" />
+            </intent-filter>
+
+            <!-- Share-Target (Übergabe P1.8): Text und Bilder aus anderen
+                 Apps teilen. Empfang in MainActivity, Weitergabe an die
+                 WebView über ShareReceiverPlugin. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -47,6 +69,19 @@
         <service
             android:name=".MicForegroundService"
             android:foregroundServiceType="microphone"
+            android:exported="false" />
+
+        <!-- Klingelnder Anruf als Sperrbildschirm-Notification (Anrufe-Epic E).
+             Start/Stopp via AnrufPlugin (Web: call_klingelt / Entscheidung). -->
+        <service
+            android:name=".CallForegroundService"
+            android:foregroundServiceType="phoneCall"
+            android:exported="false" />
+
+        <!-- Annehmen/Ablehnen direkt aus der Notification, auch über dem
+             Sperrbildschirm (entscheidet zurück an die WebView). -->
+        <receiver
+            android:name=".CallForegroundService$AktionsEmpfaenger"
             android:exported="false" />
     </application>
 
@@ -67,4 +102,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- FGS-Notification ist ab Android 13 (API 33) eine Runtime-Permission. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Anrufe-Epic E: eingehende Anrufe über dem Sperrbildschirm.
+         USE_FULL_SCREEN_INTENT startet bei Sperrbildschirm die MainActivity im
+         Vollbild; FOREGROUND_SERVICE_PHONE_CALL + MANAGE_OWN_CALLS sind die
+         Voraussetzung für den phoneCall-FGS (CallStyle-Notification, ab API 34
+         typpflichtig). -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
 </manifest>

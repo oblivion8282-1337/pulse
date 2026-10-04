@@ -22,16 +22,19 @@
 
   // Profil-Vorzug: Der LiveKit-Name ist der NUTZERNAME, das Profil trägt den
   // Anzeigenamen und das Bild. Fehlt der Eintrag (Profil nie synchronisiert),
-  // fällt alles auf LiveKit-Name + Initiale zurück.
-  let profil = $derived(
-    t.identity.startsWith('user-') ? gastStreams.profile[t.identity.slice(5)] : undefined
-  );
+  // fällt alles auf LiveKit-Name + Initiale zurück. Join-Identitäten tragen
+  // einen Sitzungs-Suffix (`user-<id>~<zufall>`, Mehrgerät-Voice) — abziehen,
+  // sonst greift der Profil-Lookup ins Leere.
+  let nutzerId = $derived(t.identity.startsWith('user-') ? t.identity.slice(5).split('~', 1)[0] : null);
+  let profil = $derived(nutzerId ? gastStreams.profile[nutzerId] : undefined);
   let anzeigeName = $derived(profil?.name ?? t.name);
   let avatarSrc = $derived(safeAvatarUrl(profil?.avatarUrl ?? null));
   let initial = $derived(anfangsBuchstabe(anzeigeName) || '?');
 
   /** HQ-Streams dieses Senders — einer (LIVE öffnet direkt) oder mehrere. */
-  let streams = $derived(gastStreams.sender.filter((s) => `user-${s.userId}` === t.identity));
+  let streams = $derived(
+    nutzerId ? gastStreams.sender.filter((s) => s.userId === nutzerId) : []
+  );
   let sendetLive = $derived(streams.length > 0);
   /** Kamera-Kachel dieses Senders (falls er eine veröffentlicht hat). */
   let kamera = $derived(

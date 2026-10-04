@@ -13,6 +13,8 @@
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
   import { communityInvites } from '$lib/stores/communityInvites.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
+  import NeueGruppeDialog from './mobile/NeueGruppeDialog.svelte';
+  import PlusIcon from '@lucide/svelte/icons/plus';
   import SidebarFooter from './SidebarFooter.svelte';
   import type { DMChannel } from '$lib/api/types';
 
@@ -27,6 +29,8 @@
      *  Abschnitt aus — die Liste behauptet dann nicht, es gaebe Gruppen. */
     onSelectGruppe?: (gruppeId: string) => void;
   } = $props();
+
+  let neueGruppe = $state(false);
 
   const friendsActive = $derived(page.url.pathname.startsWith('/app/friends'));
   const pendingCount = $derived(friendRequests.incomingList.length);
@@ -106,11 +110,25 @@
     {/each}
 
     <div class="my-3 hairline bg-border" aria-hidden="true"></div>
-    <p
-      class="text-text-muted px-3 pb-1 text-2xs font-semibold uppercase tracking-wider"
-    >
-      Direktnachrichten
-    </p>
+    <!-- Neue Gruppe — derselbe Dialog wie im Handy-Chats-Bereich (Übergabe §5
+         P0.4). Das „+" gehört in DIESE Zeile, rechts neben das
+         Direktnachrichten-Label (Michaels Befund 05.10.): es betrifft Chats,
+         nicht den @me-Kopf — und hing im Mobile-Merge vorher lostrennt in
+         einer eigenen Zeile zwischen Kopf und Liste. -->
+    <div class="flex items-center justify-between pr-2 pl-3 pb-1">
+      <p class="text-text-muted text-2xs font-semibold uppercase tracking-wider">
+        Direktnachrichten
+      </p>
+      <button
+        type="button"
+        class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-7 items-center justify-center rounded-lg transition-colors"
+        onclick={() => (neueGruppe = true)}
+        data-testid="sidebar-new-group"
+        aria-label={m.chats_new_group()}
+      >
+        <PlusIcon class="size-4" />
+      </button>
+    </div>
     {#if directMessages.list.length === 0}
       <p class="text-text-muted px-3 py-2 text-xs">
         Noch keine DMs. Klick auf einen User im Channel, um eine zu starten.
@@ -167,7 +185,7 @@
          legt, muss sie an jeder Stelle danach wieder auseinandersortieren.
          Der Abschnitt fehlt ganz, solange es keine Gruppe gibt — ein leerer
          Titel waere eine Ankuendigung ohne Inhalt. -->
-    {#if onSelectGruppe && privateGruppen.list.length > 0}
+    {#if privateGruppen.list.length > 0}
       <div class="my-3 hairline bg-border" aria-hidden="true"></div>
       <p class="text-text-muted px-3 pb-1 text-2xs font-semibold uppercase tracking-wider">
         {m.dm_list_gruppen_heading()}
@@ -179,7 +197,7 @@
           class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
           data-active={activeDMId === gruppe.id}
           data-unread={isUnread}
-          onclick={() => onSelectGruppe(gruppe.id)}
+          onclick={() => (onSelectGruppe ? onSelectGruppe(gruppe.id) : goto(`/app/@me/${gruppe.id}`))}
           data-testid={`gruppe-${gruppe.id}`}
         >
           <UsersIcon
@@ -209,3 +227,14 @@
 
   <SidebarFooter />
 </aside>
+
+{#if neueGruppe}
+  <!-- Ständig erreichbar (Michaels Befund 05.10.): die drei anderen Aufrufer
+       (Home, Freunde, Einladungen) geben onSelectGruppe nicht weiter — ohne
+       Fallback war das „+" dort tot. onErstellt springt dann direkt in die
+       neue Gruppe, wie ein DM-Klick es täte. -->
+  <NeueGruppeDialog
+    bind:open={neueGruppe}
+    onErstellt={(id) => (onSelectGruppe ? onSelectGruppe(id) : goto(`/app/@me/${id}`))}
+  />
+{/if}

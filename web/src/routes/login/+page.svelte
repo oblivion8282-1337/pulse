@@ -83,6 +83,14 @@
   async function completeLogin() {
     await auth.setUser(await me());
 
+    // Archiv-Schlüssel entsperren/erstanlegen (Übergabe §5): das Passwort
+    // liegt NUR hier im Speicher — fire-and-forget, die Anmeldung darf
+    // nicht am Archiv hängen. Passkey-Anmeldung ohne Passwort: kein Aufruf,
+    // der Cache aus der IndexedDB (voriger Login) bleibt die Quelle.
+    if (password && auth.user) {
+      void import('$lib/archiv/konto').then((m) => m.archivBeimLogin(auth.user!.id, password));
+    }
+
     // Profil-Auffrischung starten. Der Ausweis-Fluss, der hier früher lief, ist
     // mit dem Gerätezertifikat entfallen: Es gibt kein lokales Schlüsselpaar
     // mehr, das ein Account-Wechsel am selben Gerät verwechseln könnte.

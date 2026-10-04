@@ -21,6 +21,7 @@
 import { isElectron } from '$lib/platform/runtime';
 import { normalizeHostname } from '$lib/utils/hostname';
 import { instancesApi } from '$lib/api/instances';
+import { neueUuid } from '$lib/utils/uuid';
 import type { PulseStoreApi } from '$lib/platform/pulse';
 
 export type ServerEntry = {
@@ -94,7 +95,7 @@ function secureStore(): PulseStoreApi | null {
 
 function buildCloudEntry(): ServerEntry {
   return {
-    id: crypto.randomUUID(),
+    id: neueUuid(),
     hostname: CLOUD_HOSTNAME,
     instance_id: null,
     label: CLOUD_LABEL,
@@ -229,7 +230,7 @@ class ServersStore {
     const normalized = normalizeHostname(hostname);
     const isCloud = normalized === CLOUD_HOSTNAME;
     const entry: ServerEntry = {
-      id: crypto.randomUUID(),
+      id: neueUuid(),
       hostname: normalized,
       instance_id: instance_id ?? null,
       // Ausdrücklich false: Der Eintrag entsteht VOR der ersten Anmeldung. Wird
@@ -445,7 +446,7 @@ class ServersStore {
         this.servers = [
           ...this.servers,
           {
-            id: crypto.randomUUID(),
+            id: neueUuid(),
             hostname: normalized,
             instance_id: inst.id,
             label: inst.hostname, // Default; der Anzeigename kommt vom Server-Admin

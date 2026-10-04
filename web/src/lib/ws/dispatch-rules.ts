@@ -32,6 +32,16 @@ const PURE_SOCIAL_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   'user_blocked',
   'user_unblocked',
   'dm_bump',
+  // Serverseitiger Lesefortschritt (P0.2): Cloud-Sozialschicht, muss auch im
+  // Hintergrund ankommen — sonst bleiben Häkchen und Zähler auf anderen
+  // Geräten stehen, bis zum nächsten Reload.
+  'dm_lesestand',
+  // Anruf-Signalisierung (Anrufe-Epic B): klingeln muss jeden Hintergrund-
+  // Tab erreichen, sonst verpasst man Anrufe, während ein Self-Host aktiv ist.
+  'call_klingelt',
+  'call_angenommen',
+  'call_abgelehnt',
+  'call_ende',
   // Der Weckruf fürs verschlüsselte Postfach (DMs, private Gruppen und
   // Ablage-Kanäle). Er trägt nur Kanal und Anzahl, nie Inhalt; abgeholt wird
   // danach alles Offene — `postfachAbholenUndAnzeigen` (`handlers/chat.ts`)
@@ -44,6 +54,14 @@ const PURE_SOCIAL_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   // Stack: Empfänger mit aktivem Self-Host sah die Nachricht nicht,
   // Absender schon.
   'postfach_neu',
+  // Neue private Gruppe / neues Mitglied: der Empfänger muss den Kanal
+  // abonnieren, sonst kommt keine Benachrichtigung und keine Live-
+  // Nachricht (Befund 05.10.). Hintergrund-Tab ausdrücklich eingeschlossen.
+  'gruppe_neu',
+  // Lese-/Zustellungs-Rückläufe: der blaue bzw. graue Doppel-Haken muss
+  // auch dann kommen, wenn das Sender-Fenster im Hintergrund liegt.
+  'gruppe_lesestand',
+  'zustellung_bestaetigt',
 ]);
 
 /**

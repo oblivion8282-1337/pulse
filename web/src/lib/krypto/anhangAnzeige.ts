@@ -27,6 +27,7 @@ export function anhangAngabeZuAttachment(angabe: AnhangAngabe): Attachment {
     height: angabe.hoehe,
     thumb_width: angabe.vorschau?.breite ?? null,
     thumb_height: angabe.vorschau?.hoehe ?? null,
+    dauerSekunden: angabe.dauerSekunden ?? null,
     url: '',
     thumb_url: null,
     verschluesselt: true,

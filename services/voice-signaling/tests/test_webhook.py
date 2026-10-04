@@ -145,6 +145,55 @@ async def test_webhook_join_then_leave(webhook_client, redis):
 
 
 @pytest.mark.asyncio
+async def test_webhook_zweitgeraet_laesst_praesenz_stehen(webhook_client, redis):
+    """Befund 03.10. #6: dasselbe Konto, zwei Geräte (Identitäten mit
+    Sitzungs-Suffix). Das erste Gerät geht — die Präsenz bleibt, weil das
+    zweite noch drin ist; erst das zweite Gerät räumt ab."""
+    from dcc_voice_signaling.webhook import geraete_key
+
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    pubsub = redis.pubsub(ignore_subscribe_messages=True)
+    await pubsub.subscribe(VOICE_EVENTS_CHANNEL)
+    try:
+        for suffix in ("aaaa", "bbbb"):
+            body = _event_body("participant_joined", room, f"user-7~{suffix}")
+            r = await webhook_client.post(
+                "/webhook", content=body, headers={"Authorization": _sign(body)}
+            )
+            assert r.status_code == 204
+        members = await redis.smembers(room_key(room))
+        assert {m.decode() for m in members} == {"7"}
+        await _drain_one(pubsub)
+        await _drain_one(pubsub)
+
+        # Erstes Gerät geht → Präsenz bleibt stehen.
+        body = _event_body("participant_left", room, "user-7~aaaa")
+        r = await webhook_client.post(
+            "/webhook", content=body, headers={"Authorization": _sign(body)}
+        )
+        assert r.status_code == 204
+        members = await redis.smembers(room_key(room))
+        assert {m.decode() for m in members} == {"7"}
+        msg = await _drain_one(pubsub)
+        assert json.loads(msg["data"])["user_ids"] == ["7"]
+
+        # Zweites Gerät geht → erst jetzt ist die Präsenz weg.
+        body = _event_body("participant_left", room, "user-7~bbbb")
+        r = await webhook_client.post(
+            "/webhook", content=body, headers={"Authorization": _sign(body)}
+        )
+        assert r.status_code == 204
+        assert await redis.exists(room_key(room)) == 0
+        assert await redis.exists(geraete_key(room)) == 0
+        msg = await _drain_one(pubsub)
+        assert json.loads(msg["data"])["user_ids"] == []
+    finally:
+        await pubsub.aclose()
+        await redis.delete(room_key(room), geraete_key(room))
+
+
+@pytest.mark.asyncio
 async def test_webhook_room_finished_clears(webhook_client, redis):
     cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
     room = f"channel-{cid}"

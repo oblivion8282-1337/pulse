@@ -135,7 +135,27 @@ export async function ladeAeltereSeite(
   // Eine private Gruppe hat keinen Server-Verlauf — der lokale Bestand ist
   // die einzige Kopie. Ist er erschoepft, ist die Seite zu Ende; ein Aufruf
   // gaebe hier eine Abweisung, die als Ladefehler aussaehe.
-  if (!hatServerVerlauf(channelId)) return { nachrichten: [], vomServer: false };
+  if (!hatServerVerlauf(channelId)) return { nachrichten: [], vomServer: false, sicherungLieferte };
+
+  // Server-Archiv (Übergabe 2026-10-04 §5): E2EE-DMs haben keinen
+  // Server-Verlauf im Klartext — ist der lokale Bestand zu Ende, füllt das
+  // verschlüsselte Archiv (120 Tage) ältere Seiten nach. Vor dem
+  // Server-Zweig, dedupe-sicher per Upsert (dieselbe Logik wie der
+  // Sicherungs-Zweig oben). Nur für DMs; Guild-Kanäle haben ihren Verlauf
+  // ohnehin beim Server.
+  if (channelId in directMessages.byId) {
+    try {
+      const { archivNachziehen } = await import('$lib/archiv/lesen');
+      if ((await archivNachziehen(channelId, 1)) > 0) {
+        const nachgeladen = (
+          await verlaufLesen(channelId, { vor: oldest, anzahl: seitenGroesse })
+        ).filter((n) => n.deleted_at === null);
+        if (nachgeladen.length > 0) return { nachrichten: nachgeladen, vomServer: false };
+      }
+    } catch {
+      /* Archiv darf das Hochscrollen nie stören — der Server-Zweig läuft. */
+    }
+  }
 
   const vomServer = await chatApi.listMessages(
     channelId,

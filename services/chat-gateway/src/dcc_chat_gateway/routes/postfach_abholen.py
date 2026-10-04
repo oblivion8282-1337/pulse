@@ -26,7 +26,9 @@ Entschluesseln kann er sie nicht — wegnehmen schon.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response, status
+import logging
+
+from fastapi import APIRouter, Request, Response, status
 from sqlalchemy import delete, exists, select
 
 import dcc_chat_gateway.config as chat_config
@@ -39,6 +41,8 @@ from dcc_chat_gateway.schemas import (
 )
 from dcc_chat_gateway.schluessel_nachweis import pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["postfach"])
 
@@ -133,6 +137,7 @@ async def postfach_quittung(
     body: PostfachQuittungRequest,
     session: SessionDep,
     user: CurrentUser,
+    request: Request,
 ) -> Response:
     """Loescht die genannten Zustellungen des genannten Geraets.
 
@@ -143,6 +148,25 @@ async def postfach_quittung(
     """
     ids = list(dict.fromkeys(body.zustellung_ids))  # Duplikate raus, Reihenfolge egal.
     geraet = await pruefe_geraet(session, user, body.device_pubkey)
+
+    # Für den Absender-Rücklauf (WhatsApp-Treppe, Befund 05.10.: doppelter
+    # GRAUER Haken = angekommen): vor dem Löschen die (Kanal, Absender)-Paare
+    # der Quittungen einsammeln — die Quittung ist das „angekommen"-Signal,
+    # das dem Absender als user_event zurückgeht.
+    absender_kreise = (
+        (
+            await session.execute(
+                select(DmNutzlast.channel_id, DmNutzlast.absender_user_id)
+                .join(DmZustellung, DmZustellung.nutzlast_id == DmNutzlast.id)
+                .where(
+                    DmZustellung.id.in_(ids),
+                    DmZustellung.empfaenger_device_pubkey == geraet,
+                    DmZustellung.empfaenger_user_id == user.id,
+                )
+                .distinct()
+            )
+        ).all()
+    )
 
     betroffene_nutzlasten = (
         await session.execute(
@@ -177,5 +201,27 @@ async def postfach_quittung(
             )
         )
 
-    await session.commit()
+        await session.commit()
+
+    # Rücklauf an die Absender (best-effort, Muster wie die anderen Publishes):
+    # pro (Kanal, Absender) ein Ereignis — der Absender hält daraus den
+    # doppelten grauen Haken. Der Quittierende selbst braucht es nicht.
+    if absender_kreise:
+        manager = getattr(request.app.state, "connection_manager", None)
+        if manager is not None:
+            from dcc_shared.events import ZustellungBestaetigtEvent
+
+            for kanal_id, absender_id in set(absender_kreise):
+                if absender_id is None or absender_id == user.id:
+                    continue
+                try:
+                    await manager.publish_user_event(
+                        absender_id,
+                        ZustellungBestaetigtEvent(
+                            channel_id=str(kanal_id), user_id=str(user.id)
+                        ),
+                    )
+                except Exception:
+                    log.exception("zustellung_bestaetigt publish failed")
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)

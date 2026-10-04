@@ -30,15 +30,17 @@
 export function lokaleIdsFuerLoeschung(
   frameId: string,
   kandidaten: ReadonlyArray<{ id: string; krypto_id?: string; author_id?: string }>,
-  absenderUserId: string
+  absenderUserId?: string
 ): string[] {
   const treffer = new Set<string>();
   for (const k of kandidaten) {
     if (k.id !== frameId && k.krypto_id !== frameId) continue;
     // Ohne bekannten Autor wird nicht gelöscht: fehlt das Feld, ist der Satz
     // nicht zuzuordnen, und „im Zweifel löschen" ist bei einem Vorgang ohne
-    // Rückweg die falsche Richtung.
-    if (k.author_id !== absenderUserId) continue;
+    // Rückweg die falsche Richtung. Aktions-Frames (Reaktion/Bearbeitung)
+    // dürfen OHNE Absender-Bindung suchen — sie löschen nichts; der
+    // Lösch-Weg in `empfangen.ts` setzt den Absender immer.
+    if (absenderUserId !== undefined && k.author_id !== absenderUserId) continue;
     treffer.add(k.id);
   }
   return [...treffer];

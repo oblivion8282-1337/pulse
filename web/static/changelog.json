@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-10-04.1",
+      "date": "2026-10-04",
+      "style": "Sachlich",
+      "title": "Handy-Chat neu sortiert, Gruppen robuster, Anrufe für mehrere Geräte — und das verschlüsselte Nachrichten-Archiv",
+      "intro": "Diese Ausgabe räumt in drei Bereichen auf: Der Chat auf dem Handy öffnet und scrollt jetzt verlässlich — keine Sprünge, kein Leerlauf mehr, Videos werden wie gewohnt aufgenommen und abgespielt. Gruppen und Anrufe wurden an mehreren Ecken gehärtet: Benachrichtigungen kommen an, ein zweites Gerät wirft laufende Anrufe nicht mehr um, und alte Geräte blockieren den Gruppen-Chat nicht mehr. Und neu: Direktnachrichten liegen verschlüsselt im Archiv und stehen so auf jedem frisch eingerichteten Gerät wieder zur Verfügung.",
+      "items": [
+        "Handy-Chat: Öffnen und Scrollen arbeiten jetzt mit fester Ankerung — der Chat steht beim Öffnen am Ende, Nachladen ruckt nicht, und ein „Neue Nachrichten“-Knopf hält die Leseposition, während neue Nachrichten ankommen.",
+        "Videos: Vorschaubilder für alle Videos (auch ältere), Wiedergabe mit Spulleiste und Schnittgriffen direkt im Entwurf, einheitliche 16:9-Kacheln. Am Desktop ist der Video-Betrachter im bekannten Galerie-Stil umgezogen.",
+        "Gruppen: Benachrichtigungen (Ton, roter Punkt am Pulse-Icon) kommen jetzt auch für Gruppennachrichten an. Lesehaken nach dem bekannten Muster — blau, sobald alle Mitglieder gelesen haben. Verschlüsselte Anhänge in privaten Gruppen sind neu.",
+        "Anrufe: Ein Gespräch läuft weiter, wenn ein zweites eigenes Gerät klingelt oder ablehnt; Doppel-Tippen auf Annehmen erzeugt kein Echo mehr; Gruppenanrufe enden nicht mehr beim ersten Auflegen. Am Handy klingeln Anrufe über die Anruf-Lautstärke.",
+        "Neu — Nachrichten-Archiv: Direktnachrichten liegen Ende-zu-Ende-verschlüsselt 120 Tage beim Server. Auf einem neuen Gerät genügt die normale Anmeldung, und der Verlauf kommt zurück — Passwortwechsel und Passwort-zurücksetzen verlieren dabei nichts.",
+        "Sonstiges: Kein Lade-Blitzen mehr beim Chat-Öffnen am Desktop, kleinere Reparaturen am „+“-Knopf und den Rahmen der Unterhaltungsliste."
+      ]
+    },
+    {
       "id": "2026-10-03.1",
       "date": "2026-10-03",
       "style": "Sachlich",

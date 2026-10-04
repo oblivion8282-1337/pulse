@@ -200,6 +200,18 @@ async def password_reset(
     # also raises the ``revoke_until`` watermark that gates ``/credentials/issue``
     # (see ``revoke_all_for_user``), so the session can't still mint a device cert.
     await revoke_all_for_user(session, user.id)
+
+    # Archiv-Re-Wrap (Übergabe 2026-10-04 §5): der E-Mail-Reset darf NICHTS
+    # verlieren — der private Archiv-Schlüssel wird aus dem Schrank geholt
+    # und unter das neue Passwort neu gewickelt (serverseitig, weil der
+    # Klient auf der Reset-Seite kein Passwort-KDF-Ergebnis für einen
+    # Schlüssel hat, den er nie sah). Best-effort: schlägt das Schrank-
+    # Geheimnis fehl, bleibt das Archiv für dieses Konto verschlossen
+    # (geloggt), der Reset selbst scheitert nicht daran.
+    from dcc_auth.routes_archiv import rewrap_nach_reset
+
+    await rewrap_nach_reset(session, user.id, payload.new_password)
+
     await session.commit()
     return MessageOut(detail="ok")
 

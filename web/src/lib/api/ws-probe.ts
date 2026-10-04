@@ -20,6 +20,7 @@
  */
 
 import { deuteProbe, type Verbindungsbefund } from './verbindungsbefund';
+import { neueUuid } from '$lib/utils/uuid';
 
 /** Kurz genug, dass niemand darauf wartet; lang genug für eine träge Leitung. */
 const STANDARD_FRIST_MS = 6000;
@@ -32,7 +33,7 @@ const STANDARD_FRIST_MS = 6000;
  * weglassen, auch wenn er inhaltlich nichts trägt.
  */
 function wegwerfToken(): string {
-  return `probe-${crypto.randomUUID()}`;
+  return `probe-${neueUuid()}`;
 }
 
 /**

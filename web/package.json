@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",
+    "@capacitor/camera": "^8.2.4",
     "@capacitor/core": "^8.4.0",
     "@emoji-mart/data": "^1.2.1",
     "@fontsource-variable/plus-jakarta-sans": "^5.2.8",

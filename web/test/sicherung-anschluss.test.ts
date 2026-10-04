@@ -58,8 +58,8 @@ describe('Sicherung: Wiederverbinden des Laufwerks holt das Archiv nach', () => 
     );
     assert.match(
       wechselQuelle,
-      /if \(!alreadyLoaded\) \{\s*void import\('\$lib\/sicherung\/andock'\)/,
-      'der Nachzug läuft bei jedem Frischladen des Kanals'
+      /\{\s*void import\('\$lib\/sicherung\/andock'\)/,
+      'der Nachzug läuft bei jedem Frischladen des Kanals (C2: jeder Öffner ist Frischlader, alreadyLoaded-Guard entfallen)'
     );
   });
 });

@@ -33,6 +33,13 @@ import { pickleartVon } from './pickelUebergangPlan';
 export const IDB_KEY_PICKELGEHEIMNIS = 'pulse.krypto-pickelgeheimnis';
 /** Welche Quelle gilt — s. `pickelUebergangPlan.ts::markeDeuten`. */
 export const IDB_KEY_PICKELMARKE = 'pulse.krypto-pickelquelle';
+/** Cache des ÖFFENTLICHEN Rueckfallschluessels, ausserhalb des Pickles —
+ *  Begruendung an `account.svelte.ts::rueckfallschluesselSicherstellen`. Er
+ *  traegt keinen Pickle (`pickleartVon` kennt ihn nicht), gehoert aber zum
+ *  KRYPTO-Konto: überlebt er ein Wischen, veroeffentlicht der Nachfolge-
+ *  Account den öffentlichen Halbteil des VORGÄNGER-Kontos, und Absender
+ *  schreiben Fallback-Sitzungen, die niemand mehr aufmachen kann. */
+export const IDB_KEY_RUECKFALLSCHLUESSEL = 'pulse.krypto-rueckfallschluessel';
 
 /**
  * Erzeugt ein neues Geheimnis. Legt es NICHT ab — das tut der Uebergang, und
@@ -100,6 +107,8 @@ export async function geraeteGeheimnisWischen(): Promise<void> {
     // immer, dass der naechste Nutzer den Zustand des vorigen nicht LIEST;
     // ihn zu loeschen ist die Form, die das auch einloest.
     await kryptoZustandWischen(db);
+    // Der Rueckfall-Cache ist kein Pickle, aber Konto-Zustand — s. Konstante.
+    await idbDeleteIdentity(db, IDB_KEY_RUECKFALLSCHLUESSEL);
     db.close();
   } catch {
     // Best-effort — wie `wipeKeypair()`.

@@ -130,6 +130,23 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "message_id": "1",
         "author_id": "3",
     },
+    "dm_lesestand": {
+        "op": "dm_lesestand",
+        "channel_id": "7",
+        "user_id": "3",
+        "last_read_message_id": "1",
+    },
+    "call_klingelt": {
+        "op": "call_klingelt",
+        "call_id": "9",
+        "art": "dm",
+        "channel_id": "7",
+        "einleiter_id": "3",
+        "video": False,
+    },
+    "call_angenommen": {"op": "call_angenommen", "call_id": "9", "user_id": "4"},
+    "call_abgelehnt": {"op": "call_abgelehnt", "call_id": "9", "user_id": "4"},
+    "call_ende": {"op": "call_ende", "call_id": "9", "grund": "aufgelegt", "dauer_sek": 65},
     "typing": {
         "op": "typing",
         "channel_id": "7",
