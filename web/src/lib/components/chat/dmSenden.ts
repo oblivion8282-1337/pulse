@@ -136,6 +136,14 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
         try {
           if (text) void navigator.clipboard.writeText(text);
         } catch { /* Clipboard verweigert — Toast bleibt die Rückmeldung */ }
+        // Menschen lesen diese Meldung: ein unsigniertes Bündel (altes
+        // Gerät der Gegenseite) bekommt den Klartext-Rat, nie einen
+        // Geräte-Hash (Befund 05.10.).
+        const { BuendelUnsigniertFehler } = await import('$lib/krypto/buendelSignatur');
+        if (err instanceof BuendelUnsigniertFehler) {
+          toast.error(m.dm_senden_altgeraet());
+          return;
+        }
         toast.error(m.dm_page_send_failed(), { description: (err as Error).message });
         return;
       }

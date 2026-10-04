@@ -37,13 +37,14 @@ export async function kanalSendenMitAnzeige(
     messages.upsert(ergebnis.nachricht);
     return;
   }
-  // Dieselbe Zweiteilung wie bei privaten Gruppen: „nicht moeglich" = es
-  // wurde NICHTS unternommen (Schalter aus, kein Geraeteschluessel) —
-  // „nicht zugestellt" = verschluesselt und eingeliefert, aber niemand mit
-  // veroeffentlichtem Geraet erreichbar.
-  toast.error(
-    ergebnis.art === 'nicht_zugestellt'
-      ? m.ablage_kanal_senden_niemand_erreichbar()
-      : m.ablage_kanal_senden_nicht_moeglich()
-  );
+  if (ergebnis.art === 'lokal_ohne_zustellung') {
+    // Dieselbe Regel wie bei privaten Gruppen (Befund 05.10.): die eigene
+    // Zeile bleibt stehen, ehrlich benannt, dass sie (noch) niemand sieht.
+    messages.upsert(ergebnis.nachricht);
+    toast.warning(m.gruppe_senden_lokal_erfasst());
+    return;
+  }
+  // „nicht moeglich" = es wurde NICHTS unternommen (Schalter aus, kein
+  // Geraeteschluessel).
+  toast.error(m.ablage_kanal_senden_nicht_moeglich());
 }

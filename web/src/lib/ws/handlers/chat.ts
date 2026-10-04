@@ -35,6 +35,7 @@ import { registerWsHandler } from '../handler-registry';
 import { serversStore } from '$lib/api/servers.svelte';
 import { dispatchingServerId } from '$lib/ws/gateway-connection';
 import { isRecentMention, markRecentMention } from './_mentionSuppression';
+import { page } from '$app/state';
 import type { HandlerContext } from './context';
 import { m } from '$lib/paraglide/messages.js';
 
@@ -318,8 +319,17 @@ export function register(ctx: HandlerContext): void {
     }
   });
 
+  // Gruppen sind DAUERHAFT abonniert (ready abonniert jede) — der rohe
+  // Subs-Blick stufte JEDE Gruppennachricht als „gelesen" ein: keine
+  // Ungelesen-Marke, kein Ton, kein Toast (Befund 05.10., derselbe Fund
+  // wie Bughunt Runde 5 am ready-Pfad — dort gefixt, hier übersehen).
+  // Für Gruppen gilt „offen", nicht „abonniert"; DMs/Ablage bleiben bei
+  // ihrem Abo-Blick.
   registerWsHandler('postfach_neu', () => {
-    postfachAbholenUndAnzeigen((kanalId) => ctx.subs.has(kanalId));
+    postfachAbholenUndAnzeigen((kanalId) => {
+      if (privateGruppen.istGruppe(kanalId)) return page.params.dmChannelId === kanalId;
+      return ctx.subs.has(kanalId);
+    });
   });
 
   registerWsHandler('dm_lesestand', (evt) => {

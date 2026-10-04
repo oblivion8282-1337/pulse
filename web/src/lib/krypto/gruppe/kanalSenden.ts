@@ -194,11 +194,25 @@ export async function sendeInKanal(
     const daten = baueGruppenhuelle(stand.sitzungId, geheimtext);
     const alleGeraete = ziel.map((z) => z.geraet.device_pubkey);
 
+    // Nachricht schon hier festhalten — niemand erreichbar heisst nicht
+    // „weg" (dieselbe Regel wie in `senden.ts`, Befund 05.10.).
+    const nachricht: Message = {
+      id: nachrichtId,
+      channel_id: kanalId,
+      author_id: eigeneUserId,
+      content: klartext,
+      nonce: null,
+      reply_to_id: replyToId,
+      created_at: new Date().toISOString(),
+      verschluesselt: true
+    };
+
     const nachSendung = standNachSendung(stand, []);
     await gruppensitzungSichern(kanalId, nachSendung);
 
     if (alleGeraete.length === 0) {
-      return { art: 'nicht_zugestellt' };
+      await verlaufSpeichernPflicht(kanalId, [nachricht]).catch(() => undefined);
+      return { art: 'lokal_ohne_zustellung', nachricht };
     }
 
     const { beliefert: schluesselBeliefert } = await bloeckeEinliefern(
@@ -218,7 +232,8 @@ export async function sendeInKanal(
 
     if (nachrichtBeliefert.size === 0) {
       if (nachrichtFehler) throw nachrichtFehler;
-      return { art: 'nicht_zugestellt' };
+      await verlaufSpeichernPflicht(kanalId, [nachricht]).catch(() => undefined);
+      return { art: 'lokal_ohne_zustellung', nachricht };
     }
 
     if (schluesselBeliefert.size > 0) {
@@ -228,17 +243,6 @@ export async function sendeInKanal(
       });
     }
 
-    const nachricht: Message = {
-      id: nachrichtId,
-      channel_id: kanalId,
-      author_id: eigeneUserId,
-      content: klartext,
-      nonce: null,
-      reply_to_id: replyToId,
-      created_at: new Date().toISOString(),
-      mentions: parseMentionMarkers(klartext),
-      verschluesselt: true
-    };
     try {
       await verlaufSpeichernPflicht(kanalId, [nachricht]);
     } catch (err) {
