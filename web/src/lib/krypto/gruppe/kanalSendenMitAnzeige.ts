@@ -28,10 +28,34 @@ export async function kanalSendenMitAnzeige(
     const { sendeInKanal } = await import('./kanalSenden');
     ergebnis = await sendeInKanal(state, guildId, kanalId, text, replyToId);
   } catch (err) {
-    toast.error(m.ablage_kanal_senden_fehlgeschlagen(), {
-      description: (err as Error).message
-    });
-    return;
+    // Dieselbe TOFU-Rückfrage wie im Gruppen- und DM-Weg (Befund 05.10.).
+    const { GeraeteIdentitaetGeaendertFehler } = await import('../buendelSignatur');
+    if (err instanceof GeraeteIdentitaetGeaendertFehler) {
+      const { confirmDialog } = await import('$lib/components/feedback/confirm.svelte');
+      const vertrauen = await confirmDialog({
+        title: m.dm_tofu_titel(),
+        description: m.dm_tofu_identitaet_geaendert_frage({ geraet: err.geraet }),
+        confirmLabel: m.direct_trust_accept()
+      });
+      if (!vertrauen) {
+        toast.error(m.ablage_kanal_senden_fehlgeschlagen());
+        return;
+      }
+      const { geraetePinnVergessen } = await import('$lib/krypto/geraetePinnung');
+      await geraetePinnVergessen(err.geraet);
+      try {
+        const { sendeInKanal: erneut } = await import('./kanalSenden');
+        ergebnis = await erneut(state, guildId, kanalId, text, replyToId);
+      } catch {
+        toast.error(m.ablage_kanal_senden_fehlgeschlagen());
+        return;
+      }
+    } else {
+      toast.error(m.ablage_kanal_senden_fehlgeschlagen(), {
+        description: (err as Error).message
+      });
+      return;
+    }
   }
   if (ergebnis.art === 'gesendet') {
     messages.upsert(ergebnis.nachricht);

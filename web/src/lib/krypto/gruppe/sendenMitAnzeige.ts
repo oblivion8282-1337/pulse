@@ -26,23 +26,51 @@ export async function gruppeSendenMitAnzeige(
   text: string,
   replyToId: string | null,
   anhaenge: AnhangAngabe[] = []
-): Promise<boolean> {  let ergebnis;
+): Promise<boolean> {  const { sendeInGruppe } = await import('./senden');
+  let ergebnis;
   try {
-    const { sendeInGruppe } = await import('./senden');
     ergebnis = await sendeInGruppe(kanalId, text, replyToId, anhaenge);
   } catch (err) {
-    // Menschen lesen diese Meldung, keine Schlüsselprotokolle: ein
-    // unsigniertes Bündel ist ein „App dort einmal neu öffnen"-Fall und
-    // bekommt NIE einen Geräte-Hash vorgesetzt (Befund 05.10.).
-    const { BuendelUnsigniertFehler } = await import('../buendelSignatur');
-    if (err instanceof BuendelUnsigniertFehler) {
+    // **TOFU-Bestätigung (Bughunt 2026-09-23) — dieselbe Rückfrage wie im
+    // DM-Weg (`dmSenden.ts`):** die Pinnung eines Geräts weicht ab; legitimer
+    // Grund ist eine echte Neuaufsetzung dort. Genau EINE Rückfrage pro
+    // Sendung, dann einmal neu — mehr nicht (Befund 05.10.: ohne diesen
+    // Zweig endete eine Gruppen- sendung im rohen Geräte-Hash und die
+    // Gruppe blieb blockiert, obwohl der DM-Weg längst einen geordneten Weg
+    // hatte).
+    const { GeraeteIdentitaetGeaendertFehler, BuendelUnsigniertFehler } =
+      await import('../buendelSignatur');
+    if (err instanceof GeraeteIdentitaetGeaendertFehler) {
+      const { confirmDialog } = await import('$lib/components/feedback/confirm.svelte');
+      const vertrauen = await confirmDialog({
+        title: m.dm_tofu_titel(),
+        description: m.dm_tofu_identitaet_geaendert_frage({ geraet: err.geraet }),
+        confirmLabel: m.direct_trust_accept()
+      });
+      if (!vertrauen) {
+        toast.error(m.gruppe_senden_fehlgeschlagen());
+        return false;
+      }
+      const { geraetePinnVergessen } = await import('$lib/krypto/geraetePinnung');
+      await geraetePinnVergessen(err.geraet);
+      try {
+        ergebnis = await sendeInGruppe(kanalId, text, replyToId, anhaenge);
+      } catch {
+        toast.error(m.gruppe_senden_fehlgeschlagen());
+        return false;
+      }
+    } else if (err instanceof BuendelUnsigniertFehler) {
+      // Menschen lesen diese Meldung, keine Schlüsselprotokolle: ein
+      // unsigniertes Bündel ist ein „App dort einmal neu öffnen"-Fall und
+      // bekommt NIE einen Geräte-Hash vorgesetzt (Befund 05.10.).
       toast.error(m.gruppe_senden_altgeraet());
       return false;
+    } else {
+      toast.error(m.gruppe_senden_fehlgeschlagen(), {
+        description: (err as Error).message
+      });
+      return false;
     }
-    toast.error(m.gruppe_senden_fehlgeschlagen(), {
-      description: (err as Error).message
-    });
-    return false;
   }
   if (ergebnis.art === 'gesendet') {
     messages.upsert(ergebnis.nachricht);
