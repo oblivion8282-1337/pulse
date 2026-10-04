@@ -3,6 +3,8 @@ import { settings } from '$lib/stores/settings.svelte';
 import { matchDevice, enumerate } from './devices';
 import type { RemoteAudioElements } from './audioElements';
 import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
+import { isCapacitorAndroid } from '$lib/platform/runtime';
+import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
 
 /**
  * Owns the lists of audio input/output devices and the currently selected ones.
@@ -21,6 +23,8 @@ export class AudioDevices {
   #audioEls: RemoteAudioElements;
   /** Called after an input device change so the noise filter can re-attach. */
   #onInputChanged: () => void | Promise<void>;
+  /** Eingabegerät vor der BT-Umschaltung — für den Rückweg, wenn BT weg ist. */
+  #eingabeVorBt: string | null = null;
 
   constructor(audioEls: RemoteAudioElements, onInputChanged: () => void | Promise<void>) {
     this.#audioEls = audioEls;
@@ -81,6 +85,56 @@ export class AudioDevices {
       if (room) await this.#switch(room, 'audiooutput', outMatch.deviceId);
       await this.#audioEls.setOutputDevice(outMatch.deviceId);
       hqStreams.setOutputDevice(outMatch.deviceId);
+    }
+
+    await this.#mikrofonFolgtBt(room);
+  }
+
+  /**
+   * Mikrofon folgt der BT-Ausgabe (Nutzerwunsch 2026-10-04, gleiches Prinzip):
+   * ist auf Android ein Bluetooth-Gerät die aktive Route, springt die Eingabe
+   * auf dessen Mikrofon — und beim Trennen zurück auf das vorherige. Das OS
+   * routet den Capture-Pfad nicht immer selbst nach, wenn der Track schon vor
+   * dem BT-Verbinden lief.
+   */
+  async #mikrofonFolgtBt(room: Room | null): Promise<void> {
+    if (!isCapacitorAndroid()) return;
+    await audioRouteState.aktualisieren();
+    const liste = audioRouteState.liste;
+    if (!liste) return;
+    const btGeraet =
+      liste.current === 'device'
+        ? liste.devices.find(
+            (d) =>
+              d.id === liste.currentDeviceId &&
+              (d.type === 'BLUETOOTH_SCO' || d.type === 'BLE_HEADSET')
+          )
+        : undefined;
+    const btName = btGeraet?.name?.trim();
+    if (btName) {
+      // BT-Mikrofon finden: Chromium labelt es generisch („Bluetooth headset"),
+      // manche Versionen tragen den Produktnamen — beides akzeptieren.
+      const nieder = btName.toLowerCase();
+      const btInput = this.inputs.find((d) => {
+        if (!d.label) return false;
+        const label = d.label.toLowerCase();
+        return label.includes('bluetooth') || (nieder.length > 0 && label.includes(nieder));
+      });
+      if (btInput && this.selectedInputId !== btInput.deviceId) {
+        this.#eingabeVorBt = this.#eingabeVorBt ?? (this.selectedInputId || settings.audio.inputDeviceId);
+        await this.setInput(room, btInput.deviceId);
+      }
+      return;
+    }
+    // Kein BT mehr aktiv → auf das Gerät vor der BT-Umschaltung zurück.
+    if (this.#eingabeVorBt !== null) {
+      const zurueck = this.#eingabeVorBt;
+      this.#eingabeVorBt = null;
+      if (zurueck && this.selectedInputId !== zurueck && this.inputs.some((d) => d.deviceId === zurueck)) {
+        await this.setInput(room, zurueck);
+      } else {
+        this.selectedInputId = settings.audio.inputDeviceId;
+      }
     }
   }
 

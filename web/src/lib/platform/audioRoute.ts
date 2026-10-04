@@ -24,6 +24,23 @@ import { isCapacitorAndroid } from './runtime';
 
 export type AudioRoute = 'auto' | 'speaker' | 'earpiece';
 
+/** Ein umschaltbares Ausgabegerät aus dem Route-Popup (Hörmuschel,
+ *  Lautsprecher oder verbundenes Bluetooth). */
+export type AudioRouteDevice = {
+  /** Native Geräte-Id — an setAudioRouteDevice zurückgeben zum Umschalten. */
+  id: number;
+  /** BUILTIN_SPEAKER | BUILTIN_EARPIECE | BLUETOOTH_SCO | BLE_HEADSET */
+  type: string;
+  name: string;
+};
+
+export type AudioRouteList = {
+  current: AudioRoute | 'device';
+  /** Bei current === 'device': die gepinnte Geräte-Id, sonst 0. */
+  currentDeviceId: number;
+  devices: AudioRouteDevice[];
+};
+
 /** Native audio-routing snapshot (mirrors AudioRoutePlugin.snapshot). No audio
  *  content — only routing metadata. */
 export type AudioDiagnostic = {
@@ -44,8 +61,9 @@ export type AudioDiagnostic = {
 };
 
 interface AudioRoutePlugin {
-  setRoute(opts: { route: AudioRoute }): Promise<void>;
+  setRoute(opts: { route?: AudioRoute; deviceId?: number }): Promise<void>;
   getRoute(): Promise<{ route: AudioRoute }>;
+  listRoutes(): Promise<AudioRouteList>;
   setVoiceActive(opts: { active: boolean }): Promise<void>;
   snapshot(): Promise<AudioDiagnostic>;
 }
@@ -56,13 +74,30 @@ const plugin = registerPlugin<AudioRoutePlugin>('AudioRoute');
  *  Snapshot, damit ein stiller Routing-Fehlschlag im Feld sichtbar wird. */
 let lastSetVoiceActiveError: string | null = null;
 
-/** Force the native audio output route. No-op outside the Android wrapper. */
-export async function setAudioRoute(route: AudioRoute): Promise<void> {
+/** Force the native audio output route. No-op outside the Android wrapper.
+ *  Either a fixed way (`route`) or one concrete device from
+ *  {@link listAudioRoutes} (`deviceId` — z. B. ein bestimmtes BT-Headset). */
+export async function setAudioRoute(
+  route?: AudioRoute,
+  deviceId?: number
+): Promise<void> {
   if (!isCapacitorAndroid()) return;
   try {
-    await plugin.setRoute({ route });
+    await plugin.setRoute({ route, deviceId });
   } catch (e) {
     console.warn('[audioRoute] setRoute failed', e);
+  }
+}
+
+/** Auswahl-Liste für das Route-Popup (Geräte + aktuelle Wahl). Liefert eine
+ *  leere Liste außerhalb des Android-Wrappers. */
+export async function listAudioRoutes(): Promise<AudioRouteList> {
+  if (!isCapacitorAndroid()) return { current: 'auto', currentDeviceId: 0, devices: [] };
+  try {
+    return await plugin.listRoutes();
+  } catch (e) {
+    console.warn('[audioRoute] listRoutes failed', e);
+    return { current: 'auto', currentDeviceId: 0, devices: [] };
   }
 }
 
