@@ -119,17 +119,15 @@
       <p class="text-text-muted text-2xs font-semibold uppercase tracking-wider">
         Direktnachrichten
       </p>
-      {#if onSelectGruppe}
-        <button
-          type="button"
-          class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-7 items-center justify-center rounded-lg transition-colors"
-          onclick={() => (neueGruppe = true)}
-          data-testid="sidebar-new-group"
-          aria-label={m.chats_new_group()}
-        >
-          <PlusIcon class="size-4" />
-        </button>
-      {/if}
+      <button
+        type="button"
+        class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-7 items-center justify-center rounded-lg transition-colors"
+        onclick={() => (neueGruppe = true)}
+        data-testid="sidebar-new-group"
+        aria-label={m.chats_new_group()}
+      >
+        <PlusIcon class="size-4" />
+      </button>
     </div>
     {#if directMessages.list.length === 0}
       <p class="text-text-muted px-3 py-2 text-xs">
@@ -230,6 +228,13 @@
   <SidebarFooter />
 </aside>
 
-{#if onSelectGruppe}
-  <NeueGruppeDialog bind:open={neueGruppe} onErstellt={onSelectGruppe} />
+{#if neueGruppe}
+  <!-- Ständig erreichbar (Michaels Befund 05.10.): die drei anderen Aufrufer
+       (Home, Freunde, Einladungen) geben onSelectGruppe nicht weiter — ohne
+       Fallback war das „+" dort tot. onErstellt springt dann direkt in die
+       neue Gruppe, wie ein DM-Klick es täte. -->
+  <NeueGruppeDialog
+    bind:open={neueGruppe}
+    onErstellt={(id) => (onSelectGruppe ? onSelectGruppe(id) : goto(`/app/@me/${id}`))}
+  />
 {/if}
