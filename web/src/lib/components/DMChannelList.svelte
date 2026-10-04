@@ -78,14 +78,14 @@
   class="glass-panel text-text-base flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:w-60 md:flex-none md:rounded-2xl lg:w-68"
   data-testid="dm-channel-list"
 >
-  <header class="text-text-bright flex h-12 items-center px-4 pt-3">
+  <header class="text-text-bright flex h-12 items-center justify-between px-4 pt-3">
     <span class="truncate text-base font-bold tracking-tight">@me</span>
-  </header>
-
-  <!-- Neue Gruppe — derselbe Dialog wie im Handy-Chats-Bereich: Gruppen sind
-       produktweit (Übergabe §5 P0.4), der Einstieg also an beiden Listen. -->
-  {#if onSelectGruppe}
-    <div class="flex justify-end px-4">
+    <!-- Neue Gruppe — derselbe Dialog wie im Handy-Chats-Bereich: Gruppen sind
+         produktweit (Übergabe §5 P0.4), der Einstieg also an beiden Listen.
+         Im Kopf rechts, nicht in einer eigenen Zeile darunter (Mobile-Merge-
+         Rückschritt — Michaels Befund 05.10.: das „+" schwebte lostrennt
+         zwischen Kopf und Liste). -->
+    {#if onSelectGruppe}
       <button
         type="button"
         class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-8 items-center justify-center rounded-lg transition-colors"
@@ -95,8 +95,8 @@
       >
         <PlusIcon class="size-4" />
       </button>
-    </div>
-  {/if}
+    {/if}
+  </header>
 
   <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-2">
     <!-- Kein Gruppentitel ueber diesen beiden: er hiess "Freunde" und stand
