@@ -126,11 +126,10 @@ export async function verteilUmschlaege(
       `Geräte ohne signiertes Bündel übersprungen: ${unsignierteAltgeraete.join(', ')}`
     );
   }
-  if (nutzlasten.length === 0 && unsignierteAltgeraete.length > 0) {
-    // Alles übersprungen, niemand bekommt den Verteilschluessel — derselbe
-    // laute Fehler wie vor der Skip-Regel. Fail-closed.
-    throw new BuendelUnsigniertFehler(unsignierteAltgeraete[0]);
-  }
+  // Alles übersprungen (nur Altgeräte) → LEERE Liste statt Wurf: der
+  // Sendeweg behandelt das wie „kein Gerät" und hält die Nachricht des
+  // Absenders trotzdem fest (Befund 05.10. — der Wurf riss sonst die
+  // lokale Kopie mit weg, und der User sah einen Geräte-Hash).
   return nutzlasten;
 }
 
