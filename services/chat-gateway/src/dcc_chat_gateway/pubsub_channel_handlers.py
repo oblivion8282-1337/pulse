@@ -90,6 +90,11 @@ async def handle_voice_events(
             "channel_id": voice_cid,
             "user_id": str(payload.get("user_id", "")),
         }
+        # Grund nur mitreisen, wenn einer da ist (Stuhl-Übernahme durchs
+        # Zweitgerät): Admin-Rauswürfe bleiben grundlos-still, und alte
+        # Envelope-Tests ohne das Feld ändern sich nicht.
+        if payload.get("reason"):
+            envelope["reason"] = str(payload["reason"])
         async with manager._lock:
             raw_targets = list(manager._connections)
         targets = await manager._filter_by_view_channel(raw_targets, voice_cid)

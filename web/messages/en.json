@@ -3012,6 +3012,7 @@
   "voice_bar_route_name_hoermuschel": "Earpiece",
   "voice_bar_route_name_bt": "Bluetooth",
   "voice_bar_undeafen": "Undeafen",
+  "voice_uebernommen_toast": "Voice channel taken over by your other device — the connection continues there.",
   "voice_channel_full": "This voice channel is full.",
   "voice_channel_members_cam_on": "Webcam on",
   "voice_channel_members_cam_open": "Open webcam",

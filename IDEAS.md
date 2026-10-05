@@ -45,6 +45,7 @@
 - **MIDI im Voice-Channel.** Web-MIDI → eigener LiveKit-Audio-Track. Jam-Sessions mit Pulse-Latenz.
 - **AI-Auto-Mute „Hund-Bell-Filter / Tippen-Filter"** über RNNoise hinaus.
 - **Auto-Mute by Activity.** System erkennt „User tippt aktiv in anderem Fenster" → Mic-mute. Whitelist konfigurabel.
+- **Mehrgeräte-Voice („Multi-Login" im Sprachkanal).** *(geparkt 2026-10-05, Michael)* Dasselbe Konto sitzt bewusst mit mehreren Geräten im selben Sprachkanal — z. B. Handy als Mikro, Desktop als Kopfhörer. Die technische Basis STAND schon (Join-Identitäten mit Sitzungs-Suffix + `:geraete`-Refcount, Befund 03.10. #6) und wurde am 05.10. durch die Stuhl-Übernahme ersetzt, weil die Kachel-Ansicht eine Kachel pro Verbindung zeichnete → derselbe Mensch doppelt/dreifach (Kuriiko-Vorfall). Wiederbeleben = 3 Bausteine: ① Übernahme-Wurf in `routes/token.py` hinter einen Nutzer-Wunsch schalten (Opt-in, Anrufe bleiben mehrgeräte-fähig), ② Kacheln nach Nackter-ID zusammenführen (`voice.participants` gruppieren; Kamera-/Bildschirmfreigabe an die Sitzung mit den Tracks heften), ③ Zweitgerät tritt stumm/deafened bei, sonst Echogefahr durch zwei offene Mikrofone.
 
 ## 4. HQ-Streaming (Differenzierung gegen Discord/Twitch)
 

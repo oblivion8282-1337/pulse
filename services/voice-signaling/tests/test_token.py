@@ -347,3 +347,96 @@ async def test_limit_bypassed_by_move_members():
 @pytest.mark.asyncio
 async def test_limit_fail_open_without_redis():
     await _enforce({"1", "2"}, "9", 2, redis=None)  # kein Redis → nicht durchsetzen
+
+
+# ---------------------------------------------------------------------------
+# Stuhl-Übernahme: /token wirft vor dem Mint ältere LiveKit-Sitzungen
+# desselben Kontos aus dem Kanalraum (ein Sprachkanalplatz pro Mensch).
+# ---------------------------------------------------------------------------
+
+
+class _PubRedis:
+    """Minimal-Fake: nur set/get/publish, alles weitere braucht die Route nicht."""
+
+    def __init__(self):
+        self.publisht = []
+
+    async def set(self, key, value, ex=None):  # noqa: ANN001
+        pass
+
+    async def get(self, key):  # noqa: ANN001
+        return None
+
+    async def publish(self, channel, payload):  # noqa: ANN001
+        self.publisht.append((channel, payload))
+
+
+@pytest.mark.asyncio
+async def test_token_uebernimmt_stuhl_von_zweitgeraet(client, app, auth_signer, monkeypatch):
+    """Beim Token-Hol für einen Sprachkanal werden die LiveKit-Sitzungen
+    desselben Nutzers im Kanal entfernt (Stuhl-Übernahme) UND ein
+    voice_disconnect mit Grund ``geraete_uebernahme`` veröffentlicht, damit
+    das alte Gerät sauber abreißt und einen Hinweis zeigt — statt dass
+    derselbe Mensch mit Handy + Desktop doppelt/dreifach als Kachel steht
+    (Kuriiko-Vorfall 05.10.)."""
+    import json as _json
+
+    monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
+    perms = (1 << 30) | (1 << 31)
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _make_gateway_mock(perms))
+
+    entfernt = []
+
+    async def _remove(channel_id, user_id, *, api_client=None):  # noqa: ANN001
+        entfernt.append((channel_id, user_id, api_client))
+
+    monkeypatch.setattr(voice_routes, "_livekit_remove_participant", _remove)
+
+    # LiveKit-API-Singleton andeuten (Produktion setzt ihn im Lifespan; ohne
+    # ihn entfällt die Übernahme komplett) + Redis-Fake für den Publish.
+    api_singleton = object()
+    app.state.livekit_api = api_singleton
+    fake_redis = _PubRedis()
+    app.state.redis = fake_redis
+
+    r = await client.post(
+        "/token",
+        json={"channel_id": "987654321"},
+        headers=auth(auth_signer.issue_access(42, "alice")),
+    )
+    assert r.status_code == 200, r.text
+    # Rauswurf lief über den App-Singleton und traf genau diesen Kanal+User.
+    assert entfernt == [("987654321", "42", api_singleton)]
+    # Das alte Gerät erfährt den Grund — nur so erklärt sich der Abschied.
+    assert len(fake_redis.publisht) == 1
+    kanal, roh = fake_redis.publisht[0]
+    assert kanal == "voice:events"
+    meldung = _json.loads(roh)
+    assert meldung["op"] == "voice_disconnect"
+    assert meldung["channel_id"] == "987654321"
+    assert meldung["user_id"] == "42"
+    assert meldung["reason"] == "geraete_uebernahme"
+
+
+@pytest.mark.asyncio
+async def test_token_ohne_livekit_singleton_keine_uebernahme(client, app, auth_signer, monkeypatch):
+    """Ohne API-Singleton (Unit-Tests, halbhochgefahrene Umgebungen) wird
+    nicht geworfen — der Token-Ausstellungsplatz bleibt davon unberührt."""
+    monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request", _make_gateway_mock((1 << 30) | (1 << 31))
+    )
+
+    async def _remove(channel_id, user_id, *, api_client=None):  # noqa: ANN001
+        raise AssertionError("ohne Singleton darf nicht geworfen werden")
+
+    monkeypatch.setattr(voice_routes, "_livekit_remove_participant", _remove)
+    if hasattr(app.state, "livekit_api"):
+        del app.state.livekit_api
+
+    r = await client.post(
+        "/token",
+        json={"channel_id": "987654321"},
+        headers=auth(auth_signer.issue_access(42, "alice")),
+    )
+    assert r.status_code == 200, r.text

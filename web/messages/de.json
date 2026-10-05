@@ -3012,6 +3012,7 @@
   "voice_bar_route_name_hoermuschel": "Hörmuschel",
   "voice_bar_route_name_bt": "Bluetooth",
   "voice_bar_undeafen": "Ton aktivieren",
+  "voice_uebernommen_toast": "Sprachkanal wurde von deinem anderen Gerät übernommen — dort läuft die Verbindung jetzt weiter.",
   "voice_channel_full": "Dieser Sprachkanal ist voll.",
   "voice_channel_members_cam_on": "Webcam an",
   "voice_channel_members_cam_open": "Webcam öffnen",

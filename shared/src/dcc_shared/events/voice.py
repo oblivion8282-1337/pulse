@@ -55,11 +55,17 @@ class VoiceStateSnapshot(_EventBase):
 
 
 class VoiceDisconnectEvent(_EventBase):
-    """Admin disconnected ``user_id`` from a voice channel."""
+    """Admin disconnected ``user_id`` from a voice channel — or the user's
+    own newer device took over the voice seat (Stuhl-Übernahme, 2026-10-05:
+    ein Sprachkanalplatz pro Mensch; Anrufe bleiben mehrgeräte-fähig).
+    ``reason`` unterscheidet die beiden Fälle für die Oberfläche: nur die
+    Übernahme bekommt einen erklärenden Hinweis, ein Admin-Rauswurf bleibt
+    still (der weiß, warum er wirft)."""
 
     op: Literal["voice_disconnect"] = "voice_disconnect"
     channel_id: str
     user_id: str
+    reason: str | None = None  # None = Admin-Rauswurf; "geraete_uebernahme" = Zweitgerät
 
 
 class VoiceOverrideEvent(_EventBase):
