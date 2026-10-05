@@ -116,6 +116,28 @@ export function idbDeleteIdentity(db: IDBDatabase, key: string): Promise<void> {
   });
 }
 
+/** Leert den gesamten Identity-Store (Abmelden/Kontowechsel). Der halbe
+ *  Wisch — Geheimnis und Kennung weg, Keypair und eingefrorener Krypto-
+ *  Account blieben — war der Vorfall 2026-10-05: der Re-Login erzeugte
+ *  unter dem GLEICHEN Geräteschlüssel eine NEUE Krypto-Identität, bei
+ *  allen Kontakten knallte die TOFU-Pinnung („Schlüsselbund hat sich
+ *  geändert"-Dialog blockte jedes Senden), und das eigene Gerät konnte
+ *  eingehende Umschläge nicht mehr öffnen. Der dokumentierte Vertrag ist:
+ *  nach dem Abmelden ist der nächste Login ein FRISCHES, leeres Gerät —
+ *  dafür muss der ganze Store weg, nicht die Hälfte. */
+export function idbIdentityLeeren(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    void (async () => {
+      const db = await openIdentityDb();
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const req = tx.objectStore(STORE_NAME).clear();
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    })().catch(reject);
+  });
+}
+
 export function idbPutIdentity(db: IDBDatabase, key: string, value: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
