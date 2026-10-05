@@ -24,6 +24,7 @@ import { activeServer } from './active-server.svelte';
 import { geraeteGeheimnisWischen } from '$lib/krypto/geraeteGeheimnis';
 import { geraeteKennungWischen } from '$lib/krypto/geraeteKennung';
 import { keypairStore } from '$lib/identity/keypair.svelte';
+import { idbIdentityLeeren } from '$lib/identity/idb-shared';
 import { clearLegacyStreamCredentials } from '$lib/stream/persistence';
 import { renewSession } from '$lib/api/cookie-client';
 
@@ -331,6 +332,13 @@ class AuthStore {
           // neuen Cert in Widerspruch.
           geraeteGeheimnisWischen(),
           geraeteKennungWischen(),
+          // Vorfall 2026-10-05 (dasselbe Loch wie in signOut, s. dort): auch
+          // dieser Wisch ließ den eingefrorenen Krypto-Account, die Olm-
+          // Sitzungen und die TOFU-Pinnungen des Vorgängers im Store —
+          // `kryptoAccountLaden` taute den fremden Blob mit dem Schlüssel des
+          // NEUEN Keypairs vergebens auf. Der Store gehört komplett zum
+          // Gerätewechsel dazu.
+          idbIdentityLeeren(),
           // Das Keypair SELBST auch — Befund B2 (Testrunde 2026-09-11): ohne
           // diesen Wisch leitete `geraeteKennung()` die Kennung des Vorgängers
           // frisch aus dem überlebenden Keypair her (der Pubkey hat in
@@ -446,6 +454,17 @@ class AuthStore {
     // Dieselbe Begründung wie im Kontowechsel-Pfad oben.
     void geraeteGeheimnisWischen();
     void geraeteKennungWischen();
+    // Vorfall 2026-10-05: der halbe Wisch (Geheimnis + Kennung weg, Keypair
+    // und eingefrorener Krypto-Account blieben) machte den Re-Login des
+    // SELBEN Kontos zur kaputten Zwitter-Identität — gleicher Geräteschlüssel,
+    // neue Krypto-Identität: bei Kontakten knallte die TOFU-Pinnung (Senden
+    // blockte am Vertrauens-Dialog), und das eigene Gerät konnte eingehende
+    // Umschläge nicht mehr öffnen. Der Vertrag (s. Kopf von
+    // `krypto/account.svelte.ts` und der Owner-Wechsel-Wisch oben): nach dem
+    // Abmelden ist der nächste Login ein FRISCHES Gerät — deshalb hier
+    // derselbe vollständige Wisch wie beim Kontowechsel, inklusive Store.
+    void keypairStore.wipe();
+    void idbIdentityLeeren();
     // Sicherungs-Wissen (DEK, Google-Refresh-Token, Klartext-Puffer) —
     // derselbe Grund wie im Kontowechsel-Pfad oben (Review 2026-08-31).
     void import('$lib/sicherung/andock').then((m) => m.sicherungBeiAbmeldungWischen());
