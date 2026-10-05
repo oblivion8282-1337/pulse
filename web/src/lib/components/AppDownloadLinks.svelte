@@ -17,7 +17,7 @@
   import LinuxIcon from './brand-icons/LinuxIcon.svelte';
   import AndroidIcon from './brand-icons/AndroidIcon.svelte';
   import AppleIcon from './brand-icons/AppleIcon.svelte';
-  import { isElectron, isCapacitorAndroid, isLinux, isWindows, isMac } from '$lib/platform/runtime';
+  import { isElectron, isCapacitorAndroid, isCapacitorIOS, isLinux, isWindows, isMac } from '$lib/platform/runtime';
   import {
     WINDOWS_INSTALLER_URL,
     MAC_DMG_URL,
@@ -31,7 +31,7 @@
   } from '$lib/downloads/appDownloads';
   import { m } from '$lib/paraglide/messages.js';
 
-  const visible = !isElectron() && !isCapacitorAndroid();
+  const visible = !isElectron() && !isCapacitorAndroid() && !isCapacitorIOS();
 
   const isAndroidBrowser =
     typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);

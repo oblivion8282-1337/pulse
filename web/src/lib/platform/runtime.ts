@@ -32,7 +32,7 @@ export const isServerApp = (): boolean =>
   isElectron() && window.pulse?.appMode === 'server';
 
 /**
- * True inside the Capacitor Android wrapper app (the APK that loads
+ * True inside a Capacitor wrapper app (the Android APK / iOS app that load
  * howispulse.com remotely). Capacitor injects a native bridge whose
  * `isNativePlatform()` returns true there and never in a plain browser. This
  * wrapper is Android-only, so native-platform is a sufficient signal (we
@@ -40,12 +40,40 @@ export const isServerApp = (): boolean =>
  * `server.url` config some Capacitor versions report `'web'` there, which would
  * wrongly hide native UI). Used to gate native-only controls like the
  * earpiece/speaker audio toggle (the native `AudioRoute` plugin).
+ *
+ * Deliberately narrowed against iOS (seit es auch eine iOS-Hülle gibt,
+ * 2026-10-05): `isNativePlatform()` alone would fire inside the iOS wrapper
+ * too, where none of the Android Java plugins exist. All Android-only gates
+ * (FCM, AudioRoute, ShareReceiver, back button, audio-device curation) keep
+ * working unchanged — they now just stop short of iOS.
  */
-export const isCapacitorAndroid = (): boolean => {
+export const isCapacitorAndroid = (): boolean =>
+  capNativePlatform() && !isIosUserAgent();
+
+/**
+ * True inside the Capacitor iOS wrapper (WKWebView loading howispulse.com).
+ * UA-based, same reasoning as `isCapacitorAndroid()`: `getPlatform()` is
+ * unreliable under a `server.url` config, and the iPadOS-13+ "Mac" UA needs
+ * the maxTouchPoints trick (mirrors `isMobile()`). Gates for iOS-native
+ * bridges (AVAudioSession routing, APNs, CallKit — Phase 3).
+ */
+export const isCapacitorIOS = (): boolean =>
+  capNativePlatform() && isIosUserAgent();
+
+/** Shared native-bridge probe for the two Capacitor gates above. */
+const capNativePlatform = (): boolean => {
   if (typeof window === 'undefined') return false;
   const cap = (window as Window & { Capacitor?: { isNativePlatform?: () => boolean } })
     .Capacitor;
   return !!cap?.isNativePlatform?.();
+};
+
+/** iPhone/iPad/iPod UA, including iPadOS 13+ masquerading as macOS. */
+const isIosUserAgent = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  const isIpad = /Macintosh/.test(ua) && (navigator.maxTouchPoints ?? 0) > 1;
+  return /iPhone|iPad|iPod/i.test(ua) || isIpad;
 };
 
 /**
