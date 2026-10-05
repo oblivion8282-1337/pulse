@@ -34,6 +34,12 @@ class AuthStore {
   user = $state<User | null>(null);
   loading = $state(false);
   private _hydrateInflight: Promise<void> | null = null;
+  /** Läuft der Identitäts-Wisch der Abmeldung noch, wartet der nächste
+   *  Login darauf (`setUser`) — das Rennen (Vorfall 2026-10-05, zweite
+   *  Runde: Passwort-Manager meldet schneller an, als die IndexedDBCLEAR
+   *  braucht, und der Wisch fegt die FRISCH erzeugten Schlüssel weg →
+   *  KEINE_GERAETEKENNUNG) ist damit deterministisch geschlossen. */
+  private _identitaetsWisch: Promise<void> | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -177,6 +183,14 @@ class AuthStore {
 
   async setUser(user: User): Promise<void> {
     this.user = user;
+    // Läuft der Abmelde-Wisch noch, MUSS er zuerst fertig sein — sonst liest
+    // der Issue-Flow gleich danach Keypair-Reste des Vorgängers, oder
+    // schlimmer: der Wisch fegt die frisch erzeugten Schlüssel weg (s.
+    // `_identitaetsWisch`, Vorfall 2026-10-05 zweite Runde).
+    if (this._identitaetsWisch) {
+      await this._identitaetsWisch;
+      this._identitaetsWisch = null;
+    }
     readState.hydrateForUser(user.id);
     // Account-Switch-Schutz zuerst (Login ohne Tab-Reload). Wird hier AWAITED,
     // damit ein direkt nachfolgender Issue-Flow (login/register rufen `await
@@ -463,8 +477,15 @@ class AuthStore {
     // `krypto/account.svelte.ts` und der Owner-Wechsel-Wisch oben): nach dem
     // Abmelden ist der nächste Login ein FRISCHES Gerät — deshalb hier
     // derselbe vollständige Wisch wie beim Kontowechsel, inklusive Store.
-    void keypairStore.wipe();
-    void idbIdentityLeeren();
+    // ZWEITE RUNDE desselben Vorfalls: der Wisch lief fire-and-forget weiter,
+    // während eine schnelle Neuanmeldung (Passwort-Manager) bereits FRISCHE
+    // Schlüssel erzeugt hatte — die späte CLEAR fegte sie weg und jede
+    // Sendung starb an KEINE_GERAETEKENNUNG. Der Lauf wird deshalb in
+    // `_identitaetsWisch` festgehalten und vom nächsten `setUser` awaited.
+    this._identitaetsWisch = Promise.allSettled([
+      keypairStore.wipe(),
+      idbIdentityLeeren()
+    ]).then(() => undefined);
     // Sicherungs-Wissen (DEK, Google-Refresh-Token, Klartext-Puffer) —
     // derselbe Grund wie im Kontowechsel-Pfad oben (Review 2026-08-31).
     void import('$lib/sicherung/andock').then((m) => m.sicherungBeiAbmeldungWischen());

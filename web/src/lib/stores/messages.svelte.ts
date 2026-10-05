@@ -162,6 +162,18 @@ class MessageStore {
     }
     // Dedupe by id using O(1) set lookup.
     if (ids.has(msg.id)) return;
+    // …und danach die kanonische Krypto-Id — derselbe Schutz wie in
+    // `prepend`, nur in der Gegenrichtung: kam die Kopie aus Sicherung/
+    // Archiv ZUERST (kanonische Id als `id`), darf die live zugestellte
+    // (zustellungs-eigene Id, kanonische in `krypto_id`) sie nicht
+    // verdoppeln. Vorfall 2026-10-05: ohne diesen Zweig erschien jede
+    // Nachricht doppelt, deren Archivabholung vor der Live-Zustellung
+    // fertig war. Echo-Ersatz (Nonce) und gleiche Id laufen OBEN, lange
+    // vor diesem Anhang — ein Skip hier trifft nur echte Duplikate.
+    const kryptoBekannt =
+      this.kryptoIds[msg.channel_id] ??
+      new Set(list.flatMap((m) => (m.krypto_id ? [m.krypto_id] : [])));
+    if (msg.krypto_id && kryptoBekannt.has(msg.krypto_id)) return;
     // Append in id-order to keep the list monotonic.
     if (list.length === 0 || compareSnowflakeId(list[list.length - 1].id, msg.id) < 0) {
       next = [...list, msg];
@@ -179,9 +191,8 @@ class MessageStore {
       next.forEach((m) => ids.add(m.id));
     }
     this.messageIds = { ...this.messageIds, [msg.channel_id]: ids };
-    // Krypto-Set nur mitführen (Buchhaltung) — das Verhalten von `upsert`
-    // bleibt bewusst id-basiert: ein Skip hier würde Echos/Bearbeitungen
-    // desselben Wortes verschlucken. Geprunt wird nur im Rebuild-Fall.
+    // Krypto-Set mitführen — der Duplikat-Skip steht OBEN (nach Id-Prüfung
+    // und Nonce-Ersatz); hier wird nur gebucht, was übernommen wurde.
     const krypto =
       this.kryptoIds[msg.channel_id] ??
       new Set(list.flatMap((m) => (m.krypto_id ? [m.krypto_id] : [])));
