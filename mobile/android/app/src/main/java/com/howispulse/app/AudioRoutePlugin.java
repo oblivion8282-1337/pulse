@@ -181,6 +181,12 @@ public class AudioRoutePlugin extends Plugin {
         }
         ret.put("outputDevices", outs);
 
+        // Nativer Voice-Motor (P5/Diagnose): ist die Engine im Raum? Sagt dem
+        // Feld-Log, ob Ton/Mic aktuell über den Anrufkanal laufen.
+        JSObject nv = new JSObject();
+        nv.put("connected", VoiceEngine.isConnected());
+        ret.put("nativeVoice", nv);
+
         call.resolve(ret);
     }
 

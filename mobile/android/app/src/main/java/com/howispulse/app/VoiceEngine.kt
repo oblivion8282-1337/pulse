@@ -1,9 +1,12 @@
 package com.howispulse.app
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.howispulse.app.R
 import io.livekit.android.LiveKit
 import io.livekit.android.RoomOptions
 import io.livekit.android.events.RoomEvent
@@ -79,11 +82,47 @@ object VoiceEngine {
     /** Subscribed fernem Audio-Tracks (für Deafen). Main-Thread-only. */
     private val remoteAudio = mutableSetOf<RemoteAudioTrack>()
 
+    /** Raum-Etikett aus dem Web ('voice' | 'anruf:<id>') — läuft in jedem
+     *  Snapshot mit, damit die beiden Web-Konsumenten (Sprachkanal-Fassade,
+     *  Anruf-Store) die Events auseinanderhalten können. */
+    @Volatile
+    private var tag: String = ""
+
+    /** voice.*-Klänge im ANRUF-Kanal (SoundPool mit Voice-Communication-Usage) —
+     *  im WebView-<audio> würden sie im Medien-Regler landen, genau der Bug.
+     *  Name (Web-Katalog) → SoundPool-Id. Main-Thread-only. */
+    private var soundPool: SoundPool? = null
+    private val soundIds = mutableMapOf<String, Int>()
+
     @Synchronized
     private fun ensureInit(appContext: Context) {
         if (initialized) return
         LiveKit.init(appContext.applicationContext)
+        ensureSounds(appContext.applicationContext)
         initialized = true
+    }
+
+    private fun ensureSounds(ctx: Context) {
+        if (soundPool != null) return
+        val attrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+        val sp = SoundPool.Builder().setMaxStreams(2).setAudioAttributes(attrs).build()
+        val names = mapOf(
+            "voice.user_join" to R.raw.voice_user_join,
+            "voice.user_leave" to R.raw.voice_user_leave,
+            "voice.self_join" to R.raw.voice_self_join,
+            "voice.self_leave" to R.raw.voice_self_leave,
+            "voice.self_mute" to R.raw.voice_self_mute,
+            "voice.self_unmute" to R.raw.voice_self_unmute,
+            "voice.self_deafen" to R.raw.voice_self_deafen,
+            "voice.self_undeafen" to R.raw.voice_self_undeafen
+        )
+        for ((key, res) in names) {
+            soundIds[key] = sp.load(ctx, res, 1)
+        }
+        soundPool = sp
     }
 
     /** Join. [echoCancellation]/[noiseSuppression] ersetzen die Web-DSP-Flags
@@ -96,6 +135,7 @@ object VoiceEngine {
         token: String,
         echoCancellation: Boolean,
         noiseSuppression: Boolean,
+        roomTag: String,
         done: JoinCallback
     ) {
         mainHandler.post {
@@ -104,6 +144,7 @@ object VoiceEngine {
                 // Der WebView-Prozess überlebt einen Reload — ein alter Raum
                 // (Resume nach Refresh) wird zuerst abgerechnet.
                 leaveInternal()
+                tag = roomTag
                 val s = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
                     .also { scope = it }
                 val opts = RoomOptions(
@@ -240,6 +281,14 @@ object VoiceEngine {
     @JvmStatic
     fun isConnected(): Boolean = connected
 
+    /** Klang aus dem Web-Katalog abspielen (ignoriert Unbekanntes still). */
+    @JvmStatic
+    fun playSound(name: String) {
+        val sp = soundPool ?: return
+        val id = soundIds[name] ?: return
+        sp.play(id, 1f, 1f, 1, 0, 1f)
+    }
+
     @JvmStatic
     fun setListener(l: SnapshotListener?) {
         listener = l
@@ -277,6 +326,7 @@ object VoiceEngine {
             root.put("participants", arr)
         }
         if (state != null) root.put("state", state)
+        if (tag.isNotEmpty()) root.put("tag", tag)
         return root.toString()
     }
 }

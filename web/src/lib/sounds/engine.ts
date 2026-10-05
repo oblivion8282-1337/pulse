@@ -22,6 +22,7 @@
 
 import { settings } from '$lib/stores/settings.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
+import { nativeVoiceEngaged, nativePlaySound } from '$lib/platform/nativeVoice';
 import { SOUNDS, type SoundId, type SoundCategory } from './registry';
 
 const SOUND_DIR = '/sounds';
@@ -75,6 +76,15 @@ class SoundEngine {
 
   /** Play if the relevant category-toggle is on. Silent no-op otherwise. */
   play(id: SoundId, opts: PlayOpts = {}): void {
+    // Nativer Voice-Motor: die voice.*-Klänge laufen im Anrufkanal (SoundPool
+    // mit Voice-Communication-Usage) — ein <audio>-Element würde im Medien-
+    // Regler landen, genau der Bug, den der Umbau behebt. Ehrliche Grenze:
+    // Guild-Override-URLs und Lautstärke-Stufen spielen nativ nicht — der
+    // SoundPool spielt die gebündelten Defaults (Übergabe P5).
+    if (nativeVoiceEngaged() && id.startsWith('voice.')) {
+      void nativePlaySound(id);
+      return;
+    }
     if (typeof Audio === 'undefined') return;
     const def = SOUNDS[id];
     const gain = categoryGain(def.category);

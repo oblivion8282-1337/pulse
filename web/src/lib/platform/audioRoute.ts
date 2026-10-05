@@ -55,6 +55,8 @@ export type AudioDiagnostic = {
     music: { volume: number; max: number };
   };
   outputDevices: { type: string }[];
+  /** Nativer Voice-Motor (P5): verbunden = Ton/Mic laufen über den Anrufkanal. */
+  nativeVoice?: { connected: boolean };
   /** Web-seitiger Fehler beim letzten setVoiceActive (z.B. Plugin nicht geladen).
    *  Nur belegt, wenn der Aufruf scheiterte — wird vom Web in den Dump gesetzt. */
   setVoiceActiveError?: string | null;

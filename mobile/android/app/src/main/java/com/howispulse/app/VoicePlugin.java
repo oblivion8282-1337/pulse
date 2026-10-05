@@ -44,8 +44,9 @@ public class VoicePlugin extends Plugin {
         }
         boolean echoCancellation = Boolean.TRUE.equals(call.getBoolean("echoCancellation", false));
         boolean noiseSuppression = Boolean.TRUE.equals(call.getBoolean("noiseSuppression", false));
+        String tag = call.getString("tag", "");
         VoiceEngine.join(getContext().getApplicationContext(), wsUrl, token,
-                echoCancellation, noiseSuppression, error -> {
+                echoCancellation, noiseSuppression, tag != null ? tag : "", error -> {
                     if (error == null) {
                         call.resolve();
                     } else {
@@ -105,6 +106,15 @@ public class VoicePlugin extends Plugin {
     @PluginMethod
     public void snapshot(PluginCall call) {
         VoiceEngine.emitSnapshot();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void playSound(PluginCall call) {
+        String id = call.getString("id");
+        if (id != null) {
+            VoiceEngine.playSound(id);
+        }
         call.resolve();
     }
 }

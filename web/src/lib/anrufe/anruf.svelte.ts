@@ -35,7 +35,16 @@ import {
   type AnrufArt
 } from '$lib/api/anrufe';
 import { sounds } from '$lib/sounds/engine';
-import { setVoiceActive } from '$lib/platform/audioRoute';
+import { setVoiceActive, setMicService } from '$lib/platform/audioRoute';
+import {
+  nativeVoiceFlagged,
+  nativeVoiceJoin,
+  nativeVoiceLeave,
+  nativeVoiceEngaged,
+  nativeVoiceListen,
+  nativeSetMicEnabled,
+  type NativeVoiceSnapshot
+} from '$lib/platform/nativeVoice';
 import { toast } from 'svelte-sonner';
 import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
 import { m } from '$lib/paraglide/messages.js';
@@ -156,6 +165,10 @@ class AnrufStore {
   #annahmeLaeuftFuer: string | null = null;
   /** Von `track.attach()` erzeugte Audio-Elemente — beim Abbau entfernen. */
   #ferneStimmen: HTMLMediaElement[] = [];
+
+  /** Snapshot-Listener des nativen Motors für den laufenden Anruf; abgebaut
+   *  in #aufräumen. */
+  #nativeHandle: PluginListenerHandle | null = null;
   /** In einem WS-Handler gesetzte Endes-Info für das gerade Abgebaute. */
   #abbauGen = 0;
   /** Anruf-Schlüssel (E2EE-Anrufe), NUR im Arbeitsspeicher — `anrufId →
@@ -388,6 +401,21 @@ class AnrufStore {
 
   async stummUmschalten(): Promise<void> {
     const room = this.#room;
+    // Nativer Motor: Mic über die Bridge — derselbe Optimismus/Rollback wie
+    // im Web-Pfad, sonst behauptet der Knopf etwas, das keiner tat.
+    if (!room && nativeVoiceEngaged()) {
+      const vorher = this.stumm;
+      this.stumm = !vorher;
+      try {
+        await nativeSetMicEnabled(vorher);
+      } catch (e) {
+        this.stumm = vorher;
+        toast.error(m.anruf_aktion_fehlgeschlagen(), {
+          description: e instanceof Error ? e.message : undefined
+        });
+      }
+      return;
+    }
     if (!room) return;
     const vorher = this.stumm;
     this.stumm = !vorher;
@@ -406,6 +434,9 @@ class AnrufStore {
 
   async kameraUmschalten(): Promise<void> {
     const room = this.#room;
+    // Nativer Pfad: nur Audio (siehe #verbindenInnere) — ohne Web-Room gäbe es
+    // weder Fernbild noch Lokalvorschau, also bleibt der Knopf wirkungslos.
+    if (!room && nativeVoiceEngaged()) return;
     if (!room) return;
     const vorher = this.kameranAn;
     this.kameranAn = !vorher;
@@ -417,6 +448,29 @@ class AnrufStore {
         description: e instanceof Error ? e.message : undefined
       });
     }
+  }
+
+  /** Snapshot-Listener des nativen Motors für den laufenden Anruf — nur
+   *  eigene Tags; Disconnected räumt genauso ab wie RoomEvent.Disconnected
+   *  im Web-Pfad. */
+  async #attachNativeCallListener(callId: string): Promise<void> {
+    this.#detachNativeCallListener();
+    const tag = `anruf:${callId}`;
+    this.#nativeHandle = await nativeVoiceListen((data: NativeVoiceSnapshot) => {
+      if (data.tag !== tag) return;
+      if (data.state === 'disconnected') {
+        toast.error(m.anruf_verbindung_verloren());
+        this.#aufräumen();
+      } else if (data.state === 'connected') {
+        this.aktiv = this.aktiv ? { ...this.aktiv, zustand: 'verbunden' } : null;
+        this.#dauerTimerStarten();
+      }
+    });
+  }
+
+  #detachNativeCallListener(): void {
+    void this.#nativeHandle?.remove();
+    this.#nativeHandle = null;
   }
 
   /** Vom WS-Handler: Initiator stoppt Klingeln und verbindet. */
@@ -521,6 +575,31 @@ class AnrufStore {
     try {
       const resp = await getAnrufToken(anruf.id);
       if (gen !== this.#abbauGen) return; // inzwischen abgebaut
+
+      // Nativer Motor (docs/UEBERGABE-MOBILE-VOICE-NATIV.md): derselbe
+      // Opt-in-Flag wie im Sprachkanal. Bewusst NICHT für verschlüsselte
+      // Anrufe — die E2EE-Maschinerie (Frame-Crypto im Worker) gibt es nativ
+      // nicht, und ein stiller Klartext-Fallback wäre der falsche Kompromiss;
+      // die laufen weiterhin über die Web-Engine (fail-closed).
+      // ponytail: Nur Audio — Kamera bleibt auf dem nativen Pfad wirkungslos
+      // (Fernbild/Lokalvorschau hängen an Web-Track-Elementen). Upgrade-Weg:
+      // Video-Frames über die Bridge an <video>-Elemente reichen.
+      if (schluessel === null && nativeVoiceFlagged()) {
+        if (await nativeVoiceJoin(resp, true, true, `anruf:${anruf.id}`)) {
+          if (gen !== this.#abbauGen) {
+            await nativeVoiceLeave();
+            return;
+          }
+          this.aktiv = this.aktiv ? { ...this.aktiv, zustand: 'verbunden' } : null;
+          this.#dauerTimerStarten();
+          this.verschluesselung = 'transport';
+          this.#attachNativeCallListener(anruf.id);
+          void setMicService(true);
+          await nativeSetMicEnabled(!this.stumm);
+          return;
+        }
+      }
+
       let encryption: { keyProvider: ExternalE2EEKeyProvider; worker: Worker } | undefined;
       if (schluessel !== null) {
         const keyProvider = new ExternalE2EEKeyProvider();
@@ -622,6 +701,11 @@ class AnrufStore {
     }
     const room = this.#room;
     this.#room = null;
+    // Nativer Motor: Snapshot-Listener ab, dann Engine-Raum freigeben und den
+    // Mic-Service stoppen (setVoiceActive unten rührt den Router auf dem
+    // nativen Pfad nicht an — dem SDK gehört der Modus).
+    this.#detachNativeCallListener();
+    const nativTrug = nativeVoiceEngaged();
     this.stumm = false;
     this.kameranAn = false;
     this.dauerSekunden = 0;
@@ -630,10 +714,12 @@ class AnrufStore {
     if (this.aktiv) this.#schluessel.delete(this.aktiv.id);
     this.aktiv = null;
     if (room) void room.disconnect();
+    else if (nativTrug) void nativeVoiceLeave();
     // `room.disconnect()` trennt die Tracks, aber die angehängten Elemente
     // bleiben als Medienreste im DOM — hier weg damit.
     for (const element of this.#ferneStimmen) element.remove();
     this.#ferneStimmen = [];
+    if (nativTrug) void setMicService(false);
     // Android: Ruf-Modus + Mic-Dienst freigeben (No-op außerhalb des Wrappers) —
     // sonst bleibt das Telefon im Call-Modus hängen (falscher Lautstärkeregler).
     void setVoiceActive(false);

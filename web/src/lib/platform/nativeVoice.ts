@@ -31,6 +31,8 @@ export type NativeParticipantSnapshot = {
 };
 
 export type NativeVoiceSnapshot = {
+  /** Raum-Etikett ('voice' | 'anruf:<id>') — Demux für die zwei Konsumenten. */
+  tag?: string;
   participants?: NativeParticipantSnapshot[];
   state?: 'connected' | 'reconnecting' | 'disconnected';
 };
@@ -41,12 +43,14 @@ interface NativeVoicePlugin {
     token: string;
     echoCancellation: boolean;
     noiseSuppression: boolean;
+    tag: string;
   }): Promise<void>;
   leave(): Promise<void>;
   setMicEnabled(opts: { on: boolean }): Promise<void>;
   setDeafened(opts: { on: boolean }): Promise<void>;
   state(): Promise<{ connected: boolean }>;
   snapshot(): Promise<void>;
+  playSound(opts: { id: string }): Promise<void>;
   addListener(
     eventName: 'voice',
     cb: (data: { snapshot: string }) => void
@@ -72,16 +76,18 @@ export function nativeVoiceFlagged(): boolean {
  *  — dafür gibt es den state()-Abgleich in nativeVoiceLeave). */
 let nativeActive = false;
 
-/** Nativen Join versuchen. `true` = die Engine trägt Ton/Mic jetzt, der
- *  Web-Pfad darf übersprungen werden; `false` = normal weiter. */
+/** Nativen Join versuchen. `tag` trennt die Konsumenten ('voice' |
+ *  'anruf:<id>'). `true` = die Engine trägt Ton/Mic jetzt, der Web-Pfad darf
+ *  übersprungen werden; `false` = normal weiter. */
 export async function nativeVoiceJoin(
   resp: { ws_url: string; token: string },
   echoCancellation: boolean,
-  noiseSuppression: boolean
+  noiseSuppression: boolean,
+  tag = 'voice'
 ): Promise<boolean> {
   if (!nativeVoiceFlagged()) return false;
   try {
-    await plugin.join({ ws_url: resp.ws_url, token: resp.token, echoCancellation, noiseSuppression });
+    await plugin.join({ ws_url: resp.ws_url, token: resp.token, echoCancellation, noiseSuppression, tag });
     nativeActive = true;
     return true;
   } catch (e) {
@@ -148,6 +154,15 @@ export async function nativeSetMicEnabled(on: boolean): Promise<void> {
 /** Taub-Schaltung nativ (nur Wiedergabe — Mic-Kopplung macht die Fassade). */
 export async function nativeSetDeafened(on: boolean): Promise<void> {
   await plugin.setDeafened({ on });
+}
+
+/** voice.*-Klang nativ im Anrufkanal abspielen (SoundPool, siehe P5). */
+export async function nativePlaySound(id: string): Promise<void> {
+  try {
+    await plugin.playSound({ id });
+  } catch (e) {
+    console.warn('[nativeVoice] playSound fehlgeschlagen', e);
+  }
 }
 
 /** Aktuellen Teilnehmer-Stand ziehen — direkt nach dem Anhängen des

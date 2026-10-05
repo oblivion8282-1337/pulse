@@ -456,6 +456,8 @@ class VoiceRoom {
       voiceState.channelId = channelId;
       voiceState.connected = true;
       this.#attachNativeListener();
+      // Join-Klang — läuft über den Engine-Guard nativ im Anrufkanal.
+      sounds.play('voice.self_join', { guildId: guilds.guildIdForChannel(channelId) });
       // Mic-Start wie im Web-Pfad (startMuted/startDeafened/PTT); die
       // Taub-Schaltung der Engine an den hiesigen Zustand koppeln (die Engine
       // überlebt Reloads, ihr Taub-Flag also auch — Zustand hier ist Wahrheit).
@@ -1574,8 +1576,10 @@ class VoiceRoom {
 
   /** Native Snapshots in dieselben Stores schreiben, die #wireEvents über die
    *  Web-Room-Events füttern — die UI sieht keinen Unterschied. Feldaufbereitung
-   *  identisch zu #refreshParticipants (Name-Fallback, userId aus der Identität). */
+   *  identisch zu #refreshParticipants (Name-Fallback, userId aus der Identität).
+   *  Fremde Tags (Anruf-Räume) sind nicht unsere. */
   #applyNativeSnapshot(data: NativeVoiceSnapshot): void {
+    if (data.tag !== undefined && data.tag !== 'voice') return;
     if (data.state) {
       if (data.state === 'disconnected') {
         // Die ENGINE ist weg (Netz/Server) — gleiche Behandlung wie
