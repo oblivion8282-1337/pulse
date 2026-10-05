@@ -33,14 +33,24 @@ export function register(ctx: HandlerContext): void {
     // explicit disconnect ensures our UI state catches up
     // immediately instead of waiting for the close event.
     if (currentServerUserId() === evt.user_id) {
-      // Nur die Übernahme erklärt sich dem Nutzer: sonst würde die Sprache
-      // „einfach so" enden und wie ein Verbindungsfehler aussehen. Der
-      // Toast steht bewusst VOR dem channelId-Guard — das LiveKit-Ende kann
-      // der WS-Nachricht zuvorkommen und voice.channelId schon null sein.
-      if (evt.reason === 'geraete_uebernahme') {
-        toast.info(m.voice_uebernommen_toast());
-      }
       void import('$lib/voice/livekit.svelte').then(({ voice }) => {
+        // Stuhl-Übernahme: der Wurf wird BEIM BEITRETEN des neuen Geräts
+        // ausgelöst und an alle Geräte gebroadcastet — das joinende fängt
+        // den eigenen Echo ab. Ohne diesen Wächter riss sich der frische
+        // Join selbst ab („user initiated disconnect" mitten im Handshake,
+        // Befund 05.10.: Community-Beitritt unmöglich, solange das zweite
+        // Gerät im Kanal war). Erkennung über den Join-Start: das neue
+        // Gerät hat ihn < 5 s vorher angestoßen, das alte vor Stunden.
+        if (evt.reason === 'geraete_uebernahme' && Date.now() - voice.joinStartedAt < 5000) {
+          return;
+        }
+        // Nur die Übernahme erklärt sich dem Nutzer: sonst würde die Sprache
+        // „einfach so" enden und wie ein Verbindungsfehler aussehen. Der
+        // Toast steht bewusst VOR dem channelId-Guard — das LiveKit-Ende kann
+        // der WS-Nachricht zuvorkommen und voice.channelId schon null sein.
+        if (evt.reason === 'geraete_uebernahme') {
+          toast.info(m.voice_uebernommen_toast());
+        }
         if (voice.channelId !== evt.channel_id) return;
         void voice.disconnect();
       });

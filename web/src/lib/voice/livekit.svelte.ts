@@ -127,6 +127,13 @@ class VoiceRoom {
   state = $state<ConnectionState>(ConnectionState.Disconnected);
   /** Last error message from a failed connect, surfaced to the UI. */
   error = $state<string | null>(null);
+  /** Timestamp of the latest connect() start (0 = nie). Der Stuhl-Übernahme-
+   *  Wächter im voice_disconnect-Handler erkennt daran den ECHO des eigenen
+   *  Joins: der Übernahme-Wurf wird beim BEITRETEN ausgelöst und an alle
+   *  Geräte gebroadcastet — das joinende fängt ihn selbst ab und darf sich
+   *  deswegen nicht selbst abreißen. Kein $state: nur im WS-Handler gelesen,
+   *  nie gerendert. */
+  joinStartedAt = 0;
 
   participants = $state<VoiceParticipant[]>([]);
 
@@ -386,6 +393,7 @@ class VoiceRoom {
     this.error = null;
     this.channelId = channelId;
     this.channelName = channelName;
+    this.joinStartedAt = Date.now();
     this.state = ConnectionState.Connecting;
 
     this.#teardownDone = false;
