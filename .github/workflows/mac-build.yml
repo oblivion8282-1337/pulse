@@ -6,13 +6,16 @@ name: mac-build
 # in web/src/lib/downloads/appDownloads.ts). Gleiches Deploy-Muster wie
 # win-build.yml / flatpak.yml — selbe VPS-SSH-Secrets.
 #
-# Stufe B (Stand 2026-10-05): SIGNIERT + NOTARISIERT. CSC_LINK/CSC_KEY_PASSWORD
-# (Developer-ID-Zertifikat) + APPLE_API_KEY_P8/KEY_ID/ISSUER (notarytool) als
-# Secrets; electron-builder signiert mit Hardened Runtime und schickt die .app
-# durch Notarisierung. electron-updater ist auf macOS aktiv: Client-Feed
-# /updates/mac/, Server-Feed /updates/mac-server/ (je latest-mac.yml + .zip).
-# Ohne Secrets (z. B. Fork-PR) fällt der Build auf unsigniert-ad-hoc zurück
-# (afterPack.cjs-Gate) und überspringt die Notarisierung still. Konzept:
+# Stufe B (Stand 2026-10-05): SIGNIERT + NOTARISIERT. Das Developer-ID-Zertifikat
+# (CSC_LINK/CSC_KEY_PASSWORD) wird via apple-actions/import-codesign-certs in
+# einen eigenen Runner-Keychain importiert — electron-builder findet die Identity
+# dann über die Keychain-Suche (sein eigener CSC_LINK-Pfad ist auf macOS-15-
+# Runnern kaputt, s. Kommentar beim Import-Step). APPLE_API_KEY_P8/KEY_ID/ISSUER
+# (notarytool) als Secrets; electron-builder signiert mit Hardened Runtime und
+# schickt die .app durch Notarisierung. electron-updater ist auf macOS aktiv:
+# Client-Feed /updates/mac/, Server-Feed /updates/mac-server/ (je latest-mac.yml
+# + .zip). Ohne Secrets (z. B. Fork-PR) fällt der Build auf unsigniert-ad-hoc
+# zurück (afterPack.cjs-Gate) und überspringt die Notarisierung still. Konzept:
 # docs/plans/2026-06-15-macos-client.md.
 #
 # WARUM FFmpeg HIER gebaut statt (wie Windows) vorgebaut gezogen wird:
@@ -141,11 +144,24 @@ jobs:
       - name: webrtc-rs-Zweig herstellen (Player)
         run: ./streaming/pulse-player/scripts/bootstrap-webrtc.sh
 
+      # Signatur-Zertifikat in einen eigenen Keychain importieren (mit Partition-
+      # List). Warum NICHT electron-builders CSC_LINK-Pfad: der legt den Temp-
+      # Keychain mit Zufallspasswort an, ruft `set-key-partition-list -k` aber
+      # mit dem P12-Passwort auf — auf macOS-15-Runnern schlägt SecKeychainUnlock
+      # dann garantiert fehl (Run 37345992154). Mit hier vorliegender Identity
+      # findet electron-builder sie via Keychain-Suche selbst; CSC_LINK wird
+      # deshalb unten NICHT gesetzt. Ohne Secrets (Fork-PR) ad-hoc-Fallback.
+      - name: Signatur-Zertifikat importieren
+        if: github.ref == 'refs/heads/main'
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ secrets.CSC_LINK }}
+          p12-password: ${{ secrets.CSC_KEY_PASSWORD }}
+
       # Notarisierung (.p8): electron-builder verlangt in APPLE_API_KEY einen
       # DATEIPFAD — das Secret ist base64, also einmal entschlüsseln. Fehlt das
       # Secret (z. B. Fork-PR), landet eine leere Datei da: electron-builder
-      # überspringt Notarisierung (und CSC_LINK-Signing) dann still, und der
-      # afterPack-Hook fällt auf die Ad-hoc-Signatur zurück.
+      # überspringt Notarisierung dann still.
       - name: Notarisierungs-Key entschlüsseln
         run: |
           printf '%s' "${{ secrets.APPLE_API_KEY_P8 }}" | base64 -d > "$RUNNER_TEMP/AuthKey_643258YHJ2.p8"
@@ -159,11 +175,10 @@ jobs:
       # streaming/mac-hq-sidecar/.cargo/config.toml — cargos [env] ist non-force,
       # eine gesetzte Env gewinnt).
       #
-      # Stufe B (2026-10-05): CSC_LINK/CSC_KEY_PASSWORD = Developer-ID-Zertifikat
-      # (electron-builder importiert es selbst in einen temporären Runner-Keychain
-      # mit Partition-List, keine manuellen security-Steps nötig);
-      # APPLE_API_KEY* = Notarytool-Credentials. Ohne Secrets wird unsigniert
-      # ad-hoc gebaut (Fallback). client-Feed: /updates/mac/.
+      # Stufe B (2026-10-05): Identity kommt aus dem importierten Keychain
+      # (siehe Import-Step oben), APPLE_API_KEY* = Notarytool-Credentials. Ohne
+      # Secrets wird unsigniert ad-hoc gebaut (Fallback). client-Feed:
+      # /updates/mac/.
       #
       # Podman-Bündelung für App-Hosting entfernt (2026-07-14, App-Hosting
       # geparkt) — analog zu win-build. Zum Reaktivieren: `bash scripts/
@@ -171,8 +186,6 @@ jobs:
       # extraResource in electron-builder.yml (mac-Sektion) aufnehmen.
       - name: DMG bauen (signiert + notarisiert)
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ runner.temp }}/AuthKey_643258YHJ2.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -257,14 +270,19 @@ jobs:
       - name: Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Signatur-Zertifikat importieren (Server)
+        if: github.ref == 'refs/heads/main'
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ secrets.CSC_LINK }}
+          p12-password: ${{ secrets.CSC_KEY_PASSWORD }}
+
       - name: Notarisierungs-Key entschlüsseln (Server)
         run: |
           printf '%s' "${{ secrets.APPLE_API_KEY_P8 }}" | base64 -d > "$RUNNER_TEMP/AuthKey_643258YHJ2.p8"
 
       - name: Server-DMG bauen (signiert + notarisiert, mit Mac-Podman)
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ runner.temp }}/AuthKey_643258YHJ2.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
