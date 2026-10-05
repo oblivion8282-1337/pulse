@@ -36,6 +36,7 @@
   import FileIcon from '@lucide/svelte/icons/file';
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import DownloadIcon from '@lucide/svelte/icons/download';
+  import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -104,6 +105,30 @@ import { Portal } from 'bits-ui';
    *  `krypto/anhangHolen.ts`), sonst die fertige Adresse. */
   let quellen = $state<Record<string, string>>({});
 
+  /** Neuversuch-Zaehler fuer den Fehl-Zustand ('' in `quellen`): Klick auf
+   *  „Erneut holen" erhoeht ihn — der Lade-Effekt darunter liest ihn und
+   *  laeuft damit nochmal (lokal → private Sicherung → Server). */
+  let versuch = $state(0);
+
+  /** `null` = noch nicht geprueft. Erst beim ersten Fehlschlag geladen —
+   *  ohne eingerichtete Sicherung ist „Erneut holen“ meist ohnmächtig, dann
+   *  steht der Einricht-Hinweis daneben (Entscheidung 2026-10-05). */
+  let sicherungDa = $state<boolean | null>(null);
+
+  async function sicherungPruefen(): Promise<void> {
+    if (sicherungDa !== null) return;
+    try {
+      const { zieleLesen, zieleBesetzt } = await import('$lib/sicherung/ziele');
+      sicherungDa = zieleBesetzt(await zieleLesen());
+    } catch {
+      sicherungDa = false;
+    }
+  }
+
+  function erneutVersuchen(): void {
+    versuch += 1;
+  }
+
   /** Anhaenge, deren eigene Zustellung abgelaufen ist (410
    *  `anhang_abgelaufen`, als ApiError durchgereicht) —
    *  sie bekommen die ruhige „abgelaufen“-Meldung statt des generischen
@@ -118,6 +143,8 @@ import { Portal } from 'bits-ui';
 
   $effect(() => {
     const liste = zuHolen;
+    const neuversuch = versuch; // Klick-Abhängigkeit, s. `versuch` oben
+    void neuversuch;
     if (liste.length === 0) return;
     let abgebrochen = false;
     const erzeugt: string[] = [];
@@ -144,9 +171,11 @@ import { Portal } from 'bits-ui';
             gesammelt[a.id] = url;
           } else {
             gesammelt[a.id] = '';
+            void sicherungPruefen();
           }
         } catch (fehler) {
           gesammelt[a.id] = '';
+          void sicherungPruefen();
           if (istAnhangAbgelaufenFehler(fehler)) abgelaufenGesammelt[a.id] = true;
         }
         quellen = { ...gesammelt };
@@ -492,35 +521,67 @@ import { Portal } from 'bits-ui';
         <AudioNachricht src={quelle(a) ?? undefined} bekannteDauer={a.dauerSekunden} />
       {:else}
         {@const quelleDatei = quelle(a)}
-        <a
-          href={quelleDatei || undefined}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="bg-bg-input hover:bg-bg-hover flex w-fit max-w-md items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-sm transition-colors"
-          data-testid="attachment-download"
-          download={a.filename || ERSATZ_DATEINAME}
-        >
-          <div class="text-text-muted shrink-0">
-            {#if k === 'pdf'}
-              <FileTextIcon class="size-5" />
-            {:else}
-              <FileIcon class="size-5" />
-            {/if}
-          </div>
-          <div class="min-w-0 flex-1">
-            <p class="text-text-bright truncate font-medium">
-              {a.filename ?? m.message_attachments_unnamed()}
-            </p>
-            <p class="text-text-muted text-xs">
-              {abgelaufen[a.id]
-                ? m.message_attachments_abgelaufen()
-                : quelleDatei === ''
-                  ? m.message_attachments_unavailable()
-                  : formatBytes(a.size)}
-            </p>
-          </div>
-          <DownloadIcon class="text-text-muted size-4 shrink-0" />
-        </a>
+        {#if quelleDatei === '' && !abgelaufen[a.id]}
+          <!-- Bytes endgueltig nicht verfuegbar (lokal, Sicherung und Server
+               leer — z. B. Archiv-Zeile auf einem neuen Geraet). Klick
+               versucht es erneut; ohne eingerichtete Sicherung steht der
+               Hinweis darunter (Entscheidung 2026-10-05). -->
+          <button
+            type="button"
+            class="bg-bg-input hover:bg-bg-hover flex w-fit max-w-md items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-left text-sm transition-colors"
+            data-testid="attachment-retry"
+            onclick={erneutVersuchen}
+          >
+            <div class="text-text-muted shrink-0">
+              {#if k === 'pdf'}
+                <FileTextIcon class="size-5" />
+              {:else}
+                <FileIcon class="size-5" />
+              {/if}
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-text-bright truncate font-medium">
+                {a.filename ?? m.message_attachments_unnamed()}
+              </p>
+              <p class="text-text-muted text-xs">
+                {sicherungDa === false
+                  ? m.message_attachments_sicherungshinweis()
+                  : m.message_attachments_unavailable()}
+              </p>
+            </div>
+            <RefreshCwIcon class="text-text-muted size-4 shrink-0" />
+          </button>
+        {:else}
+          <a
+            href={quelleDatei || undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="bg-bg-input hover:bg-bg-hover flex w-fit max-w-md items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-sm transition-colors"
+            data-testid="attachment-download"
+            download={a.filename || ERSATZ_DATEINAME}
+          >
+            <div class="text-text-muted shrink-0">
+              {#if k === 'pdf'}
+                <FileTextIcon class="size-5" />
+              {:else}
+                <FileIcon class="size-5" />
+              {/if}
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-text-bright truncate font-medium">
+                {a.filename ?? m.message_attachments_unnamed()}
+              </p>
+              <p class="text-text-muted text-xs">
+                {abgelaufen[a.id]
+                  ? m.message_attachments_abgelaufen()
+                  : quelleDatei === ''
+                    ? m.message_attachments_unavailable()
+                    : formatBytes(a.size)}
+              </p>
+            </div>
+            <DownloadIcon class="text-text-muted size-4 shrink-0" />
+          </a>
+        {/if}
       {/if}
     {/each}
   </div>

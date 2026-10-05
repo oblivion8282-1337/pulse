@@ -35,3 +35,23 @@ export function anhangAngabeZuAttachment(angabe: AnhangAngabe): Attachment {
     thumb_schluessel: angabe.vorschau?.schluessel ?? null
   };
 }
+
+/** Gegenrichtung: eine angezeigte `Attachment` zurück in die transportable
+ *  `AnhangAngabe` — für die Archiv-Zeile (ein anderes Gerät rendert daraus
+ *  die Kachel und holt die Bytes lokal, aus der Sicherung oder gar nicht). */
+export function attachmentZuAngabe(a: Attachment): AnhangAngabe {
+  return {
+    id: a.id,
+    name: a.filename ?? '',
+    typ: a.mime ?? 'application/octet-stream',
+    groesse: a.size,
+    schluessel: a.schluessel ?? '',
+    breite: a.width ?? null,
+    hoehe: a.height ?? null,
+    vorschau:
+      a.thumb_schluessel != null && a.thumb_width != null && a.thumb_height != null
+        ? { schluessel: a.thumb_schluessel, breite: a.thumb_width, hoehe: a.thumb_height }
+        : null,
+    ...(a.dauerSekunden != null ? { dauerSekunden: a.dauerSekunden } : {})
+  };
+}

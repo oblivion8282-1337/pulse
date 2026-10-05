@@ -56,6 +56,7 @@ import { ermittleGeloeschteIds } from './abgleich';
 import { ohneFrischeGrabsteine } from './ohneFrischeGrabsteine';
 import { messages } from '$lib/stores/messages.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
+import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 import { chatApi } from '$lib/api/chat';
 import type { Message } from '$lib/api/types';
 
@@ -132,18 +133,13 @@ export async function ladeAeltereSeite(
 		}
 	}
 
-  // Eine private Gruppe hat keinen Server-Verlauf — der lokale Bestand ist
-  // die einzige Kopie. Ist er erschoepft, ist die Seite zu Ende; ein Aufruf
-  // gaebe hier eine Abweisung, die als Ladefehler aussaehe.
-  if (!hatServerVerlauf(channelId)) return { nachrichten: [], vomServer: false, sicherungLieferte };
-
-  // Server-Archiv (Übergabe 2026-10-04 §5): E2EE-DMs haben keinen
-  // Server-Verlauf im Klartext — ist der lokale Bestand zu Ende, füllt das
-  // verschlüsselte Archiv (120 Tage) ältere Seiten nach. Vor dem
-  // Server-Zweig, dedupe-sicher per Upsert (dieselbe Logik wie der
-  // Sicherungs-Zweig oben). Nur für DMs; Guild-Kanäle haben ihren Verlauf
-  // ohnehin beim Server.
-  if (channelId in directMessages.byId) {
+  // Server-Archiv (Übergabe 2026-10-04 §5; Gruppen seit 2026-10-05):
+  // E2EE-Kanäle (DMs wie private Gruppen) haben keinen Server-Verlauf im
+  // Klartext — ist der lokale Bestand zu Ende, füllt das verschlüsselte
+  // Archiv (120 Tage) ältere Seiten nach. Dedupe-sicher per Upsert (dieselbe
+  // Logik wie der Sicherungs-Zweig oben), VOR dem Gruppen-Ende darunter.
+  // Guild-Kanäle haben ihren Verlauf ohnehin beim Server.
+  if (channelId in directMessages.byId || privateGruppen.istGruppe(channelId)) {
     try {
       const { archivNachziehen } = await import('$lib/archiv/lesen');
       if ((await archivNachziehen(channelId, 1)) > 0) {
@@ -156,6 +152,11 @@ export async function ladeAeltereSeite(
       /* Archiv darf das Hochscrollen nie stören — der Server-Zweig läuft. */
     }
   }
+
+  // Eine private Gruppe hat keinen Server-Verlauf — der lokale Bestand ist
+  // die einzige Kopie. Ist er erschoepft, ist die Seite zu Ende; ein Aufruf
+  // gaebe hier eine Abweisung, die als Ladefehler aussaehe.
+  if (!hatServerVerlauf(channelId)) return { nachrichten: [], vomServer: false, sicherungLieferte };
 
   const vomServer = await chatApi.listMessages(
     channelId,
