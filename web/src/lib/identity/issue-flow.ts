@@ -161,7 +161,18 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
 let lauf: Promise<void> | null = null;
 let fertig = false;
 
-/** Startet den Flow genau einmal pro Seitenleben; weitere Aufrufe warten auf
+/** Setzt den Einmal-Wächter zurück — der Abmeldeweg ruft dies zusammen mit
+ *  dem Identitäts-Wisch: ohne das blieb `fertig` aus der Anmeldung VOR dem
+ *  Abmelden stehen, und die Neuanmeldung im SELBEN Seitenleben (Logout →
+ *  Login läuft ohne Neulad) bekam den alten Lauf zurück, erzeugte kein
+ *  neues Keypair und jede Sendung starb an KEINE_GERAETEKENNUNG
+ *  (Vorfall 2026-10-05, Runde 4). */
+export function geraeteAnmeldungZuruecksetzen(): void {
+  lauf = null;
+  fertig = false;
+}
+
+/** Startet den Flow genau einmal pro Seitenleben; weitere Aufrufer warten auf
  *  denselben Lauf. Fehler gehen an alle Aufrufer, der naechste Login versucht
  *  es erneut (Lauf und fertig werden zurueckgesetzt). */
 export function starteGeraeteAnmeldung(): Promise<void> {
