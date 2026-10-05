@@ -5,6 +5,7 @@ chat-gateway (voice-signaling does not own the auth DB)."""
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 from datetime import timedelta
 from typing import Annotated
@@ -130,6 +131,36 @@ async def issue_token(
     await voice_routes._save_user_sources(redis, payload.channel_id, str(user.id), sources)
     override = await voice_routes._load_override(redis, payload.channel_id, str(user.id))
     can_publish, sources = voice_routes._apply_override(sources, can_publish, override)
+
+    # Stuhl-Übernahme (2026-10-05): ein Sprachkanalplatz pro Mensch. Bevor
+    # DIESES Gerät beitritt, fliegen ältere LiveKit-Sitzungen desselben Kontos
+    # im Kanal raus — das alte Gerät reißt sauber ab (bleibt angemeldet) und
+    # bekommt über voice_disconnect mit Grund einen Hinweis, statt dass
+    # derselbe Mensch doppelt/dreifach als Kachel steht (Kuriiko-Vorfall
+    # 05.10.). Anrufe (call_token.py) sind bewusst NICHT Teil davon: dort
+    # dürfen Zweitgeräte bleiben (Befund 03.10. #6). Best-effort wie der
+    # Admin-Rauswurf — scheitert LiveKit, joint das neue Gerät trotzdem und
+    # der Reconcile-Lauf räumt später auf. Ohne API-Singleton (Unit-Tests)
+    # entfällt der Wurf komplett.
+    livekit_api = getattr(request.app.state, "livekit_api", None)
+    if livekit_api is not None:
+        await voice_routes._livekit_remove_participant(
+            payload.channel_id, str(user.id), api_client=livekit_api
+        )
+        if redis is not None:
+            from dcc_shared.events import VoiceDisconnectEvent
+
+            await redis.publish(
+                voice_routes._VOICE_EVENTS_CHANNEL,
+                json.dumps(
+                    VoiceDisconnectEvent(
+                        channel_id=payload.channel_id,
+                        user_id=str(user.id),
+                        reason="geraete_uebernahme",
+                    ).model_dump(mode="json", exclude_none=True),
+                    separators=(",", ":"),
+                ),
+            )
 
     grants = lk.VideoGrants(
         room_join=True,

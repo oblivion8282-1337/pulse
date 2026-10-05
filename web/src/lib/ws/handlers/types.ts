@@ -268,6 +268,10 @@ export type ServerEvent =
       op: 'voice_disconnect';
       channel_id: string;
       user_id: string;
+      /** Nur bei der Stuhl-Übernahme gesetzt: das eigene neuere Gerät hat
+       *  den Sprachkanalplatz übernommen (Admin-Rauswürfe bleiben ohne
+       *  Grund und damit still). */
+      reason?: 'geraete_uebernahme';
     }
   | {
       // A channel manager brought ``user_id`` into a voice channel (a

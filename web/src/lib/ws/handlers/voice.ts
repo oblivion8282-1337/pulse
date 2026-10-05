@@ -7,6 +7,8 @@
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { registerWsHandler } from '../handler-registry';
+import { m } from '$lib/paraglide/messages.js';
+import { toast } from 'svelte-sonner';
 import type { HandlerContext } from './context';
 
 export function register(ctx: HandlerContext): void {
@@ -24,12 +26,20 @@ export function register(ctx: HandlerContext): void {
   });
 
   registerWsHandler('voice_disconnect', (evt) => {
-    // Server admin yanked someone out of voice. If that's us in the
-    // channel we're connected to, drop the LiveKit room locally —
+    // Server admin yanked someone out of voice — or the user's own newer
+    // device took over the voice seat (Stuhl-Übernahme). If that's us in
+    // the channel we're connected to, drop the LiveKit room locally —
     // LiveKit may have already removed the participant, but the
     // explicit disconnect ensures our UI state catches up
     // immediately instead of waiting for the close event.
     if (currentServerUserId() === evt.user_id) {
+      // Nur die Übernahme erklärt sich dem Nutzer: sonst würde die Sprache
+      // „einfach so" enden und wie ein Verbindungsfehler aussehen. Der
+      // Toast steht bewusst VOR dem channelId-Guard — das LiveKit-Ende kann
+      // der WS-Nachricht zuvorkommen und voice.channelId schon null sein.
+      if (evt.reason === 'geraete_uebernahme') {
+        toast.info(m.voice_uebernommen_toast());
+      }
       void import('$lib/voice/livekit.svelte').then(({ voice }) => {
         if (voice.channelId !== evt.channel_id) return;
         void voice.disconnect();

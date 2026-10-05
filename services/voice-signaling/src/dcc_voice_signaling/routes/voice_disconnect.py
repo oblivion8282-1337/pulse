@@ -175,6 +175,6 @@ async def disconnect_from_voice(
     )
     await redis.publish(
         voice_routes._VOICE_EVENTS_CHANNEL,
-        json.dumps(envelope.model_dump(mode="json")),
+        json.dumps(envelope.model_dump(mode="json", exclude_none=True)),
     )
     return {"disconnected": True}
