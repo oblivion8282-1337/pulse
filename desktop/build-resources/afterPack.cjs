@@ -19,11 +19,33 @@
 // HQ-Sidecar in Contents/Resources/hq-sidecar/ behält seine eigene, von
 // bundle-dylibs.sh gesetzte Ad-hoc-Signatur (codesign --deep fasst lose Mach-Os
 // in Resources nicht an) und wird vom äußeren Siegel nur per Hash erfasst.
+//
+// Stufe B (Developer ID vorhanden): electron-builder signiert NACH diesem Hook
+// (doPack → afterPack → Fuses → doSignAfterPack) mit der echten Identity — der
+// Ad-hoc-Durchlauf würde nur sinnlos drübersignieren und wieder entfernt werden.
+// Deshalb: existiert eine „Developer ID Application"-Identity im Schlüsselbund
+// (lokal installiert oder von CI via CSC_LINK importiert), springt der Hook aus.
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 
+function hatDeveloperId() {
+  try {
+    const out = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
+      encoding: 'utf8',
+    });
+    // „Apple Development"/„Apple Distribution" (iOS/Stores) absichtlich NICHT gematcht.
+    return out.includes('Developer ID Application');
+  } catch {
+    return false;
+  }
+}
+
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return;
+  if (hatDeveloperId()) {
+    console.log('[afterPack] Developer ID Identity vorhanden — echtes Signing macht electron-builder nach diesem Hook (Stufe B).');
+    return;
+  }
   const appName = context.packager.appInfo.productFilename;
   const appPath = path.join(context.appOutDir, `${appName}.app`);
 

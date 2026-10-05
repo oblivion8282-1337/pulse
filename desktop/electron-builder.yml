@@ -23,10 +23,12 @@
 # sie von `https://howispulse.com`.
 appId: com.howispulse.pulse
 productName: Pulse
-# Ad-hoc-Signatur der macOS-.app (Stufe A, kein Developer ID) — siehe
-# build-resources/afterPack.cjs. Ohne diesen Hook liefert electron-builder eine
-# nur linker-signierte, NICHT versiegelte .app, die Gatekeeper auf Apple Silicon
-# als „beschädigt" abweist. Greift nur für darwin; Windows/Linux ignorieren ihn.
+# afterPack-Hook (build-resources/afterPack.cjs) — FALLBACK für builds ohne
+# Developer-ID-Identity: ad-hoc-Signatur statt linker-signierter, unversiegelter
+# .app (die Gatekeeper auf Apple Silicon als „beschädigt" abweist). Liegt eine
+# Developer-ID-Identity vor (Schlüsselbund lokal / CSC_LINK in CI), springt der
+# Hook aus — electron-builder signiert danach selbst echt (Stufe B). Greift nur
+# für darwin; Windows/Linux ignorieren ihn.
 afterPack: build-resources/afterPack.cjs
 directories:
   output: release
@@ -170,12 +172,16 @@ publish:
   provider: generic
   url: https://howispulse.com/updates/win/
 # ── macOS ─────────────────────────────────────────────────────────────────────
-# Erzeugt eine .app in einem .dmg (Drag-Install) + ein .zip (Auto-Update-Artefakt
-# für Stufe B). Stand 2026-06-15 ist Stufe A aktiv = UNSIGNIERT: Gatekeeper verlangt
-# beim Erststart Rechtsklick→Öffnen (bzw. `xattr -dr com.apple.quarantine`), und
-# electron-updater bleibt auf macOS deaktiviert (s. updater.ts) — es verlangt dort
-# eine gültige Signatur. Voll-Konzept + Stufe B (Signing/Notarization/Auto-Update):
-# docs/plans/2026-06-15-macos-client.md.
+# Erzeugt eine .app in einem .dmg (Drag-Install) + ein .zip (Auto-Update-Artefakt).
+#
+# Stand 2026-10-05 = Stufe B (signiert + notarisiert): electron-builder signiert
+# mit der Developer-ID-Application-Identity aus dem Schlüsselbund (lokal) bzw.
+# CSC_LINK (CI) mit Hardened Runtime und schickt das Ergebnis durch notarytool
+# (Credentials via APPLE_API_KEY/APPLE_API_KEY_ID/APPLE_API_ISSUER, Team
+# 6FRUC2UST8). Ohne vorliegende Identity springt afterPack.cjs auf die alte
+# Ad-hoc-Signatur zurück (Stufe A als Fallback). electron-updater ist auf macOS
+# aktiv (s. updater.ts) und liest `latest-mac.yml` + `.zip` aus dem Feed unten.
+# Voll-Konzept: docs/plans/2026-06-15-macos-client.md.
 mac:
   target:
     - dmg
@@ -187,13 +193,15 @@ mac:
   extendInfo:
     NSScreenCaptureUsageDescription: Pulse nimmt deinen Bildschirm auf, um ihn im Voice-Channel zu streamen.
     NSMicrophoneUsageDescription: Pulse nutzt dein Mikrofon für Sprachkanäle.
-  # Stufe B (mit Apple Developer ID) hier ergänzen:
-  #   hardenedRuntime: true
-  #   gatekeeperAssess: false
-  #   entitlements: build-resources/entitlements.mac.plist
-  #   entitlementsInherit: build-resources/entitlements.mac.plist
-  #   notarize: true     # braucht APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
-  #   publish: { provider: generic, url: https://howispulse.com/updates/mac/ }
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: true
+  # Mac-Update-Feed (generic) — OVERRIDES den top-level-/updates/win/-Publish für
+  # darwin; electron-builder schreibt daraus app-update.yml + latest-mac.yml.
+  # nginx-Route: /updates/mac/ (Upload via mac-build.yml).
+  publish:
+    provider: generic
+    url: https://howispulse.com/updates/mac/
   # HQ-Streaming-Sidecar UND nativer Player: the SELF-CONTAINED bundle dir
   # produced by `scripts/bundle-dylibs.sh <outdir> <binary...>` (both binaries +
   # ONE shared set of @loader_path-rewritten FFmpeg/openssl/opus dylibs, ad-hoc

@@ -6,10 +6,14 @@ name: mac-build
 # in web/src/lib/downloads/appDownloads.ts). Gleiches Deploy-Muster wie
 # win-build.yml / flatpak.yml — selbe VPS-SSH-Secrets.
 #
-# Stufe 1 (Stand 2026-07-14): UNSIGNIERT. Gatekeeper verlangt beim Erststart
-# Rechtsklick→Öffnen; macOS hat KEINEN Auto-Updater (updater.ts: manueller
-# Download). Signing/Notarization = späterer, kostenpflichtiger Schritt
-# (Stufe B in desktop/electron-builder.yml + docs/plans/2026-06-15-macos-client.md).
+# Stufe B (Stand 2026-10-05): SIGNIERT + NOTARISIERT. CSC_LINK/CSC_KEY_PASSWORD
+# (Developer-ID-Zertifikat) + APPLE_API_KEY_P8/KEY_ID/ISSUER (notarytool) als
+# Secrets; electron-builder signiert mit Hardened Runtime und schickt die .app
+# durch Notarisierung. electron-updater ist auf macOS aktiv: Client-Feed
+# /updates/mac/, Server-Feed /updates/mac-server/ (je latest-mac.yml + .zip).
+# Ohne Secrets (z. B. Fork-PR) fällt der Build auf unsigniert-ad-hoc zurück
+# (afterPack.cjs-Gate) und überspringt die Notarisierung still. Konzept:
+# docs/plans/2026-06-15-macos-client.md.
 #
 # WARUM FFmpeg HIER gebaut statt (wie Windows) vorgebaut gezogen wird:
 # Der Mac-Sidecar linkt gegen eine SELBSTGEBAUTE LGPL-FFmpeg (openssl statt Apple
@@ -137,6 +141,15 @@ jobs:
       - name: webrtc-rs-Zweig herstellen (Player)
         run: ./streaming/pulse-player/scripts/bootstrap-webrtc.sh
 
+      # Notarisierung (.p8): electron-builder verlangt in APPLE_API_KEY einen
+      # DATEIPFAD — das Secret ist base64, also einmal entschlüsseln. Fehlt das
+      # Secret (z. B. Fork-PR), landet eine leere Datei da: electron-builder
+      # überspringt Notarisierung (und CSC_LINK-Signing) dann still, und der
+      # afterPack-Hook fällt auf die Ad-hoc-Signatur zurück.
+      - name: Notarisierungs-Key entschlüsseln
+        run: |
+          printf '%s' "${{ secrets.APPLE_API_KEY_P8 }}" | base64 -d > "$RUNNER_TEMP/AuthKey_643258YHJ2.p8"
+
       # esbuild-Bundle → cargo build --release (Sidecar UND Player) →
       # bundle-dylibs.sh (ein gemeinsamer Dylib-Satz für beide,
       # @loader_path-Rewrite + ad-hoc-Sign) → electron-builder --mac → DMG+ZIP in
@@ -146,11 +159,23 @@ jobs:
       # streaming/mac-hq-sidecar/.cargo/config.toml — cargos [env] ist non-force,
       # eine gesetzte Env gewinnt).
       #
+      # Stufe B (2026-10-05): CSC_LINK/CSC_KEY_PASSWORD = Developer-ID-Zertifikat
+      # (electron-builder importiert es selbst in einen temporären Runner-Keychain
+      # mit Partition-List, keine manuellen security-Steps nötig);
+      # APPLE_API_KEY* = Notarytool-Credentials. Ohne Secrets wird unsigniert
+      # ad-hoc gebaut (Fallback). client-Feed: /updates/mac/.
+      #
       # Podman-Bündelung für App-Hosting entfernt (2026-07-14, App-Hosting
       # geparkt) — analog zu win-build. Zum Reaktivieren: `bash scripts/
       # fetch-mac-podman.sh` wieder in dist:mac + den resources-podman-mac-
       # extraResource in electron-builder.yml (mac-Sektion) aufnehmen.
-      - name: DMG bauen (unsigniert)
+      - name: DMG bauen (signiert + notarisiert)
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ runner.temp }}/AuthKey_643258YHJ2.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           export PKG_CONFIG_PATH="$HOME/src/ffmpeg-openssl/lib/pkgconfig:/opt/homebrew/opt/openssl@3/lib/pkgconfig:/opt/homebrew/opt/opus/lib/pkgconfig"
           pnpm --filter @dcc/desktop run dist:mac
@@ -192,6 +217,20 @@ jobs:
             "$DMG" \
             michael@159.195.150.54:pulse/downloads/Pulse-latest.dmg
 
+      # Mac-Auto-Update-Feed (Stufe B): latest-mac.yml + .zip + .blockmap nach
+      # ~/pulse/updates-mac/ (nginx: /updates/mac/). electron-updater lädt das
+      # .zip (NICHT die DMG — die bleibt der Direktdownload unter /downloads/).
+      # .blockmap bleibt alles liegen (wie beim Windows-Feed): Differenzial-
+      # Downloads brauchen die der Vorgängerversion.
+      - name: Mac-Update-Feed nach howispulse hochladen
+        if: github.ref == 'refs/heads/main'
+        run: |
+          scp -i ~/.ssh/id_ed25519 \
+            desktop/release/latest-mac.yml \
+            desktop/release/*.zip \
+            desktop/release/*.zip.blockmap \
+            michael@159.195.150.54:pulse/updates-mac/
+
       - name: SSH-Key wieder entfernen
         if: always()
         run: rm -f ~/.ssh/id_ed25519
@@ -218,7 +257,17 @@ jobs:
       - name: Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Server-DMG bauen (unsigniert, mit Mac-Podman)
+      - name: Notarisierungs-Key entschlüsseln (Server)
+        run: |
+          printf '%s' "${{ secrets.APPLE_API_KEY_P8 }}" | base64 -d > "$RUNNER_TEMP/AuthKey_643258YHJ2.p8"
+
+      - name: Server-DMG bauen (signiert + notarisiert, mit Mac-Podman)
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ runner.temp }}/AuthKey_643258YHJ2.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: pnpm --filter @dcc/desktop run dist:mac:server
 
       - name: Server-DMG als Workflow-Artefakt
@@ -248,6 +297,17 @@ jobs:
           scp -i ~/.ssh/id_ed25519 \
             "$DMG" \
             michael@159.195.150.54:pulse/downloads/Pulse-Server-latest.dmg
+
+      # Server-Mac-Update-Feed (Stufe B): eigener Feed /updates/mac-server/ —
+      # die Server-App hat eigene Versionen/appId (electron-builder-server.yml).
+      - name: Server-Mac-Update-Feed nach howispulse hochladen
+        if: github.ref == 'refs/heads/main'
+        run: |
+          scp -i ~/.ssh/id_ed25519 \
+            desktop/release-server/latest-mac.yml \
+            desktop/release-server/*.zip \
+            desktop/release-server/*.zip.blockmap \
+            michael@159.195.150.54:pulse/updates-mac-server/
 
       - name: SSH-Key wieder entfernen
         if: always()

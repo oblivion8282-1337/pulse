@@ -14,8 +14,10 @@
  *   auf einer alten Version hängen (wichtig für Tray-Dauerläufer, die die App
  *   selten wirklich schließen).
  *
- * Feed: https://howispulse.com/updates/win/latest.yml. Läuft nur in gepackten
- * Windows-Builds (NSIS) — Linux = Flatpak, macOS = unsigniert (DMG-Download).
+ * Feed: https://howispulse.com/updates/win/latest.yml (Windows) bzw.
+ * https://howispulse.com/updates/mac/latest-mac.yml (macOS, seit Stufe B
+ * 2026-10-05 — verlangt eine gültige Developer-ID-Signatur, deshalb vorher
+ * dort inaktiv). Linux = Flatpak (kein electron-updater).
  *
  * LOKALER TEST (ohne Image-Push): `PULSE_DEV_UPDATE=1` hebt die
  * `app.isPackaged`-Sperre auf und setzt `forceDevUpdateConfig`, sodass der ganze
@@ -64,10 +66,14 @@ function isDevUpdateMode(): boolean {
   return process.env.PULSE_DEV_UPDATE === '1' && !app.isPackaged;
 }
 
-/** Ist der Updater in diesem Build aktiv? Gepackt + Windows (NSIS-Feed), oder
- *  der lokale Dev-Test-Modus. Sonst inert (dev, Linux/Flatpak, macOS). */
+/** Ist der Updater in diesem Build aktiv? Gepackt + Windows (NSIS-Feed) oder
+ *  macOS (seit Stufe B: signiert + notarisiert, /updates/mac/-Feed), oder der
+ *  lokale Dev-Test-Modus. Sonst inert (dev, Linux/Flatpak). */
 function updaterActive(): boolean {
-  return isDevUpdateMode() || (app.isPackaged && process.platform === 'win32');
+  return (
+    isDevUpdateMode() ||
+    (app.isPackaged && (process.platform === 'win32' || process.platform === 'darwin'))
+  );
 }
 
 /** Lazy-require + gemeinsame Konfiguration der `autoUpdater`-Singleton. Alle

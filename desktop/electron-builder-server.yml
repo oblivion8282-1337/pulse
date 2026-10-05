@@ -63,11 +63,21 @@ extraResources:
 # OHNE HQ-Sidecar (der Server streamt nicht) und MIT gebundeltem Mac-Podman
 # (podman + gvproxy + vfkit, scripts/fetch-mac-podman.sh → resources-podman-mac).
 # Icon: das Client-icns (eigene Server-Bitmaps wie beim NSIS-Wizard out of
-# scope v1). Unsigniert wie der Client — Auto-Update auf mac entfällt deshalb
-# (manueller Download), der Windows-Server-Feed bleibt der einzige Auto-Weg.
+# scope v1). Seit 2026-10-05 signiert + notarisiert wie der Client (Stufe B,
+# gleiche Developer-ID-Identity) — Auto-Update-Feed: /updates/mac-server/.
 mac:
-  target: dmg
+  # zip = Auto-Update-Artefakt (electron-updater lädt auf macOS das .zip aus
+  # latest-mac.yml, NIE die DMG — die ist der Drag-Install-Direktdownload).
+  target:
+    - dmg
+    - zip
   icon: build-resources/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: true
+  publish:
+    provider: generic
+    url: https://howispulse.com/updates/mac-server/
   extraResources:
     - from: resources-podman-mac
       to: podman

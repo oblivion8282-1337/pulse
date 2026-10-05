@@ -386,6 +386,13 @@ services:
       # hierher; web-nginx.conf serviert ihn unter /updates/win-server/. Read-only;
       # fehlender Host-Ordner => Docker legt ihn leer an (=> 404, harmlos).
       - ${HOME}/pulse/updates-win-server:/srv/updates-win-server:ro
+      # macOS-Client-Auto-Update-Feed (Stufe B): mac-build.yml scpt latest-mac.yml
+      # + .zip (+ .blockmap) nach ~/pulse/updates-mac/; web-nginx.conf serviert
+      # ihn unter /updates/mac/. Read-only; fehlender Host-Ordner => 404, harmlos.
+      - ${HOME}/pulse/updates-mac:/srv/updates-mac:ro
+      # macOS-SERVER-App-Auto-Update-Feed (getrennt, eigenes appId/Versionen).
+      # Host-Ordner ~/pulse/updates-mac-server/; Route /updates/mac-server/.
+      - ${HOME}/pulse/updates-mac-server:/srv/updates-mac-server:ro
       # Direkt-Downloads (z.B. Android-APK-Testbuilds), per scp nach
       # ~/pulse/downloads/ gelegt; web-nginx.conf serviert sie unter /downloads/.
       # Bewusst getrennt vom Windows-Feed. Read-only; fehlender Ordner => 404.
