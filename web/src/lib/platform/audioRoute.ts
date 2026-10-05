@@ -65,6 +65,9 @@ interface AudioRoutePlugin {
   getRoute(): Promise<{ route: AudioRoute }>;
   listRoutes(): Promise<AudioRouteList>;
   setVoiceActive(opts: { active: boolean }): Promise<void>;
+  /** Nur der Mic-Foreground-Service — für den nativen Voice-Motor (das SDK
+   *  besitzt den Audio-Modus selbst, der Router darf nicht angerufen werden). */
+  setMicService(opts: { active: boolean }): Promise<void>;
   snapshot(): Promise<AudioDiagnostic>;
 }
 
@@ -115,6 +118,21 @@ export async function setVoiceActive(active: boolean): Promise<void> {
   } catch (e) {
     lastSetVoiceActiveError = errText(e);
     console.warn('[audioRoute] setVoiceActive failed', e);
+  }
+}
+
+/**
+ * Nur den Mic-Foreground-Service starten/stoppen — ohne den Router (und damit
+ * den Audio-Modus) anzufassen. Der native Voice-Motor besitzt den Modus selbst
+ * (Übergabe §5.2), braucht aber denselben Screen-Lock-Schutz für die Aufnahme.
+ * No-op outside the Android wrapper.
+ */
+export async function setMicService(active: boolean): Promise<void> {
+  if (!isCapacitorAndroid()) return;
+  try {
+    await plugin.setMicService({ active });
+  } catch (e) {
+    console.warn('[audioRoute] setMicService failed', e);
   }
 }
 

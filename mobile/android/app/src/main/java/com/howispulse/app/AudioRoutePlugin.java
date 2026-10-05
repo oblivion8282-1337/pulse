@@ -119,6 +119,24 @@ public class AudioRoutePlugin extends Plugin {
     }
 
     /**
+     * Nur den {@link MicForegroundService} steuern — OHNE den Router
+     * anzufassen. Für den nativen Voice-Motor: dessen SDK besitzt den
+     * Audio-Modus selbst (Übergabe §5.2 — setVoiceActive wäre dort
+     * Mode-Ping-Pong), den Screen-Lock-Schutz für die Aufnahme übernimmt aber
+     * derselbe Service wie im Web-Pfad.
+     */
+    @PluginMethod
+    public void setMicService(PluginCall call) {
+        boolean active = call.getBoolean("active", false);
+        getActivity().runOnUiThread(() -> {
+            if (getActivity() instanceof MainActivity) {
+                ((MainActivity) getActivity()).setMicServiceActive(active);
+            }
+        });
+        call.resolve();
+    }
+
+    /**
      * Sammelt die Audio-Routing-States (KEIN Audio-Inhalt) zur Fern-Diagnose des
      * „Bluetooth/Car zu leise"-Bugs. Wird erst versendet, wenn das Web-Frontend
      * es entscheidet (dort hinter einem Feature-Gate, default aus).
