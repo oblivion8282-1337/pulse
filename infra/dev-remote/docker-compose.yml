@@ -39,6 +39,15 @@ name: pulsetest
 x-base: &base
   restart: unless-stopped
   networks: [pulse-selfhost-net]
+  # Container-Json-Logs deckeln — der häufigste Grund, warum die Platte des
+  # Kastens vollläuft (Befund 2026-10-05: „No space left on device", Chat-
+  # Gateway antwortete 503). Greift bei Container-NEUANLAGE (up -d), ein
+  # restart reicht nicht. json-file ist default — hier nur das Limit.
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "3"
 
 x-app: &app
   <<: *base

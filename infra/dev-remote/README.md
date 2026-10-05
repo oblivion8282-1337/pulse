@@ -221,6 +221,32 @@ Projekte):
 - **Wichtig:** die Befehle dürfen nicht abgewandelt werden (z. B. anderes
   `--tail`) — die Whitelist ist exakt. Wer eigene Remote-Befehle braucht,
   muss die Whitelist in `pulse-dev-inner.sh` erweitern (Root-Zugang nötig).
+
+### Wenn die Platte voll ist (Befund 2026-10-05)
+
+Der Mitarbeiter-Key darf nichts löschen — Aufräumen geht nur interaktiv
+(Root/michael). Symptom: `dev:sync` meldet `No space left on device` aus
+`pulse-dev-inner.sh`, Dienste flackern (Chat-Gateway 503 auf `/health`).
+In dieser Reihenfolge, **nie `--volumes` auf diesem Kasten** (da liegt
+`pulsetest_pgdata`):
+
+```sh
+df -h / && docker system df          # was belegt wie viel
+docker image prune -af --filter "until=168h"
+docker builder prune -af
+sh -c 'truncate -s 0 /var/lib/docker/containers/*/*-json.log'  # Log-Fallen
+journalctl --vacuum-size=100M
+# alte Web-Build-Hashes (tar-Sync kann nicht löschen; das mtime-Fenster ist
+# gefahrlos, weil jeder Sync den aktuellen Stand frisch schreibt):
+find ~/pulse-test/web-build -type f -mtime +2 -delete
+# Danach einmalig — das Compose setzt inzwischen json-log-Limits (3×50 MB),
+# die greifen aber erst bei Container-Neuanlage, nicht bei restart:
+cd ~/pulse-test && docker compose up -d
+```
+
+Ob es wieder klappt: `PULSE_DEV_HOST=pulse-devmob pnpm dev:sync` ohne
+write-error, und `docker compose logs` zeigt `/health` → 200.
+
 - **Grenze:** Wer Backend-Code syncen kann, besitzt damit den Dev-Stack
   (sein Code läuft dort) — inkl. der Dev-DB-Zugangsdaten in den
   Container-Umgebungen. Das Gateway schützt den *Rest des Servers*, nicht
