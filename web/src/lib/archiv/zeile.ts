@@ -50,7 +50,11 @@ export function baueZeilenKlar(nachricht: Message): Uint8Array {
 }
 
 /** Archiv-Zeilen-Klartext → Nachricht für den lokalen Verlauf. Die Kanal-Id
- *  kommt aus der Zeilen-Position beim Server, nicht aus der Nutzlast. */
+ *  kommt aus der Zeilen-Position beim Server, nicht aus der Nutzlast.
+ *  `krypto_id` = kanonische Autoren-Id — live empfangene Nachrichten tragen
+ *  die zustellungs-eigene Id als `id` und dedupeln über `krypto_id` gegen
+ *  Kopien aus Sicherung/Archiv (`messages.svelte.ts::prepend`, Befund
+ *  2026-09-17); ohne dieses Feld erschien dieselbe Nachricht doppelt. */
 export function leseZeilenKlar(kanalId: string, roh: string): Message {
 	const inhalt = JSON.parse(roh) as ArchivZeileKlar;
 	return {
@@ -62,6 +66,7 @@ export function leseZeilenKlar(kanalId: string, roh: string): Message {
 		reply_to_id: inhalt.r ?? null,
 		created_at: inhalt.z,
 		verschluesselt: true,
+		krypto_id: inhalt.i,
 		...(inhalt.anh?.length
 			? { attachments: inhalt.anh.map(anhangAngabeZuAttachment) }
 			: {})

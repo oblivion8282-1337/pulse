@@ -9,6 +9,16 @@
  */
 
 import { request, ApiError } from './client';
+import { serversStore } from './servers.svelte';
+
+// DMs und private Gruppen sind Cloud-Kanäle — ihr Archiv lebt auf der CLOUD,
+// unabhängig davon, welcher Server gerade aktiv ist. Ohne diese Pinne ging
+// der Aufruf an den aktiven Self-Host, dessen Archiv-Routen bewusst 404
+// antworten (CloudOnly) — Verlauf blieb auf anderen Geräten unsichtbar und
+// Sendungen wurden nicht archiviert (Befund 2026-10-05, atrium-sinsheim).
+function cloudRoute(): { serverId?: string } {
+  return { serverId: serversStore.cloudId() };
+}
 
 // --- chat-gateway: Zeilen + Kanal-Wraps --------------------------------------
 
@@ -33,21 +43,23 @@ export async function archivEinliefern(zeilen: Array<{ id: string; channel_id: s
 				zeilen: zeilen.map((z) => ({ id: String(z.id), channel_id: String(z.channel_id), nutzlast_b64: z.nutzlast_b64 })),
 				wraps: wraps.map((w) => ({ channel_id: String(w.channel_id), user_id: String(w.user_id), wrap_b64: w.wrap_b64 }))
 			}
-		}
+		},
+		cloudRoute()
 	);
 }
 
 export async function archivSeite(channelId: string, vorId?: string, limit = 500): Promise<ArchivZeileFern[]> {
 	const query = new URLSearchParams({ limit: String(limit) });
 	if (vorId) query.set('vor_id', vorId);
-	return request<ArchivZeileFern[]>(`/archiv/${channelId}?${query.toString()}`, { endpoint: 'chat' });
+	return request<ArchivZeileFern[]>(`/archiv/${channelId}?${query.toString()}`, { endpoint: 'chat' }, cloudRoute());
 }
 
 /** Der eigene Kanal-Schlüssel-Wrap — `null` heißt „noch keiner hinterlegt“. */
 export async function archivKanalSchluessel(channelId: string): Promise<string | null> {
 	const erg = await request<{ wrap_b64: string | null }>(
 		`/archiv/${channelId}/schluessel`,
-		{ endpoint: 'chat' }
+		{ endpoint: 'chat' },
+		cloudRoute()
 	);
 	return erg.wrap_b64;
 }
@@ -64,7 +76,8 @@ export async function archivPubkeys(
   if (channelId) query.set('channel_id', channelId);
   return request<Record<string, string | null>>(
     `/archiv/pubkeys?${query.toString()}`,
-    { endpoint: 'chat' }
+    { endpoint: 'chat' },
+    cloudRoute()
   );
 }
 

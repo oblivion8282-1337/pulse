@@ -376,6 +376,11 @@ export default async function globalSetup() {
     // PULSE_INSTANCE_ID). Bisher musste man `PULSE_INSTANCE_MODE=cloud` von
     // Hand vor den Befehl setzen; ein explizit gesetzter Wert gewinnt weiter.
     PULSE_INSTANCE_MODE: process.env.PULSE_INSTANCE_MODE ?? 'cloud',
+    // Archiv-Schrank-Geheimnis (32 Bytes, base64 — fester Test-Wert): ohne
+    // ihn antwortet der auth-Dienst auf die Archiv-Konto-Anlage mit 503,
+    // jede Anmeldung warnt, und der Archiv-Nachweis (e2e-dm #10) wie die
+    // Gerätewechsel-Tests laufen in stillen „kein Archiv"-Zuständen.
+    ARCHIV_SCHRANK_SECRET: 'MjAyNi0xMC0wNS1lMmUtdGVzdC1zY2hyYW5rZ2VoZWk=',
     // Upload-Fläche wie in `scripts/dev-up.fish`: die Cloud-Defaults in
     // `config.py` sind bewusst restriktiv (nur Bilder, keine DM-Anhänge, keine
     // Ablage). Ohne diese drei Zeilen meldet `GET /capabilities`
