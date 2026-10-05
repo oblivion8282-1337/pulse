@@ -161,12 +161,52 @@ test.describe.serial('DM nach Abmelden+Anmelden (Repro 2026-10-05)', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('bob meldet sich ab und wieder an', async () => {
+  test('bob meldet sich ab und wieder an — OHNE Seiten-Neulad (SPA-Weg)', async () => {
+    const identityKeys = async (marke: string): Promise<string[]> => {
+      const keys = await bobPage.evaluate(
+        () =>
+          new Promise<string[]>((resolve) => {
+            const req = indexedDB.open('pulse-identity');
+            req.onsuccess = () => {
+              const db = req.result;
+              try {
+                const tx = db.transaction('identity', 'readonly');
+                const abfrage = tx.objectStore('identity').getAllKeys();
+                abfrage.onsuccess = () =>
+                  resolve(abfrage.result.map((k) => String(k)));
+                abfrage.onerror = () => resolve(['<lesefehler>']);
+              } finally {
+                db.close();
+              }
+            };
+            req.onerror = () => resolve(['<db-fehler>']);
+          })
+      );
+      konsole.push(`[identität ${marke}] ${keys.join(', ')}`);
+      return keys;
+    };
+    await identityKeys('vor abmelden');
     await bobPage.getByTestId('user-footer-trigger').click();
     await bobPage.getByTestId('sign-out').click();
     await bobPage.waitForURL(/\/login/);
-    await login(bobPage, BOB);
+    await identityKeys('nach abmelden');
+    // Bewusst KEIN page.goto: der echte Nutzer bleibt im SPA, das Modul-
+    // Gedächtnis (Einmal-Wächter der Geräte-Anmeldung) bleibt stehen —
+    // genau der Weg, auf dem Vorfall 2026-10-05 (Runde 4,
+    // KEINE_GERAETEKENNUNG) nur im echten Betrieb auftrat.
+    await bobPage.getByTestId('login-identifier').fill(BOB.username);
+    await bobPage.getByTestId('login-password').fill(BOB.password);
+    await bobPage.getByTestId('login-submit').click();
     await bobPage.waitForURL(/\/app/);
+    await bobPage.waitForTimeout(1500);
+    const nachAnmeldung = await identityKeys('nach anmelden');
+    // Kern des Vorfalls 2026-10-05 (Runde 4): ohne Zurücksetzen des
+    // Einmal-Wächters lief die Geräte-Anmeldung nach dem Wisch NIE, das
+    // Schlüsselpaar blieb weg — jede Sendung starb an KEINE_GERAETEKENNUNG.
+    expect(
+      nachAnmeldung.some((k) => k === 'pulse.keypair'),
+      'Geräteschlüssel muss direkt nach der Neuanmeldung existieren'
+    ).toBe(true);
   });
 
   test('danach: alice → bob kommt an', async () => {

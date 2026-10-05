@@ -484,7 +484,13 @@ class AuthStore {
     // `_identitaetsWisch` festgehalten und vom nächsten `setUser` awaited.
     this._identitaetsWisch = Promise.allSettled([
       keypairStore.wipe(),
-      idbIdentityLeeren()
+      idbIdentityLeeren(),
+      // Einmal-Wächter der Geräte-Anmeldung MIT zurücksetzen — die
+      // Neuanmeldung im selben Seitenleben bekam sonst den alten Lauf
+      // zurück und erzeugte nie ein neues Keypair (KEINE_GERAETEKENNUNG,
+      // Vorfall 2026-10-05 Runde 4). Teil des awaited Versprechens, damit
+      // der nächste Login garantiert dahinter läuft.
+      import('$lib/identity/issue-flow').then((m) => m.geraeteAnmeldungZuruecksetzen())
     ]).then(() => undefined);
     // Sicherungs-Wissen (DEK, Google-Refresh-Token, Klartext-Puffer) —
     // derselbe Grund wie im Kontowechsel-Pfad oben (Review 2026-08-31).
