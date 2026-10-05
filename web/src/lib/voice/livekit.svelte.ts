@@ -22,6 +22,7 @@ import type {
 } from 'livekit-client';
 import { getVoiceToken } from '$lib/api/voice';
 import { ApiError } from '$lib/api/client';
+import { nativeVoiceJoin, nativeVoiceLeave } from '$lib/platform/nativeVoice';
 import { voiceState } from './state.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -423,6 +424,24 @@ class VoiceRoom {
     // a Room. The newer connect owns the UI state from here.
     if (gen !== this.#connectGen) return;
 
+    // Nativer Motor (P1-Kernprobe, docs/UEBERGABE-MOBILE-VOICE-NATIV.md): auf
+    // der APK — hinter dem Opt-in-Flag — trägt die native Engine den Ton
+    // komplett selbst (USAGE_VOICE_COMMUNICATION → Anruf-Regler). Deshalb ohne
+    // Web-Room und ohne setVoiceActive: dem SDK gehört der Modus (Übergabe
+    // §5 Punkt 2, sonst Mode-Ping-Pong). Schlägt der Join fehl, fällt der
+    // Web-Pfad darunter durch.
+    if (await nativeVoiceJoin(resp)) {
+      if (gen !== this.#connectGen) {
+        await nativeVoiceLeave();
+        return;
+      }
+      this.state = ConnectionState.Connected;
+      this.micEnabled = false; // P1: nur Zuhören — Mic-Publish kommt mit P2
+      voiceState.channelId = channelId;
+      voiceState.connected = true;
+      return;
+    }
+
     const room = new Room(this.#roomOptions());
     this.#room = room;
     this.#applyPlaybackSettings();
@@ -596,6 +615,28 @@ class VoiceRoom {
     // Wachposten vorbei.
     this.#abbruchGen = this.#connectGen;
     this.#connectGen++;
+    // Nativer Motor (P1-Kernprobe): der Join lief ohne Web-Room — hier selbst
+    // aufräumen, der Room-Pfad unten wäre mit room === null ein No-op. Gleiche
+    // Reihenfolge wie der Room-Pfad: Klang, Stream-Slots, Watch-Parties,
+    // Resume, dann #teardown.
+    if (await nativeVoiceLeave()) {
+      sounds.play('voice.self_leave', this.#soundCtx);
+      for (const slot of runningStreamSlots()) {
+        void sidecar.stop(slot).catch(() => undefined);
+      }
+      if (opts.reason === 'user') {
+        clearVoiceResume();
+        const cid = this.channelId;
+        const me = currentServerUserId();
+        if (cid && me) {
+          for (const party of watchPartyPresence.partiesHostedBy(cid, me)) {
+            gateway.stopWatchParty(cid, party.party_id);
+          }
+        }
+      }
+      this.#teardown();
+      return;
+    }
     const room = this.#room;
     if (!room) {
       // Aufgelegt, bevor der Raum ueberhaupt stand (der Token-Abruf laeuft

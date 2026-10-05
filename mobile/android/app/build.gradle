@@ -1,8 +1,14 @@
 apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
 
 android {
     namespace = "com.howispulse.app"
     compileSdk = rootProject.ext.compileSdkVersion
+    // Capacitor 8 kompiliert mit Java-Release 21 (capacitor.build.gradle) —
+    // Kotlin muss denselben JVM-Target haben, sonst bricht der Mixed-Build.
+    kotlinOptions {
+        jvmTarget = '21'
+    }
     defaultConfig {
         applicationId "com.howispulse.app"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -40,6 +46,9 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+    // Nativer Voice-Motor (docs/UEBERGABE-MOBILE-VOICE-NATIV.md) — Version
+    // gepinnt gemäß Übergabe §5 Punkt 6. Zieht libwebrtc + OkHttp transitiv.
+    implementation 'io.livekit:livekit-android:2.29.0'
 }
 
 apply from: 'capacitor.build.gradle'

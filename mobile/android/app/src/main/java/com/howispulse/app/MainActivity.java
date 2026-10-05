@@ -70,6 +70,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ShareReceiverPlugin.class);
         registerPlugin(AnrufPlugin.class);
         registerPlugin(VideoCapturePlugin.class);
+        registerPlugin(VoicePlugin.class);
         super.onCreate(savedInstanceState);
         // Bughunt Runde 45: Capacitor setzt KEINEN DownloadListener — ein
         // Android-WebView wirft Downloads STILLWEGE weg (Blob-URLs aus
