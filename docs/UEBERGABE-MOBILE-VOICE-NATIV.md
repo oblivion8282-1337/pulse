@@ -242,3 +242,79 @@ Lösung.
 - `web/src/lib/voice/livekit.svelte.ts` — Voice-Fassade (Join-Reihenfolge,
   Rückbau-Liste, Token-Flow)
 - `web/src/lib/voice/audioElements.ts` — der Mobile-`<audio>`-Pfad und warum
+
+---
+
+## 8. Stand der Umsetzung (2026-10-05, ZCode-Sitzung)
+
+P1, P2, P3, P5 und der Anruf-Umbau sind **implementiert**, auf dem Branch
+`jules_mobile`: Commits `1ad6ddf9` (P1), `7d898c2a` (P2+P3), `b5bdcd1e`
+(P5+Anrufe). Die akustische Kernprobe (P1-Akzeptanz) und die Gerätetests
+(P4) stehen noch aus — sie brauchen Ohren und Hände am Gerät.
+
+**Was gebaut ist:**
+
+- **Engine** (`VoiceEngine.kt`, das einzige Kotlin-Modul; Rest bleibt Java):
+  Join über LiveKit-Android-SDK 2.29.0 (gepinnt, AudioSwitch-Fork via
+  JitPack), Ton vom SDK mit `USAGE_VOICE_COMMUNICATION` gestempelt, Mic-Publish
+  (RECORD_AUDIO fragt `VoicePlugin` ab; AEC/NS aus den Audio-Einstellungen,
+  AGC wie im Web aus), Taub-Schaltung über Track-Volumes, Teilnehmer-Stände
+  als Snapshots pro Room-Event (Tag `'voice'` | `'anruf:<id>'` als Demux),
+  `voice.*`-Klänge per SoundPool im Anrufkanal.
+- **Brücke** (`VoicePlugin`): join/leave/setMicEnabled/setDeafened/state/
+  snapshot/playSound; Snapshots als `'voice'`-Events (JSON-Contract in
+  `nativeVoice.ts`). Mic-Foreground-Service separat steuerbar über das neue
+  `AudioRoute.setMicService` — ohne den Router anzufassen, denn dem SDK
+  gehört der Modus (§5 Punkt 2).
+- **Web-Fassade**: nativer Zweig in `connect()` (Sprachkanal) und
+  `#verbindenInnere` (Anrufe), `setMicEnabled`/`setDeafened`/`stummUmschalten`
+  mit Bridge-Zweigen, `#applyNativeSnapshot` schreibt in dieselben Stores wie
+  `#wireEvents` — die UI läuft unverändert.
+- **P3 ohne eigenen Diff**: MediaSession-Kamuflage, WakeLock, Mic-Recovery,
+  audioBlocked-Hinweise und der `<audio>`-Anker stehen alle im Web-Room-Pfad
+  HINTER dem nativen Early-Return — auf dem nativen Pfad laufen sie gar nicht
+  erst, im Fallback unverändert. Version-skew-richtig (§5.3) ohne zusätzliche
+  Gates: neues Web + alte APK → `plugin.join` wirft → Web-Pfad.
+
+**Einschalten (Opt-in, bewusst kein Dauerzustand):** In der APK einmal
+`localStorage.setItem('pulse.nativeVoice', '1')` (via `chrome://inspect`
+Remote-Debugging der Debug-APK). Ohne Flag: altes Verhalten, Zeile für Zeile.
+
+**Bekannte Grenzen auf dem nativen Pfad (bewusst, nicht still):**
+
+- **Kamera** im Sprachkanal und in Anrufen: wirkungslos (Fernbild/Lokalvorschau
+  hängen an Web-Track-Elementen). Upgrade-Weg: Video-Frames über die Bridge.
+- **Verschlüsselte Anrufe**: laufen weiter über die Web-Engine (E2EE-Maschinerie
+  gibt es nativ nicht; stiller Klartext-Fallback wäre falsch).
+- **Guild-Override-Klänge** + Lautstärke-Stufen: SoundPool spielt die
+  gebündelten Defaults in voller Katalog-Lautstärke.
+- **Per-User-/Master-Lautstärke**: nativ ohne Wirkung (§5.1 — bewusst
+  dokumentiert, nicht still geändert).
+- **Sprech-Indikator/Level**: serverseitig (ActiveSpeakers + audioLevel), nicht
+  der eigene RMS-Detektor — kann zappelig wirken (Kommentar in VoiceEngine.kt).
+- **Lokaler Mic-Pegel**: bleibt 0 (Analyser ist WebAudio-eigentlich).
+- **Eine Linie**: Sprachkanal und Anruf teilen sich die Engine — ein nativer
+  Join rechnet den vorherigen Raum ab (im Web liefen beide Räume parallel).
+
+**Test-Protokoll P4 (Matrix §6), Reihenfolge nach Gefahr:**
+
+1. Kernprobe: eingebauter Lautsprecher → Join → Ton folgt **Anruf**-Regler,
+   Medien-Regler ohne Einfluss, HUD zeigt „Anruf". `adb shell dumpsys audio`
+   während des Joins: Track-Usage `USAGE_VOICE_COMMUNICATION`.
+2. Mikrofon: Mute/Unmute, Gegenstelle hört; Sperrbildschirm ≥ 5 Min: Ton+Mic
+   bleiben (Mic-Foreground-Service läuft), Entsperren ohne Aussetzer.
+3. Taub-Schaltung: Fernton weg, Mikrofon koppelt mit, Un-Deafen stellt
+   vorherigen Mic-Zustand wieder her.
+4. BT-Headset (SCO und BLE) erst NACH dem Join verbinden → Übernahme; Auto
+   (A2DP → SCO): kein „zu leise"-Rückfall; BT mitten im Anruf an/aus.
+5. Hörmuschel/Kabel-Headset, Route-Popup (nativ: SDK-AudioSwitch, Router
+   ohne Modus-Anspruch — Ping-Pong beobachten!).
+6. Anruf: 1:1 anrufen/annehmen → Ton+Mic im Anruf-Regler, Stumm-Knopf,
+   Auflegen räumt Route/Service frei. Verschlüsselter Anruf: muss weiterhin
+   über Web laufen (E2EE-Badge sichtbar).
+7. Kanalwechsel/Verlassen: Mode/Route werden freigegeben, Join-Klänge kommen
+   aus dem Anruf-Regler, Reload während des Joins rejoint sauber (Waise).
+
+**Offen danach:** Ergebnis der Kernprobe in §1/§7 eintragen (bei Rot:
+Fallback-Diskussion Regler-Kopplung), iOS (CallKit), 1:1-Anruf-E2EE nativ
+nur wenn sich die Frame-Crypto über die Bridge tragen lässt.
