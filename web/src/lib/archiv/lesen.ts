@@ -13,7 +13,9 @@
  * berühren den Cursor nicht.
  *
  * Bestandsaufnahme: das Archiv trägt nur, was seit der Einrichtung GESENDET
- * wurde — kein Backfill alter Verläufe, Anhänge sind Platzhalter (§5.4).
+ * wurde — kein Backfill alter Verläufe. Anhänge reisen als Angaben mit, die
+ * Bytes nicht: das lesende Gerät zeigt die Kachel und holt sie aus der
+ * eigenen Sicherung, wenn es welche hat (§5.4, `zeile.ts`).
  */
 
 import { auth } from '$lib/stores/auth.svelte';
@@ -21,6 +23,7 @@ import type { Message } from '$lib/api/types';
 import { archivKanalSchluessel, archivSeite, type ArchivZeileFern } from '$lib/api/archiv';
 import { kanalSchluesselHolen } from './kanalSchluessel';
 import { entschluesseleZeile } from './krypto';
+import { leseZeilenKlar } from './zeile';
 import { archivPaar } from './konto';
 import { verlaufSpeichern } from '$lib/verlauf';
 
@@ -31,29 +34,6 @@ function vonB64(wert: string): Uint8Array {
 	const bytes = new Uint8Array(binär.length);
 	for (let i = 0; i < binär.length; i++) bytes[i] = binär.charCodeAt(i);
 	return bytes;
-}
-
-interface ArchivKlar {
-	i: string;
-	t: string;
-	a: string;
-	z: string;
-	r?: string;
-	v?: number;
-}
-
-/** Zeile → Message-Form (lokal verwertbar, dedupet per Id im lokalen Store). */
-function zuNachricht(zeile: ArchivZeileFern, inhalt: ArchivKlar): Message {
-	return {
-		id: inhalt.i,
-		channel_id: zeile.channel_id,
-		author_id: inhalt.a,
-		content: inhalt.t,
-		nonce: null,
-		reply_to_id: inhalt.r ?? null,
-		created_at: inhalt.z,
-		verschluesselt: true
-	};
 }
 
 /** Lesestand je Kanal: ältester schon geholter Zeilen-Id (`null` = Anfang). */
@@ -74,9 +54,9 @@ export async function archivNachziehen(kanalId: string, maxSeiten = 4): Promise<
 
 		const eigenWrap = await archivKanalSchluessel(kanalId);
 		if (!eigenWrap) return 0; // noch nie archiviert
-		// Partner-Id nur für die ERSTANLAGE relevant — die lief hier nie (oben
-		// wird ohne eigenen Wrap schon ausgestiegen); `null` = kein Fremd-Wrap.
-		const kanalSchluessel = await kanalSchluesselHolen(kanalId, paar, '', null);
+		// Ziele leer: hier läuft die Erstanlage nie (oben wird ohne eigenen
+		// Wrap schon ausgestiegen) — es geht nur ums Öffnen des eigenen.
+		const { schluessel: kanalSchluessel } = await kanalSchluesselHolen(kanalId, paar, []);
 
 		let gesamt = 0;
 		for (let seite = 0; seite < maxSeiten; seite++) {
@@ -89,7 +69,7 @@ export async function archivNachziehen(kanalId: string, maxSeiten = 4): Promise<
 					const klarText = new TextDecoder().decode(
 						await entschluesseleZeile(kanalSchluessel, vonB64(zeile.nutzlast_b64))
 					);
-					nachrichten.push(zuNachricht(zeile, JSON.parse(klarText) as ArchivKlar));
+					nachrichten.push(leseZeilenKlar(zeile.channel_id, klarText));
 				} catch (e) {
 					// Eine unlesbare Zeile (kaputter Wrap, fremde Fassung) blockiert
 					// nicht die übrigen — der Rest des Archivs bleibt verwertbar.

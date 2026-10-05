@@ -52,13 +52,20 @@ export async function archivKanalSchluessel(channelId: string): Promise<string |
 	return erg.wrap_b64;
 }
 
-/** Archiv-Public-Keys eigener DM-Partner (`null` = Konto hat keins eingerichtet). */
-export async function archivPubkeys(userIds: string[]): Promise<Record<string, string | null>> {
-	if (userIds.length === 0) return {};
-	return request<Record<string, string | null>>(
-		`/archiv/pubkeys?user_ids=${userIds.join(',')}`,
-		{ endpoint: 'chat' }
-	);
+/** Archiv-Public-Keys eigener DM-Partner (`null` = Konto hat keins eingerichtet).
+ *  Mit `channelId`: die Mitspieler DIESES Kanals (DM oder private Gruppe) —
+ *  Gruppen-Sendungen brauchen die Keys aller Mitglieder. */
+export async function archivPubkeys(
+  userIds: string[],
+  channelId?: string
+): Promise<Record<string, string | null>> {
+  if (userIds.length === 0) return {};
+  const query = new URLSearchParams({ user_ids: userIds.join(',') });
+  if (channelId) query.set('channel_id', channelId);
+  return request<Record<string, string | null>>(
+    `/archiv/pubkeys?${query.toString()}`,
+    { endpoint: 'chat' }
+  );
 }
 
 // --- auth-Dienst: Konto-Schlüssel --------------------------------------------

@@ -218,10 +218,11 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
 
     // Server-Archiv nachziehen (Übergabe 2026-10-04 §5): auf einem Gerät
     // ohne lokalen Bestand füllt es den Verlauf aus der verschlüsselten
-    // Server-Kopie (120 Tage, NUR E2EE-DMs — Gruppen fragen die Route gar
-    // nicht an, sie antwortet ihnen 404, Befund 05.10.). Fire-and-forget,
-    // dedupet über die Ids im lokalen Store, wirft nie (s. `archiv/lesen.ts`).
-    if (!istGruppe) void import('$lib/archiv/lesen')
+    // Server-Kopie (120 Tage, DMs wie private Gruppen — seit 2026-10-05
+    // nimmt die Route beide; ein Mitglied liest eine Gruppe ab eigenem
+    // Beitritt). Fire-and-forget, dedupet über die Ids im lokalen Store,
+    // wirft nie (s. `archiv/lesen.ts`).
+    void import('$lib/archiv/lesen')
       .then((m) => m.archivNachziehen(cid))
       .then(async (angekommen) => {
         if (angekommen === 0 || isStale()) return;

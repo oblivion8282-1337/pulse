@@ -37,6 +37,8 @@
   import { chatApi } from '$lib/api/chat';
   import { acquire, release, store } from '$lib/attachments/blobCache';
   import type { Attachment } from '$lib/api/types';
+  import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     attachmentId,
@@ -63,6 +65,11 @@
 
   let objectUrl = $state<string | null>(null);
   let failed = $state(false);
+  /** Neuversuch-Zähler: Klick auf den Fehl-Platzhalter (nur verschlüsselter
+   *  Weg) erhöht ihn — er steht als Abhängigkeit im Lade-Effekt und lässt
+   *  ihn nach Aus-/Wieder-Einblenden denselben Versuch sauber wiederholen
+   *  (der Effekt ist mit Cleanup idempotent gebaut). */
+  let versuch = $state(0);
 
   async function fetchInto(url: string): Promise<Response> {
     return fetch(url, { credentials: 'omit' });
@@ -73,9 +80,11 @@
   $effect(() => {
     const key = cacheKey;
     const initial = src;
+    const neuversuch = versuch;
     let cancelled = false;
     let held = false;
     failed = false;
+    void neuversuch; // reine Effekt-Abhängigkeit, s. `versuch` oben
 
     /** Der verschluesselte Zweig: Bytes ueber `anhangBlob` (lokal zuerst),
      *  dann derselbe Objekt-URL-Weg wie unten. Dynamisch importiert, damit
@@ -147,9 +156,29 @@
 {#if objectUrl}
   <img src={objectUrl} {alt} class={klass} decoding="async" />
 {:else if failed}
-  <!-- Genuinely unreachable (404 after a re-sign, or network down). Render a
-       neutral placeholder box instead of a broken-image glyph. -->
-  <span class="bg-bg-hover text-text-muted flex items-center justify-center {klass}" aria-label={alt}>·</span>
+  {#if anhang}
+    <!-- Verschluesselter Weg fehlgeschlagen (Bytes weder lokal noch in der
+         Sicherung noch beim Server). Klick versucht es erneut — z. B. nachdem
+         die private Sicherung verbunden oder ein anderes Gerät
+         dazwischenkam. Klartext-404s heilen nicht, sie bleiben der tote
+         Punkt. -->
+    <button
+      type="button"
+      class="bg-bg-hover text-text-muted hover:text-text-bright flex items-center justify-center {klass}"
+      aria-label={m.message_attachments_retry()}
+      title={m.message_attachments_retry()}
+      onclick={() => {
+        failed = false;
+        versuch += 1;
+      }}
+    >
+      <RefreshCwIcon class="size-4" />
+    </button>
+  {:else}
+    <!-- Genuinely unreachable (404 after a re-sign, or network down). Render a
+         neutral placeholder box instead of a broken-image glyph. -->
+    <span class="bg-bg-hover text-text-muted flex items-center justify-center {klass}" aria-label={alt}>·</span>
+  {/if}
 {:else}
   <!-- In flight. Same `klass` as the <img>, so it occupies exactly the box the
        caller reserved and the swap moves nothing. -->

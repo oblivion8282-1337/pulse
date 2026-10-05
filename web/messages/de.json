@@ -1751,6 +1751,8 @@
   "message_attachments_unavailable": "Anhang nicht mehr verfügbar",
   "message_attachments_abgelaufen": "Anhang abgelaufen",
   "message_attachments_unnamed": "Anhang",
+  "message_attachments_retry": "Erneut holen",
+  "message_attachments_sicherungshinweis": "Nur mit eingerichteter Sicherung wiederherstellbar",
   "message_input_attach_file": "Datei anhängen",
   "message_input_cancel_reply": "Antwort abbrechen",
   "message_input_drop_files_hint": "Datei hier ablegen zum Hochladen",

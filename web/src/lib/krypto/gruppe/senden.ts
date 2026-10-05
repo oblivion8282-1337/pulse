@@ -293,6 +293,13 @@ export async function sendeInGruppe(
       // verschluckt (dieselbe Regel wie im DM-Weg).
       verlaufZustand.melde(err);
     }
+    // Server-Archiv (Gruppen seit 2026-10-05, „Gruppen und Privatchats"):
+    // dieselbe Regel wie im DM-Weg (`../senden.ts`) — fire-and-forget nach
+    // erfolgreicher Zustellung, wirft nie, die Mitgliederliste ist frisch
+    // (Schritt 1).
+    void import('../../archiv/senden').then((m) =>
+      m.archiviereGruppeGesendet(kanalId, mitgliederIds, nachricht)
+    );
     return { art: 'gesendet', nachricht };
   });
 }
