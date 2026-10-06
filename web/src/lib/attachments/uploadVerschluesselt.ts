@@ -173,7 +173,7 @@ export function startUploadVerschluesselt(
 
       if (vorschauKlumpen && adresse.thumb_upload_url) {
         await putMitFortschritt(
-          adresse.thumb_upload_url,
+          devS3Url(adresse.thumb_upload_url),
           vorschauKlumpen.klumpen,
           KLUMPEN_TYP,
           () => {

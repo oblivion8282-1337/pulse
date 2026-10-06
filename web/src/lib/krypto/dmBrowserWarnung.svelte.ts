@@ -22,7 +22,7 @@ import { serversStore } from '../api/servers.svelte';
 import { zieleLesen, zieleBesetzt } from '../sicherung/ziele';
 import { dekAusZwischenlager } from '../sicherung/geraete';
 import { browserWarnungNoetig } from './dmBrowserWarnung';
-import { isElectron, isCapacitorAndroid } from '../platform/runtime';
+import { isCapacitorAndroid, isCapacitorIOS, isElectron } from '../platform/runtime';
 
 // DMs sind cloud-only — s. `api/keys.ts` Modulkopf.
 function cloudRoute(): { serverId?: string } {
@@ -62,7 +62,9 @@ export const dmBrowserWarnung = {
     if (!geladen) void laden();
     if (weggeklickt) return false;
     return browserWarnungNoetig(
-      isElectron() || isCapacitorAndroid(),
+      // iOS-Hülle gehört dazu (Befund 2026-10-06): ohne sie galt das iPhone
+      // als Browser und bekam den Warnhinweis bei jeder Sitzung.
+      isElectron() || isCapacitorAndroid() || isCapacitorIOS(),
       haltbaresGeraet,
       laufwerkVerbunden
     );
