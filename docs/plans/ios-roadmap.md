@@ -45,6 +45,21 @@ nativ verdrahtet — das moderne Hybrid-Modell.
    im App-Umschalter, Self-Host-Server im Heimnetz erreichbar (Local-Network-Dialog kommt).
 6. Version + Build-Nummer im Target hochsetzen; Upload über Xcode-Organizer (TestFlight).
 
+## UI-Tests (XCUITest, seit 2026-10-06)
+
+`mobile/ios/App/AppUITests/UITests.swift` — kompletter Sendefluss (Anmeldung
+erkannt → Freunde → Chat → Composer → Senden → Bubble-Verifikation) als
+Regressionsschutz. Lauf:
+
+    cd mobile/ios/App && xcodebuild test -project App.xcodeproj \
+      -scheme AppUITests \
+      -destination 'platform=iOS Simulator,id=<SIMULATOR-ID>' \
+      -derivedDataPath build
+
+Simulator-ID: `xcrun simctl list devices booted`. Neues Element bauen →
+Accessibility-Baum scannen (Temp-Test mit `print(app.debugDescription)`)
+und Queries daraus ableiten, nie Koordinaten.
+
 ## Abgeschlossen (Fundament, 2026-10-06)
 
 - Full-Bleed + Safe-Areas: `contentInset: never`, AppDelegate injiziert die nativen Insets
