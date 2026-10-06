@@ -30,12 +30,12 @@ import jwt
 import pyotp
 import qrcode
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 
 from dcc_auth.browser_sessions import create_session, set_session_cookie
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
-from dcc_auth.models import BackupCode, User, WebAuthnCredential
+from dcc_auth.models import BackupCode, User
 from dcc_auth.recovery import (
     SingleUseNichtPruefbar,
     claim_mfa_ticket,
@@ -51,6 +51,7 @@ from dcc_auth.routes import (
     _get_current_user,
     _hash_ip,
     _issue_tokens,
+    _passkey_count,
     _signer_dep,
 )
 from dcc_auth.schemas import (
@@ -156,12 +157,18 @@ async def totp_verify_setup(
     # fresh code generated in the same 30s window right after enabling.
 
     # Replace any stale backup codes from a previous (now-disabled) 2FA setup.
-    await session.execute(delete(BackupCode).where(BackupCode.user_id == current.id))
+    return await _backup_codes_neu(session, current.id)
+
+
+async def _backup_codes_neu(session, user_id: int) -> TotpVerifySetupOut:
+    """Alte Backup-Codes verwerfen, 10 neue ausstellen, committieren — der
+    gemeinsame Abschluss von ``totp_verify_setup`` und ``totp_backup_regen``
+    (delete-before-insert in derselben Transaktion, s. routes_webauthn)."""
+    await session.execute(delete(BackupCode).where(BackupCode.user_id == user_id))
     plaintext_codes = generate_backup_codes(10)
     for code in plaintext_codes:
-        session.add(BackupCode(user_id=current.id, code_hash=hash_token(code)))
+        session.add(BackupCode(user_id=user_id, code_hash=hash_token(code)))
     await session.commit()
-
     return TotpVerifySetupOut(backup_codes=plaintext_codes)
 
 
@@ -203,12 +210,7 @@ async def totp_disable(
     # Backup codes are the recovery factor for the account's MFA as a whole —
     # keep them if a passkey is still registered, drop them only when TOTP was
     # the last factor standing.
-    has_passkey = await session.scalar(
-        select(func.count())
-        .select_from(WebAuthnCredential)
-        .where(WebAuthnCredential.user_id == current.id)
-    )
-    if not has_passkey:
+    if not await _passkey_count(session, current.id):
         await session.execute(
             delete(BackupCode).where(BackupCode.user_id == current.id)
         )
@@ -249,12 +251,7 @@ async def totp_backup_regen(
     ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid code")
 
-    await session.execute(delete(BackupCode).where(BackupCode.user_id == current.id))
-    plaintext_codes = generate_backup_codes(10)
-    for code in plaintext_codes:
-        session.add(BackupCode(user_id=current.id, code_hash=hash_token(code)))
-    await session.commit()
-    return TotpVerifySetupOut(backup_codes=plaintext_codes)
+    return await _backup_codes_neu(session, current.id)
 
 
 # ---- 2FA login second step ---------------------------------------------
@@ -307,12 +304,7 @@ async def login_totp(
     # already handles the TOTP-vs-backup-code branching (and returns False for a
     # TOTP code when no secret is set), so the previous ``not totp_enabled`` /
     # ``not totp_secret`` gate was both redundant and too narrow.
-    has_passkey = await session.scalar(
-        select(func.count())
-        .select_from(WebAuthnCredential)
-        .where(WebAuthnCredential.user_id == user.id)
-    )
-    if not user.totp_enabled and not has_passkey:
+    if not user.totp_enabled and not await _passkey_count(session, user.id):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
         )

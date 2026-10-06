@@ -382,9 +382,7 @@ async def get_stream_state(
 ) -> StreamStateOut:
     redis = _get_redis(request)
     raw = await redis.get(CHANNEL_STATE_KEY.format(channel_id=channel_id))
-    if raw is None:
-        return StreamStateOut(channel_id=channel_id)
-    data = _parse_state(raw)
+    data = _parse_state(raw)  # liefert bei fehlendem/unverparsebarem Key None
     if data is None:
         return StreamStateOut(channel_id=channel_id)
     uids = [str(u) for u in (data.get("user_ids") or []) if u]
@@ -526,12 +524,10 @@ async def _whep_fuer_zuschauer(
     """
     redis = _get_redis(request)
     raw = await redis.get(active_key(channel_id, user_id, slot))
-    if raw is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
     data = _parse_state(raw)
-    if data is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
-    path = data.get("path")
+    path = data.get("path") if data else None
+    # Ein fehlender Key, ein unverparsebarer Record und ein Record ohne Pfad
+    # bedeuten fuer den Zuschauer dasselbe: kein liefernder Stream.
     if not isinstance(path, str) or not path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
     s = get_settings()

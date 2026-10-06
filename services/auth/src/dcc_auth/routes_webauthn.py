@@ -38,7 +38,13 @@ from dcc_auth.recovery import (
     generate_backup_codes,
     hash_token,
 )
-from dcc_auth.routes import _check_account_rate, _check_rate, _get_current_user, _signer_dep
+from dcc_auth.routes import (
+    _check_account_rate,
+    _check_rate,
+    _get_current_user,
+    _passkey_count,
+    _signer_dep,
+)
 from dcc_auth.schemas import (
     MessageOut,
     WebAuthnCredentialOut,
@@ -285,11 +291,7 @@ async def webauthn_delete_credential(
     # ist das der EINZIGE Weg, ein fremdes Konto zu entschärfen (spiegelt
     # delete_me: irreversible Minderung der MFA-Postur verlangt denselben
     # Beweis). Bei bestehendem TOTP bleibt der Restfaktor — kein Nachweis.
-    remaining_before = await session.scalar(
-        select(func.count())
-        .select_from(WebAuthnCredential)
-        .where(WebAuthnCredential.user_id == current.id)
-    )
+    remaining_before = await _passkey_count(session, current.id)
     if remaining_before == 1 and not current.totp_enabled:
         from dcc_auth.routes_totp import _consume_second_factor  # noqa: PLC0415
 
@@ -303,11 +305,7 @@ async def webauthn_delete_credential(
     await session.delete(row)
     await session.flush()
 
-    remaining = await session.scalar(
-        select(func.count())
-        .select_from(WebAuthnCredential)
-        .where(WebAuthnCredential.user_id == current.id)
-    )
+    remaining = await _passkey_count(session, current.id)
     if not remaining and not current.totp_enabled:
         await session.execute(
             delete(BackupCode).where(BackupCode.user_id == current.id)

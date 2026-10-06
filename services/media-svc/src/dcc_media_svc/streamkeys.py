@@ -35,7 +35,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from dcc_shared.streaming import TOKEN_KEY as _TOKEN_KEY
+from dcc_shared.streaming import (
+    ACTIVE_KEY as _ACTIVE_KEY,
+    CHANNEL_STATE_KEY as _CHANNEL_STATE_KEY,
+    TOKEN_KEY as _TOKEN_KEY,
+)
 
 CHANNEL_PATH_PREFIX = "channel-"
 # channel-<channel_id>-<user_id>[-s<slot>]-<nonce>
@@ -75,8 +79,11 @@ CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)(?:-s(\d+))?-([0-9a-f]{3
 # mediamtx-auth-hook bleibt bestehen: der Dienst hat bewusst keine
 # ``dcc-shared``-Abhaengigkeit und kann nicht importieren.
 TOKEN_KEY = _TOKEN_KEY
-ACTIVE_KEY = "stream:active:channel-{channel_id}-{user_id}"
-CHANNEL_STATE_KEY = "stream:channel:{channel_id}"
+# ``ACTIVE_KEY``/``CHANNEL_STATE_KEY`` stehen ebenfalls kanonisch in
+# ``dcc_shared.streaming`` (Bughunt-Ponytail-Audit 2026-09-21) — hier nur
+# noch durchgereicht, aus demselben Grund wie ``TOKEN_KEY``.
+ACTIVE_KEY = _ACTIVE_KEY
+CHANNEL_STATE_KEY = _CHANNEL_STATE_KEY
 # stream:stopping:channel-<cid>-<uid>[-s<slot>] → "1" (short TTL = stop_suppression_s)
 #   Set by the explicit-stop route; the poller treats a (cid,uid,slot) carrying it
 #   as "not publishing" even while MediaMTX still lists the path (its disconnect

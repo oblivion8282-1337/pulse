@@ -412,9 +412,8 @@ async def _apply_camera_stop(redis: Redis, room_name: str, user_id: str) -> None
 
 @router.post("/webhook", status_code=status.HTTP_204_NO_CONTENT)
 async def livekit_webhook(request: Request) -> None:
-    auth_header = request.headers.get("authorization") or request.headers.get(
-        "Authorization"
-    )
+    # Starlette-Headers sind case-insensitive — ein Lookup genuegt.
+    auth_header = request.headers.get("authorization")
     if not auth_header:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing signature")
     settings = get_settings()

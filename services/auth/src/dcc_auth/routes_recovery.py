@@ -16,7 +16,15 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy import or_, select, update
 
 from dcc_auth.browser_sessions import revoke_all_for_user
@@ -167,8 +175,6 @@ async def password_reset(
     row = await _consume_reset_token(session, payload.token)
     if row is None:
         # Single 401 for {unknown,expired,used} — don't leak which.
-        from fastapi import HTTPException
-
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired token"
         )
@@ -179,8 +185,6 @@ async def password_reset(
 
     user = await session.get(User, row.user_id)
     if user is None or user.disabled or user.is_suspended:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired token"
         )
@@ -295,8 +299,6 @@ async def email_verification_confirm(
     """
     # Bughunt Runde 24: Brake nachreichen (Spiegel zu /password/reset) —
     # der Endpoint war das einzige anonyme Token-Gate ganz ohne Drossel.
-    from fastapi import HTTPException
-
     from dcc_auth.recovery import hash_token
 
     settings = get_settings()
