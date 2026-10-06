@@ -6,7 +6,6 @@ import secrets
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
 
 from dcc_auth.models import User
 from dcc_auth.models_instances import RegisteredInstance

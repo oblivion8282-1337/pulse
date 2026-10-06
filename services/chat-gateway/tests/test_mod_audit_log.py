@@ -212,8 +212,6 @@ async def test_audit_log_no_patch_endpoint(client, _auth_signer):
 @pytest.mark.asyncio
 async def test_write_audit_log_helper(session_factory):
     """write_audit_log inserts a row and returns it with an id."""
-    from dcc_chat_gateway.db import Base
-
     async with session_factory() as s:
         entry = await write_audit_log(
             s,

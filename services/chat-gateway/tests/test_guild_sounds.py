@@ -15,7 +15,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-import pytest_asyncio
 
 from dcc_chat_gateway import s3 as s3_mod
 

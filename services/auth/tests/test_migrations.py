@@ -14,12 +14,10 @@ in the task spec cover the live Alembic up/down/up cycle against Postgres.
 
 from __future__ import annotations
 
-import importlib
 import inspect
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import inspect as sa_inspect, text
+from sqlalchemy import inspect as sa_inspect
 
 
 # ---------------------------------------------------------------------------

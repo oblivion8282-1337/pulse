@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 from dcc_auth.models import User
-from dcc_auth.models_instances import RegisteredInstance, UserInstanceMembership
+from dcc_auth.models_instances import UserInstanceMembership
 from sqlalchemy import select, update
 
 _PW = "correct horse battery staple"

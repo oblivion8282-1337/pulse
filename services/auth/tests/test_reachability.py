@@ -37,7 +37,7 @@ async def test_probe_rejects_private_source_ip(client):
 @pytest.mark.asyncio
 async def test_probe_happy_path(client):
     with patch("dcc_auth.routes_reachability._client_ip", return_value="203.0.113.5"), \
-         patch("dcc_auth.routes_reachability._tcp_reachable", return_value=True) as tcp, \
+         patch("dcc_auth.routes_reachability._tcp_reachable", return_value=True), \
          patch("dcc_auth.routes_reachability._send_udp_token") as udp:
         r = await client.post("/selfhost/reachability/probe", json=_body())
     assert r.status_code == 200, r.text

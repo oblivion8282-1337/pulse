@@ -11,12 +11,10 @@ Präfix-Fehltreffer), best-effort bei MediaMTX-Ausfall (204 statt 500).
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
 import pytest
-import pytest_asyncio
 
 _SECRET = "test-internal-secret"
 
@@ -48,8 +46,6 @@ class _FakeMediaMtx:
 def _install(monkeypatch, app, holder: dict, fake: _FakeMediaMtx) -> None:
     """media-svc mit Fake-Transport und Settings verdrahten."""
     import httpx as _httpx
-
-    from dcc_media_svc import routes as media_routes
 
     holder["fake"] = fake
     # Starlette-State erlaubt neue Attribute nur per direkter Zuweisung —
