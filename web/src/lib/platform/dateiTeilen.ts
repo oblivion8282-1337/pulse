@@ -31,6 +31,8 @@
  * WebKit sie schreibt.
  */
 
+import { devS3Url } from '$lib/api/devS3Url';
+
 const ERSATZ_DATEINAME = 'anhang';
 
 /** Reiner Kern (für den Test): leerer Name → Ersatzname, s. Modulkopf. */
@@ -53,7 +55,7 @@ export async function dateiTeilenOderLaden(
 ): Promise<void> {
   try {
     const name = dateiNameOderErsatz(dateiname);
-    const antwort = await fetch(quelle);
+    const antwort = await fetch(devS3Url(quelle));
     // Abgelaufene Presigned-URL? Der Fehlerkörper wäre sonst die „Datei“.
     if (!antwort.ok) throw new Error(`dateiTeilen: HTTP ${antwort.status}`);
     const blob = await antwort.blob();

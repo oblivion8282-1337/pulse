@@ -18,6 +18,7 @@
  */
 
 import { chatApi } from '$lib/api/chat';
+import { devS3Url } from '$lib/api/devS3Url';
 import { aufnahmeDauerRegister } from './aufnahmeKern';
 import { erzeugeVorschaubild } from './vorschaubild';
 import { putMitFortschritt } from './putMitFortschritt';
@@ -120,7 +121,7 @@ export function startUpload(
       //    isn't worth the bookkeeping; serial keeps the progress meter
       //    monotonic and simple.
       await putMitFortschritt(
-        presign.upload_url,
+        devS3Url(presign.upload_url),
         file,
         file.type || 'application/octet-stream',
         (pct) => {
@@ -135,7 +136,7 @@ export function startUpload(
 
       if (thumb && presign.thumb_upload_url) {
         await putMitFortschritt(
-          presign.thumb_upload_url,
+          devS3Url(presign.thumb_upload_url),
           thumb.blob,
           'image/webp',
           () => {

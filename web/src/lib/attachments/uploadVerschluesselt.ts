@@ -22,6 +22,7 @@
  */
 
 import { postfachApi } from '$lib/api/postfach';
+import { devS3Url } from '$lib/api/devS3Url';
 import { serversStore } from '$lib/api/servers.svelte';
 import {
   neuerDateischluessel,
@@ -157,7 +158,7 @@ export function startUploadVerschluesselt(
       emit();
 
       await putMitFortschritt(
-        adresse.upload_url,
+        devS3Url(adresse.upload_url),
         datei.klumpen,
         KLUMPEN_TYP,
         (pct) => {

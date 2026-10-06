@@ -31,6 +31,7 @@
 
 import type { Attachment, Message } from '../api/types';
 import { postfachApi } from '../api/postfach';
+import { devS3Url } from '../api/devS3Url';
 import { serversStore } from '../api/servers.svelte';
 import { archivAbruf } from '../api/ablageArchiv';
 import { anhangArchivPfad } from '../ablage/anhangArchivPfad';
@@ -119,7 +120,7 @@ async function klumpenOeffnen(url: string, schluesselText: string, typ: string):
   // `credentials: 'omit'` wie in `AutoRefreshImage`: die Adresse traegt ihre
   // Berechtigung selbst, ein mitgeschicktes Cookie wuerde die MinIO-Signatur
   // nur verkomplizieren.
-  const antwort = await fetch(url, { credentials: 'omit' });
+  const antwort = await fetch(devS3Url(url), { credentials: 'omit' });
   if (!antwort.ok) throw new Error(`Anhang ${antwort.status}`);
   return klumpenEntpacken(new Uint8Array(await antwort.arrayBuffer()), schluesselText, typ);
 }

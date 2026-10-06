@@ -42,27 +42,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     /// Privacy-Screen: Beim Verlassen in den App-Umschalter/Sperrbildschirm
-    /// wird der Inhalt verunklart, damit Chat-Vorschau nicht im Multitasking-
-    /// Snapshot lesbar ist. Nativ statt Web-Overlay, weil applicationWillResign-
-    /// Active VOR der Aufnahme des Snapshots läuft — ein JS-Overlay im Web
-    /// verliert dieses Rennen. Die Blur-Regel sitzt als Document-Start-
-    /// UserScript im Stylesheet der Seite; geschaltet wird nur die body-Klasse.
-    private func privacySchutz(_ an: Bool) {
-        guard let webView = window?.rootViewController?.view as? WKWebView else { return }
-        webView.evaluateJavaScript(
-            "document.body.classList.\(an ? "add" : "remove")('privacy-blur');",
-            completionHandler: nil
-        )
-    }
+    /// wird eine matte Glasscheibe NATIV über den Inhalt gelegt, damit die
+    /// Chat-Vorschau im Multitasking-Snapshot nicht lesbar ist. Synchron auf
+    /// dem UI-Thread — kein JS-Rundtrip, der das Rennen gegen den Snapshot
+    /// verliert (erste Fassung mit body-Klasse+CSS-Blur war am Gerät zu
+    /// langsam, Befund 2026-10-06).
+    private var privacyDeck: UIView?
 
-    private static let privacyCss = """
-    (function () {
-      var style = document.createElement('style');
-      style.textContent = 'body.privacy-blur { filter: blur(28px); }';
-      document.head.appendChild(style);
-    })();
-    """
-    private var privacyCssEingebracht = false
+    private func privacySchutz(_ an: Bool) {
+        guard let rootView = window?.rootViewController?.view else { return }
+        if an {
+            let deck = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
+            deck.frame = rootView.bounds
+            deck.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            rootView.addSubview(deck)
+            privacyDeck = deck
+        } else {
+            privacyDeck?.removeFromSuperview()
+            privacyDeck = nil
+        }
+    }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         return true
@@ -83,12 +82,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
-        if !privacyCssEingebracht, let webView = window?.rootViewController?.view as? WKWebView {
-            privacyCssEingebracht = true
-            webView.configuration.userContentController.addUserScript(
-                WKUserScript(source: Self.privacyCss, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-            webView.evaluateJavaScript(Self.privacyCss, completionHandler: nil)
-        }
         injectSafeAreaInsets()
         privacySchutz(false)
     }

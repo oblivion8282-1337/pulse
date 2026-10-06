@@ -198,15 +198,17 @@ set -l common_env "REDIS_URL=redis://localhost:6380/0 AUTH_JWKS_URL=http://127.0
 # auf an und ruft `GET /gruppen` bei jedem Start — ohne den Server-Schalter
 # antwortet der chat-gateway 403, bei jedem Verbindungsaufbau (2026-09-02).
 set -l upload_env "CLOUD_DM_ATTACHMENTS_ENABLED=true CLOUD_DROPBOX_ENABLED=true CLOUD_ATTACHMENT_MIME_PREFIXES= PRIVATE_GROUPS_ENABLED=true"
-# S3_PUBLIC_ENDPOINT auf den Vite-Dev-Server: Presigned-URLs für den Browser
-# laufen damit SAME-ORIGIN über dessen /pulse-attachments-Proxy (vite.config.ts)
-# — exakt die Prod-Topologie (nginx/Caddy vor dem Speicher). Grund: Garage
-# schickt auf FEHLERantworten (404 einer noch nicht existierenden Dateiliste)
-# keine CORS-Header, der Browser macht daraus "blocked by CORS policy" statt
-# "nicht gefunden", und Ablage/Laufwerk sterben schon beim ersten Listen-
-# Abruf. SigV4 signiert den Host localhost:5173; der Proxy reicht ihn unver-
-#ändert durch (kein changeOrigin), Garage validiert genau den.
-set -l upload_env "$upload_env S3_PUBLIC_ENDPOINT=http://localhost:5173"
+# S3_PUBLIC_ENDPOINT auf Garage direkt: Der Gateway signiert für diesen Host,
+# der Vite-Proxy (/pulse-attachments, changeOrigin) stellt ihn auf dem Weg zum
+# Objektspeicher wieder her — die Client-URL zeigt trotzdem auf dessen eigene
+# Origin (Geräte können kein 'localhost', https-Seiten kein http — Rewrites
+# in web/src/lib/api/devS3Url.ts).SAME-ORIGIN bleibt also bestehen, und
+# Garages lückenhafte CORS-Header (auf Fehlerantworten fehlen sie komplett)
+# können dem Fenster nichts mehr anhaben. Empirie 2026-10-06: Garage
+# validiert den signierten Host strikt — der alte Vertrag (signiert
+# localhost:5173, Proxy reicht den Client-Host durch) hielt nur auf dem
+# Rechner selbst, nicht für Geräte im LAN.
+set -l upload_env "$upload_env S3_PUBLIC_ENDPOINT=http://127.0.0.1:9000"
 set -l pg_env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD POSTGRES_HOST=localhost POSTGRES_PORT=5434"
 set -l jwt_env "JWT_PRIVATE_KEY_FILE=$repo_root/secrets/jwt_private.pem JWT_PUBLIC_KEY_FILE=$repo_root/secrets/jwt_public.pem"
 set -l lk_env "LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret LIVEKIT_URL=ws://localhost:7880"
