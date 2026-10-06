@@ -20,9 +20,15 @@ import type { NoiseSuppressionMode } from '$lib/stores/settings.svelte';
 type SuppressorModul = typeof import('@sapphi-red/web-noise-suppressor');
 let _suppressorModul: Promise<SuppressorModul> | null = null;
 
-/** Einmaliges, faules Laden der Noise-Suppressor-Bibliothek (s. Import-Kommentar). */
+/** Einmaliges, faules Laden der Noise-Suppressor-Bibliothek (s. Import-Kommentar).
+ *  Eine abgelehnte Ladung wird verworfen statt gecacht — sonst bliebe NS bis
+ *  zum Reload tot, wenn ein Web-Deploy den gehashten Chunk zwischenzeitlich
+ *  weggerissen hat (404 beim ersten Versuch). */
 function suppressorModul(): Promise<SuppressorModul> {
-  _suppressorModul ??= import('@sapphi-red/web-noise-suppressor');
+  _suppressorModul ??= import('@sapphi-red/web-noise-suppressor').catch((e) => {
+    _suppressorModul = null;
+    throw e;
+  });
   return _suppressorModul;
 }
 

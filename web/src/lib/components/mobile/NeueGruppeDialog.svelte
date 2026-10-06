@@ -89,7 +89,7 @@
       type="text"
       bind:value={name}
       placeholder={m.chats_new_group_name_placeholder()}
-      class="border-border bg-bg-input focus:border-primary w-full rounded-xl border px-3 py-2.5 text-base outline-none md:text-sm"
+      class="border-border bg-bg-input focus:border-primary w-full rounded-xl border px-3 py-2.5 text-base outline-none [@media(pointer:fine)]:text-sm"
       data-testid="new-group-name"
       aria-label={m.chats_new_group_name_placeholder()}
     />

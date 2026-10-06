@@ -211,7 +211,7 @@
           <input
             type="datetime-local"
             bind:value={gueltigAb}
-            class="border-border bg-bg-input w-full rounded-md border px-2 py-1.5 text-base md:text-sm"
+            class="border-border bg-bg-input w-full rounded-md border px-2 py-1.5 text-base [@media(pointer:fine)]:text-sm"
           />
         </label>
         <label class="block space-y-1">
@@ -219,7 +219,7 @@
           <input
             type="datetime-local"
             bind:value={gueltigBis}
-            class="border-border bg-bg-input w-full rounded-md border px-2 py-1.5 text-base md:text-sm"
+            class="border-border bg-bg-input w-full rounded-md border px-2 py-1.5 text-base [@media(pointer:fine)]:text-sm"
           />
         </label>
       </div>
