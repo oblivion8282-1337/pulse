@@ -39,6 +39,7 @@
   import { lookupComposer } from '$lib/shortcuts/engine.svelte';
   import { applyComposerAction } from '$lib/shortcuts/composerActions';
   import { isElectron } from '$lib/platform/runtime';
+  import { haptikTicken } from '$lib/platform/haptik';
   import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
   import { drafts } from '$lib/stores/drafts.svelte';
   import { untrack } from 'svelte';
@@ -402,6 +403,7 @@
       // melden(ok) genau einmal ruft.
       const melden = (ok: boolean): void => {
         if (ok) {
+          haptikTicken(); // Erst der gemeldete Erfolg tickt — kein Tick bei Fehlversuch
           text = '';
           anhaenge.nachDemSenden();
           mentionOverlay?.clear();
@@ -415,6 +417,7 @@
       return;
     }
     onSend(markupValue, ids, anhaenge.anhaenge);
+    haptikTicken(); // Optimistischer Weg: der Abgang zählt als Erfolg
     text = '';
     anhaenge.nachDemSenden();
     mentionOverlay?.clear();
@@ -590,8 +593,10 @@
           // Am Handy: Auswahl-Blatt (Foto / Galerie / Dokument). Am Rechner
           // bleibt der direkte Datei-Dialog — dort gibt es keine Kamera-App
           // und eine Galerie-Trennung wäre nur Umwege.
-          if (viewport.istHandy) anhangSheet = true;
-          else fileInput?.click();
+          if (viewport.istHandy) {
+            haptikTicken(); // Blatt geht auf — kurzer Tick (mobil)
+            anhangSheet = true;
+          } else fileInput?.click();
         }}
         data-testid="attachment-button"
       >

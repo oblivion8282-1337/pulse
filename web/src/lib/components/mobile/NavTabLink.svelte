@@ -23,6 +23,7 @@
   } from '$lib/navigation/darstellung.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { haptikTicken } from '$lib/platform/haptik';
 
   let {
     bereich,
@@ -72,7 +73,10 @@
   data-testid={`tab-${bereich.id}`}
   data-active={istAktiv}
   aria-current={istAktiv ? 'page' : undefined}
-  onclick={ping}
+  onclick={() => {
+    haptikTicken(); // Tick vor der Navigation — in Browser/Electron ein No-op
+    ping();
+  }}
 >
   <span class="relative flex items-center justify-center">
     <!-- **Der Sonar-Ping.** Die Bildmarke von Pulse ist ein Ping: konzentrische
