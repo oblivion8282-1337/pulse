@@ -107,6 +107,7 @@ am iPhone nötig (ich baue vor) · **Portal** = braucht Michaels Zugänge (Apple
 | 17 | Icon-Badge | Web-Title-Punkt → `setApplicationBadgeNumber` aus Ungelesen-Stand | S | Sim |
 | 18 | Rich-Push + Direkt-Antwort | — → UNNotificationCategory „Antworten", Bild-Anhänge | M | Gerät |
 | 19 | Zeitkritische Pushs + Sounds | Default → Interrupt-Level konfigurierbar, eigener Sound | S | Gerät |
+| 20 | **Server: Stale-WS-Erkennung** — im Hintergrund suspendierte mobile Apps halten halboffene WebSockets, die der Gateway Minuten als online zählt und dabei Pushes unterdrückt (Befund Push-Tests 2026-10-06). Fix: WS-Ping/Pong mit Close-on-Timeout serverseitig | M | Server |
 | 20 | Review-Prompt | — → Store-Review-API am richtigen Moment (nach erfolgreichem Senden) | S | Sim-Gate |
 
 ## Etappe 3 — Audio nativ
