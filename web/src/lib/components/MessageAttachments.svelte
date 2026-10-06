@@ -428,7 +428,7 @@ import { Portal } from 'bits-ui';
     const w = a.width ?? 0;
     const h = a.height ?? 0;
     if (w <= 0 || h <= 0) return '';
-    return `width:${w}px;aspect-ratio:${w} / ${h};`;
+    return `width:min(${w}px, 100%);aspect-ratio:${w} / ${h};`;
   }
 </script>
 
@@ -440,7 +440,7 @@ import { Portal } from 'bits-ui';
         {@const box = reserveBox(a)}
         <button
           type="button"
-          class="block max-h-96 w-fit max-w-md cursor-zoom-in overflow-hidden rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary"
+          class="block max-h-96 w-fit max-w-full md:max-w-md cursor-zoom-in overflow-hidden rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary"
           style={box}
           onclick={() => openLightbox(a)}
           data-testid="attachment-image"
@@ -454,7 +454,7 @@ import { Portal } from 'bits-ui';
               ? a.thumb_schluessel !== null && a.thumb_schluessel !== undefined
               : a.thumb_url !== null && a.thumb_url !== undefined}
             anhang={a.verschluesselt ? a : null}
-            class={box ? 'block size-full object-cover' : 'block max-h-96 w-auto object-cover'}
+            class={box ? 'block size-full object-cover' : 'block max-h-96 w-auto max-w-full object-cover'}
           />
         </button>
       {:else if k === 'video'}
