@@ -72,8 +72,9 @@ export function postgresArgs(dirs: NativeDataDirs): string[] {
   ];
 }
 
-/** pg_isready-Poll (TCP). */
-export function waitForPostgres(secrets: NativeSecrets, timeoutMs = 30_000): void {
+/** pg_isready-Poll (TCP). pg_isready prüft nur die Bereitschaft, keine Auth —
+ *  deshalb braucht er keine Secrets. */
+export function waitForPostgres(timeoutMs = 30_000): void {
   const pgIsready = pgBin('pg_isready');
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

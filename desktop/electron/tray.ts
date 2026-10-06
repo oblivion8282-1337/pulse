@@ -40,12 +40,6 @@ export interface TrayStatus {
   mentions?: number;
 }
 
-function pickIconName(s: TrayStatus): Status {
-  if (s.deafened) return 'deaf';
-  if (s.muted) return 'mute';
-  return 'normal';
-}
-
 function tooltipText(s: TrayStatus): string {
   const parts: string[] = [app.getName()];
   if (s.deafened) parts.push('Taub');

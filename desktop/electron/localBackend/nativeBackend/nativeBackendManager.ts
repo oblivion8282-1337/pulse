@@ -106,12 +106,13 @@ async function ensureRtmpsCert(
 }
 
 export class NativeBackendManager {
-  private creds: BootstrapCreds | null = null;
   private processes: SupervisedProcess[] = [];
 
-  setzeCreds(creds: BootstrapCreds | null): void {
-    this.creds = creds;
-  }
+  /** Oberflächen-Parität mit ContainerBackendManager — main.ts ruft setzeCreds
+   *  auf beiden Managern auf. Nativ ohne Wirkung: es gibt keinen Abschieds-Call
+   *  beim Stopp (der Herzschlag läuft über den direct-adapter), und die Creds
+   *  kommen je start() direkt herein. */
+  setzeCreds(_creds: BootstrapCreds | null): void {}
 
   /** Native Runtime — immer vorhanden, solange die Binaries gebündelt sind. */
   async runtime(): Promise<{ kind: 'native' } | null> {
@@ -157,7 +158,6 @@ export class NativeBackendManager {
   }): Promise<void> {
     const { userData, creds, adminEmail, onProgress } = opts;
     const progress = onProgress ?? (() => {});
-    this.creds = creds;
 
     if (!await this.runtimeAvailable()) {
       throw new Error('native binaries fehlen (resources-native) — fetch-win-native.ps1 ausführen');
@@ -247,7 +247,7 @@ export class NativeBackendManager {
 
     // 3. Schema + Migrationen.
     progress('migrate');
-    waitForPostgres(secrets);
+    waitForPostgres();
     ensureDatabases(secrets);
     runMigrations(venvPython(), {
       auth: serviceDir('auth'),
