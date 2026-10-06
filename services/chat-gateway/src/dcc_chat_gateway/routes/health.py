@@ -22,20 +22,20 @@ from __future__ import annotations
 
 import asyncio
 import glob
-import hmac
 import logging
 import os
 import shutil
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Header, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from dcc_chat_gateway import config as chat_cfg
-from dcc_chat_gateway.client_ip import client_ip
 from dcc_chat_gateway.db import SessionLocal
-from dcc_chat_gateway.ratelimit import check as ratelimit_check
+# Shared-Secret-Guard — kanonisch in routes/internal.py (6 Aufrufer dort,
+# 1 hier); derselbe Ratelimit-Bucket, dieselben Detail-Meldungen.
+from dcc_chat_gateway.routes.internal import _check_internal_secret
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -100,29 +100,6 @@ def _disk_warning(disk: dict | None) -> bool:
         return False
     percent_used = disk.get("percent_used", 0)
     return float(percent_used) > 80.0
-
-
-def _check_internal_secret(request: Request, provided: str | None) -> None:
-    """Constant-time Compare gegen INTERNAL_SERVICE_SECRET.
-
-    Fehlt der Secret auf Server-Seite → 401 (fail-closed, kein Info-Leak).
-    Die Bremse sitzt VOR dem Vergleich — abgewiesene Versuche zählen mit,
-    sonst wäre Raten auf das Secret ungedrosselt (Audit 2026-09; die
-    nginx/Caddy-Sperre für ``/api/chat/internal/*`` ist die Schicht davor).
-    """
-    if not ratelimit_check("internal_secret", client_ip(request)):
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="rate limit exceeded (internal_secret)",
-        )
-    expected = chat_cfg.get_settings().internal_service_secret
-    if not expected:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
-        )
-    if not provided or not hmac.compare_digest(provided, expected):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret")
 
 
 # ---------------------------------------------------------------------------

@@ -33,7 +33,7 @@ from dcc_chat_gateway.permissions import (
     has_permission,
     resolve_permissions,
 )
-from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
+from dcc_chat_gateway.routes._deps import require_read_history, resolve_channel_or_raise
 from dcc_chat_gateway.security import CurrentUser
 from dcc_shared.events import PinUpdateData, PinUpdateEvent
 
@@ -75,10 +75,7 @@ async def list_pins(
     """Pin-Liste des Kanals, ältester Pin zuerst. Gleiche Lese-Gates wie
     ``list_messages`` (READ_HISTORY bzw. DM-Mitgliedschaft)."""
     kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
-    if kind == "guild":
-        perms = await resolve_permissions(session, current, ch.guild_id, channel_id=channel_id)
-        if not has_permission(perms, Permissions.READ_HISTORY):
-            raise HTTPException(403, detail="missing permission: READ_HISTORY")
+    await require_read_history(session, current, kind, ch)
     rows = list(
         (
             await session.execute(

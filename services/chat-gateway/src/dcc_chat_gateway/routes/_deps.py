@@ -10,11 +10,18 @@ from dcc_shared.events import _EventBase
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
+    CHANNEL_TYPE_VOICE,
     Channel,
     DirectMessageChannel,
     Guild,
     GuildMember,
     Role,
+)
+from dcc_chat_gateway.permissions import (
+    Permissions,
+    filter_viewable_channels,
+    has_permission,
+    resolve_permissions,
 )
 
 log = logging.getLogger(__name__)
@@ -263,3 +270,32 @@ async def resolve_channel_or_raise(
         return ("dm", dm)
 
     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="channel not found")
+
+
+async def require_read_history(session, current, kind: str, ch) -> None:
+    """READ_HISTORY-Gate für Guild-Kanäle — DMs haben kein Permission-Overlay.
+
+    Dieselbe Prüffolge, die ``list_messages`` fährt; Reaction-/Pin-/Anhang-
+    Lesepfade spiegeln sie (sonst ließe sich über Seitenkanäle lesen, was
+    der Verlaufssperre entzogen ist). Verlässt sich auf die Resolver-
+    Invariante „!VIEW_CHANNEL → alles entzogen“, deckt also VIEW_CHANNEL
+    mit ab."""
+    if kind != "guild":
+        return
+    perms = await resolve_permissions(session, current, ch.guild_id, channel_id=ch.id)
+    if not has_permission(perms, Permissions.READ_HISTORY):
+        raise HTTPException(403, detail="missing permission: READ_HISTORY")
+
+
+async def visible_voice_channel_ids(session, current, guild_id: int) -> list[str]:
+    """IDs der Voice-Kanäle einer Community, die der Aufrufer sehen darf
+    (VIEW_CHANNEL-Filter, als String-Snowflakes für die Ready-/State-Pfade).
+
+    Sonst leakt der State privater Voice-Channels (was läuft, wer hostet)
+    an Members, die den Kanal per Overwrite gar nicht sehen dürfen."""
+    stmt = select(Channel.id).where(
+        Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_VOICE
+    )
+    raw_ids = list((await session.execute(stmt)).scalars())
+    visible_ids = await filter_viewable_channels(session, current, guild_id, raw_ids)
+    return [str(cid) for cid in raw_ids if cid in visible_ids]
