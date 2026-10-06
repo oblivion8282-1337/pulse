@@ -392,16 +392,12 @@
   // need notification permission. Reactive: flips back when read.
   $effect(() => {
     if (typeof document === 'undefined') return;
-    const dmUnread = directMessages.list.some((dm) => readState.isUnread(dm.id));
-    const channelUnread = Object.values(guilds.channelsByGuild)
-      .flat()
-      .some((c) => c.type === 0 && readState.isUnread(c.id));
-    document.title = dmUnread || channelUnread ? '● Pulse' : 'Pulse';
     const ungeleseneGespraeche =
       directMessages.list.filter((dm) => readState.isUnread(dm.id)).length +
       Object.values(guilds.channelsByGuild)
         .flat()
         .filter((c) => c.type === 0 && readState.isUnread(c.id)).length;
+    document.title = ungeleseneGespraeche > 0 ? '● Pulse' : 'Pulse';
     badgeSetzen(ungeleseneGespraeche);
     // Bei Resume auffrischen: die Mitteilungserlaubnis kann nachtraeglich
     // erteilt worden sein (Simulator-Befund 2026-10-06 — setBadgeCount

@@ -12,7 +12,13 @@ import Capacitor
 ///
 /// Android-Pendant: `AudioRoutePlugin` (setVoiceActive vor room.connect()).
 @objc(AudioSessionPlugin)
-public class AudioSessionPlugin: CAPPlugin {
+public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "AudioSessionPlugin"
+    public let jsName = "AudioSessionPlugin"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "setVoiceActive", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setPlaybackMode", returnType: CAPPluginReturnPromise)
+    ]
 
     /// Voice-Modus an/aus: `aktiv` = playAndRecord + voiceChat (Mikro, Echo-
     /// Auslösen, Bluetooth), sonst Session deaktivieren mit

@@ -1755,7 +1755,7 @@ class VoiceRoom {
     // Android: release MODE_IN_COMMUNICATION + the comm device so the phone
     // leaves call-mode after we hang up. No-op off Capacitor-Android.
     void setVoiceActive(false);
-    this.#releaseWakeLock?.();
+    void iosVoiceAktiv(false);
     this.#releaseWakeLock = null;
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.#onVisible);
