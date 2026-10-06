@@ -140,6 +140,16 @@ async def _email_gate_blocked(session, user: User) -> bool:
     return (await _get_smtp_config_cached(session)) is not None
 
 
+async def _passkey_count(session, user_id: int) -> int:
+    """Anzahl registrierter Passkeys des Kontos — dieselbe MFA-Frage an jeder
+    Stelle (login, /me, TOTP-Disable, Login-TOTP, Passkey-Loeschung)."""
+    return await session.scalar(
+        select(func.count())
+        .select_from(WebAuthnCredential)
+        .where(WebAuthnCredential.user_id == user_id)
+    )
+
+
 async def _issue_tokens(
     session,
     user: User,
@@ -559,12 +569,7 @@ async def login(
     methods: list[str] = []
     if user.totp_enabled:
         methods.append("totp")
-    passkey_count = await session.scalar(
-        select(func.count())
-        .select_from(WebAuthnCredential)
-        .where(WebAuthnCredential.user_id == user.id)
-    )
-    if passkey_count:
+    if await _passkey_count(session, user.id):
         methods.append("webauthn")
     if methods:
         from dcc_auth.recovery import issue_mfa_ticket
@@ -823,16 +828,17 @@ async def refresh(
                 rt, jetzt=now, nachgereicht=nachfolger.nachgereicht, ua_jetzt=user_agent
             )
             await session.commit()
+            # SQLite liefert zeitzonenlose Ablaufzeiten; Epoch und Cookie-TTL
+            # brauchen dieselbe Normierung — einmal gehoben, zweimal benutzt.
+            nachfolger_laufzeit = int(
+                (
+                    nachfolger.expires_at
+                    if nachfolger.expires_at.tzinfo is not None
+                    else nachfolger.expires_at.replace(tzinfo=UTC)
+                ).timestamp()
+            )
             nachfolger_token = signer.reissue_refresh(
-                user.id,
-                nachfolger.jti,
-                int(
-                    (
-                        nachfolger.expires_at
-                        if nachfolger.expires_at.tzinfo is not None
-                        else nachfolger.expires_at.replace(tzinfo=UTC)
-                    ).timestamp()
-                ),
+                user.id, nachfolger.jti, nachfolger_laufzeit
             )
             # Cookie-Weg: der Token reist NUR im HttpOnly-Cookie — ein XSS im
             # Ursprung kann Anfragen stellen, solange es laeuft, aber keinen
@@ -840,17 +846,7 @@ async def refresh(
             set_refresh_cookie(
                 response,
                 nachfolger_token,
-                ttl_s=max(
-                    1,
-                    int(
-                        (
-                            nachfolger.expires_at
-                            if nachfolger.expires_at.tzinfo is not None
-                            else nachfolger.expires_at.replace(tzinfo=UTC)
-                        ).timestamp()
-                    )
-                    - int(time()),
-                ),
+                ttl_s=max(1, nachfolger_laufzeit - int(time())),
             )
             return TokensOut(
                 access_token=signer.issue_access(
@@ -985,13 +981,7 @@ async def me(session: SessionDep, current: User = Depends(_get_current_user)):
     # Ebenso computed: der Konto-Lösch-Dialog leitet daraus, ob ein zweiter
     # Faktor fällig ist — bei Passkey-only-Konten ohne TOTP sonst unsichtbar
     # (Bughunt Runde 4).
-    out.has_passkey = bool(
-        await session.scalar(
-            select(func.count())
-            .select_from(WebAuthnCredential)
-            .where(WebAuthnCredential.user_id == current.id)
-        )
-    )
+    out.has_passkey = bool(await _passkey_count(session, current.id))
     return out
 
 

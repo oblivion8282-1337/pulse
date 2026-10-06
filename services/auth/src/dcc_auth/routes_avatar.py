@@ -12,7 +12,7 @@ from pathlib import Path
 import dcc_auth.config as _config
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 
 # Guard against decompression-bomb DoS: a highly compressed 5 MB PNG can
 # expand to >1 GB in RAM. 16 MP is more than enough for profile pictures.
@@ -92,7 +92,7 @@ async def upload_avatar(
 
     try:
         processed = await asyncio.to_thread(_process_image, raw)
-    except (UnidentifiedImageError, Exception) as exc:
+    except Exception as exc:  # incl. UnidentifiedImageError (ist ein Exception-Subtyp)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="invalid image file") from exc
 
     # User-id-keyed file (Cloud frontend serves it via ``avatar_url``) PLUS a

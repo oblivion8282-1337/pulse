@@ -65,8 +65,6 @@ async def get_current_gast(
     ab (``_decode_cloud_token`` verlangt ``typ == "access"``). Genau eine
     Route hier kennt sie: ``GET /gast/whep``.
     """
-    from fastapi import HTTPException, status  # noqa: PLC0415
-
     token = _extract_bearer(authorization)
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing guest ticket")
