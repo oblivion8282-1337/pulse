@@ -12,6 +12,15 @@ use std::ffi::CStr;
 
 use ffmpeg_next as ffmpeg;
 
+/// Kandidaten in Prüf-Reihenfolge: `--enable-<backend>`-Flag → gemeldeter Name.
+const BACKENDS: &[(&str, &str)] = &[
+    ("--enable-gnutls", "gnutls"),
+    ("--enable-openssl", "openssl"),
+    ("--enable-libtls", "libtls"),
+    ("--enable-mbedtls", "mbedtls"),
+    ("--enable-securetransport", "securetransport"),
+];
+
 /// Welches TLS-Backend das gelinkte libavformat nutzt, oder `None` wenn keines.
 ///
 /// Wird im `health`-Report als `sidecar.tls_backend` exponiert — der Renderer /
@@ -25,17 +34,8 @@ pub fn detect() -> Option<&'static str> {
         return None;
     }
     let cfg = unsafe { CStr::from_ptr(cfg_ptr) }.to_string_lossy();
-    if cfg.contains("--enable-gnutls") {
-        Some("gnutls")
-    } else if cfg.contains("--enable-openssl") {
-        Some("openssl")
-    } else if cfg.contains("--enable-libtls") {
-        Some("libtls")
-    } else if cfg.contains("--enable-mbedtls") {
-        Some("mbedtls")
-    } else if cfg.contains("--enable-securetransport") {
-        Some("securetransport")
-    } else {
-        None
-    }
+    BACKENDS
+        .iter()
+        .find(|(flag, _)| cfg.contains(flag))
+        .map(|&(_, name)| name)
 }

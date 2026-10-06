@@ -11,10 +11,10 @@
 //! ```
 //! Vorab: `docker compose -f test/docker-compose.yml up -d`.
 
-use std::ffi::CStr;
-
 use ffmpeg_next as ffmpeg;
 use ffmpeg::{Dictionary, format};
+
+use pulse_linux_hq_sidecar::system::tls;
 
 fn main() -> anyhow::Result<()> {
     let _ = ffmpeg::init();
@@ -23,8 +23,9 @@ fn main() -> anyhow::Result<()> {
         .nth(1)
         .unwrap_or_else(|| "rtmps://localhost:11936/test".to_string());
 
-    // 1) TLS-Backend aus avformat_configuration().
-    let backend = detect_tls_backend();
+    // 1) TLS-Backend aus avformat_configuration() — dieselbe Erkennung wie im
+    //    `health`-Report (`system::tls::detect`).
+    let backend = tls::detect();
     eprintln!("[tls_probe] FFmpeg TLS backend: {:?}", backend);
     eprintln!("[tls_probe] opening output: {url}");
 
@@ -60,23 +61,4 @@ fn main() -> anyhow::Result<()> {
 
     eprintln!("[tls_probe] ERGEBNIS: RTMPS-Connect mit self-signed Cert funktioniert (backend={:?}).", backend);
     Ok(())
-}
-
-fn detect_tls_backend() -> Option<&'static str> {
-    let ptr = unsafe { ffmpeg::ffi::avformat_configuration() };
-    if ptr.is_null() {
-        return None;
-    }
-    let cfg = unsafe { CStr::from_ptr(ptr) }.to_string_lossy();
-    if cfg.contains("--enable-gnutls") {
-        Some("gnutls")
-    } else if cfg.contains("--enable-openssl") {
-        Some("openssl")
-    } else if cfg.contains("--enable-libtls") {
-        Some("libtls")
-    } else if cfg.contains("--enable-mbedtls") {
-        Some("mbedtls")
-    } else {
-        None
-    }
 }
