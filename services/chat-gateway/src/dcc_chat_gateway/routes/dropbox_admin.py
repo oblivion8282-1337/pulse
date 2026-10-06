@@ -8,11 +8,11 @@ re-exports ``admin_router`` so callers have a single import.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, HTTPException, Path, Request, status
+from fastapi import APIRouter, HTTPException, Path, Request
 from sqlalchemy import select
 
 from dcc_chat_gateway import s3
@@ -25,7 +25,6 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._dropbox_helpers import (
-    normalize_parent_path,
     publish_purge_event,
     publish_quota_event,
     storage_path_for,

@@ -21,7 +21,6 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.routes.watch_chat import _normalize_emoji, _require_voice_channel_member
 from dcc_chat_gateway.security import CurrentUser
 from dcc_shared.events import StreamReactionData, StreamReactionEvent
@@ -47,7 +46,10 @@ async def fire_stream_reaction(
     Fire-and-forget: broadcast only, no storage — es gibt daher auch keine
     Idempotenz wie bei den Watch-Party-Reaktionen; jeder Aufruf ist genau
     ein Burst."""
-    await _require_voice_channel_member(session, channel_id, current)
+    await _require_voice_channel_member(
+        session, channel_id, current,
+        feature="watch chat", member_detail="not a member",
+    )
     emoji_n = _normalize_emoji(emoji)
 
     if not ratelimit.check("message", current.id):

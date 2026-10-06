@@ -23,7 +23,6 @@ from typing import Any, Literal
 
 import jwt
 from jwt.algorithms import RSAAlgorithm
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.models.moderation import CachedUserProfile

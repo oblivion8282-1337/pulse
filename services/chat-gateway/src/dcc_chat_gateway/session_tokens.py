@@ -19,9 +19,6 @@ voice-signaling now verify the EdDSA signature directly via the shared module.
 
 from __future__ import annotations
 
-import json
-from typing import Any
-
 # Re-export the shared primitives so callers that import from this module keep
 # working. Behaviour is identical — this is a pure move, not a rewrite.
 from dcc_shared.session_tokens import (

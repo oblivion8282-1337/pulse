@@ -15,7 +15,6 @@ historical thread without a composer.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -24,12 +23,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten
+from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten, lesestaende
 from dcc_chat_gateway.friend_helpers import (
     block_exists_either_way,
     friendship_exists,
 )
-from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten, lesestaende
 from dcc_chat_gateway.models import (
     DirectMessageChannel,
     DmLesestand,

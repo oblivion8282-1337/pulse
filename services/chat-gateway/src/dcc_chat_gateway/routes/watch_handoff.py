@@ -18,7 +18,6 @@ from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
 from dcc_chat_gateway.routes._deps import (
     channel_membership,
-    parse_snowflake_int as _channel_id,
     ws_err as _err,
     ws_manager as _manager,
 )

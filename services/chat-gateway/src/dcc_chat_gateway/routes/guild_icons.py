@@ -20,7 +20,7 @@ import dcc_chat_gateway.config as _config
 import structlog
 from fastapi import APIRouter, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 
 Image.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
 
