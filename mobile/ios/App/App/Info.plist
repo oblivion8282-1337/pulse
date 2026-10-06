@@ -39,6 +39,13 @@
 	     wäre der eigene Server zuhause unsichtbar. -->
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pulse verbindet sich mit deinem Pulse-Server im Heimnetzwerk (Self-Host).</string>
+	<!-- Hintergrund-Ton: Sprachkanäle und Watch-/Stream-Ton laufen weiter,
+	     wenn das Display gesperrt wird (Etappe 3, Item 23). Ohne diesen
+	     Mode stoppt iOS die Audio-Session beim Sperren. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

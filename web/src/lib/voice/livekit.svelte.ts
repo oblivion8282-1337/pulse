@@ -58,6 +58,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { isMobile } from '$lib/platform/runtime';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
+import { iosVoiceAktiv } from '$lib/platform/iosAudioSession';
 import { sidecar } from '$lib/stream/sidecar';
 import { runningStreamSlots } from '$lib/stream/state.svelte';
 
@@ -451,6 +452,7 @@ class VoiceRoom {
     // mode switch a head start before any track exists. No-op off Capacitor-Android;
     // cleared again in #teardown on leave.
     await setVoiceActive(true);
+    await iosVoiceAktiv(true);
 
     // Aufgelegt, waehrend der Ruf-Modus gesetzt wurde — gar nicht erst
     // verbinden. Ohne diesen Wachposten baut der Handschlag den Raum noch
@@ -666,7 +668,10 @@ class VoiceRoom {
     // Sicherung: niemals den lebenden Raum abraeumen.
     if (this.#room === room) return;
     await raumVerwerfen(room);
-    if (this.channelId === null) void setVoiceActive(false);
+    if (this.channelId === null) {
+        void setVoiceActive(false);
+        void iosVoiceAktiv(false);
+    }
   }
 
   async setMicEnabled(on: boolean): Promise<void> {
