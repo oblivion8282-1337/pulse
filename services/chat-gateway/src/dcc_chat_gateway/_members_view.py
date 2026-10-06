@@ -39,6 +39,16 @@ from dcc_chat_gateway.models import (
 _LARGE_GUILD_THRESHOLD = 500
 
 
+def _role_snapshot(role: Role) -> RoleSnapshot:
+    """Role-Zeile → Resolver-Snapshot — die eine gemeinsame Abbildung."""
+    return RoleSnapshot(
+        id=role.id,
+        position=role.position,
+        permissions=role.permissions,
+        is_everyone=role.is_everyone,
+    )
+
+
 @dataclass
 class _Ctx:
     """Concrete ``PermissionContext`` populated from a single batched fetch.
@@ -146,15 +156,7 @@ async def members_who_can_view_small(
             admin=False,  # global-admin flag not visible here
             owner=guild.owner_id == uid,
             member=True,
-            roles=[
-                RoleSnapshot(
-                    id=r.id,
-                    position=r.position,
-                    permissions=r.permissions,
-                    is_everyone=r.is_everyone,
-                )
-                for r in member_roles
-            ],
+            roles=[_role_snapshot(r) for r in member_roles],
             overwrites=overwrites,
         )
         if has_permission(
@@ -200,12 +202,7 @@ async def members_who_can_view_large(
     for r in (
         await session.execute(select(Role).where(Role.guild_id == guild_id))
     ).scalars():
-        snap = RoleSnapshot(
-            id=r.id,
-            position=r.position,
-            permissions=r.permissions,
-            is_everyone=r.is_everyone,
-        )
+        snap = _role_snapshot(r)
         role_by_id[r.id] = snap
         if r.is_everyone:
             everyone_snap = snap

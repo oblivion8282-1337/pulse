@@ -18,11 +18,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
-from dcc_auth.browser_sessions import (
-    create_session,
-    revoke_all_for_user,
-    set_session_cookie,
-)
+from dcc_auth.browser_sessions import revoke_all_for_user
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.email import (
@@ -34,10 +30,8 @@ from dcc_auth.models import EmailChangeToken, RefreshToken, User
 from dcc_auth.recovery import generate_token, hash_token, verify_token
 from dcc_auth.routes import (
     _check_rate,
-    _client_ip,
     _get_current_user,
-    _hash_ip,
-    _issue_tokens,
+    _login_abschliessen,
     _signer_dep,
 )
 from dcc_auth.email import resolve_smtp_config
@@ -107,29 +101,17 @@ async def change_password(
     await revoke_all_for_user(session, current.id)
 
     # ...then re-arm THIS client with a fresh token pair + session cookie, so the
-    # password change doesn't immediately log the active device out. Cookie zuerst:
-    # die Refresh-Zeile verweist darauf (Migration 0049), damit ein späteres
-    # „Sitzung beenden“ beide Hälften dieser Sitzung trifft.
-    sid = await create_session(
-        session,
-        user_id=current.id,
-        amr=["pwd"],
-        acr="0",
-        user_agent=user_agent,
-        ip=_client_ip(request),
-    )
-    tokens = await _issue_tokens(
+    # password change doesn't immediately log the active device out.
+    return await _login_abschliessen(
         session,
         current,
         signer=signer,
-        user_agent=user_agent,
-        ip_hash=_hash_ip(request),
-        session_id=sid,
+        request=request,
         response=response,
+        amr=["pwd"],
+        acr="0",
+        user_agent=user_agent,
     )
-    await session.commit()
-    set_session_cookie(response, sid)
-    return tokens
 
 
 @router.post("/me/email/change", status_code=status.HTTP_204_NO_CONTENT)

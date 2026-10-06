@@ -545,6 +545,34 @@ async def hard_delete_attachments(
     return len(rows)
 
 
+async def hard_delete_channel_attachments(
+    session: AsyncSession, *, channel_ids: Iterable[int], defer_s3: list[str] | None = None
+) -> None:
+    """Hard-delete every live attachment of the given channels.
+
+    The id-collect prologue shared by channel/guild deletion and the user
+    purge — einmal hier, damit der ``deleted_at.is_(None)``-Filter nicht
+    auseinanderdriftet. ``defer_s3`` contract: see
+    :func:`hard_delete_attachments`."""
+    ids = list(channel_ids)
+    if not ids:
+        return
+    att_ids = list(
+        (
+            await session.execute(
+                select(MessageAttachment.id).where(
+                    MessageAttachment.channel_id.in_(ids),
+                    MessageAttachment.deleted_at.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    if att_ids:
+        await hard_delete_attachments(
+            session, attachment_ids=att_ids, defer_s3=defer_s3
+        )
+
+
 async def purge_s3_keys(keys: list[str]) -> None:
     """Delete a list of MinIO/S3 keys best-effort (failures logged, not raised).
 

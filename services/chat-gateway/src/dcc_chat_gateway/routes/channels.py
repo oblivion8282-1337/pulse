@@ -23,7 +23,6 @@ from dcc_chat_gateway.models import (
     DropboxFile,
     GuestLink,
     Message,
-    MessageAttachment,
 )
 from dcc_chat_gateway.permissions import (
     Permissions,
@@ -48,7 +47,10 @@ from dcc_chat_gateway.routes._deps import (
 # into shared/dcc_shared/text.py. Importing across route modules is
 # intentional here — same package, no cycle.
 from dcc_chat_gateway.routes._dropbox_helpers import validate_name
-from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
+from dcc_chat_gateway.routes.attachments import (
+    hard_delete_channel_attachments,
+    purge_s3_keys,
+)
 from dcc_chat_gateway.routes.guest_links import entwerte_link
 from dcc_chat_gateway.routes.guilds import _publish_guild_event
 from dcc_chat_gateway.schemas import (
@@ -254,22 +256,13 @@ async def delete_channel(
     )
     # Collect attachment ids before deleting messages, then hard-delete them
     # (removes the MinIO objects too — Message bulk-delete can't cascade those).
-    att_ids_stmt = (
-        select(MessageAttachment.id)
-        .where(
-            MessageAttachment.channel_id == channel_id,
-            MessageAttachment.deleted_at.is_(None),
-        )
-    )
-    att_ids = list((await session.execute(att_ids_stmt)).scalars())
     # Tombstone attachment rows now but purge MinIO objects only after a
     # successful commit — a commit failure must not leave the bytes gone while
     # the rows still reference them (invisible to the reaper).
     s3_keys_to_purge: list[str] = []
-    if att_ids:
-        await hard_delete_attachments(
-            session, attachment_ids=att_ids, defer_s3=s3_keys_to_purge
-        )
+    await hard_delete_channel_attachments(
+        session, channel_ids=[channel_id], defer_s3=s3_keys_to_purge
+    )
     # Dropbox channel → reap its MinIO objects + reset the guild's quota
     # counter before the channel row vanishes. ``dropbox_files.channel_id``
     # CASCADE wipes the rows, but MinIO has no FK — collect keys now and

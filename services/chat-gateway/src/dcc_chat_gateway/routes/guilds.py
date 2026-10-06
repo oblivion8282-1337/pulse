@@ -35,7 +35,6 @@ from dcc_chat_gateway.models import (
     GuildSoundOverride,
     MemberRole,
     Message,
-    MessageAttachment,
     PermissionOverwrite,
     Role,
 )
@@ -53,7 +52,10 @@ from dcc_chat_gateway.routes._deps import (
     require_member,
 )
 from dcc_chat_gateway.routes._dropbox_helpers import validate_name
-from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
+from dcc_chat_gateway.routes.attachments import (
+    hard_delete_channel_attachments,
+    purge_s3_keys,
+)
 from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
 from dcc_chat_gateway.routes.guest_links import entwerte_link
 from dcc_chat_gateway.schemas import (
@@ -377,15 +379,9 @@ async def delete_guild(
     devices_removed = await collect_devices_for_cascade(session, mgr, guild_id=guild_id)
     s3_keys_to_purge: list[str] = []
     if channel_ids:
-        att_ids_stmt = select(MessageAttachment.id).where(
-            MessageAttachment.channel_id.in_(channel_ids),
-            MessageAttachment.deleted_at.is_(None),
+        await hard_delete_channel_attachments(
+            session, channel_ids=channel_ids, defer_s3=s3_keys_to_purge
         )
-        att_ids = list((await session.execute(att_ids_stmt)).scalars())
-        if att_ids:
-            await hard_delete_attachments(
-                session, attachment_ids=att_ids, defer_s3=s3_keys_to_purge
-            )
         # messages.channel_id has NO FK (Migration 0005 dropped it so the
         # column can reference channels OR direct_message_channels), so the
         # guild cascade never reaches message rows — delete them explicitly,

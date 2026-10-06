@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from dcc_chat_gateway._members_view import _Ctx
+from dcc_chat_gateway._members_view import _Ctx, _role_snapshot
 from dcc_chat_gateway.models import (
     Channel,
     Guild,
@@ -121,12 +121,7 @@ async def teilen_ablage_kanal(session, a_id: int, b_id: int) -> bool:
         if everyone is not None:
             role_ids.add(everyone.id)
         return [
-            RoleSnapshot(
-                id=role.id,
-                position=role.position,
-                permissions=role.permissions,
-                is_everyone=role.is_everyone,
-            )
+            _role_snapshot(role)
             for rid in role_ids
             if (role := role_by_id.get(rid)) is not None
         ]
