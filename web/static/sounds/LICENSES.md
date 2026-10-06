@@ -4,8 +4,11 @@ Die meisten OGG-Files in diesem Verzeichnis stammen aus dem **Kenney UI
 Audio Pack** (<https://kenney.nl/assets/ui-audio>), lizenziert unter
 **CC0 1.0 Universal** (<https://creativecommons.org/publicdomain/zero/1.0/>)
 — Public Domain, keine Attribution-Pflicht. Wir nennen Kenney trotzdem als
-gutgemeinten Trail. Die drei `stream-*.ogg` sind projekt-eigen synthetisiert
-(FFmpeg-Sinus-Chime) — ebenfalls keine Fremdlizenz.
+gutgemeinten Trail. Die drei `stream-*.ogg` stammen von **Michael
+(hochgeladen 2026-06-08 in der Community „laber“, Pixabay Sound Effects,
+Pixabay-Content-Lizenz — kommerzielle Nutzung frei, keine Attribution
+gefordert)** und sind seit dem 2026-10-06 die gebündelten Standard-Klänge
+(als OGG Vorbis neu kodiert, normalisiert auf EBU R128 −23 LUFS).
 
 ## Mapping (Pulse-ID → Kenney-Original)
 
@@ -24,9 +27,9 @@ gutgemeinten Trail. Die drei `stream-*.ogg` sind projekt-eigen synthetisiert
 | `voice-self-undeafen.ogg`   | `Audio/switch10.ogg`       |
 | `ui-send.ogg`               | `Audio/click1.ogg`         |
 | `ui-modal-open.ogg`         | `Audio/rollover2.ogg`      |
-| `stream-user-start.ogg`     | _projekt-eigen: FFmpeg-Sinus-Chime (587 Hz, 0,35 s) — frei ersetzbar_ |
-| `stream-user-stop.ogg`      | _projekt-eigen: FFmpeg-Sinus-Chime (660→440 Hz, 0,5 s) — frei ersetzbar_ |
-| `stream-self-start.ogg`     | _projekt-eigen: FFmpeg-Sinus-Chime (660→880 Hz, 0,52 s) — frei ersetzbar_ |
+| `stream-user-start.ogg`     | Pixabay Sound Effects (Upload M. 2026-06-08, „laber") — als Standard übernommen 2026-10-06 |
+| `stream-user-stop.ogg`      | Pixabay Sound Effects (Upload M. 2026-06-08, „laber") — als Standard übernommen 2026-10-06 |
+| `stream-self-start.ogg`     | Pixabay Sound Effects (Upload M. 2026-06-08, „laber") — als Standard übernommen 2026-10-06 |
 
 Pack-Download (Stand 2026-05-18):
 <https://kenney.nl/media/pages/assets/ui-audio/490d233f68-1677590494/kenney_ui-audio.zip>
