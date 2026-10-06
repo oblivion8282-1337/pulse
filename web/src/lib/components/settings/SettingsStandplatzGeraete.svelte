@@ -28,7 +28,6 @@
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import DeviceVerwaltung from '$lib/devices/components/DeviceVerwaltung.svelte';
   import { m } from '$lib/paraglide/messages.js';
-  import type { Device } from '$lib/api/devices';
 
   $effect(() => {
     for (const g of guilds.list) {
