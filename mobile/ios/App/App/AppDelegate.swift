@@ -1,10 +1,42 @@
 import UIKit
 import Capacitor
+import WebKit
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
+
+    /// Safe-Area-Insets als CSS-Variablen in die WebView injizieren — dasselbe
+    /// Rezept wie das Android-Gegenstück (SystemBars-Plugin): Die Web-App liest
+    /// bereits `var(--safe-area-inset-*, env(...))` (Kette in app.css), dort
+    /// landen die Werte zuverlässig. Grund: In der WKWebView liefert env()
+    /// 0 (am Gerät gemessen 2026-10-06), deshalb contentInset "never" +
+    /// randfüllende Seite + Injektion auf diesem Weg.
+    /// ponytail: Insets werden EINMAL gelesen — die Hülle ist auf Portrait
+    /// gelockt, die Werte ändern sich im Betrieb nicht. Rotation/iPad-
+    /// Multitasking bräuchten einen traitCollection-Observer (Ausbaustufe).
+    private var safeAreaInjected = false
+
+    private func injectSafeAreaInsets() {
+        if safeAreaInjected { return }
+        guard let webView = window?.rootViewController?.view as? WKWebView else { return }
+        let insets = webView.safeAreaInsets
+        // Noch kein Layout passiert → beim nächsten applicationDidBecomeActive erneut versuchen.
+        if insets.top == 0, insets.bottom == 0 { return }
+        safeAreaInjected = true
+        let css = """
+        document.documentElement.style.setProperty('--safe-area-inset-top', '\(insets.top)px');
+        document.documentElement.style.setProperty('--safe-area-inset-bottom', '\(insets.bottom)px');
+        document.documentElement.style.setProperty('--safe-area-inset-left', '\(insets.left)px');
+        document.documentElement.style.setProperty('--safe-area-inset-right', '\(insets.right)px');
+        """
+        // Künftige Ladevorgänge: Document-Start (vor jedem Paint). Aktuelles
+        // Dokument (lädt evtl. schon): sofort nachreichen.
+        webView.configuration.userContentController.addUserScript(
+            WKUserScript(source: css, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        webView.evaluateJavaScript(css, completionHandler: nil)
+    }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
@@ -27,6 +59,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        injectSafeAreaInsets()
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

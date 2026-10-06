@@ -3,7 +3,8 @@
   "appName": "Pulse",
   "webDir": "www",
   "ios": {
-    "contentInset": "always"
+    "contentInset": "never",
+    "scrollEnabled": false
   },
   "server": {
     "url": "https://howispulse.com/app",
