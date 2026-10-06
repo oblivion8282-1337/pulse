@@ -96,9 +96,6 @@ impl App {
                 Err(e) => self.stdout.send(&Response::err(id, e)),
             },
 
-            // Fernsteuerung: welche Bildschirme der ferne Rechner hat. Das
-            // Fenster zeigt sie im Menue am Griff und meldet die Wahl zurueck
-            // (`player:remoteScreen`) — angefordert wird in der App.
             // Fernsteuerung: darf angefragt werden? Reine Anzeige — der Klick
             // kommt als `player:remoteRequest` zurueck, angefragt wird in der App.
             "remote_anfragbar" => match self.remote_anfragbar(&req) {
@@ -115,6 +112,9 @@ impl App {
                 Err(e) => self.stdout.send(&Response::err(id, e)),
             },
 
+            // Fernsteuerung: welche Bildschirme der ferne Rechner hat. Das
+            // Fenster zeigt sie im Menue am Griff und meldet die Wahl zurueck
+            // (`player:remoteScreen`) — angefordert wird in der App.
             "remote_screens" => match self.remote_screens(&req) {
                 Ok(()) => self.stdout.send(&Response::bare(id)),
                 Err(e) => self.stdout.send(&Response::err(id, e)),
