@@ -26,7 +26,7 @@ from dcc_chat_gateway.models import (
     Guild,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.routes._deps import guild_oder_404, publish_guild_event
+from dcc_chat_gateway.routes._deps import guild_or_404, publish_guild_event
 from dcc_chat_gateway.routes._dropbox_access import require_dropbox_view
 from dcc_chat_gateway.routes._dropbox_helpers import (
     fresh_entry_id,
@@ -215,7 +215,7 @@ async def create_dropbox_channel(
     await check_permission(
         session, current, guild_id, Permissions.MANAGE_CHANNELS
     )
-    guild = await guild_oder_404(session, guild_id)
+    guild = await guild_or_404(session, guild_id)
 
     # Display-string sink — same hardening as patch_entry / create_folder
     # (validate_name rejects path-traversal, bidi-spoof, homograph chars

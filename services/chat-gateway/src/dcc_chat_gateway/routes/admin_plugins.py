@@ -44,7 +44,6 @@ in Single-Pod nicht (keine Subscriber).
 from __future__ import annotations
 
 import logging
-import re
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
@@ -63,6 +62,7 @@ from dcc_chat_gateway.models import GuildPlugin, GuildPluginState
 # Constant darf vor dem App-Boot importierbar sein — ist eine Pure-
 # String-Konstante ohne Side-Effects.
 from dcc_chat_gateway.plugins.allowlist import HELLO_PLUGIN_NAME
+from dcc_chat_gateway.plugins.manifest import _NAME_RE
 from dcc_chat_gateway.routes.admin_plugins_publish import (
     ALLOWLIST_CHANGED_CHANNEL,
     publish_allowlist_changed,
@@ -73,12 +73,6 @@ from dcc_chat_gateway.security import AdminUser
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin/plugins")
-
-
-# Plugin-Name-Charset spiegelt das Manifest (``^[a-z][a-z0-9_-]{1,31}$``).
-# Wir validieren auf Route-Ebene, damit ein POST mit "../etc/passwd" als
-# Plugin-Name nicht erst in der DB ankommt.
-_PLUGIN_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 
 
 class PluginAllowlistEntry(BaseModel):
@@ -113,7 +107,10 @@ class PluginAllowlistPutOut(BaseModel):
 
 
 def _validate_plugin_name(name: str) -> str:
-    if not _PLUGIN_NAME_RE.match(name):
+    # Charset = Manifest-Regex (``_NAME_RE``). Wir validieren auf Route-Ebene,
+    # damit ein POST mit "../etc/passwd" als Plugin-Name nicht erst in der DB
+    # ankommt.
+    if not _NAME_RE.match(name):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="invalid_plugin_name"
         )

@@ -27,7 +27,6 @@ Das Hello-Plugin gilt instanzweit als immer aktiv (Loader-Smoketest).
 from __future__ import annotations
 
 import logging
-import re
 
 from typing import Any
 
@@ -49,6 +48,7 @@ from dcc_chat_gateway.plugins.state_store import get_state
 # (vgl. admin_plugins.py — die Funktionen ``list_allowed_names`` etc.
 # importieren wir innerhalb der Routes wegen App-Boot-Zirkularität).
 from dcc_chat_gateway.plugins.allowlist import HELLO_PLUGIN_NAME
+from dcc_chat_gateway.plugins.manifest import _NAME_RE
 from dcc_chat_gateway.security import CurrentUser
 
 log = logging.getLogger(__name__)
@@ -84,11 +84,9 @@ async def _publish_guild_plugins_changed(
         )
 
 
-_PLUGIN_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
-
-
 def _validate_plugin_name(name: str) -> str:
-    if not _PLUGIN_NAME_RE.match(name):
+    # Charset = Manifest-Regex (``_NAME_RE``), vgl. admin_plugins.py.
+    if not _NAME_RE.match(name):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="invalid_plugin_name"
         )

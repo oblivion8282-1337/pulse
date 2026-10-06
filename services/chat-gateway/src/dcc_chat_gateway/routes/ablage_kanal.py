@@ -23,7 +23,6 @@ import urllib.parse
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import ratelimit
@@ -36,15 +35,10 @@ from dcc_chat_gateway.models import AblageKanalLaufwerk, Channel, Guild
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._ablage_abruf import ablage_abruf_antwort
 from dcc_chat_gateway.routes._deps import channel_membership
+from dcc_chat_gateway.routes._dropbox_schemas import FreigabeAdresseIn
 from dcc_chat_gateway.security import CurrentUser
 
 router = APIRouter()
-
-
-class FreigabeAdresseIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    freigabe_adresse: Annotated[str, Field(min_length=1, max_length=8192)]
 
 
 async def _ablage_kanal_oder_404(session: SessionDep, channel_id: int) -> Channel:
