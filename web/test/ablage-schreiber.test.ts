@@ -19,6 +19,16 @@ const eintraege = (...paare: [string, string][]): AblageEintrag[] =>
 		typ: TYP_KLARTEXT_JSON,
 	}));
 
+/** Prüft den Verlauf-Stand: Rahmen-IDs genau wie erwartet, keine Lücken. */
+async function pruefeVerlauf(ablage: ReturnType<typeof speicherAdapter>, ids: bigint[]) {
+	const verlauf = await leseVerlauf(ablage);
+	assert.deepEqual(
+		verlauf.rahmen.map((r) => r.eintragsId),
+		ids,
+	);
+	assert.deepEqual(verlauf.luecken, []);
+}
+
 describe('Ablage-Schreiber: festigen', () => {
 	it('schreibt beim ersten Mal Segment und Manifest, danach wächst das offene Segment', async () => {
 		const ablage = speicherAdapter();
@@ -96,12 +106,7 @@ describe('Ablage-Schreiber: Abstürze', () => {
 		assert.deepEqual(bericht.adoptiert, ['seg-000001.puls']);
 		assert.equal(zweiter.stand()!.letzteId, '102');
 
-		const verlauf = await leseVerlauf(ablage);
-		assert.deepEqual(
-			verlauf.rahmen.map((r) => r.eintragsId),
-			[100n, 101n, 102n],
-		);
-		assert.deepEqual(verlauf.luecken, []);
+		await pruefeVerlauf(ablage, [100n, 101n, 102n]);
 	});
 
 	it('berichtigt das gekappte offene Segment und schreibt den Müll-Schwanz weg', async () => {
@@ -123,12 +128,7 @@ describe('Ablage-Schreiber: Abstürze', () => {
 
 		// Und es geht weiter, als wäre nichts gewesen.
 		await zweiter.festigen(eintraege(['102', 'c']));
-		const verlauf = await leseVerlauf(ablage);
-		assert.deepEqual(
-			verlauf.rahmen.map((r) => r.eintragsId),
-			[100n, 101n, 102n],
-		);
-		assert.deepEqual(verlauf.luecken, []);
+		await pruefeVerlauf(ablage, [100n, 101n, 102n]);
 	});
 
 	it('baut das Manifest aus den Segmenten neu, wenn es fehlt', async () => {
@@ -186,12 +186,7 @@ describe('Ablage-Schreiber: große Partien', () => {
 		assert.equal(ergebnis?.rahmen, 8);
 		assert.equal(m.letzteId, '107');
 
-		const verlauf = await leseVerlauf(ablage);
-		assert.deepEqual(
-			verlauf.rahmen.map((r) => r.eintragsId),
-			[100n, 101n, 102n, 103n, 104n, 105n, 106n, 107n],
-		);
-		assert.deepEqual(verlauf.luecken, []);
+		await pruefeVerlauf(ablage, [100n, 101n, 102n, 103n, 104n, 105n, 106n, 107n]);
 	});
 
 	it('gibt einem einzelnen Riesen sein eigenes Segment, statt ihn zu teilen', async () => {
@@ -237,12 +232,7 @@ describe('Ablage-Schreiber: alte Rahmen aus den echten Bytes zählen', () => {
 		const m = schreiber.stand()!;
 		assert.equal(m.segmente[0].rahmen, 4);
 
-		const verlauf = await leseVerlauf(ablage);
-		assert.deepEqual(
-			verlauf.rahmen.map((r) => r.eintragsId),
-			[100n, 101n, 102n, 103n],
-		);
-		assert.deepEqual(verlauf.luecken, []);
+		await pruefeVerlauf(ablage, [100n, 101n, 102n, 103n]);
 	});
 
 	it('verwirft einen beschädigten Rahmen-Rest am offenen Segment, statt ihn stehen zu lassen', async () => {
@@ -267,12 +257,7 @@ describe('Ablage-Schreiber: alte Rahmen aus den echten Bytes zählen', () => {
 		const m = schreiber.stand()!;
 		assert.equal(m.segmente[0].rahmen, 3);
 
-		const verlauf = await leseVerlauf(ablage);
-		assert.deepEqual(
-			verlauf.rahmen.map((r) => r.eintragsId),
-			[100n, 101n, 102n],
-		);
-		assert.deepEqual(verlauf.luecken, []);
+		await pruefeVerlauf(ablage, [100n, 101n, 102n]);
 	});
 });
 
@@ -326,12 +311,7 @@ describe('Ablage-Schreiber: Mehrgeräte-Konflikt beim Manifest', () => {
 		await geraetB.bestandAufnehmen();
 		await geraetB.festigen(eintraege(['103', 'von B, nach Erholung']));
 
-		const verlauf = await leseVerlauf(ablage);
-		assert.deepEqual(
-			verlauf.rahmen.map((r) => r.eintragsId),
-			[100n, 101n, 102n, 103n],
-		);
-		assert.deepEqual(verlauf.luecken, []);
+		await pruefeVerlauf(ablage, [100n, 101n, 102n, 103n]);
 	});
 });
 

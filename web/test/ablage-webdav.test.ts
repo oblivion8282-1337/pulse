@@ -80,6 +80,17 @@ function davServer() {
 	return { holen, dateien, aufrufe, ordner };
 }
 
+/** Adapter mit Lenas regulären Zugangsdaten gegen den Mini-Server. */
+function lenaAdapter(server: ReturnType<typeof davServer>) {
+	return webdavAdapter({
+		basis: BASIS,
+		ordner: ORDNER,
+		benutzer: 'lena',
+		passwort: 'app-passwort',
+		holen: server.holen,
+	});
+}
+
 describe('Ablage-WebDAV: URLs', () => {
 	it('setzt Basis, Ordner und Datei zusammen — kodiert, ohne Doppel-Schrägen', () => {
 		assert.equal(
@@ -105,13 +116,7 @@ describe('Ablage-WebDAV: Multistatus', () => {
 describe('Ablage-WebDAV: Adapter gegen den Mini-Server', () => {
 	it('schreibt mit Auth, legt den Ordner selbst an und liest zurück', async () => {
 		const server = davServer();
-		const adapter = webdavAdapter({
-			basis: BASIS,
-			ordner: ORDNER,
-			benutzer: 'lena',
-			passwort: 'app-passwort',
-			holen: server.holen,
-		});
+		const adapter = lenaAdapter(server);
 		const inhalt = new TextEncoder().encode('manifest-inhalt');
 		await adapter.schreibe('manifest.puls', inhalt);
 
@@ -123,13 +128,7 @@ describe('Ablage-WebDAV: Adapter gegen den Mini-Server', () => {
 
 	it('heilt einen 409, indem es den Ordner neu sichert und nochmal versucht', async () => {
 		const server = davServer();
-		const adapter = webdavAdapter({
-			basis: BASIS,
-			ordner: ORDNER,
-			benutzer: 'lena',
-			passwort: 'app-passwort',
-			holen: server.holen,
-		});
+		const adapter = lenaAdapter(server);
 
 		// Erster Schreibvorgang legt den Ordner an und läuft sauber.
 		await adapter.schreibe('manifest.puls', new TextEncoder().encode('x'));
@@ -187,13 +186,7 @@ describe('Ablage-WebDAV: Löschen', () => {
 		const server = davServer();
 		const pfad = '/remote.php/dav/files/lena/Pulse/ablage/kanal-1/x.puls';
 		server.dateien.set(pfad, new Uint8Array([1, 2, 3]));
-		const adapter = webdavAdapter({
-			basis: BASIS,
-			ordner: ORDNER,
-			benutzer: 'lena',
-			passwort: 'app-passwort',
-			holen: server.holen,
-		});
+		const adapter = lenaAdapter(server);
 		await adapter.lösche!('x.puls');
 		assert.equal(server.dateien.has(pfad), false, 'die Datei muss weg sein');
 		assert.ok(server.aufrufe.some((a) => a.startsWith('DELETE ')));
@@ -204,13 +197,7 @@ describe('Ablage-WebDAV: Löschen', () => {
 		// trifft das bereits zu — ein Wurf wuerde einen Aufraeumlauf abbrechen,
 		// der eigentlich erfolgreich war.
 		const server = davServer();
-		const adapter = webdavAdapter({
-			basis: BASIS,
-			ordner: ORDNER,
-			benutzer: 'lena',
-			passwort: 'app-passwort',
-			holen: server.holen,
-		});
+		const adapter = lenaAdapter(server);
 		await adapter.lösche!('gibtsnicht.puls');
 	});
 
@@ -253,13 +240,7 @@ describe('Ablage-WebDAV: ein toter Zugang ist ein eigener Fall', () => {
 		// hier zu scharf prueft, meldet jedem frisch verbundenen Laufwerk
 		// „Zugang tot", weil dort naturgemaess noch nichts liegt.
 		const server = davServer();
-		const adapter = webdavAdapter({
-			basis: BASIS,
-			ordner: ORDNER,
-			benutzer: 'lena',
-			passwort: 'app-passwort',
-			holen: server.holen,
-		});
+		const adapter = lenaAdapter(server);
 		assert.deepEqual(await adapter.liste(), []);
 	});
 

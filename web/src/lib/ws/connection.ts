@@ -4,7 +4,7 @@
  * bekommen aber jetzt eine Proxy-Connection die auf die Active-Server-
  * Connection im `gatewayPool` zeigt.
  *
- * Der Wechsel des aktiven Servers passiert über `setActiveGateway(id)` —
+ * Der Wechsel des aktiven Servers passiert über `activeServer.set(id)` —
  * sobald gerufen, leitet die `gateway`-Methoden alle Calls an die neue
  * Connection. Listener (`gateway.on(...)`-Subscriber) wandern **nicht**
  * mit; Phase 4.3 baut das Migration-Pattern (Re-Subscribe nach Switch).
@@ -42,7 +42,7 @@ function _active(): GatewayConnection {
 
 /**
  * Proxy mit identischer Methoden-Surface wie die Pre-4.2 `GatewayConnection`.
- * Jede Methode delegiert an `_active()` — dadurch ist `setActiveGateway(id)`
+ * Jede Methode delegiert an `_active()` — dadurch ist `activeServer.set(id)`
  * effektiv "swap to other connection". Property-Getter (`state`, `helloMeta`)
  * lesen die aktive Connection.
  */
@@ -133,16 +133,6 @@ export function gatewayForServer(serverId: string): GatewayConnection | null {
   } catch {
     return null; // Server-Eintrag entfernt — der Aufrufer behandelt das wie „weg"
   }
-}
-
-/**
- * Wechselt die Active-Server-Connection. Effekt: nachfolgende
- * `gateway.*`-Aufrufe gehen an die neue Connection. Listener und
- * Subscriptions wandern NICHT mit — die UI-Schicht (Phase 4.3) muss
- * Component-Listeners onMount neu registrieren.
- */
-export function setActiveGateway(serverId: string): void {
-  activeServer.set(serverId);
 }
 
 /**

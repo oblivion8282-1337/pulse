@@ -15,13 +15,12 @@ import {
   leseNachrichtNutzlast
 } from '../src/lib/krypto/nachrichtNutzlast.ts';
 
+/** Die drei Pflichtfelder einer Verteilnutzlast ohne Ablage-Erweiterung. */
+const basisVerteil = { kanal: '99', sitzung: 'sitz-1', schluessel: 'AAAAschluessel' };
+
 test('ein Verteilschluessel ueberlebt Hin- und Rueckweg', () => {
   const bytes = baueVerteilNutzlast('99', 'sitz-1', 'AAAAschluessel');
-  assert.deepEqual(leseVerteilNutzlast(bytes), {
-    kanal: '99',
-    sitzung: 'sitz-1',
-    schluessel: 'AAAAschluessel'
-  });
+  assert.deepEqual(leseVerteilNutzlast(bytes), basisVerteil);
 });
 
 test('alles, was kein Verteilschluessel ist, ergibt null', () => {
@@ -64,11 +63,7 @@ test('ohne Ablage-Zugabe entsteht dieselbe Nutzlast wie zuvor — byteidentisch'
   const ohneAblage = baueVerteilNutzlast('99', 'sitz-1', 'AAAAschluessel');
   const explizitUndefined = baueVerteilNutzlast('99', 'sitz-1', 'AAAAschluessel', undefined);
   assert.deepEqual(ohneAblage, explizitUndefined);
-  assert.deepEqual(leseVerteilNutzlast(ohneAblage), {
-    kanal: '99',
-    sitzung: 'sitz-1',
-    schluessel: 'AAAAschluessel'
-  });
+  assert.deepEqual(leseVerteilNutzlast(ohneAblage), basisVerteil);
 });
 
 test('ein aelterer Klient liest eine erweiterte Nutzlast, ohne zu ersticken', () => {
@@ -87,11 +82,7 @@ test('ein aelterer Klient liest eine erweiterte Nutzlast, ohne zu ersticken', ()
       einFeldDasEsNochNichtGab: 'egal'
     })
   );
-  assert.deepEqual(leseVerteilNutzlast(bytes), {
-    kanal: '99',
-    sitzung: 'sitz-1',
-    schluessel: 'AAAAschluessel'
-  });
+  assert.deepEqual(leseVerteilNutzlast(bytes), basisVerteil);
 });
 
 test('nur EINES der beiden Ablage-Felder zaehlt als keines — die Haelfte eines Paars ist unbrauchbar', () => {
@@ -106,11 +97,7 @@ test('nur EINES der beiden Ablage-Felder zaehlt als keines — die Haelfte eines
       ablageHauptschluessel: 'SGF1cHRzY2hsdWVzc2Vs'
     })
   );
-  assert.deepEqual(leseVerteilNutzlast(nurHauptschluessel), {
-    kanal: '99',
-    sitzung: 'sitz-1',
-    schluessel: 'AAAAschluessel'
-  });
+  assert.deepEqual(leseVerteilNutzlast(nurHauptschluessel), basisVerteil);
 });
 
 test('eine gewoehnliche Nachricht ist kein Verteilschluessel und umgekehrt', () => {

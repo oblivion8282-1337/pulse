@@ -86,7 +86,9 @@ export function starteHintergrundFestigung(): () => void {
 	return stoppeHintergrundFestigung;
 }
 
-export function stoppeHintergrundFestigung(): void {
+/** Nur über den Rückgabewert von `starteHintergrundFestigung` erreichbar —
+ *  kein externer Aufrufer. */
+function stoppeHintergrundFestigung(): void {
 	if (rundgang !== null) {
 		clearInterval(rundgang);
 		rundgang = null;

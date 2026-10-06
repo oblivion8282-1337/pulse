@@ -25,13 +25,6 @@ export const SYMBOLE = {
 } as const;
 
 /**
- * Das Symbol eines Bereichs — persönliche Wahl vor dem Standard.
- *
- * Reaktiv über den Settings-Store: ändert der Nutzer im Layout-Reiter ein
- * Symbol, springen beide Leisten (Handy-Leiste und Tablet-Spalte) sofort um,
- * weil `NavTabLink` hiervon ableitet.
- */
-/**
  * Die Bereiche in der persönlichen Reihenfolge — Standard, wenn nichts
  * (oder Ungültiges) gespeichert ist. Beide Leisten iterieren nur noch diese
  * Funktion, damit Handy und Tablet dieselbe Ordnung zeigen.
