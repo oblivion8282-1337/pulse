@@ -54,7 +54,7 @@ from dcc_chat_gateway.permissions import (
     resolve_permissions,
 )
 from dcc_chat_gateway.push import fan_out_mention_push
-from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
+from dcc_chat_gateway.routes._deps import require_read_history, resolve_channel_or_raise
 from dcc_chat_gateway.routes.attachments import (
     _limits_for_channel,
     bind_attachments,
@@ -95,12 +95,7 @@ async def list_messages(
     kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
 
     # READ_HISTORY gate (guild channels only — DMs have no permission overlay).
-    if kind == "guild":
-        perms = await resolve_permissions(
-            session, current, ch.guild_id, channel_id=channel_id
-        )
-        if not has_permission(perms, Permissions.READ_HISTORY):
-            raise HTTPException(403, detail="missing permission: READ_HISTORY")
+    await require_read_history(session, current, kind, ch)
 
     stmt = select(Message).where(
         Message.channel_id == channel_id,

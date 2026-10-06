@@ -30,7 +30,11 @@ from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.routes._deps import channel_membership, require_member
+from dcc_chat_gateway.routes._deps import (
+    channel_membership,
+    require_member,
+    visible_voice_channel_ids,
+)
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.guild_limits import LIMITS_BY_KEY, effective
 from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
@@ -355,13 +359,8 @@ async def guild_stream_state(
     (``stream:channel:*``), the same way voice presence reads ``voice:room:*``.
     """
     await require_member(session, guild_id, current.id)
-    stmt = select(Channel.id).where(
-        Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_VOICE
-    )
-    raw_ids = list((await session.execute(stmt)).scalars())
-    from dcc_chat_gateway.permissions import filter_viewable_channels  # noqa: PLC0415
-    visible_ids = await filter_viewable_channels(session, current, guild_id, raw_ids)
-    channel_ids = [str(cid) for cid in raw_ids if cid in visible_ids]
+    # VIEW_CHANNEL-Filter wie guild_voice_state/guild_watch_state.
+    channel_ids = await visible_voice_channel_ids(session, current, guild_id)
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is None:
         return {"stream_states": []}

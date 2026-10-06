@@ -12,11 +12,9 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Request
-from sqlalchemy import select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import require_member, visible_voice_channel_ids
 from dcc_chat_gateway.security import CurrentUser
 
 router = APIRouter()
@@ -36,17 +34,10 @@ async def guild_watch_state(
     Redis (the ``watch:channel-*`` hashes), same shape as the WS ``ready`` payload.
     """
     await require_member(session, guild_id, current.id)
-    stmt = select(Channel.id).where(
-        Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_VOICE
-    )
-    raw_ids = list((await session.execute(stmt)).scalars())
     # VIEW_CHANNEL-Filter wie guild_stream_state/guild_voice_state — sonst
     # leakt der State privater Voice-Channels (was läuft, wer hostet) an
     # Members, die den Channel per Overwrite gar nicht sehen dürfen.
-    from dcc_chat_gateway.permissions import filter_viewable_channels  # noqa: PLC0415
-
-    visible_ids = await filter_viewable_channels(session, current, guild_id, raw_ids)
-    channel_ids = [str(cid) for cid in raw_ids if cid in visible_ids]
+    channel_ids = await visible_voice_channel_ids(session, current, guild_id)
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is None:
         return {"watch_states": []}

@@ -28,7 +28,7 @@ from dcc_chat_gateway.permissions import (
     has_permission,
     resolve_permissions,
 )
-from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
+from dcc_chat_gateway.routes._deps import require_read_history, resolve_channel_or_raise
 from dcc_chat_gateway.routes.messages import _broadcast
 from dcc_chat_gateway.security import CurrentUser
 from dcc_shared.events import ReactionAddEvent, ReactionData, ReactionRemoveEvent
@@ -66,17 +66,6 @@ async def _load_for_reaction(
     return kind, ch, msg
 
 
-async def _require_channel_view(session, current: CurrentUser, kind: str, ch) -> None:
-    """READ_HISTORY gate for guild channels — mirrors ``list_messages`` in
-    ``routes/messages.py``. Relies on the resolver's !VIEW_CHANNEL ->
-    revoke-all invariant, so this also covers VIEW_CHANNEL itself."""
-    if kind != "guild":
-        return
-    perms = await resolve_permissions(session, current, ch.guild_id, channel_id=ch.id)
-    if not has_permission(perms, Permissions.READ_HISTORY):
-        raise HTTPException(403, detail="missing permission: READ_HISTORY")
-
-
 async def _require_not_blocked(session, current: CurrentUser, kind: str, ch) -> None:
     """Block gate for DM channels — mirrors ``post_message``. Reactions on
     DM messages previously skipped this entirely, letting a blocked user
@@ -110,7 +99,7 @@ async def list_message_reactions(
     user-cache, same as elsewhere.
     """
     kind, ch, _msg = await _load_for_reaction(session, message_id, current.id)
-    await _require_channel_view(session, current, kind, ch)
+    await require_read_history(session, current, kind, ch)
     rows = (
         await session.execute(
             select(MessageReaction.emoji, MessageReaction.user_id)

@@ -37,7 +37,11 @@ from dcc_chat_gateway.remote_guard import (
     collect_devices_for_cascade,
     forget_devices_after_cascade,
 )
-from dcc_chat_gateway.routes._deps import guild_or_404, require_member
+from dcc_chat_gateway.routes._deps import (
+    guild_or_404,
+    require_member,
+    visible_voice_channel_ids,
+)
 
 # ponytail: validate_name lives in dropbox-helpers for now (only dropbox
 # routes used it). If a second non-dropbox consumer appears, lift it
@@ -181,14 +185,10 @@ async def guild_voice_state(
     re-sync after a reconnect without waiting for the next push.
     """
     await require_member(session, guild_id, current.id)
-    stmt = select(Channel.id).where(
-        Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_VOICE
-    )
-    raw_ids = list((await session.execute(stmt)).scalars())
-    # Filter to only channels the requesting user may VIEW_CHANNEL so that
-    # voice-presence in private channels is not disclosed to denied members.
-    visible_ids = await filter_viewable_channels(session, current, guild_id, raw_ids)
-    channel_ids = [str(cid) for cid in raw_ids if cid in visible_ids]
+    # VIEW_CHANNEL-Filter — Sprach-Präsenz privater Kanäle darf an Members
+    # ohne Overwrite-Sicht nicht durchsickern (dieselbe Prüffolge wie in
+    # guild_stream_state/guild_watch_state, s. ``visible_voice_channel_ids``).
+    channel_ids = await visible_voice_channel_ids(session, current, guild_id)
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is None:
         return {"voice_states": []}

@@ -44,13 +44,12 @@ from dcc_chat_gateway.models import (
     Guild,
     MessageAttachment,
 )
-from dcc_chat_gateway.permissions import (
-    Permissions,
-    check_permission,
-    has_permission,
-    resolve_permissions,
+from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.routes._deps import (
+    guild_or_404,
+    require_read_history,
+    resolve_channel_or_raise,
 )
-from dcc_chat_gateway.routes._deps import guild_or_404, resolve_channel_or_raise
 from dcc_chat_gateway.schemas import (
     AttachmentDownloadOut,
     AttachmentOut,
@@ -334,12 +333,7 @@ async def refresh_download_url(
         # sonst ließe sich über alte Anhänge lesen, was der Verlaufssperre
         # (VIEW_CHANNEL erlaubt, READ_HISTORY entzogen) entzogen ist.
         kind, ch = await resolve_channel_or_raise(session, row.channel_id, current.id)
-        if kind == "guild":
-            perms = await resolve_permissions(
-                session, current, ch.guild_id, channel_id=row.channel_id
-            )
-            if not has_permission(perms, Permissions.READ_HISTORY):
-                raise HTTPException(403, detail="missing permission: READ_HISTORY")
+        await require_read_history(session, current, kind, ch)
 
     inline = _is_inline_mime(row.mime)
     url = await s3.presigned_get_url(
@@ -482,6 +476,19 @@ async def serialize_attachments(
     return out
 
 
+async def _drop_s3_keys(keys: Iterable[str], *, event: str) -> None:
+    """Delete MinIO objects in parallel; swallow failures (logged under
+    ``event`` — the structlog event name differs per call path and is
+    kept verbatim)."""
+    async def _drop(key: str) -> None:
+        try:
+            await s3.delete_object(key)
+        except Exception:  # noqa: BLE001
+            log.exception(event, key=key)
+
+    await asyncio.gather(*[_drop(k) for k in keys])
+
+
 async def hard_delete_attachments(
     session: AsyncSession, *, message_ids: Iterable[int] | None = None,
     attachment_ids: Iterable[int] | None = None,
@@ -518,13 +525,6 @@ async def hard_delete_attachments(
     if not rows:
         return 0
 
-    # Delete MinIO objects in parallel; swallow failures.
-    async def _drop(key: str) -> None:
-        try:
-            await s3.delete_object(key)
-        except Exception:  # noqa: BLE001
-            log.exception("s3 delete failed", key=key)
-
     keys: list[str] = []
     for r in rows:
         keys.append(r.storage_key)
@@ -534,7 +534,7 @@ async def hard_delete_attachments(
         # Hand the keys back to the caller; they purge S3 after commit.
         defer_s3.extend(keys)
     else:
-        await asyncio.gather(*[_drop(k) for k in keys])
+        await _drop_s3_keys(keys, event="s3 delete failed")
 
     now = datetime.now(UTC)
     await session.execute(
@@ -554,14 +554,7 @@ async def purge_s3_keys(keys: list[str]) -> None:
     """
     if not keys:
         return
-
-    async def _drop(key: str) -> None:
-        try:
-            await s3.delete_object(key)
-        except Exception:  # noqa: BLE001
-            log.exception("s3 delete failed after commit", key=key)
-
-    await asyncio.gather(*[_drop(k) for k in keys])
+    await _drop_s3_keys(keys, event="s3 delete failed after commit")
 
 
 # ─── Reaper ────────────────────────────────────────────────────────────────
@@ -624,12 +617,6 @@ async def _reap_once() -> int:
         if not rows:
             return 0
 
-        async def _drop(key: str) -> None:
-            try:
-                await s3.delete_object(key)
-            except Exception:  # noqa: BLE001
-                log.exception("reaper s3 delete failed", key=key)
-
         # Bughunt Runde 7: MinIO-Objekte erst NACH dem eigenen Commit
         # löschen — schlug der Commit fehl, verwiesen die Zeilen weiter auf
         # bereits gelöschte Bytes (dieselbe Invariante wie in
@@ -658,12 +645,10 @@ async def _reap_once() -> int:
             )
         ).all()
         await session.commit()
-        await asyncio.gather(
-            *[
-                _drop(k)
-                for k in [row.storage_key for row in geloescht]
-                + [row.thumb_storage_key for row in geloescht if row.thumb_storage_key]
-            ]
+        await _drop_s3_keys(
+            [row.storage_key for row in geloescht]
+            + [row.thumb_storage_key for row in geloescht if row.thumb_storage_key],
+            event="reaper s3 delete failed",
         )
         log.info("reaped orphan attachments", count=len(geloescht))
         return len(geloescht)
