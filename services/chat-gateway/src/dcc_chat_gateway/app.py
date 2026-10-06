@@ -252,6 +252,11 @@ async def lifespan(app: FastAPI):
         push_cleanup = asyncio.create_task(
             push_cleanup_loop(settings, engine), name="dcc-push-subscription-cleanup"
         )
+        # Stale-WebSocket-Reaper — schließt halboffene mobile Sockets, die
+        # sonst FCM-Pushes minuteslang unterdrücken (Etappe 2, 2026-10-06).
+        stale_ws_reaper = asyncio.create_task(
+            manager.stale_socket_reaper_loop(), name="dcc-stale-ws-reaper"
+        )
         # Presence idle sweeper — demotes ``online`` users with stale
         # activity to ``idle`` (Etappe 3).
         idle_sweeper = asyncio.create_task(

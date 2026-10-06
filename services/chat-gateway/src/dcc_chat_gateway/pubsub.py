@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
@@ -152,6 +153,13 @@ class ConnectionManager(
     # shared-NAT household/office of legitimate users is not collateral.
     MAX_CONNECTIONS_PER_IP = 100
 
+    # Ein Socket ohne eingehenden Frame laenger als dieser Schwellwert gilt
+    # als tot (halboffene Verbindung eines im Hintergrund suspendierten
+    # Mobilgeraets) und wird aus user_socket_count sowie den maps entfernt —
+    # sonst unterdrueckt der Gate die FCM-Pushes fuer Minuten (Befund
+    # Push-Tests 2026-10-06). Der Client pingt alle 25 s (WS_PING_INTERVAL_MS).
+    SOCKET_STALE_SEKUNDEN = 95.0
+
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
         self._hist_script = redis.register_script(_HIST_STEMPEL_LUA)
@@ -195,6 +203,9 @@ class ConnectionManager(
         # iterate only the channels that socket joined instead of scanning
         # the full ``_subs`` dict (O(subscribed) vs O(all channels)).
         self._ws_channels: dict[WebSocket, set[str]] = {}
+        # Letzter eingehender Frame je Socket (monotonische Uhr) — Grundlage
+        # der Stale-Erkennung (s. SOCKET_STALE_SEKUNDEN).
+        self._ws_last_seen: dict[WebSocket, float] = {}
         # Per-socket set of guild ids the user is a member of. Populated by
         # ``register`` (called from the WS endpoint with the same guild list
         # the ``ready`` frame is built from) and live-updated from
@@ -379,6 +390,7 @@ class ConnectionManager(
             self._ws_ip[ws] = client_ip
             self._ws_user[ws] = user
             self._connections.add(ws)
+            self._ws_last_seen[ws] = time.monotonic()
             self._ws_guilds[ws] = {int(g) for g in guild_ids}
             return True, is_first
 
@@ -416,6 +428,7 @@ class ConnectionManager(
     async def remove_socket(self, ws: WebSocket) -> None:
         async with self._lock:
             self._connections.discard(ws)
+            self._ws_last_seen.pop(ws, None)
             user = self._ws_user.pop(ws, None)
             if user is not None:
                 self._user_conns[user.id].discard(ws)
@@ -874,11 +887,51 @@ class ConnectionManager(
         active party are omitted. See ``watchkeys.py`` for the state shape."""
         return await read_states_for(self._redis, channel_ids)
 
+    def mark_seen(self, ws: WebSocket) -> None:
+        """Letzten eingehenden Frame stempeln (jeder Frame zählt — auch der
+        25-s-Ping des Clients). Sync, weil nur eine Dict-Zuweisung; wird aus
+        der Empfangsschleife je Socket gerufen."""
+        if ws in self._connections:
+            self._ws_last_seen[ws] = time.monotonic()
+
+    async def stale_socket_reaper_loop(self) -> None:
+        """Schließt Sockets ohne eingehende Frames und räumt ihre Registrierung
+        ab. Ohne diesen Reaper zählt ein im Hintergrund suspendiertes
+        Mobilgerät (halboffene TCP-Verbindung, kein FIN) Minuten als online —
+        und der FCM-Push-Ausgang wird in dieser Zeit unterdrückt."""
+        while True:
+            await asyncio.sleep(30)
+            frisch_grenze = time.monotonic() - self.SOCKET_STALE_SEKUNDEN
+            tote = [
+                ws
+                for ws, gesehen in self._ws_last_seen.items()
+                if gesehen < frisch_grenze
+            ]
+            for ws in tote:
+                try:
+                    await ws.close(code=1001, reason="stale connection")
+                except Exception:  # noqa: BLE001 — schon zu/abgebaut
+                    pass
+                await self.remove_socket(ws)
+            if tote:
+                log.info("stale sockets entfernt: %d", len(tote))
+
     def user_socket_count(self, user_id: int) -> int:
         """How many open sockets the given user currently has. Used by the WS
         endpoint to decide whether ending one socket should end that user's
-        hosted watch parties (only true if this was their last socket)."""
-        return len(self._user_conns.get(user_id, ()))
+        hosted watch parties (only true if this was their last socket).
+
+        Zählt nur FRISCHE Sockets (eingehender Frame innerhalb
+        SOCKET_STALE_SEKUNDEN) — halboffene Verbindungen suspendierter
+        Mobilgeräte zählen nicht als online (s. mark_seen / reaper). Der
+        Reaper entfernt sie asynchron aus den maps; bis dahin liefert dieser
+        Count 0 und der FCM-Push wird korrekt ausgelöst."""
+        frisch_grenze = time.monotonic() - self.SOCKET_STALE_SEKUNDEN
+        return sum(
+            1
+            for ws in self._user_conns.get(user_id, ())
+            if self._ws_last_seen.get(ws, 0.0) >= frisch_grenze
+        )
 
     def online_user_ids(self) -> list[str]:
         """Return user_ids of all currently-connected users (at least one open

@@ -77,6 +77,9 @@ async def run_session_op_loop(
                 raw = await websocket.receive_text()
             except WebSocketDisconnect:
                 break
+            # Jeder eingehende Frame stempelt den Socket frisch — Grundlage
+            # der Stale-Erkennung (pubsub.SOCKET_STALE_SEKUNDEN).
+            manager.mark_seen(websocket)
             if len(raw) > _MAX_WS_FRAME_BYTES:
                 oversize_frames += 1
                 await websocket.send_json(
