@@ -258,7 +258,9 @@ _VOICE_PULL_MARKER = "voice_pull:channel-{channel_id}:user-{user_id}"
 _VOICE_PULL_GNADEN_S = 5
 
 
-async def _maybe_revoke_voice_pull(redis, channel_id: str, user_id: str) -> None:
+async def _maybe_revoke_voice_pull(
+    redis, channel_id: str, user_id: str
+) -> asyncio.Task[None] | None:
     """On ``participant_left``: if the user was voice-pulled into the
     channel (Redis marker exists), tell chat-gateway to revoke the grant.
 

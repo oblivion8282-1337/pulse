@@ -107,6 +107,31 @@ async def sperren(redis: Any, gast_id: str, ttl_s: int = TICKET_MAX_TTL_S) -> No
         pass
 
 
+async def _lese_token_lesen(redis: Any, gast_id: str) -> tuple[list[Any], list[str]] | None:
+    """Nachschlage-Schluessel und Token-WERTE eines Gastes in einem Zug.
+
+    Die Werte kommen per MGET, BEVOR irgendetwas fällt — sonst blieben die
+    Datensätze als Waisen liegen und gelten weiter. ``None`` heisst „nichts
+    gefunden oder Redis gestört“; beide Aufrufer behandeln das still
+    (Best-effort, wie unten).
+    """
+    if redis is None:
+        return None
+    try:
+        cache_keys = [
+            key
+            async for key in redis.scan_iter(
+                match=read_cache_scan_pattern(gast_id), count=100
+            )
+        ]
+        if not cache_keys:
+            return None
+        werte = await redis.mget(cache_keys)
+        return cache_keys, [w.decode() if isinstance(w, bytes) else w for w in werte if w]
+    except Exception:  # noqa: BLE001 — Redis-Transportfehler
+        return None
+
+
 async def lese_token_loeschen(redis: Any, gast_id: str) -> int:
     """Die WHEP-Lese-Token eines Gastes wegnehmen. Gibt die Zahl der
     gefallenen Schlüssel zurück.
@@ -127,20 +152,11 @@ async def lese_token_loeschen(redis: Any, gast_id: str) -> int:
 
     Best-effort: ein Rauswurf darf nicht daran scheitern, dass Redis klemmt.
     """
-    if redis is None:
+    gefunden = await _lese_token_lesen(redis, gast_id)
+    if gefunden is None:
         return 0
+    cache_keys, werte = gefunden
     try:
-        cache_keys = [
-            key
-            async for key in redis.scan_iter(
-                match=read_cache_scan_pattern(gast_id), count=100
-            )
-        ]
-        if not cache_keys:
-            return 0
-        # Die Token-Werte holen, BEVOR die Nachschlage-Schlüssel fallen —
-        # sonst bleiben die Datensätze als Waisen liegen und gelten weiter.
-        werte = await redis.mget(cache_keys)
         token_keys = [
             token_key(w.decode() if isinstance(w, bytes) else w) for w in werte if w
         ]
@@ -158,18 +174,5 @@ async def lese_token_werte(redis: Any, gast_id: str) -> list[str]:
     der Session-Query. Ruf diesen Helfer VOR ``lese_token_loeschen`` auf;
     danach sind die Datensätze weg. Best-effort, wie die Geschwister.
     """
-    if redis is None:
-        return []
-    try:
-        cache_keys = [
-            key
-            async for key in redis.scan_iter(
-                match=read_cache_scan_pattern(gast_id), count=100
-            )
-        ]
-        if not cache_keys:
-            return []
-        werte = await redis.mget(cache_keys)
-        return [w.decode() if isinstance(w, bytes) else w for w in werte if w]
-    except Exception:  # noqa: BLE001 — Redis-Transportfehler
-        return []
+    gefunden = await _lese_token_lesen(redis, gast_id)
+    return gefunden[1] if gefunden is not None else []

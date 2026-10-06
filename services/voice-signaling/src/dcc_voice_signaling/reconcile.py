@@ -36,6 +36,7 @@ from redis.asyncio import Redis
 from dcc_shared import gaeste as _gaeste
 
 from dcc_voice_signaling.webhook import (
+    _apply_room_finished,
     _is_camera,
     _is_microphone,
     _is_unknown_video,
@@ -220,14 +221,11 @@ async def _reconcile_room(
 
 async def _clear_ghost_room(redis: Redis, room_name: str, cid: str) -> None:
     """Delete one ghost room's sets and publish the empty snapshot so clients
-    clear it. Each room is independent → safe to run concurrently."""
-    await redis.delete(
-        room_key(room_name),
-        streaming_key(room_name),
-        camera_key(room_name),
-        gast_stumm_key(room_name),
-        geraete_key(room_name),
-    )
+    clear it. Each room is independent → safe to run concurrently. Die
+    Schlüssel-Liste kommt aus ``webhook._apply_room_finished`` — derselbe
+    Weg wie beim echten ``room_finished``, damit ein künftiges Sub-Set nicht
+    an einem der beiden Pfade vergessen wird."""
+    await _apply_room_finished(redis, room_name)
     await _publish_state(redis, room_name, cid)  # publishes empty → clients clear
 
 
