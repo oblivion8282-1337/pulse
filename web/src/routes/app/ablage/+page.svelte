@@ -17,7 +17,7 @@
    */
 
   import { groesseText } from '$lib/ablage/groesseText';
-  import { syncOrdnerMoeglich, adapterAusVerzeichnis } from '$lib/ablage/syncOrdner';
+  import { adapterAusVerzeichnis } from '$lib/ablage/syncOrdner';
   import type { AblageVerzeichnis } from '$lib/ablage/syncOrdner';
   import {
     autorisierungsAdresse,

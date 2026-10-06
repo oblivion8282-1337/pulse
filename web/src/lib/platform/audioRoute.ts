@@ -118,16 +118,6 @@ export async function setVoiceActive(active: boolean): Promise<void> {
   }
 }
 
-/** Current native route. Returns `'auto'` outside the Android wrapper. */
-export async function getAudioRoute(): Promise<AudioRoute> {
-  if (!isCapacitorAndroid()) return 'auto';
-  try {
-    return (await plugin.getRoute()).route;
-  } catch {
-    return 'auto';
-  }
-}
-
 /** Collect the native audio-routing snapshot. No-op outside the Android wrapper. */
 export async function getAudioDiagnostic(): Promise<AudioDiagnostic | null> {
   if (!isCapacitorAndroid()) return null;

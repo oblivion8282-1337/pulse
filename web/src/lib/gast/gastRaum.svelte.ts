@@ -249,19 +249,9 @@ class GastRaum {
     }
     for (const el of this.#audioEls) el.remove();
     this.#audioEls.clear();
-    for (const { quelle, zug } of this.#tonZuege.values()) {
-      try {
-        quelle.disconnect();
-      } catch {
-        /* sitzt schon lösen */
-      }
-      try {
-        zug.disconnect();
-      } catch {
-        /* sitzt schon lösen */
-      }
-    }
-    this.#tonZuege.clear();
+    // Derselbe Weg wie beim Track-Unsubscribe (#tonLoesen): Züge lösen und
+    // aus der Karte nehmen — keine zweite Kopie dieses Abbaus.
+    for (const sid of this.#tonZuege.keys()) this.#tonLoesen(sid);
     if (this.#tonCtx) {
       void this.#tonCtx.close().catch(() => undefined);
       this.#tonCtx = null;

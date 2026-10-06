@@ -38,9 +38,8 @@
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
-  import { anhangKnopfSichtbar, anhangKnopfGrund } from '$lib/attachments/anhangKnopfSichtbar';
+  import { anhangKnopfSichtbar } from '$lib/attachments/anhangKnopfSichtbar';
   import { anhangBereitschaft } from '$lib/attachments/anhangBereitschaft.svelte';
-  import AnhangLaufwerkHinweis from './AnhangLaufwerkHinweis.svelte';
 
   let {
     channel,
@@ -202,12 +201,6 @@
       serverPolicy?.dmAttachmentsEnabled,
       laufwerkeBereit
     )
-  );
-  // Ein fehlender Knopf ohne Erklaerung wirkt wie ein Defekt — §11.2 verlangt
-  // ausdruecklich, den Fall zu BENENNEN. Wen es trifft und wie das formuliert
-  // wird, rechnet der Hinweis selbst aus (`AnhangLaufwerkHinweis.svelte`).
-  const anhangGrund = $derived(
-    anhangKnopfGrund(headerKind, verschluesselteAnhaenge, laufwerkeBereit)
   );
   /** `accept`-Attribut für den Datei-Dialog; leer = alles. Nur ein Filter im
    *  Auswahlfenster, keine Kontrolle — der Server erzwingt dieselbe Liste. */
@@ -616,13 +609,6 @@
         </span>
       {/if}
     </div>
-    {#if anhangGrund === 'kein-laufwerk'}
-      <!-- Auslieferungsschritt 1 (2026-09-02, Eigentümer): Laufwerk-Hinweise
-           ausgeblendet — ohne Laufwerke gibt es ohnehin keine Anhänge
-           (§11.2 versteckt den Knopf selbst). Reaktivierung: Zeile zurück.
-      <AnhangLaufwerkHinweis kanalId={channel.id} /> -->
-
-    {/if}
     <MessageInput
       bind:this={composer}
       handleDrop={false}

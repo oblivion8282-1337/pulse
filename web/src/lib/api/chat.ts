@@ -99,6 +99,16 @@ export type StreamTokenResponse = {
   expires_in_s: number;
 };
 
+/** Response of `GET /channels/{id}/whep` (`getWhepUrl`). `remote_input` sagt,
+ *  ob der Sidecar des Streamers Eingaben annehmen kann — sie entscheidet beim
+ *  Zuschauer über den Fernsteuer-Knopf. */
+type WhepAntwort = {
+  whep_url: string;
+  ten_bit?: boolean;
+  remote_input?: boolean;
+  codec?: 'h264' | 'hevc' | 'av1' | null;
+};
+
 /** Global-Friends Stufe 1: DMs sind cloud-only → immer gegen den Cloud-Server routen. */
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
@@ -661,17 +671,10 @@ export const chatApi = {
     channelId: string,
     userId: string,
     slot = 0
-  ): Promise<{
-    whep_url: string;
-    ten_bit?: boolean;
-    remote_input?: boolean;
-    codec?: 'h264' | 'hevc' | 'av1' | null;
-  }> {
-    return request<{
-      whep_url: string;
-      ten_bit?: boolean;
-      codec?: 'h264' | 'hevc' | 'av1' | null;
-    }>(`/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}&slot=${slot}`);
+  ): Promise<WhepAntwort> {
+    return request<WhepAntwort>(
+      `/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}&slot=${slot}`
+    );
   },
   // Live-Chat pro HQ-Stream (Twitch-style, ephemer — Server-TTL 6h, Client-State
   // pro Streamer in `streamChat.svelte.ts`).

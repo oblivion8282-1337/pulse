@@ -14,7 +14,6 @@
   import SwitchCameraIcon from '@lucide/svelte/icons/switch-camera';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import EarIcon from '@lucide/svelte/icons/ear';
-  import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';

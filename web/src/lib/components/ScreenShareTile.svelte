@@ -7,7 +7,7 @@
   Fenster mounten — selber JS-Context, Track bleibt direkt nutzbar).
 -->
 <script lang="ts">
-  import { onMount, onDestroy, mount, unmount } from 'svelte';
+  import { onDestroy, mount, unmount } from 'svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
   import { ReceiveStatsReader, type ReceiveStats } from '$lib/voice/screenShareStats';

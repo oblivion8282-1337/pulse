@@ -75,21 +75,19 @@ class SoundEngine {
 
   /** Play if the relevant category-toggle is on. Silent no-op otherwise. */
   play(id: SoundId, opts: PlayOpts = {}): void {
-    if (typeof Audio === 'undefined') return;
-    const def = SOUNDS[id];
-    const gain = categoryGain(def.category);
-    if (gain <= 0) return;
-    const url = this.#resolve(id, opts.guildId);
-    if (url === null) return;
-    this.#emit(id, url, gain);
+    this.#spiele(id, categoryGain(SOUNDS[id].category), opts);
   }
 
   /** Force-play for settings UI test buttons — respects master + category
    *  volume but ignores per-category `enabled` so users can audition. */
   test(id: SoundId, opts: PlayOpts = {}): void {
+    this.#spiele(id, bypassGain(SOUNDS[id].category), opts);
+  }
+
+  /** Geteilter Weg von `play`/`test`: Gain berechnet der Aufrufer (mit oder
+   *  ohne Kategorien-Schalter), hier folgen nur noch die No-op-Gates. */
+  #spiele(id: SoundId, gain: number, opts: PlayOpts): void {
     if (typeof Audio === 'undefined') return;
-    const def = SOUNDS[id];
-    const gain = bypassGain(def.category);
     if (gain <= 0) return;
     const url = this.#resolve(id, opts.guildId);
     if (url === null) return;

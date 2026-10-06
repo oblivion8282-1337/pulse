@@ -570,7 +570,7 @@ export class GatewayConnection {
         // Lückenfill). Der Timer ist das Sicherheitsnetz für Server, die
         // gar kein hello senden (Phase < 3.3): dann REST für alle, wie vor
         // dem Replay.
-        if (this._gapfillTimer) clearTimeout(this._gapfillTimer);
+        this._stopGapfillTimer();
         this._gapfillTimer = setTimeout(() => {
           this._gapfillTimer = null;
           void gapFillAll([...this.subs], { serverId: this.serverId });
@@ -639,10 +639,7 @@ export class GatewayConnection {
             // klar, ob der Server `hist_replay` kennt — die Entscheidung
             // (Replay + REST nur für cursor-lose Kanäle, sonst REST für
             // alle) liest bewusst das FRISCHE hello, nie stale helloMeta.
-            if (this._gapfillTimer) {
-              clearTimeout(this._gapfillTimer);
-              this._gapfillTimer = null;
-            }
+            this._stopGapfillTimer();
             if (this._kannHistReplay()) {
               // Die Cursor sind bis dahin live gelaufener Ereignisse
               // angewachsen — der Server verarbeitet die Subscribes
@@ -670,10 +667,7 @@ export class GatewayConnection {
         // der eine Lifecycle-Timer, der weder im close noch in disconnect()
         // aufgeräumt wurde und nach einem open-ohne-hello gegen die
         // bekannte-tote Verbindung einen REST-Burst losschickte.
-        if (this._gapfillTimer) {
-          clearTimeout(this._gapfillTimer);
-          this._gapfillTimer = null;
-        }
+        this._stopGapfillTimer();
         // Vor jeder Zustands-Abbildung und vor dem Reconnect: die Hörer sollen
         // den Abriss erfahren, egal ob danach neu gewählt wird oder nicht.
         // Kopie, weil ein Hörer sich im Ruf abmelden darf.
@@ -984,14 +978,19 @@ export class GatewayConnection {
     }, wait);
   }
 
-  disconnect(): void {
-    this.wantConnected = false;
-    this._stopHeartbeat();
-    this._stopTokenErneuerung();
+  /** Sicherheitsnetz-Timer (REST-Lückenfill bei Servern ohne hello) stoppen. */
+  private _stopGapfillTimer(): void {
     if (this._gapfillTimer) {
       clearTimeout(this._gapfillTimer);
       this._gapfillTimer = null;
     }
+  }
+
+  disconnect(): void {
+    this.wantConnected = false;
+    this._stopHeartbeat();
+    this._stopTokenErneuerung();
+    this._stopGapfillTimer();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

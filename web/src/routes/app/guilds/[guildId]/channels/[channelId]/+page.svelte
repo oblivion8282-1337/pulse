@@ -33,7 +33,6 @@
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { chatApi } from '$lib/api/chat';
-  import { dropboxApi } from '$lib/api/dropbox';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { useGatewayDeletedListener, useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
   import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
@@ -371,19 +370,17 @@
      ueber die Vollbild-Liste unter `/app/rooms/[guildId]`. Der Drawer vom
      linken Rand ist damit weg und kollidiert nicht mehr mit der
      System-Zurueck-Geste. -->
-{#if !viewport.istHandy}
-  <ChannelList
-    guild={activeGuild ?? null}
-    channels={channelsForGuild}
-    {activeChannelId}
-    onSelect={selectChannel}
-    onCreateClick={() => (creatingChannel = true)}
-    {onChannelDeleted}
-    canCreate={canManageChannels}
-    activeDeviceId={offenesGeraetId}
-    onSelectDevice={geraetOeffnen}
-  />
-{/if}
+<ChannelList
+  guild={activeGuild ?? null}
+  channels={channelsForGuild}
+  {activeChannelId}
+  onSelect={selectChannel}
+  onCreateClick={() => (creatingChannel = true)}
+  {onChannelDeleted}
+  canCreate={canManageChannels}
+  activeDeviceId={offenesGeraetId}
+  onSelectDevice={geraetOeffnen}
+/>
 {/if}
 
 {#snippet chatBody()}

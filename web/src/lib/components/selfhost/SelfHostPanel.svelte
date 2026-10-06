@@ -18,7 +18,6 @@
 -->
 <script lang="ts">
   import type { Component } from 'svelte';
-  import { onMount } from 'svelte';
   import ServerAppDownload from '$lib/components/account/ServerAppDownload.svelte';
   import SelfHostApplication from '$lib/components/account/SelfHostApplication.svelte';
   import MyInstances from '$lib/components/account/MyInstances.svelte';

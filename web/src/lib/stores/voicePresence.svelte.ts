@@ -23,6 +23,23 @@ export function istGastKennung(id: string): boolean {
   return id.startsWith('gast-');
 }
 
+/** Setzt `karte[key]` neu oder trägt den Schlüssel bei leerem/fehlendem Wert
+ *  aus — die Karten bleiben sparse (fehlende Zeile = Normalfall). Ein
+ *  Austrägen, dessen Schlüssel fehlt, liefert dasselbe Objekt zurück
+ *  (keine unnötige Reaktivität); Arrays zählen über ihre Länge. */
+function setzenOderAus<T>(
+  karte: Record<string, T>,
+  key: string,
+  wert: T | undefined
+): Record<string, T> {
+  if (!wert || Object.keys(wert).length === 0) {
+    if (karte[key] === undefined) return karte;
+    const { [key]: _, ...rest } = karte;
+    return rest;
+  }
+  return { ...karte, [key]: wert };
+}
+
 class VoicePresenceStore {
   /** Maps channel_id → user_ids (always full snapshot from server). */
   byChannel = $state<Record<string, string[]>>({});
@@ -105,41 +122,10 @@ class VoicePresenceStore {
     cameraUserIds?: string[],
     gastNamen?: Record<string, string>
   ): void {
-    const gaeste = gastNamen ?? {};
-    if (Object.keys(gaeste).length === 0) {
-      if (this.gastNamenByChannel[channelId] !== undefined) {
-        const { [channelId]: _, ...rest } = this.gastNamenByChannel;
-        this.gastNamenByChannel = rest;
-      }
-    } else {
-      this.gastNamenByChannel = { ...this.gastNamenByChannel, [channelId]: gaeste };
-    }
-    if (userIds.length === 0) {
-      if (this.byChannel[channelId] !== undefined) {
-        const { [channelId]: _, ...rest } = this.byChannel;
-        this.byChannel = rest;
-      }
-    } else {
-      this.byChannel = { ...this.byChannel, [channelId]: userIds };
-    }
-    const ids = streamingUserIds ?? [];
-    if (ids.length === 0) {
-      if (this.streamingByChannel[channelId] !== undefined) {
-        const { [channelId]: _, ...rest } = this.streamingByChannel;
-        this.streamingByChannel = rest;
-      }
-    } else {
-      this.streamingByChannel = { ...this.streamingByChannel, [channelId]: ids };
-    }
-    const camIds = cameraUserIds ?? [];
-    if (camIds.length === 0) {
-      if (this.cameraByChannel[channelId] !== undefined) {
-        const { [channelId]: _, ...rest } = this.cameraByChannel;
-        this.cameraByChannel = rest;
-      }
-    } else {
-      this.cameraByChannel = { ...this.cameraByChannel, [channelId]: camIds };
-    }
+    this.gastNamenByChannel = setzenOderAus(this.gastNamenByChannel, channelId, gastNamen);
+    this.byChannel = setzenOderAus(this.byChannel, channelId, userIds);
+    this.streamingByChannel = setzenOderAus(this.streamingByChannel, channelId, streamingUserIds);
+    this.cameraByChannel = setzenOderAus(this.cameraByChannel, channelId, cameraUserIds);
     const states = userStates ?? {};
     // Drop entries for users no longer in the channel — the server already
     // filters but this keeps client state consistent if a push arrives out of
@@ -149,56 +135,38 @@ class VoicePresenceStore {
       const s = states[uid];
       if (s && (s.mic_muted || s.deafened)) filtered[uid] = s;
     }
-    if (Object.keys(filtered).length === 0) {
-      if (this.userStatesByChannel[channelId] !== undefined) {
-        const { [channelId]: _, ...rest } = this.userStatesByChannel;
-        this.userStatesByChannel = rest;
-      }
-    } else {
-      this.userStatesByChannel = { ...this.userStatesByChannel, [channelId]: filtered };
-    }
+    this.userStatesByChannel = setzenOderAus(this.userStatesByChannel, channelId, filtered);
   }
 
   /** Optimistically remove a single user from a channel's presence list. */
   removeUser(channelId: string, userId: string): void {
     const current = this.byChannel[channelId];
     if (!current) return;
-    const next = current.filter((id) => id !== userId);
-    if (next.length === 0) {
-      const { [channelId]: _, ...rest } = this.byChannel;
-      this.byChannel = rest;
-    } else {
-      this.byChannel = { ...this.byChannel, [channelId]: next };
-    }
+    this.byChannel = setzenOderAus(
+      this.byChannel,
+      channelId,
+      current.filter((id) => id !== userId)
+    );
     const currentStreaming = this.streamingByChannel[channelId];
     if (currentStreaming) {
-      const nextStreaming = currentStreaming.filter((id) => id !== userId);
-      if (nextStreaming.length === 0) {
-        const { [channelId]: _, ...rest } = this.streamingByChannel;
-        this.streamingByChannel = rest;
-      } else {
-        this.streamingByChannel = { ...this.streamingByChannel, [channelId]: nextStreaming };
-      }
+      this.streamingByChannel = setzenOderAus(
+        this.streamingByChannel,
+        channelId,
+        currentStreaming.filter((id) => id !== userId)
+      );
     }
     const currentCamera = this.cameraByChannel[channelId];
     if (currentCamera) {
-      const nextCamera = currentCamera.filter((id) => id !== userId);
-      if (nextCamera.length === 0) {
-        const { [channelId]: _, ...rest } = this.cameraByChannel;
-        this.cameraByChannel = rest;
-      } else {
-        this.cameraByChannel = { ...this.cameraByChannel, [channelId]: nextCamera };
-      }
+      this.cameraByChannel = setzenOderAus(
+        this.cameraByChannel,
+        channelId,
+        currentCamera.filter((id) => id !== userId)
+      );
     }
     const currentStates = this.userStatesByChannel[channelId];
     if (currentStates && currentStates[userId]) {
       const { [userId]: _, ...restStates } = currentStates;
-      if (Object.keys(restStates).length === 0) {
-        const { [channelId]: _drop, ...rest } = this.userStatesByChannel;
-        this.userStatesByChannel = rest;
-      } else {
-        this.userStatesByChannel = { ...this.userStatesByChannel, [channelId]: restStates };
-      }
+      this.userStatesByChannel = setzenOderAus(this.userStatesByChannel, channelId, restStates);
     }
   }
 
@@ -238,12 +206,7 @@ class VoicePresenceStore {
     if (!muted && !deafened) {
       if (!current[userId]) return;
       const { [userId]: _, ...rest } = current;
-      if (Object.keys(rest).length === 0) {
-        const { [channelId]: _drop, ...others } = this.overrideByChannel;
-        this.overrideByChannel = others;
-      } else {
-        this.overrideByChannel = { ...this.overrideByChannel, [channelId]: rest };
-      }
+      this.overrideByChannel = setzenOderAus(this.overrideByChannel, channelId, rest);
       return;
     }
     this.overrideByChannel = {

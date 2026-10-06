@@ -7,11 +7,8 @@
 
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
-  import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
-  import VideoIcon from '@lucide/svelte/icons/video';
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
   import CameraIcon from '@lucide/svelte/icons/camera';
-  import MicIcon from '@lucide/svelte/icons/mic';
   import ComposerReplyBanner from './composer/ComposerReplyBanner.svelte';
   import ComposerEmojiButton from './composer/ComposerEmojiButton.svelte';
   import ComposerSendButton from './composer/ComposerSendButton.svelte';
@@ -148,7 +145,6 @@
    *  Senden-Symbol rechts (WhatsApp-Prinzip, Testrunde 2026-09-11). */
   let eingabeFokus = $state(false);
   let fileInput: HTMLInputElement | undefined = $state();
-  let cameraInput: HTMLInputElement | undefined = $state();
   let galleryInput: HTMLInputElement | undefined = $state();
   /** Anhang-Auswahl am Handy (Foto/Galerie/Dokument) — WhatsApp-Prinzip,
    *  drei verborgene Datei-Eingaben dahinter. */
@@ -550,7 +546,7 @@
       {/if}
       <!-- Sprachnachricht (mobil): TIPPEN startet die Aufnahme; die Leiste
            über dem Eingabekasten bietet Fertig und Verwerfen. -->
-      {#if viewport.istHandy && attachmentsEnabled}
+      {#if viewport.istHandy}
         {#if aufnahme}
           <!-- Bewusst ABSOLUT über dem Eingabekasten, nicht in der Knopf-
                Reihe: als Flex-Geschwister würde die Leiste die Knöpfe der

@@ -377,15 +377,7 @@ class SchirmWarten {
     }
     const k = schluessel(device.id, mon.index);
     this.offen[k] = mon;
-    this.#vorher.set(
-      k,
-      new Set(
-        streamPresence
-          .streamsIn(device.channel_id)
-          .filter((s) => s.user_id === device.owner_user_id)
-          .map((s) => s.slot),
-      ),
-    );
+    this.#vorher.set(k, new Set(stroemeVon(device).map((s) => s.slot)));
     const alt = this.#wecker.get(k);
     if (alt) clearTimeout(alt);
     this.#wecker.set(
