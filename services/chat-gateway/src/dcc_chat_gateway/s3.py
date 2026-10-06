@@ -247,6 +247,26 @@ async def stream_object(key: str) -> AsyncIterator[bytes]:
             yield chunk
 
 
+async def _sum_object_bytes(prefix: str | None = None) -> int | None:
+    """Sum the Size of every object under ``prefix`` (whole bucket when
+    ``None``), paginated LIST. Returns ``None`` if MinIO is unreachable so
+    callers degrade instead of erroring the panel/sweep."""
+    s = get_settings()
+    total = 0
+    try:
+        client = await _ensure_internal_client()
+        paginator = client.get_paginator("list_objects_v2")
+        kwargs: dict = {"Bucket": s.s3_bucket}
+        if prefix:
+            kwargs["Prefix"] = prefix
+        async for page in paginator.paginate(**kwargs):
+            for obj in page.get("Contents", []):
+                total += obj.get("Size", 0)
+        return total
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def total_bucket_bytes() -> int | None:
     """Sum the Size of every object in the attachments bucket.
 
@@ -255,17 +275,7 @@ async def total_bucket_bytes() -> int | None:
     instead of erroring the whole stats panel. Cheap at our scale (paginated
     LIST is O(n_objects) and we expect hundreds, not millions).
     """
-    s = get_settings()
-    total = 0
-    try:
-        client = await _ensure_internal_client()
-        paginator = client.get_paginator("list_objects_v2")
-        async for page in paginator.paginate(Bucket=s.s3_bucket):
-            for obj in page.get("Contents", []):
-                total += obj.get("Size", 0)
-        return total
-    except Exception:  # noqa: BLE001
-        return None
+    return await _sum_object_bytes()
 
 
 def dropbox_storage_path(guild_id: int, relative_path: str) -> str:
@@ -292,18 +302,7 @@ async def guild_dropbox_bytes(guild_id: int) -> int | None:
     behind by a rollback, …). Returns ``None`` if MinIO is unreachable so
     the sweep logs and continues instead of crashing.
     """
-    s = get_settings()
-    prefix = f"dropbox/{guild_id}/"
-    total = 0
-    try:
-        client = await _ensure_internal_client()
-        paginator = client.get_paginator("list_objects_v2")
-        async for page in paginator.paginate(Bucket=s.s3_bucket, Prefix=prefix):
-            for obj in page.get("Contents", []):
-                total += obj.get("Size", 0)
-        return total
-    except Exception:  # noqa: BLE001
-        return None
+    return await _sum_object_bytes(prefix=f"dropbox/{guild_id}/")
 
 
 async def cluster_disk_info() -> tuple[int, int] | None:

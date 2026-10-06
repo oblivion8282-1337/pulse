@@ -55,7 +55,6 @@ from dcc_chat_gateway.pubsub_channel_registry import (
     snapshot_channel_handlers,
 )
 from dcc_chat_gateway.routes.ws_ops_registry import (
-    registered_ops,
     restore_ws_op,
     snapshot_ws_handlers,
 )

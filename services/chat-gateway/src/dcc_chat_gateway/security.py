@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import Depends, Header, HTTPException, Query, status
+from fastapi import Depends, Header, HTTPException, status
 
 from dcc_shared.token_verify import (
     AuthenticatedUser,

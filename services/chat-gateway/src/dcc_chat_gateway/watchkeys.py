@@ -180,6 +180,16 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _snapshot_json(channel_id: str, party_id: str, state: dict | None) -> str:
+    """Serialised ``watch:events`` payload for a party state (``state=None``
+    = the party-ended stop event). Single source for the build+dump pair
+    every publish site below uses."""
+    snapshot = WatchStateSnapshot(
+        channel_id=str(channel_id), party_id=str(party_id), state=state
+    )
+    return json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":"))
+
+
 def expected_position(state: dict, now_ms_val: int | None = None) -> float:
     """Server-side mirror of the frontend ``expectedPosition``: where the host
     clock says playback is right now."""
@@ -253,11 +263,7 @@ async def write_party(redis: Redis, channel_id: str, state: dict) -> None:
     async with redis.pipeline(transaction=True) as pipe:
         pipe.hset(key, pid, json.dumps(state, separators=(",", ":")))
         pipe.expire(key, WATCH_TTL_SECONDS)
-        snapshot = WatchStateSnapshot(channel_id=str(channel_id), party_id=pid, state=state)
-        pipe.publish(
-            WATCH_EVENTS_CHANNEL,
-            json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
-        )
+        pipe.publish(WATCH_EVENTS_CHANNEL, _snapshot_json(channel_id, pid, state))
         await pipe.execute()
 
 
@@ -295,11 +301,7 @@ async def write_party_gedeckelt(
     )
     if not erlaubt:
         return False
-    snapshot = WatchStateSnapshot(channel_id=str(channel_id), party_id=pid, state=state)
-    await redis.publish(
-        WATCH_EVENTS_CHANNEL,
-        json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
-    )
+    await redis.publish(WATCH_EVENTS_CHANNEL, _snapshot_json(channel_id, pid, state))
     return True
 
 
@@ -310,11 +312,7 @@ async def delete_party(redis: Redis, channel_id: str, party_id: str) -> None:
     # Bughunt Runde 31: hdel + publish atomar (siehe write_party).
     async with redis.pipeline(transaction=True) as pipe:
         pipe.hdel(WATCH_STATE_KEY.format(channel_id=channel_id), pid)
-        snapshot = WatchStateSnapshot(channel_id=str(channel_id), party_id=pid, state=None)
-        pipe.publish(
-            WATCH_EVENTS_CHANNEL,
-            json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
-        )
+        pipe.publish(WATCH_EVENTS_CHANNEL, _snapshot_json(channel_id, pid, None))
         await pipe.execute()
 
 
@@ -345,14 +343,8 @@ async def delete_party_if_host(
                     return False
                 pipe.multi()
                 pipe.hdel(key, pid)
-                snapshot = WatchStateSnapshot(
-                    channel_id=str(channel_id), party_id=pid, state=None
-                )
                 # Publish in der TX — siehe mutate_party (Runde 31).
-                pipe.publish(
-                    WATCH_EVENTS_CHANNEL,
-                    json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
-                )
+                pipe.publish(WATCH_EVENTS_CHANNEL, _snapshot_json(channel_id, pid, None))
                 await pipe.execute()
                 return True
             except WatchError:
@@ -405,13 +397,7 @@ async def mutate_party(redis: Redis, channel_id: str, party_id: str, mutate) -> 
                 # statt commit-abhängig, und der ältere Stand konnte den
                 # neueren überholen (Queue-Eintrag verschwand aus allen
                 # Kacheln; beendete Partys "auferstehten").
-                snapshot = WatchStateSnapshot(
-                    channel_id=str(channel_id), party_id=pid, state=state
-                )
-                pipe.publish(
-                    WATCH_EVENTS_CHANNEL,
-                    json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
-                )
+                pipe.publish(WATCH_EVENTS_CHANNEL, _snapshot_json(channel_id, pid, state))
                 await pipe.execute()
                 return state
             except WatchError:

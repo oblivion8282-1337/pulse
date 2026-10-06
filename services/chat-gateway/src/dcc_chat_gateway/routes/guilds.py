@@ -343,9 +343,10 @@ async def delete_guild(
     navigate away and prune their local stores.
     """
     guild = await guild_or_404(session, guild_id)
-    admin_bypass = guild.owner_id != current.id and current.is_admin
     if guild.owner_id != current.id and not current.is_admin:
         raise HTTPException(403, detail="only the owner can delete the guild")
+    # Der Guard oben lässt nicht-eigene Aufrufer nur als Instanz-Admin durch.
+    admin_bypass = guild.owner_id != current.id
     # Zeile bis zum Commit sperren (Bughunt Runde 6): sonst konnte ein
     # parallel committender Owner-Transfer den Besitzer ändern und der
     # Lösch-Commit zerstörte die Community unter dem NEUEN Owner. Postgres

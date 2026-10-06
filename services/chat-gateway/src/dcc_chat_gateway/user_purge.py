@@ -434,7 +434,6 @@ async def _purge_db(
     partner_set.update(result.partner_ids)
     partner_set.discard(user_id)
     result.partner_ids = sorted(partner_set)
-    result.partner_ids = sorted(partner_set)
     await session.execute(
         sa_delete(Friendship).where(
             or_(

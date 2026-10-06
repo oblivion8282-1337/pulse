@@ -24,7 +24,6 @@ from typing import Any
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.requests import HTTPConnection
 
 from dcc_chat_gateway.models import Friendship, UserBlock
 

@@ -72,12 +72,8 @@ def _mask(status: str) -> str:
 async def get_presence_status(redis: Redis, user_id: int | str) -> str:
     """Read the stored status for ``user_id``.  Returns ``STATUS_ONLINE``
     when the key is absent (default on first connect / after TTL expiry)."""
-    key = PRESENCE_STATUS_KEY.format(user_id=user_id)
-    raw = await redis.get(key)
-    if raw is None:
-        return STATUS_ONLINE
-    value = raw.decode() if isinstance(raw, bytes) else raw
-    return value if value in VALID_SET_STATUSES else STATUS_ONLINE
+    status = await get_presence_status_raw(redis, user_id)
+    return status if status is not None else STATUS_ONLINE
 
 
 async def set_presence_status(redis: Redis, user_id: int | str, status: str) -> None:
@@ -156,16 +152,8 @@ async def get_presence_statuses_bulk(
     Missing keys default to ``STATUS_ONLINE``."""
     if not user_ids:
         return {}
-    keys = [PRESENCE_STATUS_KEY.format(user_id=uid) for uid in user_ids]
-    raws = await redis.mget(*keys)
-    out: dict[str, str] = {}
-    for uid, raw in zip(user_ids, raws):
-        if raw is None:
-            out[str(uid)] = STATUS_ONLINE
-        else:
-            value = raw.decode() if isinstance(raw, bytes) else raw
-            out[str(uid)] = value if value in VALID_SET_STATUSES else STATUS_ONLINE
-    return out
+    present = await _get_present_statuses_bulk(redis, [str(uid) for uid in user_ids])
+    return {str(uid): present.get(str(uid), STATUS_ONLINE) for uid in user_ids}
 
 
 async def _get_present_statuses_bulk(

@@ -15,7 +15,7 @@ broadcasts to every connected WS so clients can refetch.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 
 from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway.db import SessionDep

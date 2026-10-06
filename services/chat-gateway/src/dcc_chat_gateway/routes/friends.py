@@ -45,7 +45,7 @@ from dcc_chat_gateway.friend_schemas import (
     FriendRequestOut,
 )
 from dcc_chat_gateway.models import FriendRequest, Friendship
-from dcc_chat_gateway.presence_status import _mask, get_presence_status, get_presence_statuses_bulk
+from dcc_chat_gateway.presence_status import _mask, get_presence_statuses_bulk
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import CloudOnly
 from dcc_chat_gateway.security import CurrentUser

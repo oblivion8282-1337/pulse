@@ -17,8 +17,6 @@ from collections.abc import Iterable
 from typing import Any
 
 from dcc_shared.events import _EventBase
-from dcc_shared.permission_resolver import has_permission
-from dcc_shared.permissions import Permissions
 from fastapi import WebSocket
 from redis.asyncio import Redis
 
