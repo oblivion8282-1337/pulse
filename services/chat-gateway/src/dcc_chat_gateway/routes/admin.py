@@ -61,6 +61,17 @@ from dcc_chat_gateway.snowflake import next_id
 router = APIRouter(prefix="/admin")
 
 
+async def _chat_settings(session: SessionDep):
+    """The singleton ``chat_settings`` row, or a 500 if the deploy is broken."""
+    row = await session.get(ChatSettings, 1)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="chat_settings singleton missing — re-run migration 0006",
+        )
+    return row
+
+
 def _audit(
     session,
     *,
@@ -122,13 +133,7 @@ async def get_stats(session: SessionDep, _actor: AdminUser):
 
 @router.get("/dm-limits", response_model=ChatSettingsOut)
 async def get_dm_limits(session: SessionDep, _actor: AdminUser):
-    row = await session.get(ChatSettings, 1)
-    if row is None:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="chat_settings singleton missing — re-run migration 0006",
-        )
-    return row
+    return await _chat_settings(session)
 
 
 @router.patch("/dm-limits", response_model=ChatSettingsOut)
@@ -137,12 +142,7 @@ async def patch_dm_limits(
     session: SessionDep,
     actor: AdminUser,
 ):
-    row = await session.get(ChatSettings, 1)
-    if row is None:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="chat_settings singleton missing — re-run migration 0006",
-        )
+    row = await _chat_settings(session)
 
     changes: dict[str, Any] = {}
     if (
@@ -174,13 +174,7 @@ async def patch_dm_limits(
 
 @router.get("/permissions", response_model=PermissionsOut)
 async def get_permissions(session: SessionDep, _actor: AdminUser):
-    row = await session.get(ChatSettings, 1)
-    if row is None:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="chat_settings singleton missing — re-run migration 0006",
-        )
-    return row
+    return await _chat_settings(session)
 
 
 @router.patch("/permissions", response_model=PermissionsOut)
@@ -190,12 +184,7 @@ async def patch_permissions(
     actor: AdminUser,
     request: Request,
 ):
-    row = await session.get(ChatSettings, 1)
-    if row is None:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="chat_settings singleton missing — re-run migration 0006",
-        )
+    row = await _chat_settings(session)
 
     changes: dict[str, Any] = {}
     if (

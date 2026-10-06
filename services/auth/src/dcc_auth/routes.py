@@ -486,31 +486,20 @@ async def register(
         # bestehende Clouds; auf einer frischen DB greift dieser Pfad.
         user.is_owner = True
 
-    # Browser-Session-Cookie analog zum Login. Register schließt den Sign-In
+    # Browser-Session-Cookie analog zum Login: Register schließt den Sign-In
     # in einem Schritt ab — Client erwartet ab hier den Session-Cookie, weil
     # die Cert-Issue + Profile-Endpoints (browser_sessions.get_current_user_
     # from_cookie) ausschließlich Cookie-authentifiziert sind.
-    # VOR den Token: die Refresh-Zeile verweist per Fremdschlüssel auf diese
-    # Zeile, damit ein späteres „Sitzung beenden“ beide Hälften trifft.
-    sid = await create_session(
-        session,
-        user_id=user.id,
-        amr=["pwd"],
-        acr="0",
-        user_agent=user_agent,
-        ip=_client_ip(request),
-    )
-    tokens = await _issue_tokens(
+    tokens = await _login_abschliessen(
         session,
         user,
         signer=signer,
-        user_agent=user_agent,
-        ip_hash=_hash_ip(request),
-        session_id=sid,
+        request=request,
         response=response,
+        amr=["pwd"],
+        acr="0",
+        user_agent=user_agent,
     )
-
-    await session.commit()
 
     # Auto-fire the verify-email so the new user finds a fresh link in their
     # inbox right after the redirect to /app. Wrapped in try/except: a flaky
@@ -538,7 +527,6 @@ async def register(
             pass
         log.warning("register_verify_email_failed", user_id=user.id, error=str(exc))
 
-    set_session_cookie(response, sid)
     return tokens
 
 

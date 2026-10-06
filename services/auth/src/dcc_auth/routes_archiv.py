@@ -160,9 +160,9 @@ async def archiv_pubkey_intern(
 ) -> dict[str, str | None]:
     """Public-Key-Auskunft für chat-gateway (das sie nur an echte
     DM-Partner ausliefert)."""
-    from dcc_auth.routes_complaints import _check_internal_secret
+    from dcc_auth.routes_gast_ticket import _internal_secret_oder_401
 
-    _check_internal_secret(x_pulse_internal_secret)
+    _internal_secret_oder_401(x_pulse_internal_secret)
     pubkey = (
         await session.execute(
             select(ArchivSchluessel.pubkey).where(ArchivSchluessel.user_id == user_id)
