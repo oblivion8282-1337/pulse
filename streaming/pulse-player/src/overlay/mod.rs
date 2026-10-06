@@ -539,11 +539,6 @@ impl Overlay {
         self.can_reattach = can;
     }
 
-    /// Fernsteuerungs-Modus ein- oder ausschalten (`input_capture`).
-    ///
-    /// Beim Ausschalten faellt das Menue zu: es gehoert zum Griff, und der ist
-    /// dann weg. Bliebe der Zustand stehen, stuende es beim naechsten Start der
-    /// Fernsteuerung ungefragt offen ueber dem Bild.
     /// „Anfragen" im Bedienbalken zeigen oder nicht (`remote_anfragbar`).
     ///
     /// Die App schaltet es aus, sobald eine Sitzung laeuft oder das Recht
@@ -562,6 +557,11 @@ impl Overlay {
         self.input_pending = true;
     }
 
+    /// Fernsteuerungs-Modus ein- oder ausschalten (`input_capture`).
+    ///
+    /// Beim Ausschalten faellt das Menue zu: es gehoert zum Griff, und der ist
+    /// dann weg. Bliebe der Zustand stehen, stuende es beim naechsten Start der
+    /// Fernsteuerung ungefragt offen ueber dem Bild.
     pub fn set_fernsteuerung(&mut self, aktiv: bool) {
         if self.fernsteuerung == aktiv {
             return;

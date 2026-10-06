@@ -712,7 +712,7 @@ mod tests {
         let t0 = Instant::now();
         // 625 RTP-Takte bei 90 kHz = 6,94 ms = 144 Bilder je Sekunde.
         let schritt = Duration::from_micros(6_944);
-        let mut jetzt = t0;
+        let mut jetzt;
         for k in 0..200u32 {
             jetzt = t0 + schritt * k;
             t.einreihen(bild(k * 625), jetzt);
@@ -741,7 +741,7 @@ mod tests {
         let t0 = Instant::now();
         // 375 RTP-Takte bei 90 kHz = 4,17 ms = 240 Bilder je Sekunde.
         let schritt = Duration::from_micros(4_167);
-        let mut jetzt = t0;
+        let mut jetzt;
         for k in 0..50u32 {
             jetzt = t0 + schritt * k;
             t.einreihen(bild(k * 375), jetzt);
@@ -783,7 +783,7 @@ mod tests {
         let mut t = Ausgabetakt::neu(60);
         let t0 = Instant::now();
         let schritt = Duration::from_micros(16_667);
-        let mut jetzt = t0;
+        let mut jetzt;
         for k in 0..60u32 {
             jetzt = t0 + schritt * k;
             t.einreihen(bild(k * 1500), jetzt);

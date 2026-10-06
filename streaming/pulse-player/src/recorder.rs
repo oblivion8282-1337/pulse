@@ -149,10 +149,8 @@ fn scan_annexb_for_hevc_entry(data: &[u8]) -> bool {
         let kurz = data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1;
         if lang || kurz {
             let kopf = i + if lang { 4 } else { 3 };
-            if kopf + 1 < data.len() {
-                if matches!((data[kopf] >> 1) & 0x3F, 16..=21 | 33) {
-                    return true;
-                }
+            if kopf + 1 < data.len() && matches!((data[kopf] >> 1) & 0x3F, 16..=21 | 33) {
+                return true;
             }
             i = kopf;
         } else {
@@ -979,42 +977,10 @@ mod tests {
         eprintln!("geschrieben: {out} ({size} Bytes, {seconds:.3} s, {} Einheiten)", units.len());
     }
 
-    /// Zerlegt einen AV1-OBU-Strom in Zugriffseinheiten: Grenze ist jeweils
-    /// ein Temporal-Delimiter (OBU-Typ 2). Der Delimiter selbst wird
-    /// weggelassen — genau so liefert der Depacketizer die Einheiten.
-    fn split_obu(data: &[u8]) -> Vec<Vec<u8>> {
-        let mut units: Vec<Vec<u8>> = Vec::new();
-        let mut current: Vec<u8> = Vec::new();
-        let mut i = 0;
-        while i < data.len() {
-            let header = data[i];
-            let obu_type = (header & 0b0111_1000) >> 3;
-            let has_ext = header & 0b0000_0100 != 0;
-            let has_size = header & 0b0000_0010 != 0;
-            if !has_size {
-                break; // ohne Groessenfeld nicht zerlegbar
-            }
-            let mut pos = i + 1 + usize::from(has_ext);
-            let Some((size, n)) = read_leb128(&data[pos..]) else { break };
-            pos += n;
-            let end = pos + size as usize;
-            if end > data.len() {
-                break;
-            }
-            if obu_type == 2 {
-                if !current.is_empty() {
-                    units.push(std::mem::take(&mut current));
-                }
-            } else {
-                current.extend_from_slice(&data[i..end]);
-            }
-            i = end;
-        }
-        if !current.is_empty() {
-            units.push(current);
-        }
-        units
-    }
+    /// Zerlegt einen AV1-OBU-Strom in Zugriffseinheiten — DIE Crate-weite
+    /// Testfassung liegt bei `depacket::av1::split_temporal_units` (dort
+    /// begruendet): dieselben Mitschnitt-Tests, derselbe Zerleger.
+    use crate::depacket::av1::split_temporal_units as split_obu;
 
     /// Ende-zu-Ende fuer AV1 — der Standard-Codec. Laeuft nur mit
     /// `PULSE_PLAYER_AV1_FIXTURE` (roher OBU-Strom).

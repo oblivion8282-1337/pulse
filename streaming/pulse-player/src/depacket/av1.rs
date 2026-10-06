@@ -282,6 +282,47 @@ impl Av1Assembler {
     }
 }
 
+/// Zerlegt den rohen OBU-Strom in Zugriffseinheiten: Grenze ist ein
+/// Temporal-Delimiter (OBU-Typ 2), der selbst weggelassen wird — genau die
+/// Form, die der Depacketizer liefert. **Nur fuer Tests**, und bewusst DIE EINE
+/// Fassung im Crate: `crate::recorder` braucht denselben Zerleger fuer seine
+/// Mitschnitt-Tests; eine zweite Kopie wuerde die beiden nicht mehr
+/// gegeneinander pruefen.
+#[cfg(test)]
+pub(crate) fn split_temporal_units(data: &[u8]) -> Vec<Vec<u8>> {
+    let mut units: Vec<Vec<u8>> = Vec::new();
+    let mut current: Vec<u8> = Vec::new();
+    let mut i = 0;
+    while i < data.len() {
+        let header = data[i];
+        let obu_type = (header & OBU_TYPE_MASK) >> 3;
+        let has_ext = header & OBU_HAS_EXTENSION_BIT != 0;
+        let has_size = header & OBU_HAS_SIZE_BIT != 0;
+        if !has_size {
+            break; // ohne Groessenfeld nicht zerlegbar
+        }
+        let mut pos = i + 1 + usize::from(has_ext);
+        let Some((size, n)) = read_leb128(&data[pos..]) else { break };
+        pos += n;
+        let end = pos + size as usize;
+        if end > data.len() {
+            break;
+        }
+        if obu_type == OBU_TYPE_TEMPORAL_DELIMITER {
+            if !current.is_empty() {
+                units.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.extend_from_slice(&data[i..end]);
+        }
+        i = end;
+    }
+    if !current.is_empty() {
+        units.push(current);
+    }
+    units
+}
+
 #[cfg(test)]
 mod tests {
     /// Faehrt einen echten RTP-Mitschnitt durch den Zusammensetzer und
@@ -757,43 +798,9 @@ mod tests {
             Some(std::fs::read(&p).unwrap_or_else(|e| panic!("Fixture {}: {e}", p.display())))
         }
 
-        /// Zerlegt den rohen OBU-Strom in Zugriffseinheiten: Grenze ist ein
-        /// Temporal-Delimiter (OBU-Typ 2), der selbst weggelassen wird --
-        /// genau wie `recorder.rs`'s (privates) `split_obu` und genau die
-        /// Form, die der Depacketizer liefert.
-        fn split_temporal_units(data: &[u8]) -> Vec<Vec<u8>> {
-            let mut units: Vec<Vec<u8>> = Vec::new();
-            let mut current: Vec<u8> = Vec::new();
-            let mut i = 0;
-            while i < data.len() {
-                let header = data[i];
-                let obu_type = (header & OBU_TYPE_MASK) >> 3;
-                let has_ext = header & OBU_HAS_EXTENSION_BIT != 0;
-                let has_size = header & OBU_HAS_SIZE_BIT != 0;
-                if !has_size {
-                    break; // ohne Groessenfeld nicht zerlegbar
-                }
-                let mut pos = i + 1 + usize::from(has_ext);
-                let Some((size, n)) = read_leb128(&data[pos..]) else { break };
-                pos += n;
-                let end = pos + size as usize;
-                if end > data.len() {
-                    break;
-                }
-                if obu_type == OBU_TYPE_TEMPORAL_DELIMITER {
-                    if !current.is_empty() {
-                        units.push(std::mem::take(&mut current));
-                    }
-                } else {
-                    current.extend_from_slice(&data[i..end]);
-                }
-                i = end;
-            }
-            if !current.is_empty() {
-                units.push(current);
-            }
-            units
-        }
+        // `split_temporal_units` steht oben an der Datei-Stammebene
+        // (`#[cfg(test)] pub(crate)`), damit `crate::recorder` dieselbe
+        // Fassung in seinen Mitschnitt-Tests benutzt.
 
         /// Zerlegt eine Zugriffseinheit mit dem echten `rtp`-Payloader in
         /// RTP-Nutzlasten und setzt das Marker-Bit auf das letzte Paket --
