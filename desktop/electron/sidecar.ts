@@ -138,23 +138,17 @@ function resolveLinuxRustBinaryPath(): string {
 }
 
 /**
- * Locate `pulse-win-hq-sidecar.exe` (Windows only).
+ * Gemeinsame Schritte der Windows-/macOS-Resolver:
+ *   1. `$PULSE_HQ_SIDECAR` override (absolute path to the binary, dev-only).
+ *   2. Packaged app: `<process.resourcesPath>/hq-sidecar/<bin>`.
+ *   3. Walk up from this module looking for
+ *      `<X>/streaming/<crateDir>/target/release/<bin>` then `…/target/debug/`
+ *      (release wins if both exist).
  *
- * Order:
- *   1. `$PULSE_HQ_SIDECAR` override (absolute path to the .exe, dev-only).
- *   2. Packaged app: `<process.resourcesPath>/hq-sidecar/pulse-win-hq-sidecar.exe`
- *      — electron-builder ships the sidecar + FFmpeg-DLLs as `extraResources`
- *      there (see `desktop/electron-builder.yml`). In a dev run this path
- *      doesn't exist and we fall through.
- *   3. Walk up from this module looking for `<X>/streaming/win-hq-sidecar/target/release/`
- *      then `<X>/streaming/win-hq-sidecar/target/debug/` (dev: `cargo build`
- *      hits debug, `cargo build --release` hits release; release wins if both
- *      exist).
- *   4. `%LOCALAPPDATA%\Pulse\hq-sidecar\pulse-win-hq-sidecar.exe` (the
- *      production install location that the PowerShell bootstrap script writes
- *      to — see WINDOWS_HQ_SIDECAR.md "Distribution-Pfad").
+ * Returns `null` when none of the three hit — each platform resolver adds its
+ * own last-resort install location and its own error message.
  */
-function resolveBinaryPath(): string {
+function findBundledOrBuiltSidecar(bin: string, crateDir: string): string | null {
   // Developer-only override; ignored in packaged builds to prevent malicious
   // .desktop files or wrapper scripts from redirecting to an attacker binary.
   const override = !app.isPackaged ? process.env.PULSE_HQ_SIDECAR : undefined;
@@ -165,19 +159,17 @@ function resolveBinaryPath(): string {
     return override;
   }
 
-  const exe = 'pulse-win-hq-sidecar.exe';
-
   // Packaged app — the sidecar bundle sits next to the asar under
   // resources/hq-sidecar/. `process.resourcesPath` is set in every Electron
   // process; in a dev run the path just won't exist → fall through.
   if (process.resourcesPath) {
-    const packaged = path.join(process.resourcesPath, 'hq-sidecar', exe);
+    const packaged = path.join(process.resourcesPath, 'hq-sidecar', bin);
     if (fs.existsSync(packaged)) return packaged;
   }
 
   const candidates = [
-    path.join('streaming', 'win-hq-sidecar', 'target', 'release', exe),
-    path.join('streaming', 'win-hq-sidecar', 'target', 'debug', exe),
+    path.join('streaming', crateDir, 'target', 'release', bin),
+    path.join('streaming', crateDir, 'target', 'debug', bin),
   ];
   let dir = __dirname;
   for (;;) {
@@ -189,6 +181,21 @@ function resolveBinaryPath(): string {
     if (parent === dir) break;
     dir = parent;
   }
+  return null;
+}
+
+/**
+ * Locate `pulse-win-hq-sidecar.exe` (Windows only).
+ *
+ * Order (shared steps in `findBundledOrBuiltSidecar()`, then):
+ *   4. `%LOCALAPPDATA%\Pulse\hq-sidecar\pulse-win-hq-sidecar.exe` (the
+ *      production install location that the PowerShell bootstrap script writes
+ *      to — see WINDOWS_HQ_SIDECAR.md "Distribution-Pfad").
+ */
+function resolveBinaryPath(): string {
+  const exe = 'pulse-win-hq-sidecar.exe';
+  const found = findBundledOrBuiltSidecar(exe, 'win-hq-sidecar');
+  if (found) return found;
 
   const localAppData = process.env.LOCALAPPDATA;
   if (localAppData) {
@@ -205,15 +212,7 @@ function resolveBinaryPath(): string {
 /**
  * Locate `pulse-mac-hq-sidecar` (macOS only).
  *
- * Order (mirrors the Windows resolver — see `resolveBinaryPath()`):
- *   1. `$PULSE_HQ_SIDECAR` override (absolute path to the binary, dev-only).
- *   2. Packaged app: `<process.resourcesPath>/hq-sidecar/pulse-mac-hq-sidecar`
- *      — electron-builder ships the sidecar + FFmpeg-dylibs as `extraResources`
- *      there (see `desktop/electron-builder.yml`). In a dev run this path
- *      doesn't exist and we fall through.
- *   3. Walk up from this module looking for
- *      `<X>/streaming/mac-hq-sidecar/target/release/` then `…/target/debug/`
- *      (release wins if both exist).
+ * Order (mirrors the Windows resolver — see `resolveBinaryPath()`), then:
  *   4. `~/Library/Application Support/Pulse/hq-sidecar/pulse-mac-hq-sidecar`
  *      (a parallel to the Windows %LOCALAPPDATA% install location, for any
  *      out-of-band bootstrap install).
@@ -222,35 +221,9 @@ function resolveBinaryPath(): string {
  * the intended behaviour (see the resolver block comment above).
  */
 function resolveMacBinaryPath(): string {
-  const override = !app.isPackaged ? process.env.PULSE_HQ_SIDECAR : undefined;
-  if (override) {
-    if (!fs.existsSync(override)) {
-      throw new Error(`PULSE_HQ_SIDECAR points at a non-existent file: ${override}`);
-    }
-    return override;
-  }
-
   const bin = 'pulse-mac-hq-sidecar';
-
-  if (process.resourcesPath) {
-    const packaged = path.join(process.resourcesPath, 'hq-sidecar', bin);
-    if (fs.existsSync(packaged)) return packaged;
-  }
-
-  const candidates = [
-    path.join('streaming', 'mac-hq-sidecar', 'target', 'release', bin),
-    path.join('streaming', 'mac-hq-sidecar', 'target', 'debug', bin),
-  ];
-  let dir = __dirname;
-  for (;;) {
-    for (const rel of candidates) {
-      const candidate = path.join(dir, rel);
-      if (fs.existsSync(candidate)) return candidate;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
+  const found = findBundledOrBuiltSidecar(bin, 'mac-hq-sidecar');
+  if (found) return found;
 
   // ~/Library/Application Support/Pulse/hq-sidecar/ — Electron's `appData` path
   // on macOS. Only relevant for an external bootstrap install; packaged builds
