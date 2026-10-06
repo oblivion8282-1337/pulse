@@ -7,7 +7,7 @@
 import type { DeviceMonitor } from '$lib/api/devices';
 import type { ClientEvent, RemoteSignalKind } from './handlers/types';
 
-export type SendRaw = (evt: ClientEvent) => boolean;
+type SendRaw = (evt: ClientEvent) => boolean;
 
 export function sendVoiceSelfState(
   send: SendRaw, channelId: string | null, micMuted: boolean, deafened: boolean,

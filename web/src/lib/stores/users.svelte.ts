@@ -19,7 +19,7 @@ export type UserSummary = {
  *  (e.g. the reporter's "your report was handled" DM) as this id; we render it
  *  as the neutral "Pulse" sender. Kept in sync with the backend's
  *  ``PULSE_SYSTEM_USER_ID`` (0 — never a real snowflake). */
-export const SYSTEM_USER_ID = '0';
+const SYSTEM_USER_ID = '0';
 
 /** Rückgabe von {@link UserCacheStore.displayName}, solange die ID weder im
  *  Zwischenspeicher liegt noch als endgültig unauflösbar markiert ist.

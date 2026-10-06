@@ -89,14 +89,14 @@ function server(ordnerDa = true) {
 	return { holen, dateien, ordner, rufe };
 }
 
+function adapterGegen(ms: ReturnType<typeof server>, ordner = 'Pulse/ablage/kanal-1') {
+	return onedriveAdapter({ zugangsToken: 't-1', ordner, holen: ms.holen });
+}
+
 describe('Ablage-OneDrive: Adapter', () => {
 	it('legt die Ordnerkette an und lädt in den App-Ordner hoch', async () => {
 		const ms = server(false);
-		const adapter = onedriveAdapter({
-			zugangsToken: 't-1',
-			ordner: 'Pulse/ablage/kanal-1',
-			holen: ms.holen,
-		});
+		const adapter = adapterGegen(ms);
 		await adapter.schreibe('manifest.puls', bytes('x'));
 		assert.ok(ms.rufe.some((r) => r === 'GET https://graph.microsoft.com/v1.0/drive/special/approot:/Pulse'));
 		assert.ok(ms.rufe.includes('POST https://graph.microsoft.com/v1.0/drive/special/approot/children'));
@@ -110,22 +110,14 @@ describe('Ablage-OneDrive: Adapter', () => {
 
 	it('liest fehlende Dateien als null und folgt der nächsten Seite beim Listen', async () => {
 		const ms = server();
-		const adapter = onedriveAdapter({
-			zugangsToken: 't-1',
-			ordner: 'Pulse/ablage/kanal-1',
-			holen: ms.holen,
-		});
+		const adapter = adapterGegen(ms);
 		assert.equal(await adapter.lese('seg-999999.puls'), null);
 		assert.deepEqual(await adapter.liste(), ['seg-000000.puls', 'seg-000001.puls']);
 	});
 
 	it('weist Übergrößen mit Begründung ab, bevor eine Anfrage losgeht', async () => {
 		const ms = server();
-		const adapter = onedriveAdapter({
-			zugangsToken: 't-1',
-			ordner: 'k',
-			holen: ms.holen,
-		});
+		const adapter = adapterGegen(ms, 'k');
 		await assert.rejects(
 			() => adapter.schreibe('gross.puls', new Uint8Array(4 * 1024 * 1024 + 1)),
 			OnedriveFehler,

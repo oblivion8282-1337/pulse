@@ -19,7 +19,6 @@ import {
   loadKeypair,
   generateKeypair,
   saveKeypair,
-  exportPublicKey,
 } from './keypair.svelte';
 import { profileStatementStore, parseStatementClaims } from './profile-statement.svelte';
 import type { ProfileStatement } from './profile-statement.svelte';
