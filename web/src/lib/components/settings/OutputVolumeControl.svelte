@@ -51,7 +51,7 @@
     value={Math.min(volPctDisplay, sliderMax)}
     oninput={onInput}
     onchange={onChange}
-    class="accent-primary h-3 w-full md:h-auto"
+    class="accent-primary h-3 w-full nicht-handy:h-auto"
     data-testid="settings-output-volume"
   />
 </div>

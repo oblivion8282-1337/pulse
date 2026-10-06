@@ -122,7 +122,7 @@ import { errText } from '$lib/utils/errText';
       />
     </div>
 
-    <div class="grid gap-4 sm:grid-cols-3">
+    <div class="grid gap-4 nicht-handy:grid-cols-3">
       <div class="space-y-1.5">
         <Label class="text-xs font-semibold uppercase tracking-wide text-text-muted">
           {m.dropbox_settings_total_label()}

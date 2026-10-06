@@ -82,7 +82,7 @@
          standen ohne Grund unterschiedlich. -->
     <div class="grid grid-cols-2 gap-1.5">
       {#each codecs as c (c.value)}
-        <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
+        <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover nicht-handy:py-1.5">
           <input
             type="radio"
             name="sss-codec"
@@ -101,7 +101,7 @@
     <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_resolution()}</span>
     <div class="grid grid-cols-2 gap-1.5">
       {#each resolutions as r (r.value)}
-        <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
+        <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover nicht-handy:py-1.5">
           <input
             type="radio"
             name="sss-resolution"
@@ -128,7 +128,7 @@
       step="1"
       value={settings.screenShare.fps}
       oninput={onFpsInput}
-      class="w-full md:w-24"
+      class="w-full nicht-handy:w-24"
       data-testid="screenshare-fps-input"
     />
   </section>
@@ -145,7 +145,7 @@
       step="0.5"
       value={settings.screenShare.bitrateMbps}
       oninput={onBitrateInput}
-      class="accent-primary h-3 w-full md:h-auto"
+      class="accent-primary h-3 w-full nicht-handy:h-auto"
       data-testid="screenshare-bitrate-slider"
     />
   </section>
@@ -153,7 +153,7 @@
   <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
     <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_content_hint()}</span>
     <div class="flex gap-3">
-      <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
+      <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover nicht-handy:py-1.5">
         <input
           type="radio"
           name="sss-hint"
@@ -164,7 +164,7 @@
         />
         <span class="text-text-base text-sm">{m.settings_screenshare_hint_motion()}</span>
       </label>
-      <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
+      <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover nicht-handy:py-1.5">
         <input
           type="radio"
           name="sss-hint"

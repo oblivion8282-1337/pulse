@@ -6,6 +6,22 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Geräte-Varianten (Geräte-Trennung, Regel seit 2026-09-04): Die drei
+   Geräteklassen aus `geraetKlasse.ts` hängen am Wurzel-Div des Root-Layouts
+   (`geraet-desktop` / `geraet-tablet` / `geraet-handy`) — am GERAET, nie an
+   der Fensterbreite. Diese Varianten ersetzen die Fensterbreiten-Klassen
+   (`md:`/`lg:`/`sm:` …): Handy bekommt seine eigene Anordnung (Basis-Klasse),
+   Desktop/Tablet die geteilte (`nicht-handy:`), reine Desktop-Feinjustierung
+   (`desktop:`). Ein schmales Fenster am Rechner bleibt die Desktop-Anordnung,
+   ein quer gedrehtes Handy die Handy-Anordnung.
+   ponytail-Grenze: die alten Fensterstufen sm→md→lg kollabieren in diese
+   Zweistufung (Gerät statt Fenster) — Feinjustierung innerhalb einer Klasse
+   über konkrete Werte, nicht über neue Stufen. */
+@custom-variant handy (&:where(.geraet-handy *));
+@custom-variant tablet (&:where(.geraet-tablet *));
+@custom-variant desktop (&:where(.geraet-desktop *));
+@custom-variant nicht-handy (&:where(.geraet-desktop, .geraet-tablet) *);
+
 /* Mobile Slide-Rein: Detail-Bildschirme (Chat, Community, Entdecken …)
    schieben sich auf dem Handy von rechts rein — WhatsApp-Prinzip, als
    einfache Mount-Animation direkt am Bildschirm (keine View-Transition-API:

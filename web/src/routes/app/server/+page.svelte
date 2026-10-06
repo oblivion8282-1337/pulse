@@ -38,7 +38,7 @@
 />
 
 <section
-  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
+  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none nicht-handy:rounded-2xl"
   data-testid="self-host-page"
 >
   <!-- Der Weg zurück gehört auf JEDE Größe, nicht nur aufs Handy: das hier ist
@@ -58,7 +58,7 @@
     <span class="truncate text-base font-bold tracking-tight">{m.self_host_entry_label()}</span>
   </header>
 
-  <div class="flex-1 overflow-y-auto p-4 md:p-6">
+  <div class="flex-1 overflow-y-auto p-4 nicht-handy:p-6">
     <!-- Der Bereich holt seine Daten über `cookieFetch` und damit immer von der
          Cloud, unabhängig vom aktiven Server. Hier stand bis 2026-08-28 ein
          Hinweis „nur in der Cloud verfügbar" — er beruhte auf einer falschen

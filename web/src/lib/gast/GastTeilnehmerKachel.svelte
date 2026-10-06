@@ -145,7 +145,7 @@
       </div>
     {/if}
   </div>
-  <div class="flex items-center gap-1 text-sm md:text-xs">
+  <div class="flex items-center gap-1 text-sm nicht-handy:text-xs">
     <span
       class="text-text-bright max-w-28 truncate {t.spricht ? 'font-bold' : 'font-semibold'}"
       title={anzeigeName}

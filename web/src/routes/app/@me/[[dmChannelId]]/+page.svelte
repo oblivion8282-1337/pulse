@@ -283,6 +283,7 @@
     activeDMId={dmChannelId || null}
     onSelect={selectDM}
     onSelectGruppe={selectGruppe}
+    handy={viewport.isMobile}
   />
 {/if}
 
@@ -292,10 +293,10 @@
      `krypto/dmBrowserWarnung.svelte.ts`. -->
 {#if !viewport.isMobile || !!dmChannelId}
   <div class="flex h-full min-w-0 flex-1 flex-col gap-2">
-  <DmBrowserWarnhinweis />
+  <DmBrowserWarnhinweis handy={viewport.isMobile} />
   {#if kanalWechsel.loadError}
     <section
-      class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl"
+      class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 nicht-handy:rounded-2xl"
     >
       <FieldError message={kanalWechsel.loadError} testId="load-error" />
     </section>
@@ -308,6 +309,7 @@
          Gruppen-Sendeweg (`krypto/gruppe/frameSenden.ts`). -->
     <ChatView
       sendReport
+      handy={viewport.isMobile}
       channel={synthChannel}
       messages={visibleMessages}
       onSend={sendMessage}
@@ -326,9 +328,10 @@
     />
   {:else if activeDM && synthChannel}
     {#snippet leereNachrichten()}
-      <SicherungHinweis />
+      <SicherungHinweis handy={viewport.isMobile} />
     {/snippet}
     <ChatView
+        handy={viewport.isMobile}
         channel={synthChannel}
         messages={visibleMessages}
         onSend={sendMessage}
@@ -352,7 +355,7 @@
       />
   {:else}
     <section
-      class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-2 rounded-none p-8 md:rounded-2xl"
+      class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-2 rounded-none p-8 nicht-handy:rounded-2xl"
       data-testid="dm-empty-state"
     >
       <p class="text-text-bright text-base font-semibold">{m.dm_page_empty_title()}</p>
@@ -360,7 +363,7 @@
         {m.dm_page_empty_hint()}
       </p>
       {#if sicherungHinweis && !browserWarnung}
-        <SicherungHinweis />
+        <SicherungHinweis handy={viewport.isMobile} />
       {/if}
     </section>
   {/if}

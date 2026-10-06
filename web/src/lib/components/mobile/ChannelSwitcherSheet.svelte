@@ -71,6 +71,7 @@
     variant="sheet"
     {guild}
     {channels}
+    handy={true}
     {activeChannelId}
     {canCreate}
     {activeDeviceId}

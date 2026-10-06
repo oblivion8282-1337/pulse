@@ -220,7 +220,7 @@
 {/if}
 
 {#if gastStreams.offen.length > 0 || kamerasImRaster.length > 0 || eigeneKameraDa}
-  <div class="grid min-h-0 flex-1 auto-rows-fr gap-2 md:gap-3" style={rasterStil}>
+  <div class="grid min-h-0 flex-1 auto-rows-fr gap-2 nicht-handy:gap-3" style={rasterStil}>
 
     {#if eigeneKameraDa}
       <figure class="border-border shadow-2xl relative min-h-0 w-full min-w-0 overflow-hidden rounded-2xl border bg-black">
@@ -308,11 +308,11 @@
                   max="100"
                   value={v}
                   oninput={(e) => volumeSetzen(key, Number((e.currentTarget as HTMLInputElement).value))}
-                  class="w-16 accent-white md:w-24"
+                  class="w-16 accent-white nicht-handy:w-24"
                   aria-label={m.tile_shell_volume()}
                   data-testid="gast-videos-lautstaerke"
                 />
-                <span class="w-8 text-right font-mono text-2xs tabular-nums opacity-85 md:hidden">
+                <span class="w-8 text-right font-mono text-2xs tabular-nums opacity-85 nicht-handy:hidden">
                   {v}%
                 </span>
               </div>
