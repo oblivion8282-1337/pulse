@@ -23,6 +23,9 @@
   import { pendingComplaints } from '$lib/stores/pendingComplaints.svelte';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
+import { mode } from 'mode-watcher';
+import { statusLeisteFolgtTheme } from '$lib/platform/statusLeiste';
+import { installiereExterneLinks } from '$lib/platform/externeLinks';
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
@@ -167,11 +170,15 @@
   // Ablage-Festigung: läuft für die gesamte App-Sitzung und geht in
   // Abständen Rundgang, s. `hintergrundFestigung.ts`-Modulkopf.
   let _stoppeKanalFestigung: (() => void) | null = null;
+  // Externe-Links-Fang der Hülle (No-op außerhalb; s. externeLinks.ts).
+  let externeLinksAbriss: () => void = () => undefined;
 
   onMount(async () => {
     viewport.init();
     // Android-Hülle: Zurück-Taste navigiert in der App hoch statt zu schließen.
     registriereZurueckTaste();
+    // Externe Links (_blank) in der Hülle ins System-Browser-Blatt lenken.
+    externeLinksAbriss = installiereExterneLinks();
     await auth.hydrate();
     if (!auth.isAuthenticated) {
       await goto('/login', { replaceState: true });
@@ -364,6 +371,7 @@
     myInstanceApplications.stop();
     _stoppeKanalFestigung?.();
     _stoppeKanalFestigung = null;
+    externeLinksAbriss();
     gateway.disconnect();
     voice.disconnect();
     if (typeof document !== 'undefined') document.title = 'Pulse';
@@ -388,6 +396,13 @@
       .flat()
       .some((c) => c.type === 0 && readState.isUnread(c.id));
     document.title = dmUnread || channelUnread ? '● Pulse' : 'Pulse';
+  });
+
+  // Native Leisten (StatusBar, iOS-Tastatur) tragen dieselbe Theme-Farbe wie
+  // die App — im Browser/Electron ein No-op (s. statusLeiste.ts). Feuert auch
+  // beim Systemwechsel unter theme=auto, weil `mode` reaktiv gelesen wird.
+  $effect(() => {
+    statusLeisteFolgtTheme(mode.current === 'dark');
   });
 
   // Die eine Regel, die entscheidet, wer auf welcher Bildschirmgroesse
