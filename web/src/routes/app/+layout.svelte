@@ -26,6 +26,7 @@
   import { mode } from 'mode-watcher';
   import { statusLeisteFolgtTheme } from '$lib/platform/statusLeiste';
   import { installiereExterneLinks } from '$lib/platform/externeLinks';
+  import { badgeSetzen } from '$lib/platform/badge';
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
@@ -396,6 +397,12 @@
       .flat()
       .some((c) => c.type === 0 && readState.isUnread(c.id));
     document.title = dmUnread || channelUnread ? '● Pulse' : 'Pulse';
+    const ungeleseneGespraeche =
+      directMessages.list.filter((dm) => readState.isUnread(dm.id)).length +
+      Object.values(guilds.channelsByGuild)
+        .flat()
+        .filter((c) => c.type === 0 && readState.isUnread(c.id)).length;
+    badgeSetzen(ungeleseneGespraeche);
   });
 
   // Native Leisten (StatusBar, iOS-Tastatur) tragen dieselbe Theme-Farbe wie
