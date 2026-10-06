@@ -166,7 +166,7 @@
                 variant="secondary"
                 size="xs"
                 onclick={() => startCapture(a.id)}
-                class="min-w-fit font-mono md:min-w-[6.5rem] {listeningId === a.id
+                class="min-w-fit font-mono nicht-handy:min-w-[6.5rem] {listeningId === a.id
                   ? 'ring-primary ring-2'
                   : ''}"
                 data-testid="shortcut-binding-{a.id}"

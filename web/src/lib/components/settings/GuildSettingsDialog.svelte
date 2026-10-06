@@ -213,7 +213,7 @@
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
   <Dialog.Content
-    class="flex h-[85vh] max-h-[820px] w-full max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl"
+    class="flex h-[85vh] max-h-[820px] w-full max-w-6xl flex-col gap-0 overflow-hidden p-0 nicht-handy:max-w-6xl"
     data-testid="guild-settings-dialog"
   >
     <Dialog.Header class="border-border border-b px-6 py-4">

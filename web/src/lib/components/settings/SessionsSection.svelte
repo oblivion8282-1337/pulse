@@ -110,7 +110,7 @@
     <ul class="flex flex-col gap-2" data-testid="sessions-list">
       {#each sessions as s (s.id)}
         <li
-          class="border-border bg-bg-base/40 flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between"
+          class="border-border bg-bg-base/40 flex flex-col gap-2 rounded-xl border p-3 nicht-handy:flex-row nicht-handy:items-center nicht-handy:justify-between"
           data-testid="session-row"
           data-session-id={s.id}
         >
@@ -125,7 +125,7 @@
                 {formatUserAgent(s.user_agent)}
                 {#if s.is_current}
                   <span
-                    class="ml-1 inline-flex items-center rounded bg-success/15 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-success md:px-1.5 md:py-0.5 md:text-2xs"
+                    class="ml-1 inline-flex items-center rounded bg-success/15 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-success nicht-handy:px-1.5 nicht-handy:py-0.5 nicht-handy:text-2xs"
                     data-testid="session-current-badge"
                   >
                     {m.sessions_section_current_badge()}
@@ -136,7 +136,7 @@
                 {m.sessions_section_session_meta({ signedIn: formatRelative(s.created_at), active: formatRelative(s.last_used_at ?? s.created_at) })}
               </span>
               {#if s.ip_hash_prefix}
-                <span class="text-text-muted font-mono text-xs uppercase tracking-wider md:text-2xs">
+                <span class="text-text-muted font-mono text-xs uppercase tracking-wider nicht-handy:text-2xs">
                   {m.sessions_section_source({ prefix: s.ip_hash_prefix })}
                 </span>
               {/if}
@@ -149,7 +149,7 @@
               size="xs"
               onclick={() => handleRevoke(s)}
               disabled={revokingId === s.id}
-              class="self-start sm:self-auto"
+              class="self-start nicht-handy:self-auto"
               data-testid="session-revoke"
             >
               {revokingId === s.id ? m.sessions_section_revoking() : m.sessions_section_revoke_this()}

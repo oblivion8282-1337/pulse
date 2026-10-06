@@ -320,7 +320,7 @@
 
       <div class="flex items-center gap-2">
         <Select
-          class="h-8 flex-1 text-xs md:text-xs"
+          class="h-8 flex-1 text-xs nicht-handy:text-xs"
           value={pickedToAdd}
           options={availableForAdd.map((a) => ({ value: a, label: a }))}
           placeholder={addPlaceholder}

@@ -108,7 +108,7 @@
 </script>
 
 <aside
-  class="glass-panel flex h-full w-full flex-col overflow-hidden border-l border-border md:w-72"
+  class="glass-panel flex h-full w-full flex-col overflow-hidden border-l border-border nicht-handy:w-72"
   data-testid="stream-chat-panel"
   data-streamer-id={streamerId}
 >
@@ -127,7 +127,7 @@
         title={m.stream_chat_panel_close_title()}
         data-testid="stream-chat-close"
       >
-        <XIcon class="text-text-muted size-5 md:size-4" />
+        <XIcon class="text-text-muted size-5 nicht-handy:size-4" />
       </Button>
     {/if}
   </header>

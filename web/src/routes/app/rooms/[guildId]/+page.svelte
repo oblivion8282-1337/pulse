@@ -48,6 +48,7 @@
 <ChannelList
   {guild}
   {channels}
+  handy={viewport.isMobile}
   activeChannelId={null}
   onSelect={oeffneKanal}
   onCreateClick={() => (creatingChannel = true)}

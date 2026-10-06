@@ -45,7 +45,6 @@
   import { roles } from '$lib/stores/roles.svelte';
   import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
   import { auth } from '$lib/stores/auth.svelte';
-  import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import {
     serversStore,
@@ -62,7 +61,6 @@
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import ServerInfoDialog from './sidebar/ServerInfoDialog.svelte';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
-  import UserFooter from './UserFooter.svelte';
   import ServerAdminButton from './ServerAdminButton.svelte';
   import SelfHostRailButton from '$lib/components/selfhost/SelfHostRailButton.svelte';
   import StandplatzRailButton from '$lib/devices/components/StandplatzRailButton.svelte';
@@ -360,17 +358,17 @@
      Klasse (Handgeraete navigieren ueber `MobileTabBar` bzw. `TabletNavRail`,
      die Server-Icons wohnen dort im Raeume-Bereich). Gatet an EINER Stelle
      statt an den vier Routen, die sie rendern — sonst haette eine kuenftige
-     fuenfte Route sie wieder. -->
+     fuenfte Route sie wieder. Die Klasse haengt an der Geraeteklasse des
+     Wurzel-Divs (`hidden desktop:flex`), nicht an einer Viewport-Abfrage. -->
 <nav
-  class="glass-panel {viewport.isDesktop
-    ? 'flex'
-    : 'hidden'} h-full w-20 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 md:w-16 md:rounded-2xl"
+  class="glass-panel hidden desktop:flex h-full w-20 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 nicht-handy:w-16 nicht-handy:rounded-2xl"
   data-testid="guild-rail"
   aria-label={m.guild_rail_nav_label()}
 >
-  <!-- Tooltips auf Mobil aus: Hover-Popups (Server-Name/Member-Zahl) poppen
-       auf Touch beim Antippen unerwünscht auf. -->
-  <Tooltip.Provider delayDuration={200} disabled={viewport.isMobile}>
+  <!-- Tooltips: die Rail ist nur in der Desktop-Klasse sichtbar — dort gibt
+       es eine Maus, und nur dort kann ein Hover-Popup ueberhaupt erscheinen.
+       Ein Extra-Schalter fuer Mobil waere toter Code. -->
+  <Tooltip.Provider delayDuration={200}>
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
@@ -390,7 +388,7 @@
                 data-testid="guild-home"
                 onclick={onHomeClick}
               >
-                <img src="/pulse-mark.svg" alt="" width="40" height="40" class="size-12 rounded-md md:size-10" />
+                <img src="/pulse-mark.svg" alt="" width="40" height="40" class="size-12 rounded-md nicht-handy:size-10" />
               </button>
             {:else}
               <a
@@ -400,7 +398,7 @@
                 aria-label="Pulse"
                 data-testid="guild-home"
               >
-                <img src="/pulse-mark.svg" alt="" width="40" height="40" class="size-12 rounded-md md:size-10" />
+                <img src="/pulse-mark.svg" alt="" width="40" height="40" class="size-12 rounded-md nicht-handy:size-10" />
               </a>
             {/if}
             {#if homeBadgeCount > 0 && !homeActive}
@@ -580,7 +578,7 @@
                       <button
                         {...props}
                         {...tipProps}
-                        class="relative flex size-12 items-center justify-center overflow-hidden rounded-xl text-xs font-bold text-white transition-all md:size-10 hover:rounded-md data-[active=true]:rounded-md data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)] {suspendedLook
+                        class="relative flex size-12 items-center justify-center overflow-hidden rounded-xl text-xs font-bold text-white transition-all nicht-handy:size-10 hover:rounded-md data-[active=true]:rounded-md data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)] {suspendedLook
                           ? 'opacity-40 grayscale'
                           : ''} {serverSchlaeft ? 'opacity-40 grayscale' : ''}"
                         style={iconSrc
@@ -706,7 +704,7 @@
                    deckt die Zugänglichkeit ab. -->
               <button
                 {...props}
-                class="border-primary/40 text-primary flex size-12 shrink-0 items-center justify-center rounded-xl border border-dashed md:size-10 bg-transparent transition-all hover:bg-primary/10"
+                class="border-primary/40 text-primary flex size-12 shrink-0 items-center justify-center rounded-xl border border-dashed nicht-handy:size-10 bg-transparent transition-all hover:bg-primary/10"
                 data-testid={`guild-create-menu-${server.id}`}
                 aria-label={canCreateHere
                   ? m.guild_rail_create_community()
@@ -742,8 +740,9 @@
        Rechner-Einstieg (Standplatz, unter Windows die Fernsteuerung), der
        Käfer DIREKT über dem Server-Symbol (Wunsch 2026-09-22 — im Störfall
        ohne Scrollen und ohne Menü-Klick erreichbar), der Server-Symbol-
-       Einstieg, das Admin-Schild (nur Admins) und – auf Mobil – das eigene
-       Avatar-Symbol (Desktop hat den User im Sidebar-Footer mit Name).
+       Einstieg und das Admin-Schild (nur Admins). Der eigene User wohnt im
+       Sidebar-Footer mit Name + Chip (auf Handgeraeten im Raeume-Bereich —
+       die Rail ist dort ausgeblendet, ein Avatar hier waere tot).
        Innerhalb des Tooltip.Provider: der Käfer-Tooltip braucht dessen
        Context — außerhalb crasht der Render (nachgewiesen über den
        Konsole-Fang: „Context \"Tooltip.Provider\" not found"). -->
@@ -755,12 +754,12 @@
           <button
             {...props}
             type="button"
-            class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md md:size-10"
+            class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md nicht-handy:size-10"
             data-testid="rail-bug-button"
             aria-label={m.diagnose_melden()}
             onclick={() => (uiOverlays.diagnoseOpen = true)}
           >
-            <BugIcon class="size-6 md:size-5" />
+            <BugIcon class="size-6 nicht-handy:size-5" />
           </button>
         {/snippet}
       </Tooltip.Trigger>
@@ -768,9 +767,6 @@
     </Tooltip.Root>
     <SelfHostRailButton />
     <ServerAdminButton />
-    {#if viewport.isMobile}
-      <UserFooter compact />
-    {/if}
   </div>
   </Tooltip.Provider>
 </nav>

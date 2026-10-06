@@ -66,6 +66,10 @@
      *  z. B. der Sicherungs-Frischgerät-Hinweis. Fehlt er, greift der
      *  Standard-Absatz. */
     leerHinweis = undefined as Snippet | undefined,
+    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
+     *  an jede Nachrichtenzeile durchgereicht — das Profil hinter Avatar/
+     *  Name oeffnet dort als Tippen-Blatt statt Rechtsklick-Karte. */
+    handy,
     onSetReplyTarget,
     onEditMessage,
     onDeleteMessage,
@@ -84,6 +88,7 @@
     isOwner?: boolean;
     route?: { serverId?: string };
     canPin?: boolean;
+    handy: boolean;
     reaktionUmschlag?: boolean;
     bearbeitungErlaubt?: boolean;
     leerHinweis?: Snippet;
@@ -860,6 +865,7 @@
               canReact={canReactMessage(item.message)}
               isDirect={!channel?.guild_id}
               guildId={channel?.guild_id ?? undefined}
+              {handy}
               onReply={onSetReplyTarget}
               onEditSubmit={onEditMessage}
               onDelete={onDeleteMessage}

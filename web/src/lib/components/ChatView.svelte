@@ -29,7 +29,6 @@
   import { messages as messageStore } from '$lib/stores/messages.svelte';
   import { chatApi } from '$lib/api/chat';
   import { gateway, cloudGateway } from '$lib/ws/connection';
-  import { viewport } from '$lib/stores/viewport.svelte';
   import { isElectron } from '$lib/platform/runtime';
   import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
   import { channelNameStyle } from '$lib/utils/nameColor';
@@ -74,7 +73,11 @@
      *  Nachricht per Umschlag bearbeitbar (P1.5 Teil 2). */
     bearbeitungErlaubt = false,
     /** Nur 'dm': startet einen Anruf an die Gegenstelle (Anrufe-Epic C). */
-    onAnrufen
+    onAnrufen,
+    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
+     *  an die Nachrichtenliste durchgereicht — das Profil hinter Avatar/
+     *  Name oeffnet dort als Tippen-Blatt statt Rechtsklick-Karte. */
+    handy
   }: {
     channel: Channel | null;
     messages: Message[];
@@ -130,6 +133,7 @@
     onGruppenBlatt?: () => void;
     onAnrufen?: () => void;
     bearbeitungErlaubt?: boolean;
+    handy: boolean;
   } = $props();
 
   // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs,
@@ -245,7 +249,7 @@
 
   let memberListOpen = $state(false);
   // Mitgliederliste: nur Desktop — auf Mobil komplett ausgeblendet.
-  let showMemberInline = $derived(memberListOpen && !viewport.isMobile);
+  let showMemberInline = $derived(memberListOpen && !handy);
 
   // Eigene Identität AUF DEM AKTIVEN SERVER (Cloud-id ≠ Self-Host-id). Für jeden
   // "ist das meine Nachricht?"-Vergleich gegen server-lokale IDs — siehe
@@ -353,7 +357,7 @@
 </script>
 
 <section
-  class="glass-panel slide-rein relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
+  class="glass-panel slide-rein relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none nicht-handy:rounded-2xl"
   aria-label={channel ? channel.name : pm.chat_view_select_channel()}
   ondragenter={onZoneDragEnter}
   ondragover={onZoneDragOver}
@@ -368,14 +372,14 @@
       {pm.message_input_drop_files_hint()}
     </div>
   {/if}
-  <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
+  <header class="flex h-14 items-center gap-2.5 px-3 nicht-handy:px-5">
     {#if channel}
       <!-- Zurueck-Pfeil nur auf dem Handy: dort ist der Chat ein
            aufgeschobener Bildschirm ueber seiner Liste. Ab `md` steht die
            Liste daneben, ein Pfeil zeigte dann auf etwas bereits Sichtbares.
            Die System-Zurueck-Geste tut dasselbe — der Pfeil ist der sichtbare
            Weg daneben, nicht der einzige. -->
-      {#if onBack && viewport.isMobile}
+      {#if onBack && handy}
         <button
           class="text-text-muted hover:text-primary -ml-2 flex min-h-12 min-w-12 shrink-0 items-center justify-center"
           onclick={onBack}
@@ -412,7 +416,7 @@
       {:else}
         <HashIcon class="text-primary size-5 shrink-0" />
       {/if}
-      {#if onSwitchChannel && viewport.isMobile}
+      {#if onSwitchChannel && handy}
         <!-- Der Titel ist der Kanal-Wechsler (Entwurf 5c). Das Blatt von unten
              ersetzt den seitlichen Drawer; hier ist der Griff dazu. -->
         <button
@@ -528,7 +532,7 @@
         <Button
           variant="ghost"
           size="icon"
-          class="ml-auto max-md:hidden"
+          class="ml-auto handy:hidden"
           onclick={() => (memberListOpen = !memberListOpen)}
           aria-label={pm.chat_view_toggle_member_list()}
           data-testid="member-list-toggle"
@@ -547,6 +551,7 @@
       {channel}
       {messages}
       {leerHinweis}
+      {handy}
       {myId}
       {namePrefix}
       {isOwner}
@@ -578,7 +583,7 @@
          unsichtbare Zeile (20 px), deren rechte Seite den Zeichenzaehler des
          Composers aufnimmt — er verschiebt damit nichts, wenn er erscheint. -->
     <div
-      class="text-text-base flex h-5 items-center gap-2 px-4 text-xs md:px-5"
+      class="text-text-base flex h-5 items-center gap-2 px-4 text-xs nicht-handy:px-5"
       aria-live="polite"
     >
       {#if typingLabel}
@@ -607,7 +612,7 @@
       handleDrop={false}
       onTyping={notifyTyping}
       channelId={channel.id}
-      placeholder={viewport.isMobile
+      placeholder={handy
         ? pm.message_input_placeholder()
         : pm.chat_view_message_placeholder({ preposition: headerKind === 'dm' ? pm.chat_view_placeholder_to() : pm.chat_view_placeholder_in(), prefix: namePrefix, name: channel.name })}
       onSend={handleSend}

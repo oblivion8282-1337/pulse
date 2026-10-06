@@ -88,7 +88,7 @@
 </script>
 
 <div
-  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:w-72 md:flex-none md:rounded-2xl"
+  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none nicht-handy:w-72 nicht-handy:flex-none nicht-handy:rounded-2xl"
   data-testid="me-page"
 >
   <BereichsKopf titel={m.nav_tab_me()} />

@@ -109,7 +109,7 @@
      Rand; ohne `glass-panel` fehlt die Fläche, auf der jede andere Ansicht
      sitzt. Wer hier etwas ändert, gleicht mit den Geschwistern ab. -->
 <div
-  class="glass-panel relative flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-6 rounded-none p-8 md:rounded-2xl"
+  class="glass-panel relative flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-6 rounded-none p-8 nicht-handy:rounded-2xl"
   data-testid="device-view"
 >
   <!-- **Der Weg zurück** (2026-08-19). Die Ansicht ersetzt die Kanalansicht im

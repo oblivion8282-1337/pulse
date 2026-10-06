@@ -46,6 +46,10 @@ import { auth } from '$lib/stores/auth.svelte';
     isDirect = false,
     /** Community-Bezug fuer das Profil hinter Avatar/Name. Fehlt in DMs. */
     guildId,
+    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) —
+     *  schaltet das Profil hinter Avatar/Name zwischen Tippen-Blatt und
+     *  Rechtsklick-Karte. */
+    handy,
     /** Welche Huelle: Zeilen wie bisher, oder Sprechblasen (nur in privaten
      *  Gespraechen — im Kanal tragen Name und Farbe die Orientierung). */
     layout = 'row',
@@ -80,6 +84,7 @@ import { auth } from '$lib/stores/auth.svelte';
     canReact?: boolean;
     isDirect?: boolean;
     guildId?: string;
+    handy: boolean;
     layout?: 'row' | 'bubble';
     istEigene?: boolean;
     isGroupEnd?: boolean;
@@ -396,6 +401,7 @@ import { auth } from '$lib/stores/auth.svelte';
     zugestellt={zugestellt}
     onLongPress={openSheet}
     {guildId}
+    {handy}
     {body}
     {actions}
   />

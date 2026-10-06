@@ -24,8 +24,8 @@
 </script>
 
 <nav
-  class="bg-bg-input flex shrink-0 flex-col gap-0.5 overflow-y-auto rounded-l-2xl p-3 max-sm:w-full max-sm:rounded-none sm:w-56
-    {mobileView === 'detail' ? 'max-sm:hidden' : ''}"
+  class="bg-bg-input flex shrink-0 flex-col gap-0.5 overflow-y-auto rounded-l-2xl p-3 handy:w-full handy:rounded-none nicht-handy:w-56
+    {mobileView === 'detail' ? 'handy:hidden' : ''}"
 >
   <p class="text-text-muted px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide">
     {m.settings_dialog_title()}
@@ -34,13 +34,13 @@
     <button
       type="button"
       onclick={() => onSelect(t.id)}
-      class="flex items-center gap-2 rounded-xl px-2 py-3 text-left text-base transition-colors md:py-1.5 md:text-sm {activeTab ===
+      class="flex items-center gap-2 rounded-xl px-2 py-3 text-left text-base transition-colors nicht-handy:py-1.5 nicht-handy:text-sm {activeTab ===
       t.id
         ? 'bg-bg-hover text-text-bright'
         : 'text-text-base hover:bg-bg-hover'}"
       data-testid="settings-tab-{t.id}"
     >
-      <t.icon class="size-5 shrink-0 md:size-4" />
+      <t.icon class="size-5 shrink-0 nicht-handy:size-4" />
       {t.label}
     </button>
   {/each}

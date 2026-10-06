@@ -283,8 +283,8 @@
   });
 </script>
 
-<div class="flex h-full min-h-0 flex-col gap-4 md:flex-row" data-testid="mitglieder-rollen">
-  <aside class="flex w-full shrink-0 flex-col gap-4 md:w-80">
+<div class="flex h-full min-h-0 flex-col gap-4 nicht-handy:flex-row" data-testid="mitglieder-rollen">
+  <aside class="flex w-full shrink-0 flex-col gap-4 nicht-handy:w-80">
     <div class="flex items-center justify-between">
       <!-- Zwei Reiter anstelle zweier Reiter im Dialog-Rahmen: Rollen und
            Mitglieder teilen sich die linke Spalte (Richtung 2). -->

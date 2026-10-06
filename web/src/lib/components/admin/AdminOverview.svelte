@@ -67,7 +67,7 @@ import { errText } from '$lib/utils/errText';
   {#if error}
     <FieldError message={m.admin_overview_stats_load_error({ error: error ?? '' })} />
   {:else if chat}
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+    <div class="grid grid-cols-2 gap-3 nicht-handy:grid-cols-3 desktop:grid-cols-5">
       {#if auth}
         <div class="flex flex-col gap-1 rounded-xl bg-bg-hover/50 p-3" data-testid="stat-users">
           <div class="text-text-muted flex items-center gap-1.5 text-xs">

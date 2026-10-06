@@ -53,7 +53,7 @@
 {#if channels.length > 0}
   <div class="my-3 hairline bg-border" aria-hidden="true"></div>
   <div
-    class="text-text-muted mb-1.5 inline-block rounded-full border border-border bg-bg-input px-2.5 py-1 text-sm font-bold md:mb-0 md:rounded-none md:border-0 md:bg-transparent md:px-2.5 md:py-0 md:text-xs"
+    class="text-text-muted mb-1.5 inline-block rounded-full border border-border bg-bg-input px-2.5 py-1 text-sm font-bold nicht-handy:mb-0 nicht-handy:rounded-none nicht-handy:border-0 nicht-handy:bg-transparent nicht-handy:px-2.5 nicht-handy:py-0 nicht-handy:text-xs"
   >
     {m.channel_list_dropbox_section()}
   </div>
@@ -78,12 +78,12 @@
             ondragend={() => beenden(ziehen)}
             data-testid={`channel-${c.id}`}
           >
-            <FolderIcon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary" />
+            <FolderIcon class="text-text-muted size-6 shrink-0 nicht-handy:size-[17px] group-data-[active=true]:text-primary" />
             <span class="truncate" style={channelNameStyle(c)}>{c.name}</span>
             <span class="ml-auto flex shrink-0 items-center gap-1.5">
               {#if c.restricted}
                 <LockIcon
-                  class="text-text-muted size-4 md:size-3.5"
+                  class="text-text-muted size-4 nicht-handy:size-3.5"
                   data-testid={`channel-lock-${c.id}`}
                   aria-label={m.channel_list_restricted()}
                 />

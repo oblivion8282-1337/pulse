@@ -130,7 +130,7 @@ import { currentLocale } from '$lib/i18n';
 </script>
 
 <aside
-  class="glass-panel flex h-full w-full flex-col overflow-hidden border-l border-border md:w-72"
+  class="glass-panel flex h-full w-full flex-col overflow-hidden border-l border-border nicht-handy:w-72"
   data-testid="watch-chat-panel"
 >
   <header class="flex h-14 items-center gap-2 border-b border-border px-3">
@@ -146,7 +146,7 @@ import { currentLocale } from '$lib/i18n';
         title={m.watch_chat_panel_close_title()}
         data-testid="watch-chat-close"
       >
-        <XIcon class="text-text-muted size-5 md:size-4" />
+        <XIcon class="text-text-muted size-5 nicht-handy:size-4" />
       </Button>
     {/if}
   </header>

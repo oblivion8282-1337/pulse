@@ -116,8 +116,8 @@
   ]}
 >
 
-  <!-- Formular-Pane: auf Mobil volle Breite + zentriert; ab md: fixe 46 % -->
-  <div class="flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]">
+  <!-- Formular-Pane: auf Mobil volle Breite + zentriert; ab nicht-handy: fixe 46 % -->
+  <div class="flex flex-1 items-center justify-center p-4 nicht-handy:flex-none nicht-handy:basis-[46%]">
     <form
       class="bg-card w-full max-w-md space-y-4 rounded-xl p-8 shadow-2xl"
       onsubmit={submit}

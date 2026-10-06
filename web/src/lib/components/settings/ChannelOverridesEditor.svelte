@@ -166,8 +166,8 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col gap-4 md:flex-row" data-testid="channel-overrides">
-  <aside class="w-full shrink-0 md:w-64">
+<div class="flex h-full min-h-0 flex-col gap-4 nicht-handy:flex-row" data-testid="channel-overrides">
+  <aside class="w-full shrink-0 nicht-handy:w-64">
     <ZielListe {ziele} {ausgewaehlt} onwaehle={(k) => (ausgewaehlt = k)} />
   </aside>
 

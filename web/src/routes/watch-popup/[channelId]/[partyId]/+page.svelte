@@ -16,6 +16,7 @@
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import WatchPartyTile from '$lib/components/WatchPartyTile.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -121,7 +122,7 @@
 
 <div class="relative h-full w-full" data-testid="watch-popup">
   {#if party && channelId}
-    <WatchPartyTile {channelId} {party} canDetach={false} canHide={false} onDock={closeThisWindow} />
+    <WatchPartyTile {channelId} {party} handy={viewport.isMobile} canDetach={false} canHide={false} onDock={closeThisWindow} />
   {:else}
     <div class="flex h-full w-full items-center justify-center">
       <LoadingState density="page" label={m.watch_popup_loading()} />

@@ -29,6 +29,10 @@
   import CameraTile from '$lib/components/CameraTile.svelte';
   import ScreenShareTile from '$lib/components/ScreenShareTile.svelte';
 
+  // Handy-Klasse? Reicht die app-layout-Route hereingereicht an die Kacheln
+  // durch (Geräte-Trennung — der Host fragt selbst nicht).
+  let { handy }: { handy: boolean } = $props();
+
   const SELF_CAM_ID = 'self';
 
   type CamRender = {
@@ -120,6 +124,7 @@
         track={entry.track}
         name={entry.name}
         identity={e.id}
+        {handy}
         mirror={entry.mirror}
       />
     </WatchBackgroundFrame>
@@ -139,6 +144,7 @@
         audioTrack={entry.audioTrack}
         name={entry.name}
         identity={e.id}
+        {handy}
       />
     </WatchBackgroundFrame>
   {/if}
