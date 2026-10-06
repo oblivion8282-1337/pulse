@@ -144,7 +144,7 @@ export async function packeDateiContainer(
   return gesamt;
 }
 
-export interface GeöffneteDatei {
+interface GeöffneteDatei {
   kopf: DateiKopf;
   inhalt: Uint8Array;
 }

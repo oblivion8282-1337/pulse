@@ -16,7 +16,7 @@
 export const TOKEN_SKEW_SEKUNDEN = 60;
 
 /** Falls der Anbieter keine Lebensdauer nennt: kurz annehmen statt hoffen. */
-export const TOKEN_FALLBACK_SEKUNDEN = 300;
+const TOKEN_FALLBACK_SEKUNDEN = 300;
 
 export interface TokenNachschub {
 	zugangsToken: string;

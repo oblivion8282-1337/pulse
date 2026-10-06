@@ -13,7 +13,7 @@
 
 import { request, ApiError } from '$lib/api/client';
 
-export type VapidKey = { public_key: string };
+type VapidKey = { public_key: string };
 
 export type SubscriptionDescriptor = {
   id: string;
@@ -23,7 +23,7 @@ export type SubscriptionDescriptor = {
   last_used_at: string | null;
 };
 
-export type PushSubscriptionPayload = {
+type PushSubscriptionPayload = {
   endpoint: string;
   keys: { p256dh: string; auth: string };
   user_agent?: string;

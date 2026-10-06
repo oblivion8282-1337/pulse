@@ -74,7 +74,7 @@ export function getSettingsTabs(): SettingsTabDef[] {
  * Als Werte hereingereicht statt hier ermittelt: die Quellen sind Runen-Stores
  * und ein `viewport`, die in einem reinen Datenmodul nichts zu suchen haben.
  */
-export interface ReiterBedingungen {
+interface ReiterBedingungen {
   /** Schmaler Bildschirm — blendet die reinen Rechner-Reiter aus. */
   istMobil: boolean;
   /** Läuft im Browser (weder Electron noch Android-Hülle). */

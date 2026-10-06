@@ -17,7 +17,7 @@
 
 import { leseNachricht, type AblageNachricht } from '../ablage/nutzlast.ts';
 
-export const SICHERUNG_EINTRAG_FASSUNG = 1;
+const SICHERUNG_EINTRAG_FASSUNG = 1;
 
 export interface SicherungEintrag {
 	fassung: number;

@@ -18,7 +18,7 @@
 import type { Action } from 'svelte/action';
 import { ANTWORT_SCHWELLE, fuehrtZuAntwort, klemmeOffset } from './swipeKern';
 
-export interface SwipeReplyOpts {
+interface SwipeReplyOpts {
   onReply: () => void;
   /** Live-Versatz für die Pfeil-Optik in der Komponente. */
   onMove?: (offset: number) => void;

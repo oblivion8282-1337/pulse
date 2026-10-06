@@ -78,7 +78,7 @@ export type ConnectionState =
 
 export type HelloMeta = { server_version: string; capabilities: string[] };
 
-export type GatewayConnectionOpts = {
+type GatewayConnectionOpts = {
   serverId: string;
   hostname: string;
   isCloud: boolean;

@@ -446,7 +446,7 @@ export async function sicherungArchivLaden(): Promise<number> {
  * Empfangsfall ihrer Gegenseite. Fehlen sie hier, überspringt der Lauf
  * den Anhang still: die Gegenseite hat dieselben Bytes und spiegelt sie.
  */
-export async function sicherungAnhaenge(kanalId: string, nachrichten: AblageNachricht[]): Promise<void> {
+async function sicherungAnhaenge(kanalId: string, nachrichten: AblageNachricht[]): Promise<void> {
 	const dek = (await dekAusZwischenlager())?.dek;
 	if (dek === undefined) return;
 	const adapter = await adapterLieferant();

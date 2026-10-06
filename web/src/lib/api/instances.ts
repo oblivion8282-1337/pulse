@@ -28,7 +28,6 @@ type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'closed' | 'revok
 /** Antragsart im vereinten Antragssystem: VPS mit eigener Domain oder
  *  App-Hosting von zuhause (Server-App, kein Hostname). */
 type ApplicationOrigin = 'vps' | 'app_host';
-/** Ergebnis des beratenden Anschluss-Checks (lib/hosting/connectivityCheck). */
 type NetworkCheck = 'ok' | 'cgnat' | 'symmetric' | 'blocked' | 'unknown';
 type InstanceStatus = 'active' | 'suspended';
 

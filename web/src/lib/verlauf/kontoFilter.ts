@@ -18,7 +18,7 @@
  * Zeile) gehoert bewusst zu KEINEM Konto — fail-closed statt einer Ratenwette
  * auf den aktuellen Nutzer.
  */
-export type SatzMitKonto = { kontoId: string | null | undefined };
+type SatzMitKonto = { kontoId: string | null | undefined };
 
 export function gehoertZuKonto(satz: SatzMitKonto, kontoId: string): boolean {
   // Leere Vergleichs-ID ist kein Konto (`konto.ts::aktuellesKonto` liefert

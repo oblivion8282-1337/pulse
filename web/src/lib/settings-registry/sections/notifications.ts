@@ -18,7 +18,7 @@ export type NotificationSettings = {
   onFriendRequests: boolean;
 };
 
-export const DEFAULTS_NOTIFICATIONS: NotificationSettings = {
+const DEFAULTS_NOTIFICATIONS: NotificationSettings = {
   // Explicit opt-in: requesting permission requires a user gesture and we
   // don't want to fire it ambiently. Sub-toggles default ON so once the
   // user opts in, mentions + DMs both alert by default.

@@ -31,7 +31,7 @@ export function eventToCombo(e: KeyboardEvent): string | null {
   return parts.join('+');
 }
 
-export type ComboParts = {
+type ComboParts = {
   mods: { ctrl: boolean; alt: boolean; shift: boolean };
   key: string;
 };

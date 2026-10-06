@@ -41,7 +41,7 @@ type SignalSender = (kind: RemoteSignalKind, data: unknown) => boolean;
 type FrameSink = (evt: { session_id: string; slot: number; frames: string[] }) => void;
 
 /** Wie der Sender einer Nachricht verfahren soll (`RemoteSessionStore.sendInput`). */
-export type Transportwahl = 'p2p' | 'ws' | 'ws_mit_hello';
+type Transportwahl = 'p2p' | 'ws' | 'ws_mit_hello';
 
 /** Dieselbe STUN-Adresse wie der WHEP-Zuschauerweg (`stream/whep.ts`). */
 const STUN = 'stun:stun.l.google.com:19302';

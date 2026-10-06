@@ -8,7 +8,7 @@
 import { registerAllHandlers } from './handlers';
 import { fireVoiceDiff } from './voiceDiff';
 
-export type HandlerBootstrapDeps = {
+type HandlerBootstrapDeps = {
   /** Resolves the *currently dispatching* connection's subscription set on
    *  every access (live ref to the active server, not a snapshot of #1). */
   getSubs: () => Set<string>;

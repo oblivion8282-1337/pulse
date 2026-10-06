@@ -45,7 +45,7 @@ import { VerworfeneAnfragen } from './verworfeneAnfragen';
 import { aktiverDirektPlatz } from '$lib/devices/wecken';
 import { direktbild } from './direktbild.svelte';
 
-export type RemotePhase = 'idle' | 'requesting' | 'incoming' | 'active';
+type RemotePhase = 'idle' | 'requesting' | 'incoming' | 'active';
 export type RemoteRole = 'controller' | 'host';
 
 /**

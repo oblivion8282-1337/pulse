@@ -49,7 +49,7 @@ import { entschlüsseleEintrag } from './krypto.ts';
 import { leseSicherungEintrag, type SicherungEintrag } from './nutzlast.ts';
 
 /** Eine Position im Rahmen-Log einer Geräte-Kette. */
-export interface SicherungPosition {
+interface SicherungPosition {
 	segIndex: number;
 	frameId: string;
 }

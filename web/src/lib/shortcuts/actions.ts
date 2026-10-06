@@ -11,7 +11,7 @@
  */
 import { m } from '$lib/paraglide/messages.js';
 
-export type ActionCategory = 'navigation' | 'voice' | 'composer' | 'stream';
+type ActionCategory = 'navigation' | 'voice' | 'composer' | 'stream';
 
 /** `global` = fires on a window-level keydown.
  *  `composer` = consulted by MessageInput.onKeydown via `lookupComposer()`. */

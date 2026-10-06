@@ -44,7 +44,7 @@ export type ServerAnhang = {
 
 /** Eine Seite vom Server: `(before, limit)` → newest-first-Liste. Produktiv
  *  `meineAnhaengeApi.auflisten`. */
-export type MedienAbruf = (
+type MedienAbruf = (
   before: string | null,
   limit: number
 ) => Promise<ServerAnhang[]>;

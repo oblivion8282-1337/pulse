@@ -25,7 +25,7 @@
 /** `/app/guilds/<guildId>/channels/<channelId>` — und sonst nichts. */
 const KANAL_PFAD = /^\/app\/guilds\/([^/]+)\/channels\/([^/]+)$/;
 
-export interface KanalAufSchirm {
+interface KanalAufSchirm {
   readonly guildId: string;
   readonly channelId: string;
 }

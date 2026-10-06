@@ -20,7 +20,7 @@
 <script lang="ts" module>
   import { tv, type VariantProps } from 'tailwind-variants';
 
-  export const menuRowVariants = tv({
+  const menuRowVariants = tv({
     base:
       'flex w-full items-center gap-2.5 rounded-md text-left transition-colors ' +
       'outline-none select-none disabled:pointer-events-none disabled:opacity-50 ' +
@@ -52,8 +52,8 @@
     defaultVariants: { variant: 'default', density: 'default', active: false }
   });
 
-  export type MenuRowVariant = VariantProps<typeof menuRowVariants>['variant'];
-  export type MenuRowDensity = VariantProps<typeof menuRowVariants>['density'];
+  type MenuRowVariant = VariantProps<typeof menuRowVariants>['variant'];
+  type MenuRowDensity = VariantProps<typeof menuRowVariants>['density'];
 </script>
 
 <script lang="ts">

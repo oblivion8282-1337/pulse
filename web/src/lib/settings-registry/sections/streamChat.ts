@@ -8,7 +8,7 @@ export type StreamChatSettings = {
   panelOpen: boolean;
 };
 
-export const DEFAULTS_STREAM_CHAT: StreamChatSettings = {
+const DEFAULTS_STREAM_CHAT: StreamChatSettings = {
   panelOpen: true
 };
 

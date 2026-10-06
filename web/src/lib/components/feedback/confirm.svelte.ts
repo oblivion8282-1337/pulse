@@ -12,7 +12,7 @@
  *
  * Gerendert wird genau einmal, von `ConfirmDialog.svelte` im Wurzel-Layout.
  */
-export type ConfirmOptions = {
+type ConfirmOptions = {
   /** Die eigentliche Frage. Pflicht. */
   description: string;
   /** Überschrift. Vorgabe: „Bist du sicher?" */

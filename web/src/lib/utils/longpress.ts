@@ -13,7 +13,7 @@
  */
 import type { Action } from 'svelte/action';
 
-export interface LongpressOpts {
+interface LongpressOpts {
   /** Hold time before firing, ms. Default 450. */
   duration?: number;
   onLongPress: (e: PointerEvent) => void;
