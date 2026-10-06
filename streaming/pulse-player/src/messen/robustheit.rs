@@ -264,7 +264,7 @@ pub fn ausfuehren(argv: &[String]) -> Result<()> {
             if let Some(v) = &vollbild {
                 if z.vollbild_eingespielt < MAX_VOLLBILDER {
                     z.vollbild_eingespielt += 1;
-                    if let Err(e) = einspeisen(&mut d, v, &mut z, &mut abdruck_datei, start) {
+                    if let Err(e) = einspeisen(&mut d, v, &mut z, &mut abdruck_datei) {
                         z.abbruch = Some(e.to_string());
                         break;
                     }
@@ -273,7 +273,7 @@ pub fn ausfuehren(argv: &[String]) -> Result<()> {
         }
 
         let vorher = d.wartet_auf_einstieg();
-        match einspeisen(&mut d, einheit, &mut z, &mut abdruck_datei, start) {
+        match einspeisen(&mut d, einheit, &mut z, &mut abdruck_datei) {
             Ok(neu) => {
                 if vorher && neu == 0 {
                     z.verworfen_vor_einstieg += 1;
@@ -343,14 +343,12 @@ fn einspeisen(
     einheit: &[u8],
     z: &mut Zaehler,
     abdruck: &mut Option<std::io::BufWriter<std::fs::File>>,
-    start: std::time::Instant,
 ) -> Result<usize> {
     z.eingespeist += 1;
     let bilder = d.decode(einheit)?;
     // Die Anzeigesperre nach einer Lücke wird EINMAL je Durchgang abgefragt,
     // genau wie im Player (`session.rs`, `dec.ist_sauber()`).
     let vorzeigbar = d.ist_sauber();
-    let _ = start;
     for bild in &bilder {
         z.bilder += 1;
         if !vorzeigbar {
