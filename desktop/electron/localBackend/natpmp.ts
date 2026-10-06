@@ -2,7 +2,7 @@
 // PCP (RFC 6887) reuses the NAT-PMP port (RFC 6887 §3), so no separate const.
 export const NATPMP_PORT = 5351;
 
-export function ipv4MappedV6(ip: string): Buffer {
+function ipv4MappedV6(ip: string): Buffer {
   const b = Buffer.alloc(16);
   b.writeUInt16BE(0xffff, 10);
   const o = ip.split('.').map(Number);

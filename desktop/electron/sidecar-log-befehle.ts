@@ -35,7 +35,7 @@
  * `shutdown` beiden. Bewusst EINE gemeinsame Liste: die Datei ist auch eine
  * gemeinsame, und wer sie liest, sucht den Lebenszyklus, nicht ein Bauteil.
  */
-export const LEBENSZYKLUS_OPS: ReadonlySet<string> = new Set([
+const LEBENSZYKLUS_OPS: ReadonlySet<string> = new Set([
   'start',
   'stop',
   'shutdown',

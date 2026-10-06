@@ -42,7 +42,7 @@ export function parseGateway(platform: NodeJS.Platform, routeOutput: string): st
   return null;
 }
 
-export function subnetFallbackGateway(): string | null {
+function subnetFallbackGateway(): string | null {
   for (const addrs of Object.values(networkInterfaces())) {
     for (const a of addrs ?? []) {
       if (a.family === 'IPv4' && !a.internal) {
