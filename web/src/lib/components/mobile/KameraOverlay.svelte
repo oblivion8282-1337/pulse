@@ -24,10 +24,8 @@
 -->
 <script lang="ts">
   import CameraIcon from '@lucide/svelte/icons/camera';
-  import CheckIcon from '@lucide/svelte/icons/check';
   import FastForwardIcon from '@lucide/svelte/icons/fast-forward';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-  import PauseIcon from '@lucide/svelte/icons/pause';
   import PlayIcon from '@lucide/svelte/icons/play';
   import RewindIcon from '@lucide/svelte/icons/rewind';
   import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
@@ -35,8 +33,6 @@
   import SwitchCameraIcon from '@lucide/svelte/icons/switch-camera';
   import VideoIcon from '@lucide/svelte/icons/video';
   import XIcon from '@lucide/svelte/icons/x';
-  import Volume2Icon from '@lucide/svelte/icons/volume-2';
-  import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import { aufnahmeDauerRegister, formatiereDauer } from '$lib/attachments/aufnahmeKern';
   import { m } from '$lib/paraglide/messages.js';
   import { Portal } from 'bits-ui';
@@ -145,8 +141,6 @@
   let vorschauLaeuft = $state(false);
   let vorschauBereit = $state(false);
   let vorschauPosition = $state(0);
-  let vorschauStumm = $state(false);
-  let vorschauRahmen = 0;
   let vorschauWache = 0;
 
   // Schnitt (WhatsApp-Prinzip): Spulleiste oben, zwei Griffe markieren den
@@ -288,7 +282,6 @@
     vorschauLaeuft = false;
     vorschauBereit = false;
     vorschauPosition = 0;
-    vorschauStumm = false;
     vorschauDauer = 0;
     schnittStart = 0;
     schnittEnde = 0;
@@ -304,22 +297,24 @@
         video.srcObject = stream;
       }
       void video.play().catch(() => {});
-      ersteFrameAbwarten(video);
+      ersterGezeichneterFrame(video, () => (ersteFrameDa = true));
     }
   }
 
-  /** Erster GEZEICHNETER Frame: `playing` feuert manchmal vor dem ersten
-   *  Bild — rVFC erst, wenn wirklich gerendert wurde (Fallback: Zeit). */
-  function ersteFrameAbwarten(el: HTMLVideoElement): void {
+  /** Erster GEZEICHNETER Frame — `playing` feuert manchmal vor dem ersten
+   *  Bild — rVFC erst, wenn wirklich gerendert wurde (Fallback: Zeit).
+   *  Dient dem Live-Bild wie der Entwurf-Vorschau (Lade-Fläche statt des
+   *  grauen WebView-Kästchens). */
+  function ersterGezeichneterFrame(el: HTMLVideoElement, da: () => void): void {
     const mitCallback = el as HTMLVideoElement & {
       requestVideoFrameCallback?: (cb: () => void) => number;
     };
     if (mitCallback.requestVideoFrameCallback) {
-      mitCallback.requestVideoFrameCallback(() => (ersteFrameDa = true));
+      mitCallback.requestVideoFrameCallback(da);
     } else if (el.readyState >= 2) {
-      ersteFrameDa = true;
+      da();
     } else {
-      el.onloadeddata = () => (ersteFrameDa = true);
+      el.onloadeddata = da;
     }
   }
 
@@ -519,10 +514,6 @@
     );
   }
 
-  function entwurfVerwerfen(): void {
-    entwurfWeg();
-  }
-
   /** YouTube-Prinzip in der Entwurf-Vorschau: Tippen aufs Video schaltet
    *  zwischen Abspielen und Pause um — der Play-Kreis in der Mitte zeigt
    *  sich nur im Stillstand. Ein Schnittpunkt gilt dabei: außerhalb des
@@ -558,23 +549,6 @@
       vorschauWache = requestAnimationFrame(schritt);
     };
     vorschauWache = requestAnimationFrame(schritt);
-  }
-
-  /** Erster GEZEICHNETER Frame der Vorschau — bis er steht, deckt Schwarz
-   *  das graue WebView-Kästchen (dasselbe Muster wie beim Live-Bild; ein
-   *  pausiertes Video dekodiert von allein gar nichts). Der Mini-Seek auf
-   *  0.001 zwingt den Dekodierer, Frame 1 wirklich zu liefern. */
-  function vorschauFrameAbwarten(el: HTMLVideoElement): void {
-    const mitCallback = el as HTMLVideoElement & {
-      requestVideoFrameCallback?: (cb: () => void) => number;
-    };
-    if (mitCallback.requestVideoFrameCallback) {
-      mitCallback.requestVideoFrameCallback(() => (vorschauBereit = true));
-    } else if (el.readyState >= 2) {
-      vorschauBereit = true;
-    } else {
-      el.onloadeddata = () => (vorschauBereit = true);
-    }
   }
 
   async function entwurfSenden(): Promise<void> {
@@ -703,7 +677,11 @@
               vorschauDauer = el.duration || 0;
               schnittStart = 0;
               schnittEnde = vorschauDauer;
-              vorschauFrameAbwarten(el);
+              // Erster GEZEICHNETER Frame abwarten — bis er steht, deckt
+              // Schwarz das graue Kästchen (dasselbe Muster wie beim
+              // Live-Bild). Der Mini-Seek auf 0.001 zwingt den Dekodierer,
+              // Frame 1 wirklich zu liefern.
+              ersterGezeichneterFrame(el, () => (vorschauBereit = true));
               if (!el.currentTime) el.currentTime = 0.001;
             }}
             ontimeupdate={() => (vorschauPosition = vorschau?.currentTime ?? 0)}
@@ -885,7 +863,7 @@
             <button
               type="button"
               class="flex flex-col items-center gap-1.5 transition-transform active:scale-90"
-              onclick={entwurfVerwerfen}
+              onclick={entwurfWeg}
               data-testid="camera-discard"
             >
               <span class="flex size-14 items-center justify-center rounded-full border border-white/30 bg-white/10 backdrop-blur-md">
@@ -954,14 +932,7 @@
               : m.message_input_anhang_video()}
             data-testid="camera-shutter"
           >
-            {#if nimmtAuf}
-              <!-- Blauer Puls-Ring um die Aufnahme (Testrunde 2026-09-23). -->
-              <span
-                class="pointer-events-none absolute -inset-3 animate-pulse rounded-full border-4 border-primary"
-                data-testid="camera-pulse"
-              ></span>
-              <SquareIcon class="size-8 text-white" />
-            {:else if modus === 'video'}
+            {#if modus === 'video'}
               <VideoIcon class="size-9 text-white" />
             {:else}
               <CameraIcon class="size-9 text-white" />

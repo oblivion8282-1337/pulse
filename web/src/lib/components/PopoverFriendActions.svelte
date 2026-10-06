@@ -14,7 +14,6 @@
 <script lang="ts">
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import UserMinusIcon from '@lucide/svelte/icons/user-minus';
-  import UserCheckIcon from '@lucide/svelte/icons/user-check';
   import XIcon from '@lucide/svelte/icons/x';
   import CheckIcon from '@lucide/svelte/icons/check';
   import BanIcon from '@lucide/svelte/icons/ban';

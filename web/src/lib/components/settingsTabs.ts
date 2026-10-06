@@ -27,7 +27,6 @@ import KeyboardIcon from '@lucide/svelte/icons/keyboard';
 import ShieldIcon from '@lucide/svelte/icons/shield';
 import CloudUploadIcon from '@lucide/svelte/icons/cloud-upload';
 import LockIcon from '@lucide/svelte/icons/lock';
-import ServerIcon from '@lucide/svelte/icons/server';
 import UserIcon from '@lucide/svelte/icons/user';
 import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
 import { m } from '$lib/paraglide/messages.js';

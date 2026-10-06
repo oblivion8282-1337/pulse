@@ -18,7 +18,6 @@
   import SelfHostPanel from '$lib/components/selfhost/SelfHostPanel.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
-  import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { selectGuild } from '$lib/navigation/railNavi';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';

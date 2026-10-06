@@ -236,7 +236,7 @@ class ServersStore {
       // Ausdrücklich false: Der Eintrag entsteht VOR der ersten Anmeldung. Wird
       // sie nichts, bleibt er stehen und der Nutzer sieht in der Rail, warum
       // der Status-Punkt tot ist.
-      je_verbunden: isCloud ? true : false,
+      je_verbunden: isCloud,
       label: label ?? (isCloud ? CLOUD_LABEL : normalized),
       server_name: null,
       isCloud,

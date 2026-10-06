@@ -23,16 +23,6 @@
 
 export type HostingVerdict = 'cannot-host' | 'ok';
 
-/**
- * Wire-Wert fürs Backend-`network_check`-Feld (dessen Literal-Set bleibt
- * unverändert). Der Admin-Chip rendert daraus "geeignet"/"ungeeignet";
- * 'cannot-host' geht als 'cgnat' raus — der kanonische "kann nicht von
- * zuhause hosten"-Verdict (der Chip behandelt cgnat/blocked/symmetric gleich).
- */
-export function networkCheckWireValue(v: HostingVerdict): 'ok' | 'cgnat' {
-  return v === 'cannot-host' ? 'cgnat' : 'ok';
-}
-
 /** Zwei unabhängige Betreiber: ein einzelner Ausfall täuscht kein
  *  'cannot-host' vor (leere srflx-Liste). */
 const STUN_SERVERS = ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'];

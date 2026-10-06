@@ -9,7 +9,6 @@
    * nichts an der Zeile selbst. Markup unverändert, `data-testid` identisch.
    */
   import { voice } from '$lib/voice/livekit.svelte';
-  import { inVoiceChannel } from '$lib/voice/state.svelte';
   import { voicePresence, istGastKennung, type UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { stromGehoertGeraet } from '$lib/devices/darstellung';

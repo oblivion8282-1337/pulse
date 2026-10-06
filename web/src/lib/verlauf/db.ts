@@ -440,24 +440,6 @@ export function anhangBytesLoeschen(id: string): Promise<void> {
 }
 
 /**
- * Loescht den GESAMTEN lokalen Verlauf dieses Geraets — Nachrichten,
- * Anhang-Bytes und den Medien-Index.
- *
- * Genau ein Aufrufer (`krypto/verfallPruefen.ts`): der gekoppelte Browser,
- * dessen Kopplung nach 14 Tagen ohne Benutzung abgelaufen ist (Spec §3a).
- * Der Fall, fuer den die Regel existiert, ist „auf einem fremden Rechner
- * gekoppelt und vergessen" — dort nuetzt es nichts, wenn nur die Schluessel
- * verfallen, waehrend der Verlauf liegen bleibt.
- *
- * **Ohne Konto-Filter, absichtlich.** Verfallen ist das GERAET, nicht ein
- * Konto darauf; ein halb geraeumter Speicher waere genau die Haelfte, die man
- * auf einem fremden Rechner nicht zuruecklassen will.
- *
- * Alle Speicher in EINER Transaktion: ein Abbruch dazwischen liesse sonst
- * die Anhang-Bytes ohne die Nachrichten stehen, die auf sie zeigen (und
- * seit Stufe B1 einen Medien-Index, der auf beides zeigt).
- */
-/**
  * Bughunt Runde 5: Alle Sätze (+ Anhang-Bytes) EINES Kanals verwerfen —
  * der einzige bisherige Räumweg war `verlaufAllesLoeschen` (Kopplungs-
  * Verfall). Entfernt sich ein Gespräch (Entfreundung), blieb der Klartext
@@ -508,6 +490,24 @@ export function verlaufKanalVergessen(kanalId: string, kontoId: string): Promise
   );
 }
 
+/**
+ * Loescht den GESAMTEN lokalen Verlauf dieses Geraets — Nachrichten,
+ * Anhang-Bytes und den Medien-Index.
+ *
+ * Genau ein Aufrufer (`krypto/verfallPruefen.ts`): der gekoppelte Browser,
+ * dessen Kopplung nach 14 Tagen ohne Benutzung abgelaufen ist (Spec §3a).
+ * Der Fall, fuer den die Regel existiert, ist „auf einem fremden Rechner
+ * gekoppelt und vergessen" — dort nuetzt es nichts, wenn nur die Schluessel
+ * verfallen, waehrend der Verlauf liegen bleibt.
+ *
+ * **Ohne Konto-Filter, absichtlich.** Verfallen ist das GERAET, nicht ein
+ * Konto darauf; ein halb geraeumter Speicher waere genau die Haelfte, die man
+ * auf einem fremden Rechner nicht zuruecklassen will.
+ *
+ * Alle Speicher in EINER Transaktion: ein Abbruch dazwischen liesse sonst
+ * die Anhang-Bytes ohne die Nachrichten stehen, die auf sie zeigen (und
+ * seit Stufe B1 einen Medien-Index, der auf beides zeigt).
+ */
 export function verlaufAllesLoeschen(): Promise<void> {
   return mitVerbindung(
     (db) =>

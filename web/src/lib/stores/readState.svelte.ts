@@ -57,9 +57,13 @@ class ReadState {
   private storageKey = '';
   private mentionsKey = '';
   private unreadKey = '';
-  private persistTimer: ReturnType<typeof setTimeout> | null = null;
-  private persistMentionsTimer: ReturnType<typeof setTimeout> | null = null;
-  private persistUnreadTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Ausstehende entprellte Schreibvorgänge je Schlüssel. Die Karte wird
+   *  erst beim Auslösen gelesen — ein Flush/Reset schreibt also den dann
+   *  aktuellen Stand, nicht einen Schnappschuss von der Planung. */
+  private wecker = new Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; karte: () => Record<string, unknown> }
+  >();
 
   constructor() {
     // Derselbe Schutz wie im Drafts-Store (Bughunt Runde 3): das 200-ms-
@@ -147,20 +151,10 @@ class ReadState {
    *  Wecker. Ohne das feuert ein Wecker nach einem Reset/Sign-out und schreibt
    *  den bereits verworfenen Stand unter die weiterhin gültigen Schlüssel. */
   flushPending(): void {
-    if (this.persistTimer) {
-      clearTimeout(this.persistTimer);
-      this.persistTimer = null;
-      this.write(this.storageKey, this.lastReadByChannel);
-    }
-    if (this.persistMentionsTimer) {
-      clearTimeout(this.persistMentionsTimer);
-      this.persistMentionsTimer = null;
-      this.write(this.mentionsKey, this.mentionCountByChannel);
-    }
-    if (this.persistUnreadTimer) {
-      clearTimeout(this.persistUnreadTimer);
-      this.persistUnreadTimer = null;
-      this.write(this.unreadKey, this.unreadCountByChannel);
+    for (const [key, wecker] of this.wecker) {
+      clearTimeout(wecker.timer);
+      this.wecker.delete(key);
+      this.write(key, wecker.karte());
     }
   }
 
@@ -171,7 +165,7 @@ class ReadState {
       const next = { ...this.lastReadByChannel };
       delete next[channelId];
       this.lastReadByChannel = next;
-      this.persist();
+      this.persistLetztenStand();
     }
     if (channelId in this.latestByChannel) {
       const next = { ...this.latestByChannel };
@@ -210,7 +204,7 @@ class ReadState {
     const prev = this.lastReadByChannel[channelId];
     if (!prev || compareSnowflakeId(target, prev) > 0) {
       this.lastReadByChannel = { ...this.lastReadByChannel, [channelId]: target };
-      this.persist();
+      this.persistLetztenStand();
       this.serverSync?.(channelId, target);
     }
     this.clearMentions(channelId);
@@ -319,33 +313,30 @@ class ReadState {
     }
   }
 
-  private persist(): void {
-    if (!this.storageKey || typeof window === 'undefined') return;
-    // Debounce: cancel any pending timer and schedule a new flush.
-    if (this.persistTimer) clearTimeout(this.persistTimer);
-    this.persistTimer = setTimeout(() => {
-      this.persistTimer = null;
-      this.write(this.storageKey, this.lastReadByChannel);
-    }, 200);
+  /** Plan für `key` einen 200-ms-Entprellt-Schreibvorgang (neu). */
+  private persist(key: string, karte: () => Record<string, unknown>): void {
+    if (!key || typeof window === 'undefined') return;
+    const alt = this.wecker.get(key);
+    if (alt) clearTimeout(alt.timer);
+    this.wecker.set(key, {
+      karte,
+      timer: setTimeout(() => {
+        this.wecker.delete(key);
+        this.write(key, karte());
+      }, 200)
+    });
+  }
+
+  private persistLetztenStand(): void {
+    this.persist(this.storageKey, () => this.lastReadByChannel);
   }
 
   private persistMentions(): void {
-    if (!this.mentionsKey || typeof window === 'undefined') return;
-    // Debounce: cancel any pending timer and schedule a new flush.
-    if (this.persistMentionsTimer) clearTimeout(this.persistMentionsTimer);
-    this.persistMentionsTimer = setTimeout(() => {
-      this.persistMentionsTimer = null;
-      this.write(this.mentionsKey, this.mentionCountByChannel);
-    }, 200);
+    this.persist(this.mentionsKey, () => this.mentionCountByChannel);
   }
 
   private persistUnread(): void {
-    if (!this.unreadKey || typeof window === 'undefined') return;
-    if (this.persistUnreadTimer) clearTimeout(this.persistUnreadTimer);
-    this.persistUnreadTimer = setTimeout(() => {
-      this.persistUnreadTimer = null;
-      this.write(this.unreadKey, this.unreadCountByChannel);
-    }, 200);
+    this.persist(this.unreadKey, () => this.unreadCountByChannel);
   }
   /** Quittung eines Empfangskontos verbuchen (aus `zustellung_bestaetigt`). */
   angekommenMelden(channelId: string, userId: string, ms: number): void {
