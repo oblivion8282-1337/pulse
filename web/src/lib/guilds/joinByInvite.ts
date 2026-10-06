@@ -106,15 +106,12 @@ export function parseJoinInput(input: string): ParsedJoinInput {
     if (hostParam) {
       host = decodeURIComponent(hostParam[1]);
     } else {
-      // Host aus dem URL-Schema extrahieren (wenn URL mit http(s):// beginnt)
+      // Host aus dem URL-Schema extrahieren (wenn URL mit http(s):// beginnt).
+      // Nur als Self-Host behandeln, wenn es NICHT der Cloud-Host ist.
       const urlHostMatch = trimmed.match(/^https?:\/\/([^/]+)\//i);
-      if (urlHostMatch && !trimmed.includes(CLOUD_HOSTNAME.replace('https://', ''))) {
-        const extractedHost = urlHostMatch[1];
-        // Nur als Self-Host behandeln, wenn es NICHT der Cloud-Host ist
-        const cloudHost = CLOUD_HOSTNAME.replace('https://', '').replace('http://', '');
-        if (extractedHost !== cloudHost) {
-          host = extractedHost;
-        }
+      const cloudHost = CLOUD_HOSTNAME.replace('https://', '');
+      if (urlHostMatch && !trimmed.includes(cloudHost)) {
+        host = urlHostMatch[1];
       }
     }
     return { kind: 'public', handle, host };

@@ -247,15 +247,12 @@ class SettingsStore {
   setUserVolume(userId: string, v: number): void {
     if (typeof userId !== 'string' || userId.length === 0) return;
     const clamped = clampUserVolume(v);
-    // Reassign the whole record so the rune picks up the change.
+    // Reassign the whole record so the rune picks up the change. Re-insert so
+    // the most-recently-touched key is at the end — gives FIFO eviction a
+    // rough recency bias.
     const next = { ...this.#voice.value.userVolumes };
-    if (clamped === 1) delete next[userId];
-    else {
-      // Re-insert so the most-recently-touched key is at the end — gives FIFO
-      // eviction a rough recency bias.
-      delete next[userId];
-      next[userId] = clamped;
-    }
+    delete next[userId];
+    if (clamped !== 1) next[userId] = clamped;
     this.#voice.set('userVolumes', capUserVolumes(next));
   }
   getUserVolume(userId: string): number {

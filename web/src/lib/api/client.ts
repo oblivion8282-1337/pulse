@@ -334,6 +334,21 @@ async function bearerWithReauth(
   return bearer;
 }
 
+/** Re-Auth nach einem 401 auf einem Self-Host — der gemeinsame Kern von
+ *  `fetchAuthenticated` und `requestForm`. Stößt die Re-Auth an (wartend, wenn
+ *  der awaitable Handler registriert ist, sonst fire-and-forget) und holt den
+ *  frischen Bearer. `null` = Re-Auth nicht möglich oder ohne neuen Token — der
+ *  Aufrufer wirft `SessionExpiredError`. */
+async function reauthBearer(server: ServerEntry | undefined): Promise<string | null> {
+  if (!_selfHostReauthAsync) {
+    if (_selfHostReauth) _selfHostReauth(server!.id);
+    return null;
+  }
+  const ok = await _selfHostReauthAsync(server!.id);
+  if (!ok) return null;
+  return bearerFor(server);
+}
+
 /**
  * Der gemeinsame Kern von `request` und `requestBytes`: löst Server + Auth +
  * Direktpfad auf, feuert die Anfrage und behandelt den 401-Retry — gibt aber
@@ -392,23 +407,10 @@ export async function fetchAuthenticated(
     // betroffenen Aufruf manuell wiederholen (z.B. den Submit-Button
     // zweimal drücken), während Re-Auth zwischen den Klicks läuft.
     if (isSelfHost) {
-      if (_selfHostReauthAsync) {
-        const ok = await _selfHostReauthAsync(server!.id);
-        if (ok) {
-          const freshBearer = await bearerFor(server);
-          if (freshBearer) {
-            headers['Authorization'] = `Bearer ${freshBearer}`;
-            resp = await transportFetch(server, url, { ...init, headers });
-          } else {
-            throw new SessionExpiredError(server!.id);
-          }
-        } else {
-          throw new SessionExpiredError(server!.id);
-        }
-      } else {
-        if (_selfHostReauth) _selfHostReauth(server!.id);
-        throw new SessionExpiredError(server!.id);
-      }
+      const freshBearer = await reauthBearer(server);
+      if (!freshBearer) throw new SessionExpiredError(server!.id);
+      headers['Authorization'] = `Bearer ${freshBearer}`;
+      resp = await transportFetch(server, url, { ...init, headers });
     } else {
       const refreshed = await refreshIfNeeded(true);
       if (!refreshed) throw new ApiError(401, null, 'refresh failed');
@@ -428,12 +430,23 @@ export async function request<T>(
   return parseResponse<T>(await fetchAuthenticated(path, opts, route));
 }
 
-async function parseResponse<T>(resp: Response): Promise<T> {
+/** JSON-Antwort deuten (geteilt mit `cookie-client.ts`): 204 ohne Körper,
+ *  Fehler als `ApiError` mit geparstem Fehlerkörper. */
+export async function parseResponse<T>(resp: Response): Promise<T> {
   if (resp.status === 204) return undefined as T;
   const text = await resp.text();
   const data = text ? safeParse(text) : null;
   if (!resp.ok) throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
   return data as T;
+}
+
+/** `ApiError` aus einer nicht-ok Antwort bauen — für Rohbytes-Routen, die ihre
+ *  Antwort selbst lesen und dafür `parseResponse` nicht nutzen können
+ *  (`ablageArchiv.ts`, `ablageKanal.ts`). */
+export async function apiFehlerAus(resp: Response): Promise<ApiError> {
+  const text = await resp.text().catch(() => '');
+  const data = text ? safeParse(text) : null;
+  return new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
 }
 
 export function currentAccessToken(): string | null {
@@ -485,22 +498,9 @@ export async function requestForm<T>(
   let resp = await fetch(url, make(bearer));
   if (resp.status === 401) {
     if (isSelfHost) {
-      if (_selfHostReauthAsync) {
-        const ok = await _selfHostReauthAsync(server!.id);
-        if (ok) {
-          const freshBearer = await bearerFor(server);
-          if (freshBearer) {
-            resp = await fetch(url, make(freshBearer));
-          } else {
-            throw new SessionExpiredError(server!.id);
-          }
-        } else {
-          throw new SessionExpiredError(server!.id);
-        }
-      } else {
-        if (_selfHostReauth) _selfHostReauth(server!.id);
-        throw new SessionExpiredError(server!.id);
-      }
+      const freshBearer = await reauthBearer(server);
+      if (!freshBearer) throw new SessionExpiredError(server!.id);
+      resp = await fetch(url, make(freshBearer));
     } else {
       const refreshed = await refreshIfNeeded(true);
       if (!refreshed) throw new ApiError(401, null, 'refresh failed');

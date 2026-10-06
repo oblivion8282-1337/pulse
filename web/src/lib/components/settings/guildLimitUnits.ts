@@ -17,7 +17,7 @@ export const RESOLUTION_LADDER = ['Native', '4K', '1440p', '1080p', '720p', '480
 
 /** Wire-Wert → Anzeige-String ('' wenn nichts gesetzt). */
 export function toDisplay(wire: number | string | null, kind: LimitKind): string {
-  if (wire === null || wire === undefined) return '';
+  if (wire == null) return '';
   if (kind === 'resolution') return String(wire);
   const n = Number(wire);
   if (kind === 'mbps') return String(n / 1000);
@@ -29,7 +29,7 @@ export function toDisplay(wire: number | string | null, kind: LimitKind): string
 /** Anzeige-Wert → Wire (null wenn leer/ungültig). */
 export function toWire(display: unknown, kind: LimitKind): number | string | null {
   if (kind === 'resolution') return display ? String(display) : null;
-  if (display === '' || display === null || display === undefined) return null;
+  if (display === '' || display == null) return null;
   const n = Number(display);
   if (!Number.isFinite(n)) return null;
   if (kind === 'mbps') return Math.round(n * 1000);

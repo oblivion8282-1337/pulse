@@ -18,8 +18,7 @@
  * irgendetwas hier ankommt.
  */
 
-import { ApiError, fetchAuthenticated, request, type RequestRoute } from './client';
-import { extractDetail, safeParse } from './parse';
+import { apiFehlerAus, fetchAuthenticated, request, type RequestRoute } from './client';
 import { serversStore } from './servers.svelte';
 
 /**
@@ -83,11 +82,7 @@ export async function archivSchreiben(
 		{ method: 'PUT', body: inhalt as unknown as BodyInit },
 		route
 	);
-	if (!resp.ok) {
-		const text = await resp.text().catch(() => '');
-		const data = text ? safeParse(text) : null;
-		throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
-	}
+	if (!resp.ok) throw await apiFehlerAus(resp);
 }
 
 /** Holt `pfad` aus dem Archiv-Ordner. `null`, wenn es die Datei dort nicht
@@ -103,11 +98,7 @@ export async function archivAbruf(
 		route
 	);
 	if (resp.status === 404) return null;
-	if (!resp.ok) {
-		const text = await resp.text().catch(() => '');
-		const data = text ? safeParse(text) : null;
-		throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
-	}
+	if (!resp.ok) throw await apiFehlerAus(resp);
 	return new Uint8Array(await resp.arrayBuffer());
 }
 

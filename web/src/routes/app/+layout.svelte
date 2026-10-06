@@ -424,12 +424,16 @@
   // einen Textkanal wechselt und dann kippt, verlöre sonst Leiste, Dock,
   // Community-Leiste und Kanalliste gleichzeitig — auf einem Textchat, der
   // von dem Stream gar nichts weiss.
-  let kanalQuerStream = $derived(
-    viewport.istHandy &&
-      !viewport.isMobile &&
-      voice.connected &&
+  // Der Kanal, in dem der Stream WIRKLICH läuft, einen angedockten Stream
+  // hat — die Viewport-unabhängige Kernbedingung, die auch die Orientierungs-
+  // Sperre unten nutzt (dort ohne die Viewport-Anteile, s. Kommentar dort).
+  let streamAngedockt = $derived(
+    voice.connected &&
       istAktiverSprachKanal(page.url.pathname, voice.channelId) &&
       openedTiles.hasAny(voice.channelId!)
+  );
+  let kanalQuerStream = $derived(
+    viewport.istHandy && !viewport.isMobile && streamAngedockt
   );
   let zeigeLeisteUnten = $derived(
     hydrated &&
@@ -493,10 +497,9 @@
   // Viewport-Anteile (die hängen am aktuellen Format und würden die Sperre
   // sonst selbst blockieren: gesperrtes Hochformat ⇒ nie breit ⇒ nie frei).
   $effect(() => {
-    const streamAngedockt =
-      voice.connected &&
-      istAktiverSprachKanal(page.url.pathname, voice.channelId) &&
-      openedTiles.hasAny(voice.channelId!);
+    // streamAngedockt ist kanalQuerStream OHNE die Viewport-Anteile: gesperrtes
+    // Hochformat ⇒ nie breit ⇒ kanalQuerStream würde die Sperre sonst selbst
+    // blockieren (s. Kommentar zu kanalQuerStream oben).
     void orientierungSperren(!streamAngedockt);
   });
 

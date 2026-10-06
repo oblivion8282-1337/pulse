@@ -144,17 +144,15 @@ import { auth } from '$lib/stores/auth.svelte';
     return readState.istGelesen(nachricht.channel_id, lesestandAnker(nachricht)) ?? undefined;
   }
 
-  /** Gruppen-Lesebestätigung (Befund 05.10., Michaels Wahl „Haken wenn
-   *  alle gelesen"): blau erst, wenn ALLE anderen Mitglieder bis zu dieser
-   *  Nachricht durch sind — sonst verbleibt der einfache Haken. */
-  const gruppenLesestand = $derived(privateGruppen.byId[message.channel_id]);
   /** Diese Nachricht liegt in einer privaten Gruppe (statt einer DM)? */
   const gruppe = $derived(privateGruppen.byId[message.channel_id] ?? undefined);
 
+  /** Gruppen-Lesebestätigung (Befund 05.10., Michaels Wahl „Haken wenn
+   *  alle gelesen"): blau erst, wenn ALLE anderen Mitglieder bis zu dieser
+   *  Nachricht durch sind — sonst verbleibt der einfache Haken. */
   function gruppeAlleGelesenFuer(nachricht: Message): boolean | undefined {
     if (layout !== 'bubble' && layout !== 'row') return undefined;
     if (!istEigene || nachricht.id.startsWith('tmp-')) return undefined;
-    const gruppe = gruppenLesestand;
     if (!gruppe) return undefined;
     const ich = auth.user?.id;
     if (!ich) return undefined;
@@ -279,6 +277,15 @@ import { auth } from '$lib/stores/auth.svelte';
     onReport: () => (reportOpen = true),
     onTogglePin: onTogglePin ? () => onTogglePin(message) : undefined
   });
+
+  // Lese-/Zustell-Häkchen (nur eigene Nachrichten in DM/Gruppe) — beide
+  // Layout-Zweige (bubble + row) zeigen dieselben Werte, daher einmal hergeleitet.
+  const leseBestaetigt = $derived(
+    gruppe ? gruppeAlleGelesenFuer(message) : leseBestaetigtFuer(message)
+  );
+  const zugestellt = $derived(
+    gruppe && gruppeAlleGelesenFuer(message) !== true ? angekommenFuer(message) : undefined
+  );
 </script>
 
 {#snippet body()}
@@ -365,8 +372,8 @@ import { auth } from '$lib/stores/auth.svelte';
     {time}
     eigen={istEigene}
     pending={isPending}
-    leseBestaetigt={gruppe ? gruppeAlleGelesenFuer(message) : leseBestaetigtFuer(message)}
-    zugestellt={gruppe && gruppeAlleGelesenFuer(message) !== true ? angekommenFuer(message) : undefined}
+    leseBestaetigt={leseBestaetigt}
+    zugestellt={zugestellt}
     onSwipeReply={() => onReply(message)}
     {isContinuation}
     {isGroupEnd}
@@ -385,8 +392,8 @@ import { auth } from '$lib/stores/auth.svelte';
     {isContinuation}
     {highlight}
     pending={isPending}
-    leseBestaetigt={gruppe ? gruppeAlleGelesenFuer(message) : leseBestaetigtFuer(message)}
-    zugestellt={gruppe && gruppeAlleGelesenFuer(message) !== true ? angekommenFuer(message) : undefined}
+    leseBestaetigt={leseBestaetigt}
+    zugestellt={zugestellt}
     onLongPress={openSheet}
     {guildId}
     {body}

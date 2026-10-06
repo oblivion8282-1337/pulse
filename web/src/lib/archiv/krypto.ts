@@ -97,7 +97,6 @@ async function gcm(
 
 export type ArchivSchluesselPaar = { pubkey: Uint8Array; privkey: Uint8Array };
 
-/** base64url → Bytes (JWK-Feld „d“). */
 /** Bytes → base64url (JWK-Felder). */
 function bytesZuB64url(bytes: Uint8Array): string {
 	let binär = '';
@@ -105,6 +104,7 @@ function bytesZuB64url(bytes: Uint8Array): string {
 	return btoa(binär).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/** base64url → Bytes (JWK-Feld „d“). */
 function b64urlZuBytes(wert: string): Uint8Array {
 	const rest = wert.length % 4;
 	const basis64 = wert.replace(/-/g, '+').replace(/_/g, '/') + (rest ? '='.repeat(4 - rest) : '');

@@ -4,7 +4,7 @@
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import MessageItem from './MessageItem.svelte';
-  import { plainifyMentions } from './messageRender';
+  import { plainifyMentions, snippet80 } from './messageRender';
   import { messages as messageStore } from '$lib/stores/messages.svelte';
   import { ladeAeltereSeite } from '$lib/verlauf/nachladen';
   import {
@@ -689,18 +689,13 @@
     return safeAvatarUrl(raw);
   }
 
-  function snippet(text: string): string {
-    const t = text.replace(/\s+/g, ' ').trim();
-    return t.length > 80 ? t.slice(0, 77) + '…' : t;
-  }
-
   function replyMetaFor(m: Message): { id: string; author: string; snippet: string } | null {
     if (!m.reply_to_id) return null;
     const parent = findeReplyZiel(messages, m.reply_to_id);
     if (!parent) {
       return { id: m.reply_to_id, author: '…', snippet: pm.chat_view_older_message() };
     }
-    return { id: parent.id, author: authorName(parent), snippet: snippet(plainifyMentions(parent.content)) };
+    return { id: parent.id, author: authorName(parent), snippet: snippet80(plainifyMentions(parent.content)) };
   }
 
   // Virtualisierungssicher: index-basiert statt querySelector (das Ziel ist

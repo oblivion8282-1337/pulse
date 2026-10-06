@@ -45,6 +45,14 @@ export function getPushPermissionState(): PushPermissionState {
   return Notification.permission as PushPermissionState;
 }
 
+/** Die Notification-API der *In-Page*-Pfade, oder `null` ohne sie (SSR,
+ *  Electron mit eigenem nativen Toaster, alter Browser). Geteilte Wache von
+ *  `getNotificationPermissionState` und `requestNotificationPermission`. */
+function notificationApi(): typeof Notification | null {
+  if (typeof window === 'undefined' || isElectron()) return null;
+  return 'Notification' in window ? Notification : null;
+}
+
 /**
  * OS-notification permission state for the *in-page* path (WS-driven toasts via
  * `inPage.ts`), independent of web-push. Unlike `getPushPermissionState` this
@@ -53,9 +61,8 @@ export function getPushPermissionState(): PushPermissionState {
  * notifications. Electron has its own native bridge → 'unsupported'.
  */
 export function getNotificationPermissionState(): PushPermissionState {
-  if (typeof window === 'undefined' || isElectron()) return 'unsupported';
-  if (!('Notification' in window)) return 'unsupported';
-  return Notification.permission as PushPermissionState;
+  const n = notificationApi();
+  return n ? (n.permission as PushPermissionState) : 'unsupported';
 }
 
 /**
@@ -65,9 +72,9 @@ export function getNotificationPermissionState(): PushPermissionState {
  * user never enables server push (or the server has push disabled).
  */
 export async function requestNotificationPermission(): Promise<PushPermissionState> {
-  if (typeof window === 'undefined' || isElectron()) return 'unsupported';
-  if (!('Notification' in window)) return 'unsupported';
-  const result = await Notification.requestPermission();
+  const n = notificationApi();
+  if (!n) return 'unsupported';
+  const result = await n.requestPermission();
   return result as PushPermissionState;
 }
 
