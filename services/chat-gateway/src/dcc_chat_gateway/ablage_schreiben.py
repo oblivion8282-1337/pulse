@@ -97,6 +97,46 @@ async def _antwort_mit_cap(
         return antwort.status_code, bytes(stueck)
 
 
+async def _pruefen_und_senden(
+    url: str,
+    *,
+    methode: str,
+    timeout_s: float,
+    resolver: Resolver,
+    http: httpx.AsyncClient | None,
+    kopf: dict[str, str] | None = None,
+    content: bytes | None = None,
+) -> tuple[int, bytes]:
+    """Gemeinsamer Rahmen von Schreiben, Listen und Loeschen: eigener Client
+    nur, wenn keiner mitkommt; SSRF-Pruefung und Ankerung laufen INNERHALB
+    derselben Gesamtfrist wie die Anfrage selbst; Netzfehler werden auf die
+    Ablage-Fehlercodes abgebildet. Der Status bleibt beim Aufrufer — die
+    Methode bestimmt, welche Codes Erfolg bedeuten."""
+    eigener_client = http is None
+    client = http if http is not None else client_ctor(
+        timeout=timeout_s, follow_redirects=False
+    )
+    try:
+        async with asyncio.timeout(timeout_s):
+            adresse = await pruefe_ziel_oeffentlich(url, resolver)
+            verankert, host = _url_auf_adresse_verankern(url, adresse)
+            return await _antwort_mit_cap(
+                client,
+                methode,
+                verankert,
+                host,
+                headers={"Host": host, **(kopf or {})},
+                content=content,
+            )
+    except TimeoutError as exc:
+        raise AblageAbrufFehler("zeit_ueberschritten") from exc
+    except httpx.HTTPError as exc:
+        raise AblageAbrufFehler("upstream_nicht_erreichbar") from exc
+    finally:
+        if eigener_client:
+            await client.aclose()
+
+
 async def schreibe(
     *,
     basis: str,
@@ -130,31 +170,20 @@ async def schreibe(
 
     tatsaechlicher_resolver = resolver if resolver is not None else standard_resolver
     url = baue_ziel_url(basis, normalisiere_pfad(pfad))
-
-    eigener_client = http is None
-    client = http if http is not None else client_ctor(
-        timeout=timeout_s, follow_redirects=False
+    status, _koerper = await _pruefen_und_senden(
+        url,
+        methode="PUT",
+        timeout_s=timeout_s,
+        resolver=tatsaechlicher_resolver,
+        http=http,
+        content=inhalt,
     )
-    try:
-        async with asyncio.timeout(timeout_s):
-            adresse = await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
-            verankert, host = _url_auf_adresse_verankern(url, adresse)
-            status, _koerper = await _antwort_mit_cap(
-                client, "PUT", verankert, host, headers={"Host": host}, content=inhalt
-            )
-            if status in (301, 302, 303, 307, 308):
-                raise AblageAbrufFehler("umleitung_beim_schreiben")
-            # 200/201/204 decken die Antworten ab, die WebDAV-Aufstellungen
-            # auf ein erfolgreiches PUT geben (neu angelegt bzw. ersetzt).
-            if status not in (200, 201, 204):
-                raise AblageAbrufFehler("upstream_fehler")
-    except TimeoutError as exc:
-        raise AblageAbrufFehler("zeit_ueberschritten") from exc
-    except httpx.HTTPError as exc:
-        raise AblageAbrufFehler("upstream_nicht_erreichbar") from exc
-    finally:
-        if eigener_client:
-            await client.aclose()
+    if status in (301, 302, 303, 307, 308):
+        raise AblageAbrufFehler("umleitung_beim_schreiben")
+    # 200/201/204 decken die Antworten ab, die WebDAV-Aufstellungen
+    # auf ein erfolgreiches PUT geben (neu angelegt bzw. ersetzt).
+    if status not in (200, 201, 204):
+        raise AblageAbrufFehler("upstream_fehler")
 
 
 async def liste(
@@ -182,30 +211,19 @@ async def liste(
     """
     tatsaechlicher_resolver = resolver if resolver is not None else standard_resolver
     url = basis if basis.endswith("/") else f"{basis}/"
-
-    eigener_client = http is None
-    client = http if http is not None else client_ctor(
-        timeout=timeout_s, follow_redirects=False
+    status, koerper = await _pruefen_und_senden(
+        url,
+        methode="PROPFIND",
+        timeout_s=timeout_s,
+        resolver=tatsaechlicher_resolver,
+        http=http,
+        kopf={"Depth": "1"},
     )
-    try:
-        async with asyncio.timeout(timeout_s):
-            adresse = await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
-            verankert, host = _url_auf_adresse_verankern(url, adresse)
-            status, koerper = await _antwort_mit_cap(
-                client, "PROPFIND", verankert, host, headers={"Host": host, "Depth": "1"}
-            )
-            if status == 404:
-                return []
-            if status not in (200, 207):
-                raise AblageAbrufFehler("upstream_fehler")
-            return _namen_aus_propfind(koerper.decode("utf-8", "replace"), url)
-    except TimeoutError as exc:
-        raise AblageAbrufFehler("zeit_ueberschritten") from exc
-    except httpx.HTTPError as exc:
-        raise AblageAbrufFehler("upstream_nicht_erreichbar") from exc
-    finally:
-        if eigener_client:
-            await client.aclose()
+    if status == 404:
+        return []
+    if status not in (200, 207):
+        raise AblageAbrufFehler("upstream_fehler")
+    return _namen_aus_propfind(koerper.decode("utf-8", "replace"), url)
 
 
 async def loesche(
@@ -235,28 +253,17 @@ async def loesche(
     """
     tatsaechlicher_resolver = resolver if resolver is not None else standard_resolver
     url = baue_ziel_url(basis, normalisiere_pfad(pfad))
-    eigener_client = http is None
-    client = http if http is not None else client_ctor(
-        timeout=timeout_s, follow_redirects=False
+    status, _koerper = await _pruefen_und_senden(
+        url,
+        methode="DELETE",
+        timeout_s=timeout_s,
+        resolver=tatsaechlicher_resolver,
+        http=http,
     )
-    try:
-        async with asyncio.timeout(timeout_s):
-            adresse = await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
-            verankert, host = _url_auf_adresse_verankern(url, adresse)
-            status, _koerper = await _antwort_mit_cap(
-                client, "DELETE", verankert, host, headers={"Host": host}
-            )
-            if status in (301, 302, 303, 307, 308):
-                raise AblageAbrufFehler("umleitung_beim_loeschen")
-            if status not in (200, 204, 404):
-                raise AblageAbrufFehler("upstream_fehler")
-    except TimeoutError as exc:
-        raise AblageAbrufFehler("zeit_ueberschritten") from exc
-    except httpx.HTTPError as exc:
-        raise AblageAbrufFehler("upstream_nicht_erreichbar") from exc
-    finally:
-        if eigener_client:
-            await client.aclose()
+    if status in (301, 302, 303, 307, 308):
+        raise AblageAbrufFehler("umleitung_beim_loeschen")
+    if status not in (200, 204, 404):
+        raise AblageAbrufFehler("upstream_fehler")
 
 
 def _namen_aus_propfind(xml: str, basis_url: str) -> list[str]:
