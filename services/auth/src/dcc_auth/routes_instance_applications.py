@@ -20,8 +20,6 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from dcc_shared.snowflake import kennung_aus_text
-
 from dcc_auth.bootstrap import (
     bootstrap_redeemed,
     drop_unredeemed_tokens,
@@ -33,6 +31,7 @@ from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.instance_env_file import render_instance_env
 from dcc_auth.instance_provisioning import (
+    eigene_instanz_oder_404,
     provision_app_host_instance,
     user_has_active_owner_instance,
 )
@@ -386,13 +385,8 @@ async def generate_env_file(
     settings = get_settings()
     await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
 
-    iid = kennung_aus_text(instance_id)
-    if iid is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
-
-    inst = await db.get(RegisteredInstance, iid, with_for_update=True)
-    if inst is None or inst.registered_by != user.id or inst.status == "deleted":
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+    inst = await eigene_instanz_oder_404(db, user.id, instance_id, with_for_update=True)
+    iid = inst.id
 
     # Das Recht haengt an DIESER Instanz, nicht am Nutzer (s. Docstring):
     # gesperrt heisst gesperrt, und das Nutzer-Flag zaehlt nur dort, wo es
@@ -491,13 +485,8 @@ async def mint_bootstrap_token(
     settings = get_settings()
     await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
 
-    iid = kennung_aus_text(instance_id)
-    if iid is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
-
-    inst = await db.get(RegisteredInstance, iid)
-    if inst is None or inst.registered_by != user.id or inst.status == "deleted":
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+    inst = await eigene_instanz_oder_404(db, user.id, instance_id)
+    iid = inst.id
 
     # One-shot nach erfolgreichem Setup: ein bereits eingelöstes Token
     # blockiert weitere Mints — außer beim expliziten Reset (s. Docstring).

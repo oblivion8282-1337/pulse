@@ -51,17 +51,11 @@ class GastTicketOut(BaseModel):
     expires_in: int
 
 
-async def _check_internal_secret(request: Request, provided: str | None) -> None:
+def _internal_secret_oder_401(provided: str | None) -> None:
     """Fail-closed: ohne serverseitiges Geheimnis ist die Route zu.
 
-    Die Bremse sitzt VOR dem Vergleich — abgewiesene Versuche zählen mit,
-    sonst wäre Raten auf das Secret ungedrosselt (Audit 2026-09; die
-    Proxy-Sperre für ``/api/auth/internal/*`` ist die erste Schicht)."""
-    await _check_rate(
-        request,
-        "internal_secret",
-        _config.get_settings().rate_limit_internal_secret,
-    )
+    Der Vergleichsweg für die chat-gateway-Rückkanäle (Gast-Ticket,
+    Meldungen, Relay-Tunnel-Auth) — je einmal hier, nicht je Modul gespiegelt."""
     expected = _config.get_settings().internal_service_secret
     if not expected:
         raise HTTPException(
@@ -72,6 +66,19 @@ async def _check_internal_secret(request: Request, provided: str | None) -> None
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret"
         )
+
+
+async def _check_internal_secret(request: Request, provided: str | None) -> None:
+    """Rate-Limit-Schale um ``_internal_secret_oder_401`` — die Bremse sitzt
+    VOR dem Vergleich, sonst wäre Raten auf das Secret ungedrosselt
+    (Audit 2026-09; die Proxy-Sperre für ``/api/auth/internal/*`` ist die
+    erste Schicht)."""
+    await _check_rate(
+        request,
+        "internal_secret",
+        _config.get_settings().rate_limit_internal_secret,
+    )
+    _internal_secret_oder_401(provided)
 
 
 @router.post("/internal/guest-token", response_model=GastTicketOut)

@@ -22,6 +22,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dcc_shared.snowflake import kennung_aus_text
+
 from dcc_auth.config import get_settings
 from dcc_auth.models_instances import RegisteredInstance, UserInstanceMembership
 from dcc_auth.routes_admin_instances import _allocate_worker_ids
@@ -38,6 +40,23 @@ def app_host_placeholder_hostname(application_id: int) -> str:
     DNS. Die Instanz bekommt bei der Approval ihren EIGENEN Platzhalter mit der
     Instanz-ID (:func:`provision_app_host_instance`)."""
     return f"app-{application_id}.{get_settings().pulse_relay_base_domain}"
+
+
+async def eigene_instanz_oder_404(
+    db: AsyncSession, user_id: int, instance_id: str, *, with_for_update: bool = False
+) -> RegisteredInstance:
+    """Owner-Zugriff auf eine Instanz, je einmal statt je Route: 404 statt 403
+    gegen Existence-Leak — ungültige Kennung, fremde Instanz und gelöschte
+    Instanz liefern dasselbe „Instanz nicht gefunden" (Muster der
+    Nachbar-Routen in instance_applications/-delete)."""
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+
+    inst = await db.get(RegisteredInstance, iid, with_for_update=with_for_update)
+    if inst is None or inst.registered_by != user_id or inst.status == "deleted":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+    return inst
 
 
 async def user_has_active_owner_instance(session: AsyncSession, user_id: int) -> bool:

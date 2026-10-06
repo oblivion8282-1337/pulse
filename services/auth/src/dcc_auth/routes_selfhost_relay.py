@@ -20,8 +20,8 @@ from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import RegisteredInstance
 from dcc_auth.relay import hash_relay_token
 from dcc_auth.routes import _check_rate
-from dcc_auth.security import constant_time_eq
 from dcc_auth.routes_admin_instances import _require_cloud
+from dcc_auth.routes_gast_ticket import _internal_secret_oder_401
 
 router = APIRouter(tags=["self-host"], dependencies=[Depends(_require_cloud)])
 
@@ -35,19 +35,6 @@ class RelayAuthIn(BaseModel):
 class RelayAuthOut(BaseModel):
     instance_id: str
     subdomain: str
-
-
-def _check_internal_secret(provided: str | None) -> None:
-    """Fail-closed wenn das server-seitige Secret nicht gesetzt ist
-    (Muster: routes_gast_ticket.py::_check_internal_secret)."""
-    expected = get_settings().internal_service_secret
-    if not expected:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
-        )
-    if not provided or not constant_time_eq(provided, expected):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret")
 
 
 @router.post("/selfhost/relay/auth", response_model=RelayAuthOut)
@@ -65,7 +52,7 @@ async def relay_auth(
     relay subdomain`` vs. ``invalid relay token`` verriete sonst, ob eine
     Subdomain existiert (Enumeration)."""
     await _check_rate(request, "relay_auth", get_settings().rate_limit_relay_tls_check)
-    _check_internal_secret(x_pulse_internal_secret)
+    _internal_secret_oder_401(x_pulse_internal_secret)
 
     inst = (
         await db.execute(

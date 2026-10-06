@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from dcc_auth.security import JwtSigner, constant_time_eq, get_signer
+from dcc_auth.security import JwtSigner, get_signer
 
 from dcc_auth import config as _config
 from dcc_auth.complaints_support import (
@@ -44,6 +44,7 @@ from dcc_auth.email import (
 from dcc_auth.models import User
 from dcc_auth.models_instances import Complaint
 from dcc_auth.routes import _check_rate, _require_admin
+from dcc_auth.routes_gast_ticket import _internal_secret_oder_401
 from dcc_auth.snowflake import next_id
 
 log = logging.getLogger(__name__)
@@ -59,21 +60,6 @@ _REPORTER_RESOLVED_DM = (
     "Deine Meldung wurde vom Betreiberteam geprüft und bearbeitet. "
     "Danke für deinen Hinweis."
 )
-
-
-def _check_internal_secret(provided: str | None) -> None:
-    """Mirror of ``routes_gast_ticket.py::_check_internal_secret``. Fail-closed when
-    the server-side secret is unset."""
-    expected = _config.get_settings().internal_service_secret
-    if not expected:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
-        )
-    if not provided or not constant_time_eq(provided, expected):
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret"
-        )
 
 
 class InternalComplaintCreate(BaseModel):
@@ -103,7 +89,7 @@ async def create_internal_complaint(
     internal secret, not a user token. Lands in the operator's complaint
     inbox with ``status='new'`` exactly like a public abuse report.
     """
-    _check_internal_secret(x_pulse_internal_secret)
+    _internal_secret_oder_401(x_pulse_internal_secret)
 
     complaint = Complaint(
         id=next_id(),
