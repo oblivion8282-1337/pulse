@@ -254,41 +254,40 @@ impl DirektSitzung {
 
     /// Den Zustands-Callback fuer die PeerConnection bauen: setzt jeden
     /// Wechsel auf einen DEDUPLIZIERTEN `direct_state`-Text um.
-    fn zustand_forwarder(
-        &self,
-    ) -> Arc<dyn Fn(RTCPeerConnectionState) + Send + Sync> {
+    fn zustand_forwarder(&self) -> Arc<dyn Fn(RTCPeerConnectionState) + Send + Sync> {
         let zuletzt = self.zuletzt.clone();
         let stdout = self.stdout.clone();
         Arc::new(move |zustand| {
-            let text = zustand_als_text(zustand);
-            let mut g = match zuletzt.lock() {
-                Ok(g) => g,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            if *g != Some(text) {
-                *g = Some(text);
-                stdout.send(&crate::proto::Event::new(
-                    "direct_state",
-                    serde_json::json!({ "state": text }),
-                ));
-            }
+            melde_auf(&zuletzt, &stdout, zustand_als_text(zustand));
         })
     }
 
     /// `direct_state` aus dem Sitzungskontext heraus melden (fuer die
     /// Zustände, die kein Zustandswechsel der PeerConnection ausloest).
     fn melde(&mut self, text: &'static str) {
-        let mut g = match self.zuletzt.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        if *g != Some(text) {
-            *g = Some(text);
-            self.stdout.send(&crate::proto::Event::new(
-                "direct_state",
-                serde_json::json!({ "state": text }),
-            ));
-        }
+        melde_auf(&self.zuletzt, &self.stdout, text);
+    }
+}
+
+/// Der gemeinsame Rumpf beider Meldewege (Zustands-Callback und
+/// Sitzungskontext): identische Texte ausfiltern und das `direct_state`-Ereignis
+/// senden. **Eine Fassung**, weil die Entdoppelung die Vereinbarung mit dem
+/// Renderer traegt (s. Modulkopf) — zwei koennten auseinanderlaufen.
+fn melde_auf(
+    zuletzt: &Mutex<Option<&'static str>>,
+    stdout: &StdoutWriter,
+    text: &'static str,
+) {
+    let mut g = match zuletzt.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if *g != Some(text) {
+        *g = Some(text);
+        stdout.send(&crate::proto::Event::new(
+            "direct_state",
+            serde_json::json!({ "state": text }),
+        ));
     }
 }
 
