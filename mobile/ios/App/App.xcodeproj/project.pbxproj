@@ -199,6 +199,7 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				A1B2C3D4E5F6071800000001 /* AppUITests */,
 			);
 		};
 /* End PBXProject section */

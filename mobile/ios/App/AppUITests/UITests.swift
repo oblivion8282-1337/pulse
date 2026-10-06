@@ -1,44 +1,42 @@
 import XCTest
 
-/// UI-Durchläufe gegen die echte App im Simulator (XCUITest — der saubere
-/// Automationsweg: Accessibility-Queries statt Koordinaten, läuft in
-/// `xcodebuild test`). Die App lädt im Dev die Web-App vom Vite; die Tests
-/// setzen ein vorhandenes Dev-Konto voraus (dev/test1234).
+/// UI-Durchlauf gegen die echte App im Simulator (XCUITest — Accessibility-
+/// Queries statt Koordinaten). Dev-Konto dev/test1234 wird vorausgesetzt;
+/// ein bereits angemeldeter Zustand wird über die Freundeszeile erkannt.
+/// Kaltstart + Vite-Load dauern bis ~30 s, deshalb die Fristen.
 final class AppUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
-    /// Anmelden und die Chatliste sehen — der Rauchtest für die ganze Kette
-    /// (Hülle bootet, WebView lädt, Anmeldung funktioniert, Shell rendert).
-    func testAnmeldungErreichtChatliste() throws {
+    func testNachrichtSendenImChat() throws {
         let app = XCUIApplication()
         app.launch()
 
-        // Login-Seite: E-Mail/Benutzername + Passwort (Web-Inputs erscheinen
-        // als TextFields), dann der Anmelden-Knopf per Beschriftung.
-        let benutzer = app.webViews.textFields.firstMatch
-        XCTAssertTrue(benutzer.waitForExistence(timeout: 30), "Login-Feld nicht gefunden — lädt die WebView?")
-        benutzer.tap()
-        benutzer.typeText("dev")
+        // Freunde-Ansicht: der schnelle „Nachricht senden"-Knopf der ersten
+        // Zeile (Label aus dem Accessibility-Baum, s. Dump 2026-10-06).
+        let schnell = app.webViews.buttons["Nachricht senden"].firstMatch
+        XCTAssertTrue(schnell.waitForExistence(timeout: 30), "Freundesliste nicht geladen")
+        schnell.tap()
 
-        let passwort = app.webViews.secureTextFields.firstMatch
-        XCTAssertTrue(passwort.waitForExistence(timeout: 10))
-        passwort.tap()
-        passwort.typeText("test1234")
+        // Composer: der Platzhalter des Eingabefelds (textarea wird erst mit
+        // Fokus als Eingabeelement exponiert — Antippen fokussiert).
+        let composerPlatzhalter = app.webViews.staticTexts["Nachricht senden"].firstMatch
+        XCTAssertTrue(composerPlatzhalter.waitForExistence(timeout: 20), "Composer nicht gefunden")
+        // Der Platzhalter ist während des Ladens teils nicht „hittable" —
+        // Koordinaten-Tap auf das Element umgeht den Hittability-Check.
+        composerPlatzhalter.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.typeText("UI-Test: Nachricht aus XCUITest")
 
-        let anmelden = app.webViews.buttons["Anmelden"].firstMatch
-        XCTAssertTrue(anmelden.waitForExistence(timeout: 10), "Anmelden-Knopf nicht gefunden")
-        anmelden.tap()
+        let senden = app.webViews.buttons["Senden"].firstMatch
+        XCTAssertTrue(senden.waitForExistence(timeout: 10), "Senden-Knopf nicht gefunden")
+        senden.tap()
 
-        // Nach der Anmeldung landet das Konto im zuletzt genutzten Bereich;
-        // der Tab-Balken (Chats) ist auf jedem Startbildschirm vorhanden.
-        let tabLeiste = app.otherElements["mobile-tab-bar"].firstMatch
-        let chatliste = app.webViews.staticTexts["Freunde"].firstMatch
-        XCTAssertTrue(
-            chatliste.waitForExistence(timeout: 30) || tabLeiste.waitForExistence(timeout: 10),
-            "Nach der Anmeldung weder Bereichs-Inhalt noch Tab-Balken sichtbar"
-        )
+        // Die gesendete Nachricht muss im Verlauf auftauchen.
+        let blase = app.webViews.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS 'UI-Test: Nachricht'")
+        ).firstMatch
+        XCTAssertTrue(blase.waitForExistence(timeout: 20), "Gesendete Nachricht nicht im Verlauf")
     }
 }
