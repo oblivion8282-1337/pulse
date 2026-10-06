@@ -204,23 +204,30 @@ set -l internal_env "INTERNAL_SERVICE_SECRET=$internal_secret"
 
 _info "Uvicorns starten (mit --reload)"
 
+# Direkt ueber das Projekt-venv statt `uv run`: der uv-Workspace (root
+# pyproject.toml) fasst alle Services in EIN Environment (.venv am Repo-Root —
+# genau dorthin resolved `uv run` in services/*), und der venv-uvicorn-Träger
+# hat den venv-Python-Shebang. `uv run` als Launcher kostete je Prozess
+# ~260 MiB Wrapper-RAM ohne dem Server etwas zu geben. Sync/Check bleibt:
+# der Alembic-Schritt oben läuft weiter über `uv run`.
+
 # auth (8001)
-bash -c "cd services/auth && env $pg_env $jwt_env $common_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 setsid nohup uv run uvicorn dcc_auth.app:app --host 127.0.0.1 --port 8001 --reload > /tmp/dcc-auth.log 2>&1 < /dev/null &"
+bash -c "cd services/auth && env $pg_env $jwt_env $common_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 setsid nohup $repo_root/.venv/bin/uvicorn dcc_auth.app:app --host 127.0.0.1 --port 8001 --reload > /tmp/dcc-auth.log 2>&1 < /dev/null &"
 
 # chat-gateway (8002)
-bash -c "cd services/chat-gateway && env $pg_env $common_env $internal_env $upload_env MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 --ws-max-size 65536 --reload > /tmp/dcc-chat.log 2>&1 < /dev/null &"
+bash -c "cd services/chat-gateway && env $pg_env $common_env $internal_env $upload_env MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup $repo_root/.venv/bin/uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 --ws-max-size 65536 --reload > /tmp/dcc-chat.log 2>&1 < /dev/null &"
 
 # voice-signaling (8003) — braucht INTERNAL_SERVICE_SECRET, damit der
 # participant_left-Webhook den chat-gateway-Revoke-Endpoint authentifiziert
 # aufrufen kann (sonst bleibt ein Voice-Pull-Grant beim Verlassen stehen).
-bash -c "cd services/voice-signaling && env $common_env $lk_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_voice_signaling.app:app --host 127.0.0.1 --port 8003 --reload > /tmp/dcc-voice.log 2>&1 < /dev/null &"
+bash -c "cd services/voice-signaling && env $common_env $lk_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup $repo_root/.venv/bin/uvicorn dcc_voice_signaling.app:app --host 127.0.0.1 --port 8003 --reload > /tmp/dcc-voice.log 2>&1 < /dev/null &"
 
 # media-svc (8004) — INTERNAL_SERVICE_SECRET noetig seit dem Member-Routen-Gate
 # (Audit 2026-09-16): ohne Header nimmt media-svc Proxy-Aufrufe nicht mehr an.
-bash -c "cd services/media-svc && env $common_env $internal_env MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list setsid nohup uv run uvicorn dcc_media_svc.app:app --host 127.0.0.1 --port 8004 --reload > /tmp/dcc-media.log 2>&1 < /dev/null &"
+bash -c "cd services/media-svc && env $common_env $internal_env MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list setsid nohup $repo_root/.venv/bin/uvicorn dcc_media_svc.app:app --host 127.0.0.1 --port 8004 --reload > /tmp/dcc-media.log 2>&1 < /dev/null &"
 
 # mediamtx-auth-hook (8005)
-bash -c "cd services/mediamtx-auth-hook && env $common_env setsid nohup uv run uvicorn dcc_mediamtx_auth_hook.app:app --host 127.0.0.1 --port 8005 --reload > /tmp/dcc-authhook.log 2>&1 < /dev/null &"
+bash -c "cd services/mediamtx-auth-hook && env $common_env setsid nohup $repo_root/.venv/bin/uvicorn dcc_mediamtx_auth_hook.app:app --host 127.0.0.1 --port 8005 --reload > /tmp/dcc-authhook.log 2>&1 < /dev/null &"
 
 # Auf alle 5 Ports warten
 for port in 8001 8002 8003 8004 8005
@@ -236,7 +243,10 @@ _ok "" "Services up (auth/chat/voice/media/auth-hook)"
 pkill -f "vite dev|vite/bin/vite" 2>/dev/null
 sleep 0.5
 _info "Vite starten"
-bash -c "export PATH=$HOME/.local/bin:\$PATH; cd web && setsid nohup pnpm dev --host 127.0.0.1 --port 5173 > /tmp/dcc-vite.log 2>&1 < /dev/null &"
+# Direkt per node statt ueber die pnpm-Kette (~245 MiB Wrapper-RAM): das
+# package.json-Script "dev" ist genau `vite dev`, pnpm reichte nur die Flags
+# durch — dieselben Flags also direkt ans vite.js.
+bash -c "cd web && setsid nohup node node_modules/vite/bin/vite.js dev --host 127.0.0.1 --port 5173 > /tmp/dcc-vite.log 2>&1 < /dev/null &"
 for i in (seq 1 30)
     ss -tln 2>/dev/null | grep -q ":5173 "; and break
     sleep 0.3
