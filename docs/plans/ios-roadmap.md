@@ -29,6 +29,21 @@ nativ verdrahtet — das moderne Hybrid-Modell.
 5. Anmelden ohne Kopplung bleibt möglich (Login = neues Geräte-Schlüsselpaar, Zukunft kommt
    an); die Kopplung transportiert die Vergangenheit — E2E-Schlüssel sind bewusst nicht aus
    dem Passwort ableitbar.
+6. App-Icon-Dark-/Tinted-Varianten bauen wir bewusst NICHT (E1.11-Ergebnis): iOS 18 leitet
+   beide automatisch aus dem einzelnen 1024-px-Icon ab, solange keine Dark-Appearance im
+   Asset-Catalog liegt. Erst handanfassen, wenn die Ableitung optisch nicht trägt.
+
+## Release-Checkliste iOS (vor jedem Store-/TestFlight-Build)
+
+1. `mobile/capacitor.config.json`: `server.url = https://howispulse.com/app`,
+   `cleartext: false` — keine Dev-URL im Baum (Prüfung: `git diff` leer auf der Datei).
+2. `npx cap sync ios` + Release-Build in Xcode (Debug-Flag `CAPACITOR_DEBUG` prüfen).
+3. Privacy Manifest im Bundle: `App.app/PrivacyInfo.xcprivacy` vorhanden (Build-Produkt).
+4. `web/.cert/` (mkcert) ist gitignored und landet nie im Bundle — die Hülle lädt remote.
+5. Gerätelauf: Tastatur (Composer sichtbar), Zoom (Suche/Felder zoomen nicht), Theme-Wechsel
+   (Statustext lesbar), Share-Sheet („In Dateien sichern"), Haptik-Spürbarkeit, Privacy-Screen
+   im App-Umschalter, Self-Host-Server im Heimnetz erreichbar (Local-Network-Dialog kommt).
+6. Version + Build-Nummer im Target hochsetzen; Upload über Xcode-Organizer (TestFlight).
 
 ## Abgeschlossen (Fundament, 2026-10-06)
 

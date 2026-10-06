@@ -78,6 +78,18 @@ if test -z "$internal_secret"
     _warn "INTERNAL_SERVICE_SECRET fehlt in .env — Account-Löschung (DELETE /me) bleibt 503. Generieren: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
 end
 
+# Archiv-Schrank-Geheimnis (auth): ohne es 503t PUT /me/archiv-schluessel und
+# die Online-Sicherung lässt sich nicht einrichten (Befund 2026-10-06).
+# Wird bei Fehlen EINMAL generiert und in .env abgelegt — es muss stabil
+# bleiben, ein Re-Wrap unter anderem Geheimnis würde bestehende Schränke
+# unlesbar machen.
+set -l archiv_secret (_read_env_var ARCHIV_SCHRANK_SECRET)
+if test -z "$archiv_secret"
+    set archiv_secret (python3 -c 'import secrets, base64; print(base64.b64encode(secrets.token_bytes(32)).decode())')
+    echo "ARCHIV_SCHRANK_SECRET=$archiv_secret" >> .env
+    _warn "ARCHIV_SCHRANK_SECRET fehlte in .env — neu generiert und angehängt."
+end
+
 # --- Container --------------------------------------------------------------
 
 _info "Container starten (Postgres + Redis + Garage + LiveKit)"
@@ -199,8 +211,10 @@ set -l pg_env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD POSTGRES_HOST=localhost POST
 set -l jwt_env "JWT_PRIVATE_KEY_FILE=$repo_root/secrets/jwt_private.pem JWT_PUBLIC_KEY_FILE=$repo_root/secrets/jwt_public.pem"
 set -l lk_env "LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret LIVEKIT_URL=ws://localhost:7880"
 # auth + chat-gateway teilen das Internal-Secret; auth braucht zusätzlich
-# CHAT_GATEWAY_URL (Default zeigt auf den Docker-Namen, lokal unerreichbar).
+# CHAT_GATEWAY_URL (Default zeigt auf den Docker-Namen, lokal unerreichbar)
+# und das Archiv-Schrank-Geheimnis (Online-Sicherung).
 set -l internal_env "INTERNAL_SERVICE_SECRET=$internal_secret"
+set -l archiv_env "ARCHIV_SCHRANK_SECRET=$archiv_secret"
 
 _info "Uvicorns starten (mit --reload)"
 
@@ -212,7 +226,7 @@ _info "Uvicorns starten (mit --reload)"
 # der Alembic-Schritt oben läuft weiter über `uv run`.
 
 # auth (8001)
-bash -c "cd services/auth && env $pg_env $jwt_env $common_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 setsid nohup $repo_root/.venv/bin/uvicorn dcc_auth.app:app --host 127.0.0.1 --port 8001 --reload > /tmp/dcc-auth.log 2>&1 < /dev/null &"
+bash -c "cd services/auth && env $pg_env $jwt_env $common_env $internal_env $archiv_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 setsid nohup $repo_root/.venv/bin/uvicorn dcc_auth.app:app --host 127.0.0.1 --port 8001 --reload > /tmp/dcc-auth.log 2>&1 < /dev/null &"
 
 # chat-gateway (8002)
 bash -c "cd services/chat-gateway && env $pg_env $common_env $internal_env $upload_env MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup $repo_root/.venv/bin/uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 --ws-max-size 65536 --reload > /tmp/dcc-chat.log 2>&1 < /dev/null &"
