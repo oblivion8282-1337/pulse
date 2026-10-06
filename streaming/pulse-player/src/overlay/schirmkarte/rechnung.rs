@@ -453,7 +453,7 @@ mod tests {
     #[test]
     fn eigener_schirm_ohne_lage_hat_satz_aber_keine_richtung() {
         let bekannt = schirm(1, 0, 0, 1920, 1080);
-        let mut unbekannt = Schirm {
+        let unbekannt = Schirm {
             index: 2,
             name: String::new(),
             open: false,
@@ -463,7 +463,6 @@ mod tests {
             height: None,
             dieses_fenster: true,
         };
-        unbekannt.dieses_fenster = true;
         assert_eq!(
             satz(&[bekannt, unbekannt]),
             Some("Du schaust auf Bildschirm 2".to_string()),

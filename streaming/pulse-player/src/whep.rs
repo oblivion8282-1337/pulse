@@ -110,7 +110,7 @@ pub struct RtpArrival {
     /// RTP-Zeitstempel in Wanduhrzeit umzurechnen. Wird erst mit der
     /// Tonausgabe gebraucht (A/V-Synchronisierung), steht aber schon hier,
     /// weil nur der Track sie kennt.
-        pub clock_rate: u32,
+    pub clock_rate: u32,
     pub packet: webrtc::rtp::packet::Packet,
     /// Ankunftszeitpunkt, Grundlage fuer die Puffer-Freigabe.
     pub arrived: Instant,
@@ -919,7 +919,6 @@ async fn pump_track(
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::*;
 
