@@ -1,0 +1,8 @@
+/* Berechtigungs-Erläuterungen (de) — deckt die Info.plist-Basiswerte ab;
+   die Datei existiert, damit die VariantGroup beide Sprachen sauber trägt
+   und deutsche Geräte den Text auch dann sehen, wenn die Basiswerte im
+   plist je nach Tooling kollidieren. */
+"NSMicrophoneUsageDescription" = "Pulse nutzt dein Mikrofon für Sprachkanäle und Anrufe.";
+"NSCameraUsageDescription" = "Pulse nutzt die Kamera für Videoanrufe und Kamerabilder im Chat.";
+"NSPhotoLibraryUsageDescription" = "Pulse greift auf deine Fotomediathek zu, um Bilder in Chats zu teilen.";
+"NSLocalNetworkUsageDescription" = "Pulse verbindet sich mit deinem Pulse-Server im Heimnetzwerk (Self-Host).";

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App-Store-Pflicht (seit 2024): Privacy-Manifest der App-Hülle.
+	     Die Hülle selbst trackt niemanden und sammelt nichts — Account- und
+	     Inhaltsdaten beschreibt der Betreiber im App-Privacy-Abschnitt des
+	     Store-Eintrags (Self-Host sammelt der Betreiber des eigenen Servers).
+	     Erfasst ist hier nur die Pflicht-API mit Grund: UserDefaults
+	     (Capacitor-Präferenzen, Push-Badges) — Kategorie CA92.1, Daten der
+	     App selbst. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

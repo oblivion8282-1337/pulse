@@ -1,0 +1,7 @@
+/* Berechtigungs-Erläuterungen (en) — das App-Grundpressum ist de; iOS zeigt
+   diese Datei, wenn die Gerätesprache Englisch ist. Keys müssen exakt den
+   Info.plist-Einträgen entsprechen. */
+"NSMicrophoneUsageDescription" = "Pulse uses your microphone for voice channels and calls.";
+"NSCameraUsageDescription" = "Pulse uses the camera for video calls and camera shots in chats.";
+"NSPhotoLibraryUsageDescription" = "Pulse accesses your photo library to share pictures in chats.";
+"NSLocalNetworkUsageDescription" = "Pulse connects to your Pulse server on the local network (self-hosted).";

@@ -34,6 +34,11 @@
 	<string>Pulse nutzt die Kamera für Videoanrufe und Kamerabilder im Chat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Pulse greift auf deine Fotomediathek zu, um Bilder in Chats zu teilen.</string>
+	<!-- Self-Host im Heimnetz: iOS blockt LAN-Verbindungen still, wenn diese
+	     Erläuterung fehlt (der Dialog fragt beim ersten Aufbau). Ohne den Key
+	     wäre der eigene Server zuhause unsichtbar. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Pulse verbindet sich mit deinem Pulse-Server im Heimnetzwerk (Self-Host).</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
