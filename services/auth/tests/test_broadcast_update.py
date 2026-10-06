@@ -8,9 +8,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-import pytest_asyncio
-
 from dcc_auth.models import User
 from dcc_auth.models_instances import RegisteredInstance
 from dcc_auth.snowflake import next_id
