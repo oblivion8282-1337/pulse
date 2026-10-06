@@ -22,7 +22,7 @@ import type {
 } from 'livekit-client';
 import { getVoiceToken } from '$lib/api/voice';
 import { ApiError } from '$lib/api/client';
-import { voiceState } from './state.svelte';
+import { voiceState, registerVoiceActions } from './state.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
 import { RemoteAudioElements } from './audioElements';
@@ -137,10 +137,23 @@ class VoiceRoom {
 
   participants = $state<VoiceParticipant[]>([]);
 
-  /** Local mic on/off (publish state). */
-  micEnabled = $state(false);
-  /** "Deafen": locally mute all remote audio. */
-  deafened = $state(false);
+  /** Local mic on/off (publish state) + "Deafen" (locally mute all remote
+   *  audio). Die Signale leben in `voiceState` ($lib/voice/state.svelte), damit
+   *  TraySync/ShortcutHost sie ohne diesen Import — und damit ohne
+   *  livekit-client im Root-Layout — lesen können. Die Accessors halten alle
+   *  internen this.micEnabled/this.deafened-Lese-/Schreibzugriffe unverändert. */
+  get micEnabled(): boolean {
+    return voiceState.micEnabled;
+  }
+  set micEnabled(on: boolean) {
+    voiceState.micEnabled = on;
+  }
+  get deafened(): boolean {
+    return voiceState.deafened;
+  }
+  set deafened(on: boolean) {
+    voiceState.deafened = on;
+  }
 
   /** Whether the local participant is currently sharing their screen. */
   isScreenSharing = $state(false);
@@ -1831,6 +1844,11 @@ class VoiceRoom {
 }
 
 export const voice = new VoiceRoom();
+
+// ShortcutHost feuert die globalen Voice-Shortcuts über die schlanke Registry
+// in state.svelte.ts, damit das Root-Layout dieses Modul (und mit ihm
+// livekit-client) nicht mehr laden muss.
+registerVoiceActions(voice);
 
 /**
  * Nach dem Boot aufrufen (sobald Auth + WS-Ready stehen): war der User vor

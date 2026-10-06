@@ -25,7 +25,7 @@
   import SquareIcon from '@lucide/svelte/icons/square';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
-  import { stream, runningStreamSlots } from '$lib/stream/state.svelte';
+  import { stream, runningStreamSlots, pruefeGesundheit } from '$lib/stream/state.svelte';
   import { nextFreeStreamSlot, stopSlot, stopAll } from '$lib/stream/slotControl.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
@@ -53,6 +53,16 @@
   let hqAvailable = $derived(
     isElectron() && (isLinux() || isWindows() || isMac()) && stream.sidecarAvailable && canStream
   );
+
+  // Sidecar-Gesundheit erst beim Sprung in einen Voice-Channel messen — der
+  // health-Ruf startet den Sidecar-Prozess (67 MB RSS dauerhaft) und gehörte
+  // bis zum perf hunt 2026-10-06 zum App-Start für JEDEN. Streamen kann nur,
+  // wer in einem Kanal ist; bis zur Messung bleibt `sidecarAvailable` false
+  // und dieser Knopf der normale Bildschirm-Freigabe-Knopf (er rückt dann
+  // binnen der Health-Antwort zum HQ-Split-Button nach). Idempotent.
+  $effect(() => {
+    if (voice.channelId) void pruefeGesundheit();
+  });
 
   // Modus aus localStorage lesen; default 'hq' wenn verfügbar, sonst 'normal'
   let mode = $state<ShareMode>(

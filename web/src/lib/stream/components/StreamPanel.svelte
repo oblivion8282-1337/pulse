@@ -20,6 +20,7 @@
 
   import { isWindows, isMac } from '$lib/platform/runtime';
   import { sidecar, type SidecarHealth } from '../sidecar';
+  import { pruefeGesundheit } from '../state.svelte';
   import { loadCatalogs, platzZuruecksetzen, quelleAufVorgabe, captureSourceForSlot, streamSettings } from '../settings.svelte';
 
   import { m } from '$lib/paraglide/messages.js';
@@ -64,6 +65,10 @@
     streamSettings.use_overrides = true;
     if (!sidecar.available()) return;
     void sidecar.health().then((h) => { health = h; }).catch((e) => { healthError = String(e); });
+    // Dieselbe Messung in die globalen Fähigkeits-Flags spiegeln — der
+    // Boot-Ruf, der das früher beim App-Start für jeden tat, ist weg
+    // (perf hunt 2026-10-06). Idempotent: lief sie schon, ist dies ein No-op.
+    void pruefeGesundheit();
     void loadCatalogs();
   });
 

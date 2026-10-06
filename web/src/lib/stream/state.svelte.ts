@@ -203,24 +203,45 @@ function notifyBackendStopped(slot: number): void {
 }
 
 /**
- * Wire the sidecar event stream into the `stream` reactive object. Returns a
- * disposer that unwires the subscription. Idempotent.
+ * Sidecar-Gesundheit EINMAL messen: den `health`-Ruf fahren, die Fähigkeits-
+ * Flags (`sidecarAvailable`, `tenBitAvailable`, `fernsteuerbar`, …) füllen und
+ * das Gesundheits-Tor öffnen. Idempotent — parallele wie wiederholte Rufe
+ * teilen sich denselben Lauf; ein Fehlschlag wird vergessen, der nächste
+ * Anlass fragt erneut (was `initStream` früher über `initialised = false` tat).
+ *
+ * **Seit dem perf hunt 2026-10-06 der einzige frühere Anlass weg ist** — die
+ * Boot-Probe in `initStream`, die den Sidecar-Prozess (gemessen 146 MB RSS in
+ * Dev, 67 MB in Prod) bei jedem App-Start für JEDEN startete —, rufen jetzt
+ * gezielt die Anlässe, die die Flags wirklich brauchen:
+ *
+ * - Sprung in einen Voice-Channel (`ScreenShareModeButton` — der Raketen-Knopf
+ *   und der `stream.toggleHq`-Hotkey gate'n auf `stream.sidecarAvailable`),
+ * - anmeldebereite Standplatz-Geräte (`ws/handlers/ready.ts` — nur wer auf
+ *   DIESEM Server eingetragen ist, braucht den Sidecar überhaupt),
+ * - der Stream-Dialog (`StreamPanel`, ergänzt dessen eigenen lokalen Ruf) und
+ * - geöffnete Einstellungen (`SettingsDialog` — Standplatz-Einstieg,
+ *   Fähigkeits-Anzeigen).
+ *
+ * Bis zur ersten Messung lesen Konsumenten „noch nicht geprüft" — die Flags
+ * stehen auf ihrer Vorgabe `false`, und die UI verhält sich wie vor dem
+ * 2026-08-26 (Kaufmanns-Ausnahme: der Standplatz-Anmeldung). Das Tor geht
+ * erst mit der Messung auf, nie ohne sie — ein Angebot, das niemand übernehmen
+ * kann, ist schlimmer als gar keins (`gesundheitTor.ts`).
  */
-export async function initStream(): Promise<() => void> {
-  if (initialised) return () => {};
-  initialised = true;
+let gesundheitsRuf: Promise<void> | null = null;
 
-  stream.available = sidecar.available();
-  if (!stream.available) {
-    // Reset the guard so a later call can retry if the bridge appears.
-    initialised = false;
+export function pruefeGesundheit(): Promise<void> {
+  return (gesundheitsRuf ??= frageGesundheit());
+}
+
+async function frageGesundheit(): Promise<void> {
+  if (!sidecar.available()) {
     // Tor auf, obwohl nichts gemessen wurde: „kein Sidecar" ist eine Antwort.
     // Wer darauf wartet, soll weitergehen — s. `gesundheitTor.ts`.
     gesundheitTor.oeffnen();
-    return () => {};
+    return;
   }
 
-  // Pull an initial health probe so the UI can render quickly.
   try {
     const h = await sidecar.health();
     // If the sidecar can't be reached the invoke throws (caught below); a
@@ -238,9 +259,6 @@ export async function initStream(): Promise<() => void> {
       stream.fernsteuerbarGrund = h.sidecar?.remote_input_grund ?? '';
       stream.hdrAvailable = !!h.sidecar?.hdr;
     }
-    // Ab hier steht `stream.fernsteuerbar` auf einem gemessenen Wert statt auf
-    // seiner Vorgabe. Erst jetzt darf die Standplatz-Anmeldung ihn lesen.
-    gesundheitTor.oeffnen();
   } catch (e) {
     stream.available = false;
     stream.sidecarAvailable = false;
@@ -248,11 +266,34 @@ export async function initStream(): Promise<() => void> {
     stream.hevcTenBitAvailable = false;
     stream.hdrAvailable = false;
     stream.error = String(e);
-    // Reset the guard so a later call can retry if the sidecar recovers.
+    // Fehlschlag nicht merken — der nächste Anlass versucht es erneut.
+    gesundheitsRuf = null;
+  } finally {
+    // Erfolg wie Fehlschlag sind Antworten: der Sidecar hat geantwortet oder
+    // antwortet nicht — beides lässt einen Wartenden weitergehen. Ohne dieses
+    // Öffnen bliebe ein Wartender für immer stehen (`gesundheitTor.ts`).
+    gesundheitTor.oeffnen();
+  }
+}
+
+/**
+ * Wire the sidecar event stream into the `stream` reactive object. Returns a
+ * disposer that unwires the subscription. Idempotent.
+ *
+ * **Stellt seit dem perf hunt 2026-10-06 KEINE Health-Probe mehr an** — der
+ * Ruf startete den Sidecar-Prozess beim App-Start für jeden. Gemessen wird
+ * jetzt beim ersten Anlass, s. `pruefeGesundheit()`.
+ */
+export async function initStream(): Promise<() => void> {
+  if (initialised) return () => {};
+  initialised = true;
+
+  stream.available = sidecar.available();
+  if (!stream.available) {
+    // Reset the guard so a later call can retry if the bridge appears.
     initialised = false;
-    // Auch der Fehlschlag ist eine Antwort: der Sidecar antwortet nicht, also
-    // kann dieser Rechner nicht Standplatz sein. Ohne dieses Öffnen bliebe ein
-    // Wartender für immer stehen.
+    // Tor auf, obwohl nichts gemessen wurde: „kein Sidecar" ist eine Antwort.
+    // Wer darauf wartet, soll weitergehen — s. `gesundheitTor.ts`.
     gesundheitTor.oeffnen();
     return () => {};
   }
