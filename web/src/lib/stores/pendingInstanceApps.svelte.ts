@@ -23,7 +23,10 @@ import { auth } from '$lib/stores/auth.svelte';
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 
-const POLL_MS = 60_000;
+// 5 Min statt 60 s (Perf-Hunt 06.10.): das `admin_application_pending`-WS-
+// Ereignis ruft refresh() und ist der Primärtreiber — der Poll ist nur
+// Fallback (z. B. verpasstes Event nach Reconnect).
+const POLL_MS = 300_000;
 const LS_LAST_SEEN = 'pulse.instanceApps.lastSeen';
 
 class PendingInstanceApps {
@@ -33,7 +36,8 @@ class PendingInstanceApps {
   private _timer: ReturnType<typeof setInterval> | null = null;
   private _running = false;
 
-  /** Startet den Poll (idempotent). Initialer Poll sofort, dann alle 60 s. */
+  /** Startet den Poll (idempotent). Initialer Poll sofort, dann alle 5 Min
+   *  (WS-Event ist der Primärtreiber, Poll nur Fallback). */
   start(): void {
     if (this._running || typeof window === 'undefined') return;
     this._running = true;

@@ -26,7 +26,9 @@ import { auth } from '$lib/stores/auth.svelte';
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 
-const POLL_MS = 90_000;
+// 5 Min statt 90 s (Perf-Hunt 06.10.): das `application_decided`-WS-Ereignis
+// ruft refresh() und ist der Primärtreiber — der Poll ist nur Fallback.
+const POLL_MS = 300_000;
 const LS_ACK = 'pulse.instanceSetupAck'; // appId → true (auf diesem Gerät „gesehen")
 const LS_NOTIFIED = 'pulse.instanceAppNotified'; // appId → true (Toast schon gezeigt)
 
@@ -137,7 +139,7 @@ class MyInstanceApplications {
     }
 
     // Normaler User ohne Self-Host-Antrag: nichts zu beobachten → Poller
-    // stoppen, damit nicht jeder Cloud-User alle 90s eine Anfrage feuert.
+    // stoppen, damit nicht jeder Cloud-User alle 5 Min eine Anfrage feuert.
     if (apps.length === 0) {
       this._approvedIds = [];
       this._recompute();

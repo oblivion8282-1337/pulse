@@ -111,6 +111,8 @@ class ReadState {
     this.lastReadByChannel = {};
     this.latestByChannel = {};
     this.partnerLastReadByChannel = {};
+    this.zustellungAngekommen = {};
+    this.gruppenLesestand = {};
     this.mentionCountByChannel = {};
     this.unreadCountByChannel = {};
   }
@@ -142,7 +144,11 @@ class ReadState {
     this.lastReadByChannel = this.ladeKarte<string>(this.storageKey) ?? {};
     // Partner-Stand ist sessionseitig vom Server geliefert — der neue
     // ready-Rahmen füllt ihn nach (gleiches Bild wie nach einem Reload).
+    // Gleiches gilt für die Häkchen- und Gruppen-Karten (Befund 06.10.):
+    // auch sie leeren, sonst überleben sie den Server-Wechsel.
     this.partnerLastReadByChannel = {};
+    this.zustellungAngekommen = {};
+    this.gruppenLesestand = {};
     this.mentionCountByChannel = this.ladeKarte<number>(this.mentionsKey) ?? {};
     this.unreadCountByChannel = this.ladeKarte<number>(this.unreadKey) ?? {};
   }
@@ -158,19 +164,32 @@ class ReadState {
     }
   }
 
+  /** Kopie der Karte ohne den Kanal-Eintrag — für die Forget-Blöcke in
+   *  `forgetChannel` (die Wächter dort bleiben stehen, damit ohne Treffer
+   *  keine Zuweisung und damit keine Reaktivität feuert). */
+  private ohneKanal<T>(karte: Record<string, T>, channelId: string): Record<string, T> {
+    const next = { ...karte };
+    delete next[channelId];
+    return next;
+  }
+
   /** Drop all read-state for a deleted channel so its keys don't linger in
    *  memory or in the persisted localStorage blobs. */
   forgetChannel(channelId: string): void {
     if (channelId in this.lastReadByChannel) {
-      const next = { ...this.lastReadByChannel };
-      delete next[channelId];
-      this.lastReadByChannel = next;
+      this.lastReadByChannel = this.ohneKanal(this.lastReadByChannel, channelId);
       this.persistLetztenStand();
     }
     if (channelId in this.latestByChannel) {
-      const next = { ...this.latestByChannel };
-      delete next[channelId];
-      this.latestByChannel = next;
+      this.latestByChannel = this.ohneKanal(this.latestByChannel, channelId);
+    }
+    // Auch die Häkchen- und Gruppen-Karten leeren (Befund 06.10.) — sonst
+    // bleiben tote Kanal-/Gruppen-Schlüssel für die Session liegen.
+    if (channelId in this.zustellungAngekommen) {
+      this.zustellungAngekommen = this.ohneKanal(this.zustellungAngekommen, channelId);
+    }
+    if (channelId in this.gruppenLesestand) {
+      this.gruppenLesestand = this.ohneKanal(this.gruppenLesestand, channelId);
     }
     this.clearMentions(channelId);
     this.clearUnread(channelId);

@@ -13,25 +13,39 @@
  *  2. `notificationclick` router: focus an existing Pulse tab (and post-message
  *     it the channel/guild to navigate to) or open a new one on the right URL.
  *
- * Caching: der Install-Pass precacht den Build + Statics (gehashte Namen —
- * Cache-Treffer sind per Definition aktuell) plus den SPA-Fallback
- * ``index.html``. Seit P2.13 bedient der Fetch-Handler daraus eine
+ * Caching (Perf-Hunt 2026-10-06): der Install-Pass precacht nur noch die
+ * kleinen Statics (manifest/icons/fonts) plus den SPA-Fallback ``index.html``
+ * — das komplette Build blind vorzuhalten läde bei jedem Deploy ~8 MB neu,
+ * obwohl offline nur „alles, was man schon besucht hat" gebraucht wird.
+ * Build-Chunks (/_app/immutable/, gehasht + immutable) und die übrigen
+ * Statics füllt der Fetch-Handler cache-first in den versionierten Cache
+ * (Runtime-Caching). Seit P2.13 bedient der Fetch-Handler daraus eine
  * Offline-Shell: Navigationsanfragen fallen bei Netz-Ausfall auf den
- * Fallback zurück, Build-/Static-Assets kommen cache-first. API, WebSocket
+ * Fallback zurück, Assets kommen cache-first. API, WebSocket
  * und fremde Ursprünge gehen immer ans Netz — Drossel und Auth dürfen nie
  * aus dem Cache antworten.
  */
 
-import { build, files, version } from '$service-worker';
+import { files, version } from '$service-worker';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const CACHE = `pulse-cache-${version}`;
-// `files` umfasst alles aus statics/ — auch die 13 MB sherpa-onnx-WASM für
-// GTCRN. Die gehören NICHT in den Install-Precache (sonst lädt jede Install
-// sie herunter, auch wer das Modell nie aktiviert); der HTTP-Cache der
-// Browser-Fetches reicht, die Dateien ändern sich nur bei Release-Updates.
-const ASSETS = [...build, ...files].filter((p) => !p.startsWith('/gtcrn/'));
+// Precache nur der kleine Static-Rest (Perf-Hunt 2026-10-06): build (~7 MB)
+// und die großen statics (~1 MB) NICHT mehr blind vorhalten — das läde bei
+// jedem Deploy ~8 MB neu für offline-fähige Routen, die nie besucht wurden.
+// Offline gilt abgestimmt „alles Besuchte": /_app/immutable/-Chunks und die
+// hier ausgeschlossenen Dateien lädt der Fetch-Handler cache-first in den
+// versionierten Cache, sobald sie das erste Mal gebraucht werden.
+const ASSETS = files.filter(
+  (p) =>
+    !p.startsWith('/gtcrn/') && // 13 MB sherpa-onnx-WASM (GTCRN) — HTTP-Cache reicht, ändert sich nur bei Release
+    !p.startsWith('/sounds/') && // 328 KB Klingeltöne — lädt der Audio-Player bei Bedarf
+    !p.startsWith('/vendor/resonance-audio') && // 128 KB Raum-Audio-Engine
+    !p.startsWith('/landing') && // Landing-Page (html + js) — nicht Teil der App-Shell
+    p !== '/changelog.json' && // 292 KB — Changelog-Widget lädt bei Bedarf
+    p !== '/install.sh' // 68 KB — reiner Download, kein App-Asset
+);
 // SPA-Fallback des adapter-static — liegt NICHT in `build`, muss für die
 // Offline-Navigation aber greifbar sein (P2.13).
 const SPA_FALLBACK = '/index.html';
@@ -88,8 +102,10 @@ sw.addEventListener('activate', (event) => {
  *   der SPA-Fallback aus dem Cache. Same-origin only — /api und fremde
  *   Ursprünge bleiben unberührt.
  * - Build-/Static-Assets: Cache zuerst (gehashte Dateinamen — Cache-Treffer
- *   sind per Definition aktuell), Netz füllt Lücken, Fehler laufen weiter
- *   hoch (Rufende Routen haben eigenes Fehlerhandling).
+ *   sind per Definition aktuell), Netz füllt Lücken — auch die /_app/immutable/
+ *   -Chunks, die seit dem Runtime-Caching nicht mehr im Install-Precache
+ *   liegen —, Fehler laufen weiter hoch (Rufende Routen haben eigenes
+ *   Fehlerhandling).
  *
  * Alles andere (API, WebSocket-Upgrades, fremde Ursprünge) geht unberührt
  * durchs Netz — Drossel- und Auth-Logik dürfen niemals aus dem Cache antworten.
@@ -118,7 +134,7 @@ sw.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (ASSET_SET.has(url.pathname)) {
+  if (ASSET_SET.has(url.pathname) || url.pathname.startsWith('/_app/immutable/')) {
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE);
