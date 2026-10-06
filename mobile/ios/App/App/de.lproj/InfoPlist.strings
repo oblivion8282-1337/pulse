@@ -1,7 +1,7 @@
-/* Berechtigungs-Erläuterungen (de) — deckt die Info.plist-Basiswerte ab;
-   die Datei existiert, damit die VariantGroup beide Sprachen sauber trägt
-   und deutsche Geräte den Text auch dann sehen, wenn die Basiswerte im
-   plist je nach Tooling kollidieren. */
+/* Berechtigungs-Erläuterungen (de) — LOAD-BEARING: CFBundleDevelopmentRegion
+   ist en (Info.plist), sobald en.lproj existiert, bekämen deutsche Geräte
+   ohne diese Datei die ENGLISCHEN Strings statt der plist-Basiswerte. Nicht
+   löschen, ohne die Region zu wechseln. */
 "NSMicrophoneUsageDescription" = "Pulse nutzt dein Mikrofon für Sprachkanäle und Anrufe.";
 "NSCameraUsageDescription" = "Pulse nutzt die Kamera für Videoanrufe und Kamerabilder im Chat.";
 "NSPhotoLibraryUsageDescription" = "Pulse greift auf deine Fotomediathek zu, um Bilder in Chats zu teilen.";

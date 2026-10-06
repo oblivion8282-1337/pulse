@@ -206,7 +206,7 @@
                   aria-label={m.medien_datei_laden()}
                   data-testid={`media-archive-file-download-${z.id}`}
                   onclick={() => {
-                    if (quelle) void dateiTeilenOderLaden(quelle, z.dateiname ?? '').catch(() => {});
+                    if (quelle) void dateiTeilenOderLaden(quelle, z.dateiname);
                   }}
                 >
                   <DownloadIcon class="size-4" />

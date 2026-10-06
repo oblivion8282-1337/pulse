@@ -551,7 +551,7 @@ import { Portal } from 'bits-ui';
             class="bg-bg-input hover:bg-bg-hover flex w-fit max-w-md items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-left text-sm transition-colors"
             data-testid="attachment-download"
             onclick={() => {
-              if (quelleDatei) void dateiTeilenOderLaden(quelleDatei, a.filename ?? '').catch(() => {});
+              if (quelleDatei) void dateiTeilenOderLaden(quelleDatei, a.filename);
             }}
           >
             <div class="text-text-muted shrink-0">

@@ -168,3 +168,6 @@ dump.rdb
 web/data/
 # Lokaler Dev-Stack auf Windows (scripts/dev-local.mjs): Binaries, Logs, Config
 .dev-local/
+
+# mkcert-Zertifikate fürs lokale HTTPS-Dev (Gerätetests)
+web/.cert/

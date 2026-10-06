@@ -20,14 +20,19 @@
  * Zeit zu starten). Eine als `quelle` übergebene `blob:`-Adresse gehört dem
  * Aufrufer und wird NICHT revoket — die Blätter halten ihre Objekt-URLs für
  * wiederholte Klicks am Leben und räumen beim Abbau selbst auf.
+ *
+ * ponytail: Beide Wege halten die komplette Datei im RAM (fetch → blob →
+ * Share/Objekt-URL) — bei mehrhundert-MB-Videos ein spürbarer Spike. Der
+ * alte Anker auf fremdorigin-URLs war dagegen latent defekt (das
+ * `download`-Attribut wird cross-origin ignoriert), das Holen ist also
+ * nötig. Upgrade-Pfad: Streaming-Share via File-System-Access-API, sobald
+ *WebKit sie schreibt.
  */
-
-export type DateiTeilenErgebnis = 'geteilt' | 'geladen' | 'abgebrochen';
 
 const ERSATZ_DATEINAME = 'anhang';
 
 /** Reiner Kern (für den Test): leerer Name → Ersatzname, s. Modulkopf. */
-export function dateiNameOderErsatz(dateiname: string): string {
+export function dateiNameOderErsatz(dateiname: string | null | undefined): string {
   return dateiname || ERSATZ_DATEINAME;
 }
 
@@ -37,42 +42,39 @@ export function dateiNameOderErsatz(dateiname: string): string {
  * Browser), sonst über den klassischen Anker-Download (Desktop/Electron).
  * `fetch` funktioniert auch für `blob:`-Adressen — der Aufrufer muss nicht
  * wissen, ob hinter `quelle` der Server oder der Objektspeicher steht.
- * Scheitert das Holen (z. B. abgelaufene Adresse), wird geworfen — der
- * Aufrufer fängt still, wie bisher bei `blob === null`.
+ * Fire-and-forget wie die Vorgänger: Scheitern (z. B. abgelaufene Adresse,
+ * Share-Störung) wird still gefangen — die Kacheln zeigen ihren Zustand
+ * ohnehin selbst, ein Rückgabewert hätte keinen Leser.
  */
 export async function dateiTeilenOderLaden(
   quelle: string,
-  dateiname: string
-): Promise<DateiTeilenErgebnis> {
-  const name = dateiNameOderErsatz(dateiname);
-  const antwort = await fetch(quelle);
-  const blob = await antwort.blob();
-  const datei = new File([blob], name, {
-    type: blob.type || 'application/octet-stream'
-  });
+  dateiname: string | null | undefined
+): Promise<void> {
+  try {
+    const name = dateiNameOderErsatz(dateiname);
+    const antwort = await fetch(quelle);
+    const blob = await antwort.blob();
+    const datei = new File([blob], name, {
+      type: blob.type || 'application/octet-stream'
+    });
 
-  if (navigator.canShare?.({ files: [datei] })) {
-    try {
+    if (navigator.canShare?.({ files: [datei] })) {
       await navigator.share({ files: [datei] });
-      return 'geteilt';
-    } catch (e) {
-      // Share-Sheet vom Nutzer geschlossen — kein Fehler, kein Download.
-      // Jede andere Share-Störung bleibt ebenfalls still (Ergebnis ist
-      // informativ; ein Anker-Fallback half in der WKWebView ohnehin nicht).
-      if (e instanceof DOMException && e.name === 'AbortError') return 'abgebrochen';
-      return 'geteilt';
+      return; // Nutzer hat geteilt (oder das Sheet geschlossen — beides fine)
     }
-  }
 
-  // Desktop-Fallback: der bewährte Anker-Trick. Die Objekt-URL gehört dieser
-  // Funktion und wird nach der Frist selbst freigegeben.
-  const adresse = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = adresse;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(adresse), 10_000);
-  return 'geladen';
+    // Desktop-Fallback: der bewährte Anker-Trick. Die Objekt-URL gehört
+    // dieser Funktion und wird nach der Frist selbst freigegeben.
+    const adresse = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = adresse;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(adresse), 10_000);
+  } catch {
+    // Abbruch durch den Nutzer (AbortError) oder Hol-/Share-Störung — still,
+    // wie bisher bei `blob === null`.
+  }
 }

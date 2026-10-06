@@ -23,9 +23,9 @@
   import { pendingComplaints } from '$lib/stores/pendingComplaints.svelte';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
-import { mode } from 'mode-watcher';
-import { statusLeisteFolgtTheme } from '$lib/platform/statusLeiste';
-import { installiereExterneLinks } from '$lib/platform/externeLinks';
+  import { mode } from 'mode-watcher';
+  import { statusLeisteFolgtTheme } from '$lib/platform/statusLeiste';
+  import { installiereExterneLinks } from '$lib/platform/externeLinks';
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
