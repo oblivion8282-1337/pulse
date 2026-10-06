@@ -32,8 +32,6 @@
   import {
     KanalZiehen,
     beginnen,
-    darueber,
-    ablegen,
     beenden,
     sprachDarueber,
     sprachVerlassen,

@@ -9,7 +9,6 @@
 import { errText } from '$lib/utils/errText';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { toast } from 'svelte-sonner';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
   import { createReport, createOperatorReport, type ReasonCode } from '$lib/api/moderation';
