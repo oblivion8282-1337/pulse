@@ -48,7 +48,6 @@ from dcc_chat_gateway.models import (
     GuildMember,
     MemberRole,
     Message,
-    MessageAttachment,
     MessageMention,
     MessageReaction,
     PermissionOverwrite,
@@ -58,7 +57,11 @@ from dcc_chat_gateway.models import (
     UserPrivacy,
     WebPushSubscription,
 )
-from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
+from dcc_chat_gateway.routes.attachments import (
+    hard_delete_attachments,
+    hard_delete_channel_attachments,
+    purge_s3_keys,
+)
 from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
 from dcc_chat_gateway.user_purge_ablage import (
     purge_ablage_konto_laufwerk,
@@ -153,16 +156,9 @@ async def _hard_delete_guild_with_attachments(
     channel_ids_stmt = select(Channel.id).where(Channel.guild_id == guild_id)
     channel_ids = list((await session.execute(channel_ids_stmt)).scalars())
     voice_channel_ids = await voice_channels_for_guild(session, guild_id)
-    if channel_ids:
-        att_ids_stmt = select(MessageAttachment.id).where(
-            MessageAttachment.channel_id.in_(channel_ids),
-            MessageAttachment.deleted_at.is_(None),
-        )
-        att_ids = list((await session.execute(att_ids_stmt)).scalars())
-        if att_ids:
-            await hard_delete_attachments(
-                session, attachment_ids=att_ids, defer_s3=defer_s3
-            )
+    await hard_delete_channel_attachments(
+        session, channel_ids=channel_ids, defer_s3=defer_s3
+    )
     guild = await session.get(Guild, guild_id)
     if guild is not None:
         await session.delete(guild)
@@ -224,15 +220,7 @@ async def _delete_dm_channels(
     if not cids:
         return
     # MinIO objects on remaining messages (posted by the other party).
-    att_ids_stmt = select(MessageAttachment.id).where(
-        MessageAttachment.channel_id.in_(cids),
-        MessageAttachment.deleted_at.is_(None),
-    )
-    att_ids = list((await session.execute(att_ids_stmt)).scalars())
-    if att_ids:
-        await hard_delete_attachments(
-            session, attachment_ids=att_ids, defer_s3=defer_s3
-        )
+    await hard_delete_channel_attachments(session, channel_ids=cids, defer_s3=defer_s3)
     await session.execute(sa_delete(Message).where(Message.channel_id.in_(cids)))
     # Anrufe dieser DMs miträumen (Befund 03.10.): channel_id ist polymorph
     # ohne FK — ohne diesen Lauf blieben die Call-Zeilen als Waisen stehen.

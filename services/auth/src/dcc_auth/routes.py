@@ -219,6 +219,47 @@ async def _issue_tokens(
     return TokensOut(access_token=access, refresh_token=refresh)
 
 
+async def _login_abschliessen(
+    session,
+    user: User,
+    *,
+    signer: JwtSigner,
+    request: Request,
+    response: Response,
+    amr: list[str],
+    acr: str,
+    user_agent: str | None,
+) -> TokensOut:
+    """Gemeinsames Ende aller Anmeldewege (Passwort-, TOTP-, Passkey-Login,
+    Passwortwechsel): Browser-Session-Cookie anlegen, Token-Zweile daran
+    hängen, committieren, Cookie setzen.
+
+    Die Session-Zeile muss VOR den Token existieren — die Refresh-Zeile
+    verweist per Fremdschlüssel darauf, damit ein späteres „Sitzung beenden“
+    beide Hälften trifft (s. ``_issue_tokens`` / ``session_link.py``).
+    """
+    sid = await create_session(
+        session,
+        user_id=user.id,
+        amr=amr,
+        acr=acr,
+        user_agent=user_agent,
+        ip=_client_ip(request),
+    )
+    tokens = await _issue_tokens(
+        session,
+        user,
+        signer=signer,
+        user_agent=user_agent,
+        ip_hash=_hash_ip(request),
+        session_id=sid,
+        response=response,
+    )
+    await session.commit()
+    set_session_cookie(response, sid)
+    return tokens
+
+
 def _hash_ip(request: Request) -> str:
     """SHA-256 hex of the effective client IP (XFF-aware, see ``_client_ip``).
 
@@ -580,28 +621,17 @@ async def login(
         ticket = issue_mfa_ticket(signer, user.id, settings.mfa_ticket_ttl_seconds)
         return LoginMfaPending(mfa_ticket=ticket, methods=methods)
 
-    # Session cookie: amr=["pwd"] + acr="0" (password-only, no MFA at this step).
-    # Vor den Token, damit die Refresh-Zeile darauf verweisen kann.
-    sid = await create_session(
-        session,
-        user_id=user.id,
-        amr=["pwd"],
-        acr="0",
-        user_agent=user_agent,
-        ip=_client_ip(request),
-    )
-    tokens = await _issue_tokens(
+    # amr=["pwd"] + acr="0": password-only, no MFA at this step.
+    return await _login_abschliessen(
         session,
         user,
         signer=signer,
-        user_agent=user_agent,
-        ip_hash=_hash_ip(request),
-        session_id=sid,
+        request=request,
         response=response,
+        amr=["pwd"],
+        acr="0",
+        user_agent=user_agent,
     )
-    await session.commit()
-    set_session_cookie(response, sid)
-    return tokens
 
 
 @router.post("/session/renew", status_code=status.HTTP_204_NO_CONTENT)

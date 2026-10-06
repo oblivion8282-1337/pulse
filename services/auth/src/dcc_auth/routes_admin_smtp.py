@@ -77,6 +77,18 @@ def _smtp_out(row: SmtpSettings) -> SmtpSettingsOut:
     )
 
 
+async def _smtp_row_oder_500(session) -> SmtpSettings:
+    """Liest die Singleton-Zeile; fehlt sie, ist die DB halb migriert —
+    500 statt stiller Defaults („re-run migration 0008")."""
+    row = await session.get(SmtpSettings, 1)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="smtp_settings singleton missing — re-run migration 0008",
+        )
+    return row
+
+
 @router.get("/smtp", response_model=SmtpSettingsOut)
 async def get_smtp_settings(
     session: SessionDep,
@@ -88,13 +100,7 @@ async def get_smtp_settings(
     reads ``has_password`` to decide whether to render the password field
     as "set (leave blank to keep)" vs. "empty".
     """
-    row = await session.get(SmtpSettings, 1)
-    if row is None:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="smtp_settings singleton missing — re-run migration 0008",
-        )
-    return _smtp_out(row)
+    return _smtp_out(await _smtp_row_oder_500(session))
 
 
 @router.patch("/smtp", response_model=SmtpSettingsOut)
@@ -120,12 +126,7 @@ async def patch_smtp_settings(
     The audit-log payload deliberately omits the new password — only "did
     the password change?" is recorded.
     """
-    row = await session.get(SmtpSettings, 1)
-    if row is None:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="smtp_settings singleton missing — re-run migration 0008",
-        )
+    row = await _smtp_row_oder_500(session)
 
     fields = ("provider", "host", "port", "username", "from_email", "use_ssl")
     before = {k: getattr(row, k) for k in fields} | {"configured": row.configured}

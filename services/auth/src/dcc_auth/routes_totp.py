@@ -32,7 +32,6 @@ import qrcode
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import delete, select
 
-from dcc_auth.browser_sessions import create_session, set_session_cookie
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import BackupCode, User
@@ -47,10 +46,8 @@ from dcc_auth.recovery import (
 from dcc_auth.routes import (
     _check_account_rate,
     _check_rate,
-    _client_ip,
     _get_current_user,
-    _hash_ip,
-    _issue_tokens,
+    _login_abschliessen,
     _passkey_count,
     _signer_dep,
 )
@@ -344,28 +341,16 @@ async def login_totp(
     # carried: a client may send both a TOTP code and a backup code, in which
     # case the TOTP branch wins above and no backup code is consumed.
     amr = ["pwd", "backup" if factor == "backup" else "otp"]
-    sid = await create_session(
-        session,
-        user_id=user.id,
-        amr=amr,
-        acr="1",
-        user_agent=user_agent,
-        ip=_client_ip(request),
-    )
-    # Erst jetzt die Token — die Refresh-Zeile verweist auf das Cookie, damit
-    # „Sitzung beenden“ später beide Hälften trifft (session_link.py).
-    tokens = await _issue_tokens(
+    return await _login_abschliessen(
         session,
         user,
         signer=signer,
-        user_agent=user_agent,
-        ip_hash=_hash_ip(request),
-        session_id=sid,
+        request=request,
         response=response,
+        amr=amr,
+        acr="1",
+        user_agent=user_agent,
     )
-    await session.commit()
-    set_session_cookie(response, sid)
-    return tokens
 
 
 # ---- helpers -----------------------------------------------------------

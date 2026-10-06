@@ -10,6 +10,8 @@ itself.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from livekit import api as lk
 
@@ -87,6 +89,31 @@ def _identities_of_user(participants: lk.ListParticipantsResponse, user_id: str)
     ]
 
 
+@asynccontextmanager
+async def _borrowed_client(
+    api_client: lk.LiveKitAPI | None,
+) -> AsyncIterator[lk.LiveKitAPI | None]:
+    """Leiht den Pool-Client des Aufrufers oder baut einen temporären, den
+    dieser Kontext beim Verlassen schliesst (Besitz bleibt sonst beim
+    Aufrufer). Ohne konfigurierte Credentials (dev/test: die Calls sind
+    No-ops) wird ``None`` geliefert — der Aufrufer bricht dann still ab."""
+    should_close = api_client is None
+    if should_close:
+        temp = _temp_api_client()
+        if temp is None:
+            yield None
+            return
+        api_client, _ = temp
+    try:
+        yield api_client
+    finally:
+        if should_close:
+            try:
+                await api_client.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 async def _livekit_remove_participant(
     channel_id: str, user_id: str, *, api_client: lk.LiveKitAPI | None = None
 ) -> None:
@@ -101,50 +128,39 @@ async def _livekit_remove_participant(
     backward compatibility with tests). Production routes should pass the
     singleton from ``request.app.state.livekit_api`` to reuse the connection
     pool."""
-    if api_client is None:
-        temp = _temp_api_client()
-        if temp is None:
+    async with _borrowed_client(api_client) as client:
+        if client is None:
             return
-        api_client, should_close = temp
-    else:
-        should_close = False
-
-    try:
-        parts = await api_client.room.list_participants(
-            lk.ListParticipantsRequest(room=_room_for_channel(channel_id))
-        )
-        # Alle Geräte des Nutzers rauswerfen (Join-Identitäten tragen einen
-        # Sitzungs-Suffix — nur `user-<id>` exakt zu treffen würde das zweite
-        # Gerät im Raum lassen).
-        for identity in _identities_of_user(parts, user_id):
-            try:
-                await api_client.room.remove_participant(
-                    lk.RoomParticipantIdentity(
-                        room=_room_for_channel(channel_id),
-                        identity=identity,
+        try:
+            parts = await client.room.list_participants(
+                lk.ListParticipantsRequest(room=_room_for_channel(channel_id))
+            )
+            # Alle Geräte des Nutzers rauswerfen (Join-Identitäten tragen einen
+            # Sitzungs-Suffix — nur `user-<id>` exakt zu treffen würde das zweite
+            # Gerät im Raum lassen).
+            for identity in _identities_of_user(parts, user_id):
+                try:
+                    await client.room.remove_participant(
+                        lk.RoomParticipantIdentity(
+                            room=_room_for_channel(channel_id),
+                            identity=identity,
+                        )
                     )
-                )
-            except Exception:  # noqa: BLE001 — einzelnes Gerät schon weg
-                log.warning(
-                    "livekit remove_participant failed for channel=%s user=%s identity=%s",
-                    channel_id,
-                    user_id,
-                    identity,
-                    exc_info=True,
-                )
-    except Exception:  # noqa: BLE001 — participant offline / server down
-        log.warning(
-            "livekit remove_participant failed for channel=%s user=%s",
-            channel_id,
-            user_id,
-            exc_info=True,
-        )
-    finally:
-        if should_close:
-            try:
-                await api_client.aclose()
-            except Exception:  # noqa: BLE001
-                pass
+                except Exception:  # noqa: BLE001 — einzelnes Gerät schon weg
+                    log.warning(
+                        "livekit remove_participant failed for channel=%s user=%s identity=%s",
+                        channel_id,
+                        user_id,
+                        identity,
+                        exc_info=True,
+                    )
+        except Exception:  # noqa: BLE001 — participant offline / server down
+            log.warning(
+                "livekit remove_participant failed for channel=%s user=%s",
+                channel_id,
+                user_id,
+                exc_info=True,
+            )
 
 
 async def _livekit_update_participant(
@@ -166,62 +182,51 @@ async def _livekit_update_participant(
     backward compatibility with tests). Production routes should pass the
     singleton from ``request.app.state.livekit_api`` to reuse the connection
     pool."""
-    if api_client is None:
-        temp = _temp_api_client()
-        if temp is None:
+    async with _borrowed_client(api_client) as client:
+        if client is None:
             return
-        api_client, should_close = temp
-    else:
-        should_close = False
-
-    try:
-        parts = await api_client.room.list_participants(
-            lk.ListParticipantsRequest(room=_room_for_channel(channel_id))
-        )
-        # Rechte live auf ALLE Geräte des Nutzers anwenden (Sitzungs-Suffix,
-        # s. `_identities_of_user`).
-        for identity in _identities_of_user(parts, user_id):
-            try:
-                await api_client.room.update_participant(
-                    lk.UpdateParticipantRequest(
-                        room=_room_for_channel(channel_id),
-                        identity=identity,
-                        permission=lk.ParticipantPermission(
-                            can_subscribe=True,
-                            can_publish=can_publish,
-                            can_publish_data=True,
-                            can_publish_sources=[
-                                _track_source_enum(s) for s in sources
-                            ]
-                            if sources
-                            else [],
-                        ),
+        try:
+            parts = await client.room.list_participants(
+                lk.ListParticipantsRequest(room=_room_for_channel(channel_id))
+            )
+            # Rechte live auf ALLE Geräte des Nutzers anwenden (Sitzungs-Suffix,
+            # s. `_identities_of_user`).
+            for identity in _identities_of_user(parts, user_id):
+                try:
+                    await client.room.update_participant(
+                        lk.UpdateParticipantRequest(
+                            room=_room_for_channel(channel_id),
+                            identity=identity,
+                            permission=lk.ParticipantPermission(
+                                can_subscribe=True,
+                                can_publish=can_publish,
+                                can_publish_data=True,
+                                can_publish_sources=[
+                                    _track_source_enum(s) for s in sources
+                                ]
+                                if sources
+                                else [],
+                            ),
+                        )
                     )
-                )
-            except Exception:  # noqa: BLE001 — einzelnes Gerät schon weg
-                log.warning(
-                    "livekit update_participant failed for channel=%s user=%s identity=%s",
-                    channel_id,
-                    user_id,
-                    identity,
-                    exc_info=True,
-                )
-    except Exception:  # noqa: BLE001 — participant offline / server down
-        # WARNING (not INFO): if LiveKit is wedged the mute won't be
-        # live-applied to currently-publishing tracks; the override is
-        # in Redis and will take effect on the user's next reconnect,
-        # but admins should see this in logs. Participant-not-found
-        # (user offline) lands here too — harmless but noisy in dev;
-        # consider a separate exception filter if it gets annoying.
-        log.warning(
-            "livekit update_participant failed for channel=%s user=%s — override is persisted, will apply on reconnect",
-            channel_id,
-            user_id,
-            exc_info=True,
-        )
-    finally:
-        if should_close:
-            try:
-                await api_client.aclose()
-            except Exception:  # noqa: BLE001
-                pass
+                except Exception:  # noqa: BLE001 — einzelnes Gerät schon weg
+                    log.warning(
+                        "livekit update_participant failed for channel=%s user=%s identity=%s",
+                        channel_id,
+                        user_id,
+                        identity,
+                        exc_info=True,
+                    )
+        except Exception:  # noqa: BLE001 — participant offline / server down
+            # WARNING (not INFO): if LiveKit is wedged the mute won't be
+            # live-applied to currently-publishing tracks; the override is
+            # in Redis and will take effect on the user's next reconnect,
+            # but admins should see this in logs. Participant-not-found
+            # (user offline) lands here too — harmless but noisy in dev;
+            # consider a separate exception filter if it gets annoying.
+            log.warning(
+                "livekit update_participant failed for channel=%s user=%s — override is persisted, will apply on reconnect",
+                channel_id,
+                user_id,
+                exc_info=True,
+            )

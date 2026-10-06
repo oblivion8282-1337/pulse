@@ -32,8 +32,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway._members_view import (
-    _LARGE_GUILD_THRESHOLD,
     _Ctx,
+    _LARGE_GUILD_THRESHOLD,
+    _role_snapshot,
 )
 from dcc_chat_gateway._members_view import (
     members_who_can_moderate as _members_who_can_moderate,
@@ -117,15 +118,7 @@ async def _load_context(
             or_(Role.id.in_(assigned_ids), Role.is_everyone.is_(True)),
         )
         assigned = list((await session.execute(stmt)).scalars())
-        roles = [
-            RoleSnapshot(
-                id=r.id,
-                position=r.position,
-                permissions=r.permissions,
-                is_everyone=r.is_everyone,
-            )
-            for r in assigned
-        ]
+        roles = [_role_snapshot(r) for r in assigned]
 
     overwrites: dict[tuple[int, int], Override] = {}
     if channel_id is not None:
@@ -191,15 +184,7 @@ def resolve_guild_permissions_from_snapshot(
     permissions. When left ``None`` the flag is inferred from whether
     ``member_roles`` is non-empty (legacy behaviour: non-members pass an
     empty list)."""
-    snapshots = [
-        RoleSnapshot(
-            id=r.id,
-            position=r.position,
-            permissions=r.permissions,
-            is_everyone=r.is_everyone,
-        )
-        for r in member_roles
-    ]
+    snapshots = [_role_snapshot(r) for r in member_roles]
     member = bool(member_roles) if is_member is None else is_member
     ctx = _Ctx(
         user=user.id,
@@ -415,15 +400,7 @@ def filter_viewable_channels_from_snapshot(
     if not is_member:
         return set()
 
-    snapshots = [
-        RoleSnapshot(
-            id=r.id,
-            position=r.position,
-            permissions=r.permissions,
-            is_everyone=r.is_everyone,
-        )
-        for r in member_roles
-    ]
+    snapshots = [_role_snapshot(r) for r in member_roles]
     # No pre-sort needed: calculate_channel_permissions sorts internally via
     # sorted() (a fresh copy each call), so sorting here has no effect.
     ctx = _Ctx(

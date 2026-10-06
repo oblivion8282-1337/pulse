@@ -22,7 +22,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from webauthn.helpers import base64url_to_bytes
 
-from dcc_auth.browser_sessions import create_session, set_session_cookie
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User, WebAuthnCredential
@@ -39,7 +38,7 @@ from dcc_auth.recovery import (
     claim_ticket_jti,
     decode_mfa_ticket,
 )
-from dcc_auth.routes import _check_rate, _client_ip, _hash_ip, _issue_tokens, _signer_dep
+from dcc_auth.routes import _check_rate, _login_abschliessen, _signer_dep
 from dcc_auth.schemas import (
     TokensOut,
     WebAuthnLoginOptionsIn,
@@ -249,25 +248,13 @@ async def webauthn_login_verify(
     # Passkey mit user-verification (passwordless) bzw. Passwort+Passkey (2FA) ist
     # vollwertige MFA → acr="1" (erfüllt den mfa_step_up_required-Gate).
     amr = ["webauthn"] if passwordless else ["pwd", "webauthn"]
-    sid = await create_session(
-        session,
-        user_id=user.id,
-        amr=amr,
-        acr="1",
-        user_agent=user_agent,
-        ip=_client_ip(request),
-    )
-    # Erst jetzt die Token — die Refresh-Zeile verweist auf das Cookie, damit
-    # „Sitzung beenden“ später beide Hälften trifft (session_link.py).
-    tokens = await _issue_tokens(
+    return await _login_abschliessen(
         session,
         user,
         signer=signer,
-        user_agent=user_agent,
-        ip_hash=_hash_ip(request),
-        session_id=sid,
+        request=request,
         response=response,
+        amr=amr,
+        acr="1",
+        user_agent=user_agent,
     )
-    await session.commit()
-    set_session_cookie(response, sid)
-    return tokens
