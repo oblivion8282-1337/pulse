@@ -35,6 +35,7 @@ from dcc_chat_gateway.models import (
     Message,
     UserBlock,
 )
+from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.routes._deps import CloudOnly, dm_member_check
 from dcc_chat_gateway.schemas import (
     DmLesestandIn,
@@ -383,11 +384,14 @@ async def search_dm_messages(
     trägt Nachrichten ALLER Communities. Ein Join filterte erst nach dem Lesen;
     mit ``channel_id IN (…)`` kann Postgres dagegen ``ix_messages_channel_id_desc``
     rückwärts lesen und rührt nur die eigenen Gespräche an. Zusammen mit der
-    Mindestlänge von ``q`` und der Maskierung der ``LIKE``-Sonderzeichen ist
-    das der Grund, warum eine gedrückt gehaltene Taste hier nicht die
-    gemeinsame Datenbank festsetzt — einen Ratenbegrenzer hat der
-    chat-gateway nicht (``slowapi`` sitzt nur im auth-svc).
+    Mindestlänge von ``q``, der Maskierung der ``LIKE``-Sonderzeichen und der
+    ``dm_search``-Drossel (30/Minute je Nutzer, s. ``ratelimit.py``) ist das
+    der Grund, warum eine gedrückt gehaltene Taste hier nicht die gemeinsame
+    Datenbank festsetzt (``slowapi`` sitzt nur im auth-svc — der chat-gateway
+    drosselt in-process).
     """
+    if not ratelimit.check("dm_search", current.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
     needle = q.strip()
     if len(needle) < 2:
         return []
