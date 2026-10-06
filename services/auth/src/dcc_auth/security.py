@@ -6,7 +6,6 @@ import base64
 import hmac
 import time
 import uuid
-from dataclasses import dataclass
 from typing import Any
 
 import jwt

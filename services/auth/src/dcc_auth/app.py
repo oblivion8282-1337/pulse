@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
@@ -233,7 +234,7 @@ def create_app() -> FastAPI:
     # Security-Audit 2026-09-16: Schema-/Routen-Enumeration (/docs, /redoc,
     # /openapi.json) ist Recon-Hilfe für Unbeteiligte — default ZU, per
     # PULSE_DOCS=1 für Entwicklung wieder an.
-    _docs = "/docs" if __import__("os").environ.get("PULSE_DOCS") == "1" else None
+    _docs = "/docs" if os.environ.get("PULSE_DOCS") == "1" else None
     _openapi = "/openapi.json" if _docs else None
     app = FastAPI(
         title="dcc-auth",

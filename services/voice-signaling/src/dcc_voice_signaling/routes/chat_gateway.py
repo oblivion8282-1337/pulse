@@ -267,7 +267,6 @@ async def _maybe_revoke_voice_pull(redis, channel_id: str, user_id: str) -> None
     by chat-gateway's voice-pull reaper backstop, so the webhook itself
     never fails on this. Gibt den verzögerten Revoken-Task zurück (Tests
     warten ihn ab); None, wenn nichts zu tun war."""
-    global _http_client
     settings = voice_routes.get_settings()
     if not settings.chat_gateway_url or not settings.internal_service_secret:
         return  # nothing to call, or nothing to authenticate with

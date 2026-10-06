@@ -1228,7 +1228,3 @@ async def _check_account_rate(request: Request, key: str, account: str) -> None:
 # Re-export rate limiter accessor used by tests to flush state.
 def _reset_rate(app) -> None:
     app.state.rate_buckets = {}
-
-
-# Dependency export for chat-gateway tests that import this module.
-get_current_user = _get_current_user

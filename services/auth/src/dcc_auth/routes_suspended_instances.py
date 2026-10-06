@@ -62,6 +62,19 @@ def _quoted(etag: str) -> str:
     return f'"{etag}"'
 
 
+def _passt_etag(if_none_match: str | None, etag_str: str) -> bool:
+    """If-None-Match-Vergleich — quoted oder unquoted, wie Clients ihn schicken."""
+    quoted = _quoted(etag_str)
+    return bool(if_none_match and (if_none_match == quoted or if_none_match.strip('"') == etag_str))
+
+
+def _nicht_geaendert() -> Response:
+    return Response(
+        status_code=status.HTTP_304_NOT_MODIFIED,
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Cache-Invalidation — callable by Phase 2.3
 # ---------------------------------------------------------------------------
@@ -182,17 +195,13 @@ async def suspended_instances(
         cached_etag = await redis.get(_ETAG_KEY)
         if cached_etag is not None:
             etag_str = cached_etag.decode() if isinstance(cached_etag, bytes) else cached_etag
-            quoted = _quoted(etag_str)
-            if if_none_match and (if_none_match == quoted or if_none_match.strip('"') == etag_str):
-                return Response(
-                    status_code=status.HTTP_304_NOT_MODIFIED,
-                    headers={"Access-Control-Allow-Origin": "*"},
-                )
+            if _passt_etag(if_none_match, etag_str):
+                return _nicht_geaendert()
             # Try cached body first
             cached_body = await redis.get(_BODY_KEY)
             if cached_body is not None:
                 raw = cached_body.decode() if isinstance(cached_body, bytes) else cached_body
-                response.headers["ETag"] = quoted
+                response.headers["ETag"] = _quoted(etag_str)
                 response.headers["Cache-Control"] = "public, max-age=60"
                 return json.loads(raw)
 
@@ -208,14 +217,10 @@ async def suspended_instances(
         etag_str = _compute_etag(ids, deleted_ids, updated_at)
         body = _build_body(ids, deleted_ids, updated_at)
 
-    quoted = _quoted(etag_str)
-    if if_none_match and (if_none_match == quoted or if_none_match.strip('"') == etag_str):
-        return Response(
-            status_code=status.HTTP_304_NOT_MODIFIED,
-            headers={"Access-Control-Allow-Origin": "*"},
-        )
+    if _passt_etag(if_none_match, etag_str):
+        return _nicht_geaendert()
 
-    response.headers["ETag"] = quoted
+    response.headers["ETag"] = _quoted(etag_str)
     response.headers["Cache-Control"] = "public, max-age=60"
     return body
 

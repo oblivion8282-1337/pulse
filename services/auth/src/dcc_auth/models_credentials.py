@@ -17,7 +17,7 @@ from sqlalchemy import (
     Index,
     String,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from dcc_auth.db import Base
 

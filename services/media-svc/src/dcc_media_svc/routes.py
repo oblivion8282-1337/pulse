@@ -37,7 +37,7 @@ from dcc_shared.gaeste import ist_gesperrt
 from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
 
 from dcc_media_svc.config import get_settings
-from dcc_media_svc.poller import _parse_state, _publish_event
+from dcc_media_svc.poller import _needs_streams, _parse_state, _publish_event
 from dcc_media_svc.security import CurrentGast, CurrentUser, require_internal
 from dcc_shared.streaming import read_cache_key
 from dcc_media_svc.streamkeys import (
@@ -711,13 +711,12 @@ async def stop_stream(
 
     # ``streams`` is only meaningful while it says more than ``user_ids``
     # already does; once nothing extra survives we drop it and the legacy shape
-    # returns. **Same condition as the poller's ``_needs_streams``** — a stream
-    # carrying a ``label`` or a ``monitor_index`` needs the list even on slot 0,
-    # otherwise the viewer loses the screen number the moment a second streamer
-    # stops (and the poller would have to put it back on its next pass).
-    multi = any(
-        d["slot"] >= 1 or "label" in d or "monitor_index" in d for d in remaining_streams
-    )
+    # returns. Same condition as the poller's — shared via ``_needs_streams`` —
+    # a stream carrying a ``label`` or a ``monitor_index`` needs the list even
+    # on slot 0, otherwise the viewer loses the screen number the moment a
+    # second streamer stops (and the poller would have to put it back on its
+    # next pass).
+    multi = _needs_streams(remaining_streams)
     publish_streams = remaining_streams if multi else None
     if remaining_uids:
         new_state: dict[str, Any] = {

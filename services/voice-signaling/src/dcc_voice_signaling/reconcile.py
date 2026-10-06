@@ -31,7 +31,6 @@ import asyncio
 import json
 
 import structlog
-from livekit.protocol.models import TrackSource
 from redis.asyncio import Redis
 
 from dcc_shared import gaeste as _gaeste

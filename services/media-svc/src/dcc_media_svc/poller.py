@@ -76,12 +76,7 @@ def _stream_descriptors(
     return out
 
 
-def _needs_streams(
-    pairs: set[Pair],
-    cid: str,
-    label_of: dict[tuple[str, str, str], str],
-    monitor_index_of: dict[tuple[str, str, str], int],
-) -> bool:
+def _needs_streams(streams: list[dict[str, Any]]) -> bool:
     """True once ``streams`` carries something ``user_ids`` doesn't already say:
     a slot ≥ 1, a ``label``, or a ``monitor_index``. Until 2026-08-25 only the
     slot counted.
@@ -96,12 +91,12 @@ def _needs_streams(
     A channel that really carries nothing extra still keeps the legacy
     ``{user_ids, since}`` shape byte-identically — that is what this check buys
     over simply always emitting ``streams``.
+
+    Gemeinsam mit ``routes.stop_stream`` benutzt — dieselbe Bedingung an beiden
+    Schreib- und Löschorten, damit die Formen nicht auseinanderlaufen können.
     """
-    if any(slot != "0" for _uid, slot in pairs):
-        return True
     return any(
-        (cid, uid, slot) in label_of or (cid, uid, slot) in monitor_index_of
-        for uid, slot in pairs
+        d["slot"] >= 1 or "label" in d or "monitor_index" in d for d in streams
     )
 
 
@@ -407,12 +402,10 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
         changed: list[tuple[str, list[str], list[dict[str, Any]] | None]] = []
         for cid, prs in publishers.items():
             new_uids = _user_ids(prs)
-            traegt_zusatz = _needs_streams(prs, cid, label_of, monitor_index_of)
-            neue_streams = (
-                _stream_descriptors(prs, cid, label_of, monitor_index_of)
-                if traegt_zusatz
-                else []
-            )
+            neue_streams = _stream_descriptors(prs, cid, label_of, monitor_index_of)
+            if not _needs_streams(neue_streams):
+                # Nichts, was ``user_ids`` nicht schon sagt → Legacy-Form tragen.
+                neue_streams = []
             prev = prev_states.get(cid)
             prev_pairs = _pairs_from_state(prev) if prev else set()
             # Unverändert heisst: dieselben (user, slot)-Paare UND dieselben
@@ -441,7 +434,7 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
             # ``user_ids`` already does (slot ≥ 1, a label, or a monitor
             # number), so a plain single-stream channel keeps the legacy
             # {user_ids, since} record. See ``_needs_streams``.
-            if traegt_zusatz:
+            if neue_streams:
                 new_state["streams"] = neue_streams
             pipe.set(
                 CHANNEL_STATE_KEY.format(channel_id=cid),
