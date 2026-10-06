@@ -19,7 +19,7 @@ export type AppearanceSettings = {
 
 const VALID_THEMES: ThemePreference[] = ['light', 'dark', 'system'];
 
-export const DEFAULTS_APPEARANCE: AppearanceSettings = {
+const DEFAULTS_APPEARANCE: AppearanceSettings = {
   theme: 'system',
   speakingRingNameColor: false,
   streamParticipantsCollapsed: false

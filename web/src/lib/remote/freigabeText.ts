@@ -16,7 +16,7 @@
  */
 
 /** Was dem Nutzer gezeigt wird. `null` heißt: es gibt nichts zu erklären. */
-export interface Freigabehinweis {
+interface Freigabehinweis {
   ueberschrift: string;
   erklaerung: string;
   /** Wohin der Nutzer gehen muss. Leer, wenn kein Pfad benennbar ist. */

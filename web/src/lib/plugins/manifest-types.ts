@@ -25,7 +25,7 @@ export interface PluginUses {
   ui_slots: string[];
 }
 
-export interface PluginEntrypoints {
+interface PluginEntrypoints {
   /** Python entry — recorded on the frontend so the manifest stays a 1:1
    *  mirror of the TOML; unused by the frontend loader. */
   backend?: string;

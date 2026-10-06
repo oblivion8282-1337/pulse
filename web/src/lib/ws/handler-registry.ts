@@ -14,7 +14,7 @@
  */
 import type { ServerEvent } from './handlers/types';
 
-export type WsHandler<E extends ServerEvent = ServerEvent> = (evt: E) => void | Promise<void>;
+type WsHandler<E extends ServerEvent = ServerEvent> = (evt: E) => void | Promise<void>;
 
 const handlers = new Map<string, WsHandler>();
 

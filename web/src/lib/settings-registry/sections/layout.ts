@@ -11,7 +11,7 @@ export type LayoutSettings = {
   navOrder?: TabId[];
 };
 
-export const DEFAULTS_LAYOUT: LayoutSettings = {};
+const DEFAULTS_LAYOUT: LayoutSettings = {};
 
 const ALLE_TABS: TabId[] = ['chats', 'rooms', 'friends', 'me'];
 

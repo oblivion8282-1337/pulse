@@ -29,7 +29,7 @@ export const OUTPUT_VOLUME_MIN = 0;
 export const OUTPUT_VOLUME_MAX = 2;
 export const OUTPUT_VOLUME_DEFAULT = 1;
 
-export const DEFAULTS_VOICE: VoiceSettings = {
+const DEFAULTS_VOICE: VoiceSettings = {
   pttMode: false,
   pttKey: 'v',
   userVolumes: {},

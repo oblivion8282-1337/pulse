@@ -32,7 +32,7 @@ export function base64ZuBytes(b64: string): Uint8Array {
 	return bytes;
 }
 
-export interface SyncOrdnerSchlüsselErgebnis {
+interface SyncOrdnerSchlüsselErgebnis {
 	hauptschlüssel: Uint8Array;
 	hauptschlüsselB64: string;
 	/** true, wenn `hauptschlüssel` neu erzeugt wurde und noch nicht im Store liegt. */

@@ -104,7 +104,7 @@ export type OverwriteSnapshot = {
   deny: bigint;
 };
 
-export type ResolverContext = {
+type ResolverContext = {
   isGlobalAdmin: boolean;
   isOwner: boolean;
   isMember: boolean;

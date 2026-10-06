@@ -37,7 +37,7 @@ import { loadAll, saveAll } from '$lib/stream/persistence';
  * Fehlt das Feld, ist der Eintrag aus einer älteren Fassung und meint eine
  * Sitzung — die einzige Art, die es damals gab.
  */
-export type ProtokollArt = 'sitzung' | 'weckruf';
+type ProtokollArt = 'sitzung' | 'weckruf';
 
 /** Ein Vorgang: eine Sitzung, von der Zustimmung bis zum Ende. */
 export interface ProtokollEintrag {

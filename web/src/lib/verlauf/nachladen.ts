@@ -60,7 +60,7 @@ import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 import { chatApi } from '$lib/api/chat';
 import type { Message } from '$lib/api/types';
 
-export type AeltereSeite = {
+type AeltereSeite = {
   nachrichten: Message[];
   /** `true`, wenn die Seite vom Server kam — nur dann sagt "kürzer als
    *  angefragt" wirklich "Historie-Ende", und nur dann lohnt das erneute

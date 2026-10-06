@@ -29,7 +29,7 @@ import { vergleicheSnowflakeArtigeId } from '../utils/snowflakeZeit.ts';
 
 /** Ausschnitt eines `Satz` (`schema.ts`), den diese Rechnung braucht — ohne
  *  dessen Typ zu importieren (importfrei-Pflicht). */
-export type DurchsuchbarerSatz = {
+type DurchsuchbarerSatz = {
   kanalId: string;
   nachrichtId: string;
   autorId: string;
@@ -42,7 +42,7 @@ export type DurchsuchbarerSatz = {
  *  `$lib/api/chat::DMMessageSearchHit` OHNE `other_user_id` (das kennt nur
  *  der DM-Kanal-Store, den dieses importfreie Modul nicht sehen darf; der
  *  Aufrufer in `sucheLokal.ts` ergaenzt es). */
-export type LokalerTreffer = {
+type LokalerTreffer = {
   message_id: string;
   dm_channel_id: string;
   author_id: string;

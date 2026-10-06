@@ -6,7 +6,7 @@
 
 export type SoundCategoryKey = 'notification' | 'voice' | 'ui' | 'stream';
 
-export type SoundCategorySettings = {
+type SoundCategorySettings = {
   enabled: boolean;
   volume: number; // 0..1
 };

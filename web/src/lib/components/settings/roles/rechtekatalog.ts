@@ -32,7 +32,7 @@ import { m } from '$lib/paraglide/messages.js';
  */
 export type Tragweite = 'vollmacht' | 'weitreichend' | null;
 
-export type Rechtezeile = {
+type Rechtezeile = {
   perm: Permission;
   label: string;
   /** Ein kurzer Satz, vier bis sechs Woerter. Kein Aufsatz — wer hier
@@ -41,7 +41,7 @@ export type Rechtezeile = {
   tragweite: Tragweite;
 };
 
-export type Rechtebereich = { titel: string; zeilen: Rechtezeile[] };
+type Rechtebereich = { titel: string; zeilen: Rechtezeile[] };
 
 export function rechtekatalog(): Rechtebereich[] {
   return [

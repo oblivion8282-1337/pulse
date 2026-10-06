@@ -13,7 +13,7 @@
  * server withholds delivery there already.
  */
 
-export type BlockedEntry = {
+type BlockedEntry = {
   user_id: string;
   since: string;
 };

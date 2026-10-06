@@ -39,7 +39,7 @@ export function isPassiveSource(s: WatchSource): boolean {
 
 /** One video lined up in the party's queue. Anyone in the channel may enqueue;
  *  the host moderates order + removal (backend: watchkeys.queue_*). */
-export type WatchQueueItem = {
+type WatchQueueItem = {
   id: string;
   source: WatchSource;
   submitted_by: string;

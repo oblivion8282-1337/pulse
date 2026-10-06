@@ -41,8 +41,8 @@ const STORE_VERBINDUNG = 'verbindung';
 const VERBINDUNG_KEY = 'gdrive';
 
 /** Keys im Identity-Store (pulse-identity) — gewischt mit der Abmeldung. */
-export const IDB_KEY_SICHERUNG_DEK = 'pulse.sicherung-dek';
-export const IDB_KEY_SICHERUNG_KUERZEL = 'pulse.sicherung-kuerzel';
+const IDB_KEY_SICHERUNG_DEK = 'pulse.sicherung-dek';
+const IDB_KEY_SICHERUNG_KUERZEL = 'pulse.sicherung-kuerzel';
 
 /** Dateiname eines Anhang-Bytes-Behälters im Archiv — englisch, wie
  *  `key.puls`/`Pulse-Backup` (internationales Drive-Publikum). */

@@ -57,7 +57,7 @@ function defaultUrls(id: SoundId): string[] {
   return SOUND_EXTS.map((ext) => `${SOUND_DIR}/${SOUNDS[id].file}.${ext}`);
 }
 
-export type PlayOpts = {
+type PlayOpts = {
   /** Guild whose overrides should be consulted. Omit for guild-less
    * events (DM notifications, generic UI). */
   guildId?: string | null;

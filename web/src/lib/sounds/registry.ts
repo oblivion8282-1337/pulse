@@ -7,7 +7,7 @@ import { m } from '$lib/paraglide/messages.js';
 
 export type SoundCategory = 'notification' | 'voice' | 'ui' | 'stream';
 
-export type SoundDef = {
+type SoundDef = {
   category: SoundCategory;
   file: string;
   label: string;
@@ -98,7 +98,7 @@ export const SOUNDS = {
 
 export type SoundId = keyof typeof SOUNDS;
 
-export const SOUND_IDS = Object.keys(SOUNDS) as SoundId[];
+const SOUND_IDS = Object.keys(SOUNDS) as SoundId[];
 
 export function soundsInCategory(cat: SoundCategory): SoundId[] {
   return SOUND_IDS.filter((id) => SOUNDS[id].category === cat);

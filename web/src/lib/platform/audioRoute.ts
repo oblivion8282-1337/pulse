@@ -26,7 +26,7 @@ export type AudioRoute = 'auto' | 'speaker' | 'earpiece';
 
 /** Ein umschaltbares Ausgabegerät aus dem Route-Popup (Hörmuschel,
  *  Lautsprecher oder verbundenes Bluetooth). */
-export type AudioRouteDevice = {
+type AudioRouteDevice = {
   /** Native Geräte-Id — an setAudioRouteDevice zurückgeben zum Umschalten. */
   id: number;
   /** BUILTIN_SPEAKER | BUILTIN_EARPIECE | BLUETOOTH_SCO | BLE_HEADSET */
@@ -43,7 +43,7 @@ export type AudioRouteList = {
 
 /** Native audio-routing snapshot (mirrors AudioRoutePlugin.snapshot). No audio
  *  content — only routing metadata. */
-export type AudioDiagnostic = {
+type AudioDiagnostic = {
   androidSdk: number;
   androidRelease: string;
   mode: string;

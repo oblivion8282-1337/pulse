@@ -23,7 +23,7 @@
     SelectTrigger,
   } from '$lib/components/ui/select/index.js';
 
-  export type SelectOption = { value: string; label: string; disabled?: boolean };
+  type SelectOption = { value: string; label: string; disabled?: boolean };
 
   let {
     id,

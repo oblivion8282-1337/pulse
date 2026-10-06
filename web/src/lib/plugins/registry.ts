@@ -112,7 +112,7 @@ const activating = new Map<string, Promise<PluginRecord>>();
  *  activated afterwards. */
 const PLUGIN_PERMISSION_MODE: PluginPermissionMode = resolvePluginPermissionMode();
 
-export interface PluginEntry {
+interface PluginEntry {
   manifest: PluginManifest;
   entry: () => Promise<PluginEntryModule>;
 }

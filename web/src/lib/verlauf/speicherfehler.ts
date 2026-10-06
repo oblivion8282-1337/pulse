@@ -20,7 +20,7 @@
  *  Experimentier-Zweig mit jüngerer Fassung geladen haben. */
 export type SpeicherLage = 'nicht_verfuegbar' | 'voll' | 'zu_neu' | 'fehler';
 
-export type GedeuteterFehler = {
+type GedeuteterFehler = {
   art: SpeicherLage;
 };
 

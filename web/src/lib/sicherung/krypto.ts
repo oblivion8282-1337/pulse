@@ -33,7 +33,7 @@ import { argon2id } from 'hash-wasm';
 export const SICHERUNG_KENNUNG = 0x50555349; // "PUSI"
 export const SICHERUNG_FASSUNG = 1;
 
-export const DEK_LAENGE = 32;
+const DEK_LAENGE = 32;
 export const SALT_LAENGE = 16;
 const NONCE_LAENGE = 12;
 

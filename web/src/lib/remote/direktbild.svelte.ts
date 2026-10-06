@@ -38,7 +38,7 @@ import { isElectron } from '$lib/platform/runtime';
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 
 /** Der Zustand der Direktverbindung, so wie ihn beide Seiten sehen. */
-export type DirektZustand =
+type DirektZustand =
   | 'aus'
   | 'verbinde'
   | 'live'

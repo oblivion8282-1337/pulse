@@ -10,7 +10,7 @@
  * REST call is the caller's responsibility — the store reflects intent).
  */
 
-export const DM_POLICY = {
+const DM_POLICY = {
   EVERYONE: 0,
   SERVER_MEMBERS: 1,
   FRIENDS_ONLY: 2,

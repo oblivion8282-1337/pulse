@@ -22,7 +22,7 @@
  * prüft (s. CLAUDE.md „Die Falle").
  */
 
-export const FLACH_TRENNER = '~';
+const FLACH_TRENNER = '~';
 
 export function flachName(pfad: string): string {
 	if (pfad.includes(FLACH_TRENNER)) {

@@ -20,7 +20,7 @@ import {
   deletePushSubscription
 } from './api';
 
-export type PushPermissionState = 'granted' | 'denied' | 'default' | 'unsupported';
+type PushPermissionState = 'granted' | 'denied' | 'default' | 'unsupported';
 
 /** True when this UA can subscribe to web-push. Electron renderer falls into
  *  the unsupported branch (push goes through the main process IPC).

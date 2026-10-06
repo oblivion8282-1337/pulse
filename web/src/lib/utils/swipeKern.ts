@@ -11,7 +11,7 @@
 /** Ab wie vielen Pixeln der Zug die Antwort auslöst. */
 export const ANTWORT_SCHWELLE = 48;
 /** Wie weit die Blase maximal wandert (visuelles Kappmaß). */
-export const OFFSET_KAPPMASS = 56;
+const OFFSET_KAPPMASS = 56;
 
 /**
  * Führt ein horizontaler Zug? Nur wenn er deutlich horizontal ist —

@@ -17,7 +17,7 @@ export type NoiseSuppressionMode = 'off' | 'rnnoise_gated';
  */
 export type SpatialMode = 'off' | 'standard' | 'high' | 'auto';
 
-export const SPATIAL_MODES: readonly SpatialMode[] = ['off', 'standard', 'high', 'auto'];
+const SPATIAL_MODES: readonly SpatialMode[] = ['off', 'standard', 'high', 'auto'];
 
 export type AudioSettings = {
   inputDeviceId: string;
@@ -44,7 +44,7 @@ export const INPUT_MAKEUP_MIN = 0.1;
 export const INPUT_MAKEUP_MAX = 8;
 export const INPUT_MAKEUP_DEFAULT = 1;
 
-export const DEFAULTS_AUDIO: AudioSettings = {
+const DEFAULTS_AUDIO: AudioSettings = {
   inputDeviceId: '',
   inputDeviceLabel: '',
   outputDeviceId: '',
