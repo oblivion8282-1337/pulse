@@ -1,8 +1,9 @@
 # Pulse-Sound-Assets
 
 19 Sound-Files in diesem Verzeichnis (`web/static/sounds/`) — seit dem
-2026-10-06 sind alle erwarteten Files da, auch die drei Stream-Chimes
-(projekt-ein synthetisiert, siehe LICENSES.md). Engine ist 404-tolerant —
+2026-10-06 sind alle erwarteten Files da, auch die drei Stream-Klänge
+(Michaels Pixabay-Uploads aus der Community „laber", als Standard
+übernommen — siehe LICENSES.md). Engine ist 404-tolerant —
 solange ein File fehlt, ist der zugehörige Sound stiller No-Op. Sobald du
 eine Datei droppst, greift sie beim nächsten `pnpm build` (statisches
 Asset, kein Code-Change nötig).
