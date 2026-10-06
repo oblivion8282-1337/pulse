@@ -18,7 +18,7 @@
 
 import { goto } from '$app/navigation';
 import { request } from '$lib/api/client';
-import { isCapacitorAndroid } from './runtime';
+import { isCapacitorAndroid, isCapacitorIOS } from './runtime';
 
 /** Schmaler Ausschnitt der Plugin-Oberfläche (nur was wir rufen). */
 interface FcmPlugin {
@@ -93,7 +93,10 @@ function zeigAn(event: { notification: { data?: unknown } }): void {
  * App-Start den Token nachreicht.
  */
 export function installiereFcmPush(): void {
-  if (!isCapacitorAndroid()) return;
+  // iOS-Hülle nutzt dieselbe Plugin-Schnittstelle und denselben
+  // /fcm/token-Endpunkt — der Server-Versand unterscheidet nur am Token
+  // (APNs braucht den Auth-Key im Firebase-Projekt, seit 2026-10-06 drin).
+  if (!isCapacitorAndroid() && !isCapacitorIOS()) return;
   const fcm = plugin();
   if (!fcm) return;
 
@@ -103,12 +106,14 @@ export function installiereFcmPush(): void {
   const meldeBestEffort = (): void => {
     anmeldung ??= (async () => {
       try {
-        await fcm.createChannel({
-          id: KANAL_ID,
-          name: 'Nachrichten',
-          importance: 4, // HIGH — Pop-up + Ton, Discord-artig
-          visibility: 1 // PUBLIC — auf dem Sperrbildschirm lesbar
-        });
+        if (isCapacitorAndroid()) {
+          await fcm.createChannel({
+            id: KANAL_ID,
+            name: 'Nachrichten',
+            importance: 4, // HIGH — Pop-up + Ton, Discord-artig
+            visibility: 1 // PUBLIC — auf dem Sperrbildschirm lesbar
+          });
+        }
         let perms = await fcm.checkPermissions();
         if (perms.receive !== 'granted') {
           perms = await fcm.requestPermissions();
