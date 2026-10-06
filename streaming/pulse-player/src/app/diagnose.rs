@@ -87,6 +87,15 @@ pub fn hoechstens(z: &AtomicU64, v: u64) {
     z.fetch_max(v, Relaxed);
 }
 
+/// Summe abholen und je Ereignis mitteln — oder die rohe Summe, wenn nichts
+/// gezaehlt wurde. Das `swap(0)` steht hier GENAU EINMAL: in beiden Armen
+/// eines `if` ausgeschrieben lud es zu einer zweiten, versehentlichen
+/// Zuruecksetzung ein.
+fn mittel(n: u64, summe: &AtomicU64) -> u64 {
+    let summe = summe.swap(0, Relaxed);
+    if n > 0 { summe / n } else { summe }
+}
+
 /// Alle Werte lesen und zuruecksetzen — genau einmal je Log-Zeile.
 pub fn abholen() -> Zeile {
     let n = WECK_N.swap(0, Relaxed);
@@ -94,19 +103,19 @@ pub fn abholen() -> Zeile {
     Zeile {
         abgeschickt: ABGESCHICKT.swap(0, Relaxed),
         angekommen: ANGEKOMMEN.swap(0, Relaxed),
-        weck_avg_us: if n > 0 { WECK_SUM_US.swap(0, Relaxed) / n } else { WECK_SUM_US.swap(0, Relaxed) },
+        weck_avg_us: mittel(n, &WECK_SUM_US),
         weck_max_us: WECK_MAX_US.swap(0, Relaxed),
         fw_luecke_max_us: FW_LUECKE_MAX_US.swap(0, Relaxed),
         haupt_belegt_us: HAUPT_BELEGT_US.swap(0, Relaxed),
-        zwischen_avg_us: if dn > 0 { ZWISCHEN_SUM_US.swap(0, Relaxed) / dn } else { ZWISCHEN_SUM_US.swap(0, Relaxed) },
+        zwischen_avg_us: mittel(dn, &ZWISCHEN_SUM_US),
         zwischen_max_us: ZWISCHEN_MAX_US.swap(0, Relaxed),
-        draw_avg_us: if dn > 0 { DRAW_SUM_US.swap(0, Relaxed) / dn } else { DRAW_SUM_US.swap(0, Relaxed) },
+        draw_avg_us: mittel(dn, &DRAW_SUM_US),
         draw_max_us: DRAW_MAX_US.swap(0, Relaxed),
         draw_n: dn,
-        acq_avg_us: if dn > 0 { ACQ_SUM_US.swap(0, Relaxed) / dn } else { ACQ_SUM_US.swap(0, Relaxed) },
+        acq_avg_us: mittel(dn, &ACQ_SUM_US),
         acq_max_us: ACQ_MAX_US.swap(0, Relaxed),
-        enc_avg_us: if dn > 0 { ENC_SUM_US.swap(0, Relaxed) / dn } else { ENC_SUM_US.swap(0, Relaxed) },
-        pres_avg_us: if dn > 0 { PRES_SUM_US.swap(0, Relaxed) / dn } else { PRES_SUM_US.swap(0, Relaxed) },
+        enc_avg_us: mittel(dn, &ENC_SUM_US),
+        pres_avg_us: mittel(dn, &PRES_SUM_US),
         pres_max_us: PRES_MAX_US.swap(0, Relaxed),
         kanal_max: KANAL_MAX.swap(0, Relaxed),
         sende_luecke_max_us: SENDE_LUECKE_MAX_US.swap(0, Relaxed),
