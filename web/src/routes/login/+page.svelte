@@ -211,14 +211,14 @@
   <!-- Durchgehender Verlaufs-Hintergrund hinter dem gesamten Layout (Desktop
        only — auf Mobil ausgeblendet, dort bleibt der Standard-Seitengrund). -->
   <div
-    class="pointer-events-none absolute inset-0 -z-10 hidden nicht-handy:block"
+    class="pointer-events-none absolute inset-0 -z-10 hidden md:block"
     style="background: linear-gradient(150deg, #0e1f3a, #0a1525 60%, #08130c);"
   ></div>
 
   <!-- Atmende Glow-Blobs über die GANZE Fläche (sonst wirkt nur die linke
        Hälfte glühend → optisch zweigeteilt). -->
   <div
-    class="pointer-events-none absolute inset-0 -z-10 hidden motion-safe:animate-blob-breathe nicht-handy:block"
+    class="pointer-events-none absolute inset-0 -z-10 hidden motion-safe:animate-blob-breathe md:block"
     style="background:
       radial-gradient(520px 380px at 22% 20%, rgba(59,130,246,.22), transparent 60%),
       radial-gradient(560px 400px at 82% 88%, rgba(16,185,129,.16), transparent 60%);"
@@ -240,11 +240,11 @@
     ]}
   />
 
-  <!-- Formular-Pane: auf Mobil volle Breite + zentriert; ab nicht-handy: fixe 46 %.
+  <!-- Formular-Pane: auf Mobil volle Breite + zentriert; ab md: fixe 46 %.
        relative z-30 → liegt über dem Radar (z-20); der transparente Rand zeigt
        das Radar dahinter durch, die Karte selbst verdeckt es. -->
   <div
-    class="relative z-30 flex flex-1 flex-col items-center justify-center gap-6 p-4 nicht-handy:flex-none nicht-handy:basis-[46%]"
+    class="relative z-30 flex flex-1 flex-col items-center justify-center gap-6 p-4 md:flex-none md:basis-[46%]"
   >
     {#if step === 'credentials'}
       <form
@@ -362,7 +362,7 @@
       <!-- App-Downloads direkt unter der Login-Karte (fester Abstand über
            das gap des Panes; folgt der Karte auf jeder Bildschirmgröße).
            Nur im Browser sichtbar (Gating in der Komponente). -->
-      <div class="handy:mb-12">
+      <div class="max-md:mb-12">
         <AppDownloadLinks />
       </div>
     {:else}

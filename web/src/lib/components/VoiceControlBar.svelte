@@ -19,6 +19,7 @@
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import ScreenShareModeButton from './ScreenShareModeButton.svelte';
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
@@ -27,12 +28,6 @@
   import { isCapacitorAndroid } from '$lib/platform/runtime';
   import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
   import { type AudioRoute } from '$lib/platform/audioRoute';
-
-  // Handy-Klasse? Wird vom Mount-Punkt hereingereicht (Geraete-Trennung):
-  // Desktop leistet die Leiste im Sidebar-Fuss, Handy als Dock unter dem
-  // Panel — dort entfallen die nur-Rechner-Knoepfe (Watch-Party, Bildschirm
-  // teilen, Kamera-Wechsler am Tablet).
-  let { handy }: { handy: boolean } = $props();
 
   // Camera-toggle gate: same shape as the HQ-stream button. Hide when
   // the channel's resolved permissions lack USE_VIDEO. Falls back to
@@ -121,8 +116,8 @@
   // Bis zur Design-Vereinheitlichung kam die Rundung unausgesprochen aus der
   // Button-Komponente (die pauschal `rounded-full` war); seit die auf
   // `rounded-md` steht, muss sie hier stehen, wo sie hingehört.
-  const btnCls = 'size-14 rounded-full nicht-handy:size-8';
-  const iconCls = 'size-6 nicht-handy:size-4';
+  const btnCls = 'size-14 rounded-full md:size-8';
+  const iconCls = 'size-6 md:size-4';
 </script>
 
 <StreamStatusBar />
@@ -137,10 +132,10 @@
      dem Karten-Commit — die solide Fläche las die Leiste im Panel wie ein
      helleres Overlay über den Knöpfen wirken (Nutzerbericht 2026-09-14). -->
 <div
-  class="border-border bg-bg-input mx-2 mb-2 mt-2 rounded-[14px] border p-2 nicht-handy:mb-0 nicht-handy:bg-bg-input/60 nicht-handy:p-1.5"
+  class="border-border bg-bg-input mx-2 mb-2 mt-2 rounded-[14px] border p-2 md:mb-0 md:bg-bg-input/60 md:p-1.5"
   data-testid="voice-control-bar"
 >
-  <div class="flex items-center gap-1.5 px-1 pb-1.5 text-base nicht-handy:text-xs">
+  <div class="flex items-center gap-1.5 px-1 pb-1.5 text-base md:text-xs">
     <span
       class="size-2 shrink-0 rounded-full {voice.connecting ? 'bg-warning' : 'bg-success'}"
       aria-hidden="true"
@@ -155,12 +150,12 @@
     {/if}
   </div>
 
-  <!-- `flex-nowrap` + `nicht-handy:gap-0.5`: In der schmalen Seitenpalte (240px minus
+  <!-- `flex-nowrap` + `md:gap-0.5`: In der schmalen Seitenpalte (240px minus
        Rand) passten sechs 32px-Knoepfe mit 8px-Luecke nicht — der Auflegen-
        Knopf brach als erster in eine zweite Zeile. Engere Luecke und kein
        Umbruch halten alles in EINER Reihe; mobile Dock-Breite ist locker
        genug, um nichts zu verlieren. -->
-  <div class="flex flex-nowrap items-center justify-around gap-2 nicht-handy:justify-between nicht-handy:gap-0.5">
+  <div class="flex flex-nowrap items-center justify-around gap-2 md:justify-between md:gap-0.5">
     <Tooltip.Provider delayDuration={300}>
       <Tooltip.Root>
         <Tooltip.Trigger>
@@ -292,7 +287,7 @@
           {/if}
         </div>
       {/if}
-      {#if voice.channelId && !handy}
+      {#if voice.channelId && !viewport.isMobile}
         <WatchPartyStartButton channelId={voice.channelId} />
       {/if}
 
@@ -324,7 +319,7 @@
              (`CameraTile`, Entwurf 23a): er betrifft genau dieses Bild, und
              als fuenfter runder 56-px-Knopf spraengte er die einzeilige
              Reihe. Auf dem Tablet ist der Platz da, dort bleibt er hier. -->
-        {#if voice.isCameraOn && isTouchDevice && !handy}
+        {#if voice.isCameraOn && isTouchDevice && !viewport.isMobile}
           <Tooltip.Root>
             <Tooltip.Trigger>
               {#snippet child({ props })}
@@ -347,7 +342,7 @@
       {/if}
 
       <!-- Screenshare/HQ — auf Mobil ausgeblendet (kein getDisplayMedia auf iOS/Android) -->
-      {#if !handy && kannBildschirmTeilen}
+      {#if !viewport.isMobile && kannBildschirmTeilen}
         <ScreenShareModeButton />
       {/if}
 

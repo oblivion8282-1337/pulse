@@ -1,6 +1,6 @@
 <!--
   Derselbe Einstieg für Tablet und Handy: am Fuss der Räume-Liste, weil die
-  GuildRail dort ausgeblendet ist (`hidden desktop:flex`).
+  GuildRail dort ausgeblendet ist (`hidden lg:flex`).
 
   Bewusst NICHT im Du-Bereich: „Du" ist auf schmalen Geräten genau der
   Einstellungs-Ort, aus dem der Self-Host-Bereich herausgeholt wurde. Die

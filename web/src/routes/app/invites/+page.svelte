@@ -40,11 +40,11 @@
 />
 
 {#if !viewport.isMobile}
-  <DMChannelList activeDMId={null} onSelect={selectDM} handy={false} />
+  <DMChannelList activeDMId={null} onSelect={selectDM} />
 {/if}
 
 <section
-  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none nicht-handy:rounded-2xl"
+  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
   data-testid="invites-page"
 >
   <BereichsKopf titel={m.seite_invites_titel()} />

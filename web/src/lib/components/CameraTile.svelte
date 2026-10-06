@@ -13,6 +13,7 @@
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { m } from '$lib/paraglide/messages.js';
@@ -22,9 +23,6 @@
     track,
     name,
     identity,
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
-     *  an die TileShell durchgereicht. */
-    handy,
     mirror = false,
     onHide
   }: {
@@ -32,7 +30,6 @@
     track: LocalVideoTrack | RemoteVideoTrack;
     name: string;
     identity: string;
-    handy: boolean;
     /** Horizontal spiegeln — für die eigene Frontkamera-Vorschau. */
     mirror?: boolean;
     /** Überschreibt das Standard-Schließen (openedTiles) — z.B. um die
@@ -49,12 +46,9 @@
    * die passen nebeneinander nicht mehr.
    *
    * `mirror` ist der verlaessliche Hinweis auf die eigene Kachel: die
-   * Selbst-Vorschau wird gespiegelt gerendert, fremde nie. Dass der Knopf
-   * nur in der Handy-Klasse erscheint, haengt an der Geraeteklasse des
-   * Wurzel-Divs (`nicht-handy:hidden` unten) — nicht mehr an einer
-   * Viewport-Abfrage hier.
+   * Selbst-Vorschau wird gespiegelt gerendert, fremde nie.
    */
-  const zeigtKameraWechsel = $derived(mirror && voice.isCameraOn);
+  const zeigtKameraWechsel = $derived(mirror && viewport.isMobile && voice.isCameraOn);
 
   let videoEl = $state<HTMLVideoElement | null>(null);
 
@@ -78,7 +72,6 @@
 
 <TileShell
   kind="cam"
-  {handy}
   containerTestid="camera-tile"
   testidPrefix="camera"
   {identity}
@@ -89,7 +82,7 @@
   {#snippet overlay()}
     {#if zeigtKameraWechsel}
       <button
-        class="nicht-handy:hidden absolute bottom-2 right-2 z-10 flex size-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
+        class="absolute bottom-2 right-2 z-10 flex size-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
         onclick={() => void voice.flipCamera()}
         data-testid="camera-tile-flip"
         aria-label={m.voice_bar_camera_switch()}

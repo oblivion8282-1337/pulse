@@ -112,13 +112,13 @@
 </script>
 
 <Dialog.Root bind:open>
-  <!-- handy: Vollbild — liegt damit (anders als zentrierte Dialoge) unter der
+  <!-- max-sm: Vollbild — liegt damit (anders als zentrierte Dialoge) unter der
        Status-Bar (Android Edge-to-Edge / iOS-PWA-Notch). pt-[var(--safe-top)]
        schiebt den Inhalt darunter raus, closeClass den absolut positionierten
        X-Button mit. -->
   <Dialog.Content
-    class="flex w-full max-w-3xl gap-0 overflow-hidden p-0 nicht-handy:h-[min(44rem,85dvh)] nicht-handy:max-w-3xl handy:h-dvh handy:max-h-dvh handy:max-w-none handy:rounded-none handy:pt-[var(--safe-top)]"
-    closeClass="handy:top-[calc(var(--safe-top)+1rem)]"
+    class="flex w-full max-w-3xl gap-0 overflow-hidden p-0 sm:h-[min(44rem,85dvh)] sm:max-w-3xl max-sm:h-dvh max-sm:max-h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:pt-[var(--safe-top)]"
+    closeClass="max-sm:top-[calc(var(--safe-top)+1rem)]"
     data-testid="settings-dialog"
   >
     <!-- Zugänglicher Dialog-Titel — immer im DOM (auf Mobil wird die <nav> mit
@@ -133,23 +133,23 @@
     <!-- Inhaltsbereich: auf sm+ inline; auf mobile nur wenn mobileView=detail -->
     <div
       class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden
-        {mobileView === 'list' ? 'handy:hidden' : ''}"
+        {mobileView === 'list' ? 'max-sm:hidden' : ''}"
     >
       <!-- Zurück-Button auf Mobile -->
-      <div class="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4 nicht-handy:hidden">
+      <div class="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4 sm:hidden">
         <Button
           variant="ghost"
           size="sm"
           onclick={() => (mobileView = 'list')}
           aria-label={m.settings_dialog_back()}
         >
-          <ChevronLeftIcon class="text-text-muted size-5 nicht-handy:size-4" />
-          <span class="text-text-muted text-base nicht-handy:text-sm">{m.settings_dialog_title()}</span>
+          <ChevronLeftIcon class="text-text-muted size-5 md:size-4" />
+          <span class="text-text-muted text-base md:text-sm">{m.settings_dialog_title()}</span>
         </Button>
         <span class="text-text-bright ml-1 text-sm font-semibold">{activeLabel}</span>
       </div>
 
-      <div class="flex-1 overflow-y-auto pb-6 pl-6 pr-4 pt-14 handy:pt-6">
+      <div class="flex-1 overflow-y-auto pb-6 pl-6 pr-4 pt-14 max-sm:pt-6">
         <SettingsPanel tab={activeTab} />
       </div>
     </div>

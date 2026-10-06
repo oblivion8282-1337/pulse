@@ -30,7 +30,7 @@
 </script>
 
 <div class="bg-background text-foreground min-h-dvh">
-  <div class="mx-auto max-w-3xl px-5 py-10 nicht-handy:px-8 nicht-handy:py-14">
+  <div class="mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
     <header class="mb-8 flex items-center justify-between gap-4">
       <a href="/" class="flex items-center gap-2.5">
         <img src="/pulse-mark.svg" alt="Pulse" width="32" height="32" class="size-8" />

@@ -282,7 +282,7 @@
 </script>
 
 <aside
-  class="border-border bg-bg-chat flex h-full w-full flex-col border-l nicht-handy:w-44 nicht-handy:bg-transparent desktop:w-52"
+  class="border-border bg-bg-chat flex h-full w-full flex-col border-l md:w-44 md:bg-transparent lg:w-52"
   data-testid="member-list"
 >
   <header class="flex h-14 items-center justify-between px-4">
@@ -293,7 +293,7 @@
       <Button
         variant="ghost"
         size="icon-sm"
-        class="nicht-handy:hidden"
+        class="md:hidden"
         onclick={onClose}
         aria-label={m.member_list_close()}
       >
@@ -327,13 +327,9 @@
             </div>
           {:else}
             {@const mem = item.member}
-            <!-- Nur-Desktop-Komponente: beide Mounts (VoiceChannelView,
-                ChatView) gate die Liste an `!isMobile` — das Profil
-                laeuft also immer als Rechtsklick-Karte. -->
             <MemberListItem
               member={mem}
               {guildId}
-              handy={false}
               isSpeaking={speakingIds.has(mem.user_id)}
               isPartyHost={partyHostIds.has(mem.user_id)}
               isStreaming={streamerIds.has(mem.user_id)}

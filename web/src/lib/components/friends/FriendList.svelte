@@ -34,13 +34,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
-  let {
-    onlineOnly = false,
-    suche = '',
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
-     *  ins Nutzer-Profil durchgereicht: Tippen-Blatt statt Rechtsklick-Karte. */
-    handy
-  }: { onlineOnly?: boolean; suche?: string; handy: boolean } = $props();
+  let { onlineOnly = false, suche = '' }: { onlineOnly?: boolean; suche?: string } = $props();
 
   /** Dieselbe Such-Norm wie die Chats-Suche (`$lib/utils/suche`): erst ab
    *  drei Zeichen wird gefiltert, und Namen mit Zahlen werden über alle
@@ -212,7 +206,6 @@
         userId={f.user_id}
         displayName={u?.display_name ?? u?.username ?? '…'}
         avatarUrl={avatar}
-        {handy}
       >
         {#snippet children({ props })}
           <button
@@ -266,7 +259,7 @@
       <Button
         size="sm"
         variant="ghost"
-        class="min-h-12 min-w-12 nicht-handy:min-h-0 nicht-handy:min-w-0"
+        class="min-h-12 min-w-12 md:min-h-0 md:min-w-0"
         onclick={() => openDM(f.user_id)}
         data-testid="friend-dm-btn"
         title={m.friend_list_action_send_message()}
@@ -276,7 +269,7 @@
       <Button
         size="sm"
         variant="ghost"
-        class="min-h-12 min-w-12 nicht-handy:min-h-0 nicht-handy:min-w-0"
+        class="min-h-12 min-w-12 md:min-h-0 md:min-w-0"
         onclick={() => unfriend(f.user_id)}
         data-testid="friend-remove-btn"
         title={m.friend_list_action_remove()}

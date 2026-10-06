@@ -143,7 +143,7 @@
           <!-- Quelle links, Einstellungen rechts. Umbruch auf eine Spalte
                unterhalb von `lg` — in einem schmalen Fenster wären zwei
                Spalten enger als die ursprüngliche eine. -->
-          <div class="grid gap-4 desktop:grid-cols-2 desktop:gap-6">
+          <div class="grid gap-4 lg:grid-cols-2 lg:gap-6">
             <MonitorPicker streamSlot={slot} />
             {@render settingsColumn()}
           </div>

@@ -67,7 +67,7 @@
 </script>
 
 <li
-  class="grid grid-cols-1 gap-2 py-2.5 nicht-handy:grid-cols-[minmax(0,1fr)_auto] nicht-handy:items-center nicht-handy:gap-4 desktop:grid-cols-[minmax(0,1fr)_auto_11rem]"
+  class="grid grid-cols-1 gap-2 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4 lg:grid-cols-[minmax(0,1fr)_auto_11rem]"
   data-testid={`perm-row-${testKey}-${recht.perm}`}
 >
   <div class="min-w-0" class:opacity-50={gedaempft}>
@@ -99,7 +99,7 @@
   </div>
 
   <p
-    class={`text-xs nicht-handy:col-span-2 desktop:col-span-1 desktop:text-right ${farbe}`}
+    class={`text-xs sm:col-span-2 lg:col-span-1 lg:text-right ${farbe}`}
     class:opacity-70={gedaempft}
     data-testid={`perm-result-${testKey}-${recht.perm}`}
   >

@@ -187,7 +187,7 @@
   {:else if current}
     <div class="flex flex-col gap-2">
       <!-- Bitrate -->
-      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 nicht-handy:flex-row nicht-handy:items-center nicht-handy:justify-between nicht-handy:gap-4">
+      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div class="min-w-0 flex-1">
           <div class="text-text-bright text-sm font-medium">{msg.bitrateLabel()}</div>
           <div class="text-text-muted text-xs mt-0.5">{msg.bitrateHint()}</div>
@@ -211,7 +211,7 @@
       </div>
 
       <!-- FPS -->
-      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 nicht-handy:flex-row nicht-handy:items-center nicht-handy:justify-between nicht-handy:gap-4">
+      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div class="min-w-0 flex-1">
           <div class="text-text-bright text-sm font-medium">{msg.fpsLabel()}</div>
           <div class="text-text-muted text-xs mt-0.5">{msg.fpsHint()}</div>
@@ -235,7 +235,7 @@
       </div>
 
       <!-- Resolution ceiling -->
-      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 nicht-handy:flex-row nicht-handy:items-center nicht-handy:justify-between nicht-handy:gap-4">
+      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div class="min-w-0 flex-1">
           <div class="text-text-bright text-sm font-medium">{msg.resolutionLabel()}</div>
           <div class="text-text-muted text-xs mt-0.5">

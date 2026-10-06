@@ -129,7 +129,7 @@
           onclick={pushToggle}
           disabled={busy || permission === 'unsupported' || serverDisabled}
           aria-pressed={settings.notifications.browserPushEnabled}
-          class="shrink-0 rounded-full px-3 py-2 text-xs font-medium transition-colors nicht-handy:py-1.5 {settings
+          class="shrink-0 rounded-full px-3 py-2 text-xs font-medium transition-colors md:py-1.5 {settings
             .notifications.browserPushEnabled
             ? 'accent-gradient text-white'
             : 'bg-bg-hover text-text-bright hover:bg-bg-input'} disabled:cursor-not-allowed disabled:opacity-50"

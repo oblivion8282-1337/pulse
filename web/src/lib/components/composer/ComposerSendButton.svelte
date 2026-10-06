@@ -4,7 +4,7 @@
   `data-testid`.
 
   Drei beabsichtigte Abweichungen von der Standard-Variante:
-  Grösse: `nicht-handy:size-9` (36px) zieht mit Büroklammer und Emoji daneben gleich,
+  Grösse: `md:size-9` (36px) zieht mit Büroklammer und Emoji daneben gleich,
   vorher war dieser eine Knopf 32px. `size-10` (40px) auf dem Handy:
   kompakte Zeilenhöhe mit ausreichender Trefferfläche.
   Verlauf: `accent-gradient` statt der einfarbigen Fläche — direkt unter den
@@ -39,7 +39,7 @@
     type="button"
     variant="ghost"
     size="icon"
-    class="text-text-muted hover:text-text-bright size-10 nicht-handy:size-9"
+    class="text-text-muted hover:text-text-bright size-10 md:size-9"
     onclick={onMikrofon}
     aria-label={m.message_input_hold_to_speak()}
     data-testid="voice-record-button"
@@ -50,7 +50,7 @@
   <Button
     type="submit"
     size="icon"
-    class="accent-gradient size-10 text-white shadow-[0_4px_14px_rgba(37,99,235,0.35)] hover:brightness-110 disabled:bg-none disabled:bg-secondary disabled:text-text-muted disabled:opacity-100 disabled:shadow-none nicht-handy:size-9"
+    class="accent-gradient size-10 text-white shadow-[0_4px_14px_rgba(37,99,235,0.35)] hover:brightness-110 disabled:bg-none disabled:bg-secondary disabled:text-text-muted disabled:opacity-100 disabled:shadow-none md:size-9"
     {disabled}
     data-testid="message-send"
     aria-label={m.message_input_send()}

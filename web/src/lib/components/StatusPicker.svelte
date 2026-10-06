@@ -65,7 +65,7 @@
         {...props}
         variant="ghost"
         size="sm"
-        class="min-h-12 nicht-handy:min-h-0"
+        class="min-h-12 md:min-h-0"
         disabled={busy}
         title={m.status_picker_change_title()}
         data-testid="status-picker-trigger"

@@ -5,7 +5,7 @@
    * **Warum es diesen Knopf braucht.** Beitritt per bloßer Serveradresse
    * (Erstkontakt, kein Invite-Code) läuft ausschließlich über `JoinGuildStep`
    * in `CreateGuildDialog` (`/app?add=join`). Auf `< lg` gibt es dafür keinen
-   * Einstieg — die `GuildRail` ist dort `hidden desktop:flex`, und das Beitritts-
+   * Einstieg — die `GuildRail` ist dort `hidden lg:flex`, und das Beitritts-
    * feld in `/app/discover` weist nackte Hostadressen ausdrücklich ab
    * (`joinByInvite.ts::join_input_host_use_dialog`). Anders als beim Anlegen
    * ist hier kein Server-Vorwechsel nötig — der Zielserver ist ja noch

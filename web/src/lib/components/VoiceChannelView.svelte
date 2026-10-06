@@ -12,6 +12,7 @@ import { errText } from '$lib/utils/errText';
   import UsersIcon from '@lucide/svelte/icons/users';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { goto } from '$app/navigation';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
@@ -28,14 +29,7 @@ import { errText } from '$lib/utils/errText';
   import type { Channel } from '$lib/api/types';
   import FieldError from './feedback/FieldError.svelte';
 
-  let {
-    channel,
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung):
-     *  steuert Kopfzeile/Kopfzeilen-Elemente, Verbindungs-Ansicht und
-     *  Mitgliederliste — und wird an StreamGrid/Teilnehmer-Kacheln
-     *  durchgereicht (Profil: Tippen-Blatt vs Rechtsklick-Karte). */
-    handy
-  }: { channel: Channel; handy: boolean } = $props();
+  let { channel }: { channel: Channel } = $props();
 
   // HQ stream presence for this channel — needed by the prune effect below
   // so that a publisher who stopped doesn't keep auto-mounting a tile.
@@ -200,12 +194,12 @@ import { errText } from '$lib/utils/errText';
   onvisibilitychange={() => { if (document.visibilityState === 'hidden' && voice.pttMode) { voice.pttRelease(); pttPressed = false; } }}
 />
 
-<section class="glass-panel slide-rein relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none nicht-handy:rounded-2xl" data-testid="voice-channel-view">
+<section class="glass-panel slide-rein relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="voice-channel-view">
   <!-- Mobil verschwindet die Kopfzeile, sobald ein Stream läuft: der Bildschirm
        gehört dann dem Video, Navigation übernimmt die Bereichs-Leiste unten.
        Zurück bleibt der Kopf für den Normalzustand (Kacheln, nicht verbunden). -->
   <header
-    class="flex h-14 items-center gap-2.5 px-3 nicht-handy:px-5 {handy &&
+    class="flex h-14 items-center gap-2.5 px-3 md:px-5 {viewport.istHandy &&
     streamViewOpen &&
     isThisChannel &&
     (voice.connected || voice.connecting)
@@ -218,14 +212,14 @@ import { errText } from '$lib/utils/errText';
     <Button
       variant="ghost"
       size="icon"
-      class="nicht-handy:hidden"
+      class="md:hidden"
       onclick={() => goto(`/app/rooms/${channel.guild_id}`)}
       aria-label={m.channel_list_back()}
       data-testid="voice-back-mobile"
     >
       <ChevronLeftIcon class="size-6" />
     </Button>
-    <Volume2Icon class="text-primary size-5 shrink-0 handy:hidden" />
+    <Volume2Icon class="text-primary size-5 shrink-0 max-md:hidden" />
     <!-- **Das Thema des Kanals** (2026-08-16). Es liess sich in den
          Kanal-Einstellungen setzen, wurde aber nur in der Kopfzeile eines
          TEXTkanals gezeigt (`ChatView.svelte`) — bei einem Sprachkanal stand es
@@ -235,11 +229,11 @@ import { errText } from '$lib/utils/errText';
          und nicht zwei Bruchstücke hintereinander in derselben Zeile hängen. -->
     <ChannelHeading name={channel.name} topic={channel.topic} meta={statusLabel} />
     <div class="ml-auto flex items-center gap-1">
-      {#if !handy}
+      {#if !viewport.istHandy}
         <Button
           variant="ghost"
           size="icon"
-          class="handy:hidden"
+          class="max-md:hidden"
           onclick={toggleMemberList}
           aria-label={m.voice_channel_view_toggle_member_list_aria()}
           data-testid="member-list-toggle"
@@ -275,7 +269,7 @@ import { errText } from '$lib/utils/errText';
         <!-- Mobil ist diese Vollbild-Ansicht die einzige Oberfläche, solange
              das Dock nicht da ist — ein hängendes „Verbinde…" ohne Fluchtweg
              schloss den Nutzer ein (serverseitig war der Teilnehmer längst
-             weg, der Client hing im Connecting). Verlassen ist immer da. -->        {#if handy}
+             weg, der Client hing im Connecting). Verlassen ist immer da. -->        {#if viewport.isMobile}
           <Button
             variant="secondary"
             onclick={() => void voice.disconnect().catch(() => undefined)}
@@ -286,12 +280,12 @@ import { errText } from '$lib/utils/errText';
         {/if}
       </div>
       {:else if streamViewOpen}
-        <StreamGrid {channel} {handy} />
+        <StreamGrid {channel} />
       {:else}
-        <div class="flex flex-1 flex-col items-center justify-center gap-4 p-3 nicht-handy:gap-6 nicht-handy:p-8">
-          <div class="flex flex-wrap items-center justify-center gap-4 nicht-handy:gap-6" data-testid="voice-participants">
+        <div class="flex flex-1 flex-col items-center justify-center gap-4 p-3 md:gap-6 md:p-8">
+          <div class="flex flex-wrap items-center justify-center gap-4 md:gap-6" data-testid="voice-participants">
             {#each voice.participants as p (p.identity)}
-              <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} {handy} />
+              <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
             {/each}
           </div>
         </div>
@@ -302,7 +296,7 @@ import { errText } from '$lib/utils/errText';
           <Volume2Icon class="text-text-muted mx-auto mb-3 size-12" />
           <p class="text-text-bright mb-1 text-lg">{channel.name}</p>
           <FieldError message={voice.error} class="mt-2" />
-          {#if !handy}
+          {#if !viewport.isMobile}
             <p class="text-text-muted text-sm">{m.voice_channel_view_join_hint()}</p>
             <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">{m.voice_channel_view_join_btn()}</Button>
           {:else}
@@ -326,7 +320,7 @@ import { errText } from '$lib/utils/errText';
 
     <!-- Rechter Slot inline (md+) — nur Mitgliederliste. Stream- und Watch-
          Chats leben jetzt INNERHALB des jeweiligen Stream-Tiles. -->
-    {#if !handy && memberListOpen}
+    {#if !viewport.istHandy && memberListOpen}
       <MemberList guildId={channel.guild_id} />
     {/if}
   </div>

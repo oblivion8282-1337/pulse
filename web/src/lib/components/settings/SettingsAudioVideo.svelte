@@ -254,7 +254,7 @@
       {#if istAndroid}
         <!-- Kuratiert: nur das Telefonmikrofon + das verbundene BT-Mikrofon. -->
         <Select
-          class="h-11 nicht-handy:h-9"
+          class="h-11 md:h-9"
           value={eingabeWertAndroid}
           options={eingabeOptionenAndroid}
           placeholder={m.settings_audio_video_join_voice_to_see_devices()}
@@ -264,7 +264,7 @@
         />
       {:else}
         <Select
-          class="h-11 nicht-handy:h-9"
+          class="h-11 md:h-9"
           value={voice.selectedInputDeviceId}
           options={eingabeOptionen}
           placeholder={m.settings_audio_video_join_voice_to_see_devices()}
@@ -328,7 +328,7 @@
             value={settings.audio.noiseGateThresholdDb}
             oninput={onGateInput}
             onchange={onGateChange}
-            class="accent-primary h-3 w-full nicht-handy:h-auto"
+            class="accent-primary h-3 w-full md:h-auto"
           />
         </div>
       {/if}
@@ -359,7 +359,7 @@
              Gerät geschlossen an und öffnet bei Tipp die Liste nach unten —
              Lautsprecher, Hörmuschel und jedes verbundene Bluetooth-Gerät. -->
         <Select
-          class="h-11 nicht-handy:h-9"
+          class="h-11 md:h-9"
           value={routeWert}
           options={routeOptionen}
           placeholder={m.settings_audio_video_join_voice_to_see_devices()}
@@ -368,7 +368,7 @@
         />
       {:else}
         <Select
-          class="h-11 nicht-handy:h-9"
+          class="h-11 md:h-9"
           value={voice.selectedOutputDeviceId}
           options={ausgabeOptionen}
           placeholder={m.settings_audio_video_join_voice_to_see_devices()}

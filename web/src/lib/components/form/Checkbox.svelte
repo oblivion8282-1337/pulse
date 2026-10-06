@@ -61,13 +61,11 @@
       background-color 0.15s,
       border-color 0.15s;
   }
-  /* Kleiner am Schreibtisch (1 rem), fingerfreundlich am Handy (1,25 rem) —
-     entschieden an der GERÄTEKLASSE (Regel Geräte-Trennung 2026-09-04), nicht
-     an der Fensterbreite: ein schmales Rechnerfenster bleibt Schreibtisch. */
-  :global(.geraet-desktop) .pulse-checkbox,
-  :global(.geraet-tablet) .pulse-checkbox {
-    inline-size: 1rem;
-    block-size: 1rem;
+  @media (min-width: 48rem) {
+    .pulse-checkbox {
+      inline-size: 1rem;
+      block-size: 1rem;
+    }
   }
 
   .pulse-checkbox:checked,

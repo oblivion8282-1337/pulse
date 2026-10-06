@@ -69,7 +69,7 @@ import { errText } from '$lib/utils/errText';
   {#if error}
     <FieldError message={m.admin_attachments_error({ message: error ?? '' })} />
   {:else if current}
-    <div class="grid gap-4 nicht-handy:grid-cols-2">
+    <div class="grid gap-4 sm:grid-cols-2">
       <label class="flex flex-col gap-1.5">
         <span class="text-text-base text-sm">{m.admin_attachments_max_size_label()}</span>
         <Input

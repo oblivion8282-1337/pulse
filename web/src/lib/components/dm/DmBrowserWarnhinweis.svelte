@@ -17,6 +17,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { dmBrowserWarnung } from '$lib/krypto/dmBrowserWarnung.svelte';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import CloudIcon from '@lucide/svelte/icons/cloud';
@@ -25,13 +26,9 @@
 
   // Auf dem Handy sind Einstellungen eigene Routen (`/app/me/[section]`),
   // am Desktop ein Dialog mit Reiter — dasselbe Muster wie ueberall sonst,
-  // wo aus dem @me-Bereich in die Einstellungen verzweigt wird. Die Klasse
-  // faellt am Mount-Punkt (@me-Seite) und kommt hier als Prop herein
-  // (Geraete-Trennung).
-  let { handy }: { handy: boolean } = $props();
-
+  // wo aus dem @me-Bereich in die Einstellungen verzweigt wird.
   function zuEinstellungen(tab: 'apps' | 'sicherung') {
-    if (handy) {
+    if (viewport.isMobile) {
       void goto(`/app/me/${tab}`);
     } else {
       uiOverlays.openSettings(tab);

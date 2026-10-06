@@ -35,9 +35,6 @@
     highlight = false,
     onLongPress,
     guildId,
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geräte-Trennung) —
-     *  schaltet das Profil zwischen Tippen-Blatt und Rechtsklick-Karte. */
-    handy,
     body,
     actions
   }: {
@@ -58,7 +55,6 @@
     onLongPress: () => void;
     /** Community-Bezug fuer das Profil (Server-Nick, Rollen). Fehlt in DMs. */
     guildId?: string;
-    handy: boolean;
     body: Snippet;
     actions: Snippet;
   } = $props();
@@ -136,7 +132,6 @@
       displayName={authorName}
       avatarUrl={url}
       {guildId}
-      {handy}
     >
       {#snippet children({ props })}
         {#key url}
@@ -162,7 +157,6 @@
           displayName={authorName}
           avatarUrl={url}
           {guildId}
-          {handy}
         >
           {#snippet children({ props })}
             <button

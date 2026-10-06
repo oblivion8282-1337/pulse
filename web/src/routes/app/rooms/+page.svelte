@@ -114,7 +114,7 @@
 
 </script>
 
-<div class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none nicht-handy:w-72 nicht-handy:flex-none nicht-handy:rounded-2xl" data-testid="rooms-page">
+<div class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:w-72 md:flex-none md:rounded-2xl" data-testid="rooms-page">
   <BereichsKopf titel={m.nav_tab_rooms()}>
     {#snippet handlung()}
       <!-- Drei-Punkte wie in Chats und Freunde: Entdecken ist der Ausgang ins

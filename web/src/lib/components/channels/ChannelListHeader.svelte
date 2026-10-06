@@ -55,7 +55,7 @@
       <Button
         variant="ghost"
         size="icon-sm"
-        class="size-9 nicht-handy:size-8 text-text-muted hover:text-primary"
+        class="size-9 md:size-8 text-text-muted hover:text-primary"
         onclick={() => (inviteOpen = true)}
         data-testid="invite-open-btn"
         aria-label={m.channel_list_invite_people()}
@@ -67,7 +67,7 @@
       <Button
         variant="ghost"
         size="icon-sm"
-        class="size-9 nicht-handy:size-8 text-text-muted hover:text-primary"
+        class="size-9 md:size-8 text-text-muted hover:text-primary"
         onclick={onCreateClick}
         data-testid="channel-create"
         aria-label={m.channel_list_create_channel()}

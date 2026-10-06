@@ -14,7 +14,6 @@
   import ConfirmDialog from '$lib/components/feedback/ConfirmDialog.svelte';
   import DirectTrustDialog from '$lib/components/server/DirectTrustDialog.svelte';
   import TraySync from '$lib/tray/TraySync.svelte';
-  import { viewport } from '$lib/stores/viewport.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { initSelfHostReauth } from '$lib/api/self-host-reauth';
@@ -238,7 +237,7 @@
 
 <ModeWatcher defaultMode="system" track disableHeadScriptInjection />
 
-<div class="min-h-dvh geraet-{viewport.geraet}">
+<div class="min-h-dvh">
   {@render children?.()}
 </div>
 

@@ -18,7 +18,6 @@
   import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
-  import { viewport } from '$lib/stores/viewport.svelte';
   import PictureInPicture2Icon from '@lucide/svelte/icons/picture-in-picture-2';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -87,7 +86,6 @@
     <WhepPlayer
       {channelId}
       {userId}
-      handy={viewport.isMobile}
       {streamSlot}
       name={streamerName}
       canDetach={false}

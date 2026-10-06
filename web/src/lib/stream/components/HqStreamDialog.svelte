@@ -30,8 +30,8 @@
   // Dialog-Komponente deckelt unterhalb von `sm` ohnehin auf 100 % − 2rem.
   const widthClass =
     isWindows() || isMac()
-      ? 'nicht-handy:max-w-[min(1150px,calc(100vw-4rem))]'
-      : 'max-w-2xl nicht-handy:max-w-2xl';
+      ? 'sm:max-w-[min(1150px,calc(100vw-4rem))]'
+      : 'max-w-2xl sm:max-w-2xl';
 </script>
 
 <Dialog.Root bind:open>

@@ -21,18 +21,13 @@
   let {
     activeDMId = null,
     onSelect,
-    onSelectGruppe,
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
-     *  an den Sidebar-Footer durchgereicht (Voice-Bar/User-Fuss sind dort
-     *  ausgeblendet — sie wohnen in ChatView bzw. im Raeume-Bereich). */
-    handy
+    onSelectGruppe
   }: {
     activeDMId?: string | null;
     onSelect: (dm: DMChannel) => void;
     /** Eine private Gruppe oeffnen (Etappe G). Fehlt der Rueckruf, bleibt der
      *  Abschnitt aus — die Liste behauptet dann nicht, es gaebe Gruppen. */
     onSelectGruppe?: (gruppeId: string) => void;
-    handy: boolean;
   } = $props();
 
   let neueGruppe = $state(false);
@@ -80,7 +75,7 @@
 </script>
 
 <aside
-  class="glass-panel text-text-base flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none nicht-handy:w-60 nicht-handy:flex-none nicht-handy:rounded-2xl desktop:w-68"
+  class="glass-panel text-text-base flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:w-60 md:flex-none md:rounded-2xl lg:w-68"
   data-testid="dm-channel-list"
 >
   <header class="text-text-bright flex h-12 items-center px-4 pt-3">
@@ -94,13 +89,13 @@
          Direktnachrichten ab. -->
     {#each navButtons as btn (btn.href)}
       <button
-        class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors nicht-handy:gap-2.5 nicht-handy:py-2 nicht-handy:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+        class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
         data-active={btn.active}
         onclick={() => goto(btn.href)}
         data-testid="{btn.testid}-link"
       >
         <btn.icon
-          class="text-text-muted size-6 shrink-0 nicht-handy:size-[17px] group-data-[active=true]:text-primary"
+          class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary"
         />
         <span class="truncate {btn.mutedLabel && btn.count === 0 ? 'text-text-muted' : ''}">{btn.label}</span>
         {#if btn.count > 0}
@@ -145,7 +140,7 @@
       {@const u = userCache.get(dm.other_user_id)}
       {@const avatar = safeAvatarUrl(u?.avatar_url ?? null)}
       <button
-        class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors nicht-handy:gap-2.5 nicht-handy:py-2 nicht-handy:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+        class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
         data-active={activeDMId === dm.id}
         data-unread={isUnread}
         onclick={() => onSelect(dm)}
@@ -159,7 +154,7 @@
           />
         {:else}
           <AtSignIcon
-            class="text-text-muted size-6 shrink-0 nicht-handy:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright"
+            class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright"
           />
         {/if}
         <span
@@ -199,14 +194,14 @@
         {@const isUnread = activeDMId !== gruppe.id && readState.isUnread(gruppe.id)}
         {@const unreadCount = activeDMId !== gruppe.id ? readState.getUnreadCount(gruppe.id) : 0}
         <button
-          class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors nicht-handy:gap-2.5 nicht-handy:py-2 nicht-handy:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+          class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
           data-active={activeDMId === gruppe.id}
           data-unread={isUnread}
           onclick={() => (onSelectGruppe ? onSelectGruppe(gruppe.id) : goto(`/app/@me/${gruppe.id}`))}
           data-testid={`gruppe-${gruppe.id}`}
         >
           <UsersIcon
-            class="text-text-muted size-6 shrink-0 nicht-handy:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright"
+            class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright"
           />
           <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}">
             {gruppe.name}
@@ -230,7 +225,7 @@
     {/if}
   </nav>
 
-  <SidebarFooter {handy} />
+  <SidebarFooter />
 </aside>
 
 {#if neueGruppe}

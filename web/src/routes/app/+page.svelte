@@ -21,7 +21,6 @@
   import DMChannelList from '$lib/components/DMChannelList.svelte';
   import type { DMChannel } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
-  import { viewport } from '$lib/stores/viewport.svelte';
 
   // Darf ich auf dem AKTIVEN Server eine Community anlegen? Rechnung in
   // ``lib/servers/erstellrecht.ts`` (eine Stelle für alle drei Aufrufer).
@@ -110,10 +109,9 @@
 <DMChannelList
   activeDMId={null}
   onSelect={(dm: DMChannel) => goto(`/app/@me/${dm.id}`)}
-  handy={viewport.isMobile}
 />
 
-<div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-none text-sm nicht-handy:rounded-2xl">
+<div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-none text-sm md:rounded-2xl">
   {#if verbindeMitServer}
     <div class="text-center">
       <p class="text-text-bright mb-1 text-lg font-semibold">

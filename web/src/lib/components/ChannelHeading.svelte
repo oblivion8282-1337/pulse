@@ -48,6 +48,6 @@
     >
   {/if}
   {#if meta}
-    <span class="text-text-muted ml-auto hidden shrink-0 truncate text-sm nicht-handy:block">· {meta}</span>
+    <span class="text-text-muted ml-auto hidden shrink-0 truncate text-sm md:block">· {meta}</span>
   {/if}
 </div>

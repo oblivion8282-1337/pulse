@@ -11,7 +11,7 @@
   `settings/reiterAuswahl.svelte.ts` — sie sind mit dem Reiter hierher
   gewandert.
 
-  Die Rail ist `hidden desktop:flex` — mobil hat der Einstieg (noch) keinen Ort;
+  Die Rail ist `hidden lg:flex` — mobil hat der Einstieg (noch) keinen Ort;
   der frühere Reiter zeigte sich dort im Du-Bereich.
 -->
 <script lang="ts">
@@ -88,11 +88,11 @@
       {#snippet child({ props })}
         <button
           {...props}
-          class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md nicht-handy:size-10"
+          class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md md:size-10"
           data-testid="open-standplatz"
           aria-label={m.settings_dialog_tab_standplatz()}
         >
-          <MonitorCogIcon class="size-6 nicht-handy:size-5" />
+          <MonitorCogIcon class="size-6 md:size-5" />
         </button>
       {/snippet}
     </Popover.Trigger>

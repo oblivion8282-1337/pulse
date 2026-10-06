@@ -130,7 +130,7 @@ import { errText } from '$lib/utils/errText';
     title={m.admin_communities_limits_title()}
     hint={m.admin_communities_limits_hint()}
   >
-    <div class="grid grid-cols-1 gap-3 nicht-handy:grid-cols-2">
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <LimitField
         label={m.admin_communities_limits_voice_bitrate()}
         bind:value={voice}
@@ -165,7 +165,7 @@ import { errText } from '$lib/utils/errText';
     title={m.admin_communities_limits_storage_title()}
     hint={m.admin_communities_limits_storage_hint()}
   >
-    <div class="grid grid-cols-1 gap-3 nicht-handy:grid-cols-2">
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <LimitField
         label={m.admin_communities_limits_storage_quota()}
         bind:value={storageQuotaGB}
@@ -205,7 +205,7 @@ import { errText } from '$lib/utils/errText';
       </div>
 
       {#if dropboxAllowed}
-        <div class="mt-3 grid grid-cols-1 gap-3 nicht-handy:grid-cols-2">
+        <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <LimitField
             label={m.admin_communities_limits_dropbox_quota()}
             bind:value={dropboxQuotaGB}
@@ -222,7 +222,7 @@ import { errText } from '$lib/utils/errText';
     title={m.admin_communities_limits_scale_title()}
     hint={m.admin_communities_limits_scale_hint()}
   >
-    <div class="grid grid-cols-1 gap-3 nicht-handy:grid-cols-2">
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <LimitField
         label={m.admin_communities_limits_max_members()}
         bind:value={maxMembers}

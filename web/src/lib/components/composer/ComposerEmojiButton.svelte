@@ -29,7 +29,7 @@
         {...props}
         variant="ghost"
         size="icon"
-        class="hidden size-10 nicht-handy:inline-flex nicht-handy:size-9"
+        class="hidden size-10 md:inline-flex md:size-9"
         aria-label={m.message_input_insert_emoji()}
         data-testid="emoji-button"
       >
