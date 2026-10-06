@@ -169,9 +169,7 @@ export async function medienRundtrip(opt: MedienRundtripOptionen): Promise<Probe
     if (r.ok) sitzungsToken = ((await r.json()) as { session_token?: string }).session_token ?? '';
   } catch { /* unten */ }
   if (!sitzungsToken) {
-    return schritt(false, 'keine-sitzung',
-      'Der Server hat das Zugangsticket über die Relay-Adresse nicht angenommen.',
-      'Server läuft? Kurz warten und erneut prüfen. Bleibt es rot: Server stoppen und starten.');
+    return schritt(false, 'keine-sitzung', sprache);
   }
   const auth = { Authorization: `Bearer ${sitzungsToken}` };
 
