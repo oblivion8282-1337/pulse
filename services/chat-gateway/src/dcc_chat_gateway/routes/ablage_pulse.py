@@ -45,7 +45,7 @@ from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import AblagePulseLaufwerk, AblagePulseObjekt, DropboxConfig
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.routes._deps import guild_oder_404, mitglied_oder_403
+from dcc_chat_gateway.routes._deps import guild_or_404, mitglied_oder_403
 from dcc_chat_gateway.routes._dropbox_helpers import with_quota_lock
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -141,7 +141,7 @@ async def pulse_status(
     session: SessionDep,
     current: CurrentUser,
 ) -> LaufwerkStatusOut:
-    guild = await guild_oder_404(session, guild_id)
+    guild = await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     laufwerk = await session.get(AblagePulseLaufwerk, guild_id)
     gesamt, belegt, _cfg = await _zuweisung(session, guild)
@@ -162,7 +162,7 @@ async def verbinde_pulse_laufwerk(
     current: CurrentUser,
 ) -> Response:
     """Nur der AKTUELLE Besitzer verbindet; idempotent."""
-    guild = await guild_oder_404(session, guild_id)
+    guild = await guild_or_404(session, guild_id)
     if guild.owner_id != current.id:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
@@ -193,7 +193,7 @@ async def trenne_pulse_laufwerk(
     current: CurrentUser,
 ) -> Response:
     """Räumt das Laufwerk KOMPLETT ab — Zeilen zuerst, Bytes danach."""
-    guild = await guild_oder_404(session, guild_id)
+    guild = await guild_or_404(session, guild_id)
     if guild.owner_id != current.id:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
@@ -244,7 +244,7 @@ async def kuendige_datei_an(
     session: SessionDep,
     current: CurrentUser,
 ) -> dict[str, str]:
-    guild = await guild_oder_404(session, guild_id)
+    guild = await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     # Bughunt Runde 10: dasselbe Gate wie im Zwischenlager (E8) —
     # ATTACH_FILES entzogen heißt sonst: Weiterladen trotz Sperre,
@@ -347,7 +347,7 @@ async def melde_gelungen(
     session: SessionDep,
     current: CurrentUser,
 ) -> Response:
-    await guild_oder_404(session, guild_id)
+    await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     # Bughunt Runde 10: dasselbe Gate wie im Zwischenlager (E8) —
     # ATTACH_FILES entzogen heißt sonst: Weiterladen trotz Sperre,
@@ -382,7 +382,7 @@ async def liste_namen(
 ) -> list[str]:
     """Nur die Klumpen-Namen — das Verzeichnis mit den KLARTEXT-Namen liegt
     verschluesselt IN einem dieser Klumpen und wird vom Klienten gelesen."""
-    await guild_oder_404(session, guild_id)
+    await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     await _laufwerk_oder_404(session, guild_id)
 
@@ -405,7 +405,7 @@ async def lese_url(
     current: CurrentUser,
     name: Annotated[str, Query(min_length=5, max_length=128)],
 ) -> dict[str, str]:
-    await guild_oder_404(session, guild_id)
+    await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     if not ratelimit.check("ablage_pulse_lese_url", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
@@ -423,13 +423,13 @@ async def loesche_datei(
     current: CurrentUser,
     name: Annotated[str, Query(min_length=5, max_length=128)],
 ) -> Response:
-    await guild_oder_404(session, guild_id)
+    await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     if not ratelimit.check("ablage_pulse_loeschen", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
 
     objekt = await _objekt_oder_404(session, guild_id, name)
-    guild = await guild_oder_404(session, guild_id)
+    guild = await guild_or_404(session, guild_id)
     if objekt.hochgeladen_von != current.id and guild.owner_id != current.id:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,

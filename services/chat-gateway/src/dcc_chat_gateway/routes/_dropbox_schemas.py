@@ -207,3 +207,15 @@ class DropboxFinishUploadIn(BaseModel):
     # ContentLength as the truth and only uses size to fast-fail.
     size_bytes: Annotated[int, Field(ge=1, le=4 * 1024**4)]
     content_type: Annotated[str, Field(min_length=1, max_length=128)] = "application/octet-stream"
+
+
+# ---- Laufwerk (Freigabe-Adresse) -------------------------------------------
+
+
+class FreigabeAdresseIn(BaseModel):
+    """Body zum Setzen einer Netzwerk-Freigabe (Kanal- UND Community-Laufwerk;
+    vorher in ``ablage_kanal.py``/``ablage_guild_laufwerk.py`` doppelt)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    freigabe_adresse: Annotated[str, Field(min_length=1, max_length=8192)]

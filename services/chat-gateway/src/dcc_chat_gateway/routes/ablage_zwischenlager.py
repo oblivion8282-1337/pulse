@@ -36,7 +36,7 @@ from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import AblageZwischenlagerDatei
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.routes._deps import guild_oder_404, mitglied_oder_403
+from dcc_chat_gateway.routes._deps import guild_or_404, mitglied_oder_403
 from dcc_chat_gateway.routes._dropbox_helpers import with_quota_lock
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -120,7 +120,7 @@ async def zwischenlager_ankuendigen(
     session: SessionDep,
     current: CurrentUser,
 ) -> ZwischenlagerAnkuendigungOut:
-    await guild_oder_404(session, guild_id)
+    await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     await check_permission(session, current, guild_id, Permissions.ATTACH_FILES)
     if not ratelimit.check("ablage_zwischenlager_ankuendigen", current.id):
@@ -181,7 +181,7 @@ async def zwischenlager_liste(
     session: SessionDep,
     current: CurrentUser,
 ) -> list[ZwischenlagerEintragOut]:
-    await guild_oder_404(session, guild_id)
+    await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     zeilen = (
         await session.execute(
@@ -208,7 +208,7 @@ async def zwischenlager_download_url(
     session: SessionDep,
     current: CurrentUser,
 ) -> dict[str, str]:
-    await guild_oder_404(session, guild_id)
+    await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     zeile = await _eintrag_oder_404(session, guild_id, eintrag_id)
     url = await s3.presigned_get_url(zeile.storage_key)
@@ -226,7 +226,7 @@ async def zwischenlager_quittieren(
     current: CurrentUser,
 ) -> None:
     """Die Quittung — nur der AKTUELLE Besitzer, s. Modulkopf."""
-    guild = await guild_oder_404(session, guild_id)
+    guild = await guild_or_404(session, guild_id)
     if guild.owner_id != current.id:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,

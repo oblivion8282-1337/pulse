@@ -27,22 +27,17 @@ import urllib.parse
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import AblageGuildLaufwerk
 from dcc_chat_gateway.routes._ablage_abruf import ablage_abruf_antwort
-from dcc_chat_gateway.routes._deps import guild_oder_404, mitglied_oder_403
+from dcc_chat_gateway.routes._deps import guild_or_404, mitglied_oder_403
+from dcc_chat_gateway.routes._dropbox_schemas import FreigabeAdresseIn
 from dcc_chat_gateway.security import CurrentUser
 
 router = APIRouter()
-
-
-class FreigabeAdresseIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    freigabe_adresse: Annotated[str, Field(min_length=1, max_length=8192)]
 
 
 class LaufwerkStatusOut(BaseModel):
@@ -60,7 +55,7 @@ async def setze_guild_freigabe_adresse(
     current: CurrentUser,
 ) -> Response:
     """Nur der AKTUELLE Besitzer darf die Adresse hinterlegen/ersetzen."""
-    guild = await guild_oder_404(session, guild_id)
+    guild = await guild_or_404(session, guild_id)
     if guild.owner_id != current.id:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
@@ -93,7 +88,7 @@ async def guild_laufwerk_status(
     """Nur Ja/Nein — nie die Adresse. Jedes Mitglied darf fragen (Aufgabe 4:
     der Besitzer sieht bei ``verbunden=false`` die Aufforderung, Mitglieder
     sehen bei ``false`` nichts — beide brauchen dafuer denselben Zustand)."""
-    await guild_oder_404(session, guild_id)
+    await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     laufwerk = await session.get(AblageGuildLaufwerk, guild_id)
     return LaufwerkStatusOut(verbunden=laufwerk is not None)
@@ -108,7 +103,7 @@ async def guild_ablage_abruf(
 ) -> Response:
     """Reicht Chiffrat vom Community-Laufwerk durch — dieselben Regeln wie
     ``ablage_kanal.py::ablage_abruf``, s. dort fuer die volle Begruendung."""
-    await guild_oder_404(session, guild_id)
+    await guild_or_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
     if not ratelimit.check("ablage_guild_abruf", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")

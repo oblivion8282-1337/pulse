@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import Depends, HTTPException, WebSocket, status
+from fastapi import Depends, HTTPException, Request, WebSocket, status
 from sqlalchemy import select
 from dcc_shared.events import _EventBase
 
@@ -80,7 +80,11 @@ async def publish_guild_event(
 
 async def guild_or_404(session: SessionDep, guild_id: int) -> Guild:
     """Community nachladen oder 404 — die Routen hier teilen sich dieselbe
-    Semantik (404 "guild not found", nicht 403), daher ein Helfer."""
+    Semantik (404 "guild not found", nicht 403), daher ein Helfer. Bewusst
+    OHNE Suspendierungs-Prüfung: die Ablage-Routen (``ablage_guild_laufwerk``/
+    ``ablage_zwischenlager``/``ablage_pulse``) treffen nur den Fall
+    „Community existiert oder nicht“; Mitgliedschaft+Suspendierung prüft
+    ``require_member``."""
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(404, detail="guild not found")
@@ -107,18 +111,8 @@ async def require_member(session, guild_id: int, user_id: int) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="community is suspended")
 
 
-async def guild_oder_404(session, guild_id: int) -> Guild:
-    """Wie ``require_member`` bewusst OHNE Suspendierungs-Prüfung — für die
-    Ablage-Routen (``routes/ablage_guild_laufwerk.py``/``ablage_zwischenlager.py``),
-    die diese Unterscheidung nicht treffen (Community existiert oder nicht)."""
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
-    return guild
-
-
 async def mitglied_oder_403(session, guild_id: int, user_id: int) -> None:
-    """Nur die Mitgliedschaft, keine Suspendierungs-Prüfung — s. ``guild_oder_404``."""
+    """Nur die Mitgliedschaft, keine Suspendierungs-Prüfung — s. ``guild_or_404``."""
     if await session.get(GuildMember, (guild_id, user_id)) is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this guild")
 
