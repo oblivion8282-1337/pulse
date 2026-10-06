@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import uuid
+from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 import pytest_asyncio
@@ -19,7 +20,12 @@ from dcc_voice_signaling.webhook import (
 )
 from redis.asyncio import Redis
 
-_REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6380/0")
+# Eigene DB statt /0: der Dev-voice-signaling-Service laeuft gegen db0 und
+# geist-raeumt `voice:room:channel-*`-Schluessel binnen 30 s — seine
+# Leeren-Events auf `voice:events` wuerden sonst in die Pub/Sub-Asserts hier
+# laufen (gleiche Isolation wie media-svc auf /1).
+_BASE = urlsplit(os.environ.get("REDIS_URL", "redis://localhost:6380/0"))
+_REDIS_URL = urlunsplit((_BASE.scheme, _BASE.netloc, "/2", _BASE.query, _BASE.fragment))
 
 # Track sources (mirror livekit.protocol.models.TrackSource ints).
 _SRC_CAMERA = 1
@@ -222,6 +228,74 @@ async def test_reconcile_publishes_snapshot(redis):
         assert decoded["channel_id"] == cid
         assert decoded["user_ids"] == ["5"]
     finally:
+        await pubsub.aclose()
+        await redis.delete(room_key(room), streaming_key(room), camera_key(room))
+
+
+@pytest.mark.asyncio
+async def test_reconcile_publiziert_unveraendert_nicht_neu(redis):
+    """Publish-Drossel: der zweite Lauf über denselben Raum schweigt (Cache-Hit),
+    sobald sich eine Menge ändert, wird sofort wieder publiziert. Der Webhook-
+    Pfad publiziert unangetastet — hier geht nur der periodische Doppelpublish
+    im Leerlauf flöten."""
+    import dcc_voice_signaling.reconcile as reconcile
+
+    reconcile._round = 1  # fern von jeder Force-Runde (20, 40, …)
+    reconcile._last_published.clear()
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    lk = _FakeLiveKitAPI({room: [_FakeParticipant("user-5")]})
+    pubsub = redis.pubsub(ignore_subscribe_messages=True)
+    await pubsub.subscribe(VOICE_EVENTS_CHANNEL)
+    try:
+        await reconcile_once(redis, lk, ttl_seconds=3600)
+        assert (await _drain_one(pubsub)) is not None  # erster Lauf meldet
+        await reconcile_once(redis, lk, ttl_seconds=3600)
+        assert (
+            await _drain_one(pubsub, attempts=10) is None
+        ), "unveränderte Runde muss schweigen"
+        # Änderung → sofort wieder publiziert, mit dem neuen Stand.
+        lk.room._layout[room].append(
+            _FakeParticipant("user-6", [_FakeTrack(_SRC_SCREEN_SHARE)])
+        )
+        await reconcile_once(redis, lk, ttl_seconds=3600)
+        msg = await _drain_one(pubsub)
+        assert msg is not None
+        decoded = json.loads(msg["data"])
+        assert decoded["user_ids"] == ["5", "6"]
+        assert decoded["streaming_user_ids"] == ["6"]
+    finally:
+        reconcile._round = 1
+        reconcile._last_published.clear()
+        await pubsub.aclose()
+        await redis.delete(room_key(room), streaming_key(room), camera_key(room))
+
+
+@pytest.mark.asyncio
+async def test_reconcile_force_publish_alle_20_runden(redis):
+    """Liveness-Rückfallebene: jede 20. Runde publiziert zwangsweise, auch wenn
+    der Cache den Zustand schon kennt — ein verlorener Redis-Publish heilt sich
+    so spätestens nach ~10 Minuten von selbst."""
+    import dcc_voice_signaling.reconcile as reconcile
+
+    reconcile._round = 18  # Lauf 1 → Runde 19 (normal), Lauf 2 → Runde 20 (Force)
+    reconcile._last_published.clear()
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    lk = _FakeLiveKitAPI({room: [_FakeParticipant("user-5")]})
+    pubsub = redis.pubsub(ignore_subscribe_messages=True)
+    await pubsub.subscribe(VOICE_EVENTS_CHANNEL)
+    try:
+        await reconcile_once(redis, lk, ttl_seconds=3600)
+        assert (await _drain_one(pubsub)) is not None
+        assert reconcile._round == 19
+        await reconcile_once(redis, lk, ttl_seconds=3600)
+        msg = await _drain_one(pubsub)
+        assert msg is not None, "Force-Runde muss auch unverändert publizieren"
+        assert json.loads(msg["data"])["user_ids"] == ["5"]
+    finally:
+        reconcile._round = 1
+        reconcile._last_published.clear()
         await pubsub.aclose()
         await redis.delete(room_key(room), streaming_key(room), camera_key(room))
 

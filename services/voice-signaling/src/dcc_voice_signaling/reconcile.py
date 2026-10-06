@@ -56,6 +56,35 @@ log = structlog.get_logger(__name__)
 _KEY_PREFIX = "voice:room:"
 _SCAN_PATTERN = f"{_KEY_PREFIX}channel-*"
 
+# Publish-Drossel: der Reconcile läuft alle 30 s und würde ohne sie je Raum
+# denselben Schnappschuss erneut publizieren (4×SMEMBERS + Redis-PUBLISH +
+# Fanout über chat-gateway in alle Websockets) — reines Leerlauffunkeln. Der
+# Cache merkt sich je Raum den Fingerprint des zuletzt publizierten Zustands;
+# publiziert wird nur bei Änderung (Gate in ``_reconcile_room`` — ``_publish_state``
+# selbst publiziert bedingungslos, auch der Webhook-Pfad ruft es so).
+# Liveness-Rückfallebene: jede
+# 20. Runde (~10 Min bei 30-s-Takt) wird zwangsweise publiziert, damit ein
+# verlorener Redis-Publish sich von selbst heilt. Räume, die verschwinden,
+# werden in ``reconcile_once`` aus dem Cache geworfen (sonst wächst er).
+# Nicht im Fingerprint: ``gast_namen`` (steht im Gast-Hash, nicht in diesen
+# Sets) — eine Namensänderung ohne Teilnehmerwechsel erscheint spätestens mit
+# dem nächsten Force-Publish; normal entsteht sie durch Neu-Beitritt, also
+# mit Teilnehmerwechsel und sofortigem Publish.
+_PUBLISH_FORCE_EVERY_ROUNDS = 20
+_round = 0
+_last_published: dict[str, str] = {}
+
+
+def _publish_fingerprint(
+    members: set[str], streaming: set[str], camera: set[str], gast_stumm: set[str]
+) -> str:
+    """Stabiler Fingerprint der vier publizierten Mengen eines Raums."""
+    return json.dumps(
+        [sorted(members), sorted(streaming), sorted(camera), sorted(gast_stumm)],
+        separators=(",", ":"),
+    )
+
+
 # Atomically rewrite the presence, streaming, camera AND guest-mute sets for
 # one room in a single round-trip, so a concurrent ``_publish_state`` can never
 # observe a partially-rewritten snapshot (e.g. the new presence set with the old
@@ -137,10 +166,12 @@ async def _set_exact_triple(
 
 
 async def _reconcile_room(
-    redis: Redis, lk_api, room_name: str, cid: str, ttl_seconds: int
+    redis: Redis, lk_api, room_name: str, cid: str, ttl_seconds: int, *, force: bool
 ) -> None:
     """Rewrite one room's three sets from its live LiveKit participant list,
-    then publish the fresh snapshot. Pulled out of ``reconcile_once`` so the
+    then publish the fresh snapshot — throttled: only when it differs from the
+    last published one, or ``force`` is set (see the publish-throttle note at
+    the top). Pulled out of ``reconcile_once`` so the
     per-room work (a gRPC ``list_participants`` round-trip each) can run
     concurrently across rooms rather than serially."""
     from livekit import api as lk
@@ -216,7 +247,10 @@ async def _reconcile_room(
         geraete_key_=geraete_key(room_name),
         geraete_zahl=geraete,
     )
-    await _publish_state(redis, room_name, cid)
+    fingerprint = _publish_fingerprint(members, streaming, camera, gast_stumm)
+    if force or _last_published.get(room_name) != fingerprint:
+        await _publish_state(redis, room_name, cid)
+        _last_published[room_name] = fingerprint
 
 
 async def _clear_ghost_room(redis: Redis, room_name: str, cid: str) -> None:
@@ -226,11 +260,18 @@ async def _clear_ghost_room(redis: Redis, room_name: str, cid: str) -> None:
     Weg wie beim echten ``room_finished``, damit ein künftiges Sub-Set nicht
     an einem der beiden Pfade vergessen wird."""
     await _apply_room_finished(redis, room_name)
+    # Cache-Eintrag weg: der Raum ist vorbei; der Leeren-Schnappschuss geht
+    # bewusst immer raus (seltenes Ereignis, Clients brauchen ihn zum Aufräumen).
+    _last_published.pop(room_name, None)
     await _publish_state(redis, room_name, cid)  # publishes empty → clients clear
 
 
 async def reconcile_once(redis: Redis, lk_api, *, ttl_seconds: int) -> dict[str, int]:
     """Run one full reconciliation pass. Returns a small summary for logging."""
+    global _round
+    _round += 1
+    force = _round % _PUBLISH_FORCE_EVERY_ROUNDS == 0
+
     from livekit import api as lk
 
     rooms_resp = await lk_api.room.list_rooms(lk.ListRoomsRequest())
@@ -241,12 +282,17 @@ async def reconcile_once(redis: Redis, lk_api, *, ttl_seconds: int) -> dict[str,
         if cid is not None:
             active[r.name] = cid
 
+    # Verschwundene Räume aus dem Publish-Cache werfen (Geister werden unten
+    # ohnehin geleert und publizieren ihren Leeren-Schnappschuss immer).
+    for gone in _last_published.keys() - active.keys():
+        del _last_published[gone]
+
     # Reconcile every active room concurrently — each is an independent gRPC +
     # Redis round-trip, so wall-clock is the slowest single room, not the sum.
     if active:
         await asyncio.gather(
             *(
-                _reconcile_room(redis, lk_api, room_name, cid, ttl_seconds)
+                _reconcile_room(redis, lk_api, room_name, cid, ttl_seconds, force=force)
                 for room_name, cid in active.items()
             )
         )

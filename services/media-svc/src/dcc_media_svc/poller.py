@@ -5,6 +5,8 @@ Every ``POLL_INTERVAL_S`` seconds we hit the MediaMTX control API
 currently have an active publisher. From that we reconcile the per-channel
 *set* of HQ streamers in Redis (``stream:channel:<cid>`` →
 ``{user_ids: [...], since}``) and publish any change on ``stream:events``.
+In sustained idle (no publisher anywhere, nothing known in Redis) the tick
+stretches to ``_IDLE_POLL_INTERVAL_S`` — see ``_poll_interval``.
 
 The publisher's user-id is right there in the path, so no ``stream:active:``
 lookup is needed for attribution (the auth hook still writes those records;
@@ -249,6 +251,25 @@ def _active_created_after(raw: bytes | str | None, cutoff: datetime) -> bool:
 _EMPTY_SNAPSHOT_GRACE_POLLS = 2
 _empty_snapshot_streak = 0
 
+# Leerlauf-Backoff: meldet MediaMTX X Durchläufe in Folge keinen einzigen
+# Publisher UND kennt Redis keinen Kanal, ist nichts zu tun — der 3-s-Takt
+# würde Leerlauf mit 28.800 Abfragen/Tag bezahlen. Ab der Schwelle dehnen wir
+# auf ``_IDLE_POLL_INTERVAL_S``; ein Publisher irgendwo setzt den Zähler
+# zurück und der nächste Takt ist wieder schnell. Eigener Zähler neben
+# ``_empty_snapshot_streak``: der ist die Teardown-Gnade (leerer Snapshot
+# gegen Redis-Wissen, Lebenszyklus endet bei 2) — dieses hier misst
+# anhaltende Ruhe, beides in einem Zähler würde die Gnadenlogik verfilzen.
+_IDLE_BACKOFF_AFTER_POLLS = 10
+_IDLE_POLL_INTERVAL_S = 30.0
+_idle_streak = 0
+
+
+def _poll_interval(idle_streak: int, base_s: float) -> float:
+    """Schneller Takt solange etwas passiert, gedehnter im gesicherten Leerlauf."""
+    if idle_streak < _IDLE_BACKOFF_AFTER_POLLS:
+        return base_s
+    return _IDLE_POLL_INTERVAL_S
+
 
 # Bughunt Runde 4: die Lücke zwischen Publish-Auth (der Hook schreibt den
 # ``stream:active``-Datensatz) und MediaMTX-„ready" (RTMP-Handshake bzw.
@@ -327,6 +348,14 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
         publishers = {cid: prs for cid, prs in publishers.items() if prs}
 
     known = await _list_known_channels(redis)
+
+    # Leerlauf-Buchführung für den Backoff im Loop (siehe _poll_interval):
+    # nichts live UND nichts bekannt = nichts zu tun; alles andere setzt zurück.
+    global _idle_streak
+    if publishers or known:
+        _idle_streak = 0
+    else:
+        _idle_streak += 1
 
     # Guard: a fully-empty MediaMTX snapshot (zero paths) while Redis still knows
     # active channels is ambiguous — it could be a transient MediaMTX blip (mid-
@@ -494,6 +523,9 @@ async def run_poller(redis: Redis, *, stop_event: asyncio.Event | None = None) -
             except Exception as exc:  # noqa: BLE001 — MediaMTX may be unreachable
                 log.warning("mediamtx_poll_failed", error=str(exc))
             try:
-                await asyncio.wait_for(stop.wait(), timeout=settings.poll_interval_s)
+                await asyncio.wait_for(
+                    stop.wait(),
+                    timeout=_poll_interval(_idle_streak, settings.poll_interval_s),
+                )
             except TimeoutError:
                 pass

@@ -65,6 +65,46 @@ async def _drain_one(pubsub, attempts: int = 50):
     return None
 
 
+def test_poll_interval_backs_off_after_idle_streak():
+    """Intervallwahl des Leerlauf-Backoffs: schnell solange etwas passiert
+    (Streak 0/5), gedehnt erst im gesicherten Leerlauf (Streak 50). Reiner
+    Funktionsaufruf — kein Timer, kein Sleep."""
+    import dcc_media_svc.poller as _poller
+
+    assert _poller._IDLE_BACKOFF_AFTER_POLLS == 10
+    assert _poller._poll_interval(0, 3.0) == 3.0
+    assert _poller._poll_interval(5, 3.0) == 3.0
+    assert _poller._poll_interval(10, 3.0) == 30.0
+    assert _poller._poll_interval(50, 3.0) == _poller._IDLE_POLL_INTERVAL_S == 30.0
+
+
+@pytest.mark.asyncio
+async def test_idle_streak_grows_on_quiet_passes_and_resets_on_activity(redis):
+    """Verdrahtung: ein Durchlauf ohne Publisher und ohne bekannten Kanal zählt
+    den Leerlauf-Streak hoch, der erste Publisher irgendwo setzt ihn auf 0 —
+    genau das klemmt den Takt wieder auf schnell, sobald etwas auftaucht."""
+    import dcc_media_svc.poller as _poller
+
+    # Der Streak zählt nur bei leerem Redis (known == ∅) hoch — alte Schlüssel
+    # aus anderen Tests (Cleanup nur im finally) würden ihn auf 0 drücken.
+    async for key in redis.scan_iter(match="stream:channel:*"):
+        await redis.delete(key)
+    _poller._idle_streak = 0
+    empty = _FakeMediaMtxClient(_paths())
+    cid = _unique_cid()
+    live = _FakeMediaMtxClient(_paths((f"channel-{cid}-1-{'cafebabe' * 4}", True)))
+    try:
+        await reconcile_once(redis, empty)
+        assert _poller._idle_streak == 1
+        await reconcile_once(redis, empty)
+        assert _poller._idle_streak == 2
+        await reconcile_once(redis, live)
+        assert _poller._idle_streak == 0
+    finally:
+        _poller._idle_streak = 0
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
+
+
 @pytest_asyncio.fixture
 async def pubsub(redis):
     ps = redis.pubsub(ignore_subscribe_messages=True)
