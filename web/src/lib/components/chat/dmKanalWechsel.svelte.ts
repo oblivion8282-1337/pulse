@@ -45,6 +45,19 @@ function abonnementAufgeben(cid: string) {
   cloudGateway.unsubscribe(cid);
 }
 
+/** Altbestand des Zielkanals vor dem ersten Rendern leeren (derselbe
+ *  Grund wie das Leeren in `switchTo` — s. dort). Muss SYNCHRON im Setup
+ *  der Seite laufen: läuft es erst im Effekt, rendert die Liste einen Frame
+ *  lang den Altbestand oben und blitzt, bevor der Sprung nach unten kommt.
+ *  Zustandslos — die Guild-Kanalseite (`chat/kanalWechsel.svelte.ts`)
+ *  nutzt dieselbe Rechnung.
+ */
+export function vorbereiten(cid: string) {
+  untrack(() => {
+    if (cid && messages.loadedChannels[cid]) messages.setInitial(cid, []);
+  });
+}
+
 export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
   let loadError = $state<string | null>(null);
   let resolving = $state(false);
@@ -300,17 +313,6 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
 
   function aufraeumen() {
     if (prevDM) abonnementAufgeben(prevDM);
-  }
-
-  /** Altbestand des Zielkanals vor dem ersten Rendern leeren (derselben
-   *  Grund wie das Leeren in `switchTo` — s. dort). Muss SYNCHRON im Setup
-   *  der Seite laufen: läuft es erst im Effekt, rendert die Liste einen Frame
-   *  lang den Altbestand oben und blitzt, bevor der Sprung nach unten kommt.
-   */
-  function vorbereiten(cid: string) {
-    untrack(() => {
-      if (cid && messages.loadedChannels[cid]) messages.setInitial(cid, []);
-    });
   }
 
   return {

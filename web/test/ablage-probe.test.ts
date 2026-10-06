@@ -2,7 +2,26 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 
 import { speicherAdapter, type AblageAdapter } from '../src/lib/ablage/adapter.ts';
-import { probiere } from '../src/lib/ablage/probe.ts';
+import { probiere, type ProbeErgebnis } from '../src/lib/ablage/probe.ts';
+
+/** Protokolliert jeden `schreibe`-Aufruf (Dateinamen) und lässt ihn echtdurchlaufen. */
+function adapterMitSchreibProtokoll(): { adapter: AblageAdapter; gesehene: string[] } {
+	const adapter = speicherAdapter();
+	const gesehene: string[] = [];
+	const ursprünglichesSchreibe = adapter.schreibe.bind(adapter);
+	adapter.schreibe = async (datei, inhalt) => {
+		gesehene.push(datei);
+		return ursprünglichesSchreibe(datei, inhalt);
+	};
+	return { adapter, gesehene };
+}
+
+/** Behauptet den Fehlschlag und liefert das verengte Ergebnis (Zugriff auf `schritt`/`grund`). */
+function fehlErgebnis(ergebnis: ProbeErgebnis): Extract<ProbeErgebnis, { gut: false }> {
+	assert.equal(ergebnis.gut, false);
+	if (ergebnis.gut) throw new Error('unerreichbar');
+	return ergebnis;
+}
 
 describe('Verbindungsprobe: guter Fall', () => {
 	it('meldet gut, wenn Schreiben/Lesen/Vergleichen/Löschen klappen', async () => {
@@ -18,26 +37,14 @@ describe('Verbindungsprobe: guter Fall', () => {
 	});
 
 	it('nutzt einen erkennbaren, zufälligen Dateinamen', async () => {
-		const adapter = speicherAdapter();
-		const gesehene: string[] = [];
-		const ursprünglichesSchreibe = adapter.schreibe.bind(adapter);
-		adapter.schreibe = async (datei, inhalt) => {
-			gesehene.push(datei);
-			return ursprünglichesSchreibe(datei, inhalt);
-		};
+		const { adapter, gesehene } = adapterMitSchreibProtokoll();
 		await probiere(adapter);
 		assert.equal(gesehene.length, 1);
 		assert.match(gesehene[0], /^pulse-probe-[a-f0-9]+\.tmp$/);
 	});
 
 	it('schreibt bei zwei Läufen unterschiedliche Namen (kein fester Kollisionspunkt)', async () => {
-		const adapter = speicherAdapter();
-		const gesehene: string[] = [];
-		const ursprünglichesSchreibe = adapter.schreibe.bind(adapter);
-		adapter.schreibe = async (datei, inhalt) => {
-			gesehene.push(datei);
-			return ursprünglichesSchreibe(datei, inhalt);
-		};
+		const { adapter, gesehene } = adapterMitSchreibProtokoll();
 		await probiere(adapter);
 		await probiere(adapter);
 		assert.notEqual(gesehene[0], gesehene[1]);
@@ -50,9 +57,7 @@ describe('Verbindungsprobe: Fehlschlag je Schritt', () => {
 		adapter.schreibe = async () => {
 			throw new Error('Netz weg');
 		};
-		const ergebnis = await probiere(adapter);
-		assert.equal(ergebnis.gut, false);
-		if (ergebnis.gut) throw new Error('unerreichbar');
+		const ergebnis = fehlErgebnis(await probiere(adapter));
 		assert.equal(ergebnis.schritt, 'schreiben');
 		assert.match(ergebnis.grund, /Netz weg/);
 	});
@@ -62,18 +67,14 @@ describe('Verbindungsprobe: Fehlschlag je Schritt', () => {
 		adapter.lese = async () => {
 			throw new Error('Zugriff verweigert');
 		};
-		const ergebnis = await probiere(adapter);
-		assert.equal(ergebnis.gut, false);
-		if (ergebnis.gut) throw new Error('unerreichbar');
+		const ergebnis = fehlErgebnis(await probiere(adapter));
 		assert.equal(ergebnis.schritt, 'lesen');
 	});
 
 	it('meldet den Schritt "lesen", wenn lese() null liefert (Datei fehlt nach dem Schreiben)', async () => {
 		const adapter = speicherAdapter();
 		adapter.lese = async () => null;
-		const ergebnis = await probiere(adapter);
-		assert.equal(ergebnis.gut, false);
-		if (ergebnis.gut) throw new Error('unerreichbar');
+		const ergebnis = fehlErgebnis(await probiere(adapter));
 		assert.equal(ergebnis.schritt, 'lesen');
 	});
 
@@ -89,9 +90,7 @@ describe('Verbindungsprobe: Fehlschlag je Schritt', () => {
 			verändert[verändert.length - 1] = verändert[verändert.length - 1]! ^ 0xff;
 			return verändert;
 		};
-		const ergebnis = await probiere(adapter);
-		assert.equal(ergebnis.gut, false);
-		if (ergebnis.gut) throw new Error('unerreichbar');
+		const ergebnis = fehlErgebnis(await probiere(adapter));
 		assert.equal(ergebnis.schritt, 'vergleichen');
 	});
 
@@ -100,9 +99,7 @@ describe('Verbindungsprobe: Fehlschlag je Schritt', () => {
 		adapter.lösche = async () => {
 			throw new Error('kein Recht');
 		};
-		const ergebnis = await probiere(adapter);
-		assert.equal(ergebnis.gut, false);
-		if (ergebnis.gut) throw new Error('unerreichbar');
+		const ergebnis = fehlErgebnis(await probiere(adapter));
 		assert.equal(ergebnis.schritt, 'loeschen');
 	});
 
@@ -134,9 +131,7 @@ describe('Verbindungsprobe: Anbieter ohne Löschen', () => {
 
 	it('gilt als NICHT gut — ohne Löschen bleibt die Probedatei sichtbar im Ordner liegen', async () => {
 		const adapter = ohneLöschen();
-		const ergebnis = await probiere(adapter);
-		assert.equal(ergebnis.gut, false);
-		if (ergebnis.gut) throw new Error('unerreichbar');
+		const ergebnis = fehlErgebnis(await probiere(adapter));
 		assert.equal(ergebnis.schritt, 'loeschen');
 	});
 });
@@ -147,9 +142,7 @@ describe('Verbindungsprobe: Aufräumen scheitert eigenständig', () => {
 		adapter.lösche = async () => {
 			throw new Error('Ordner schreibgeschützt');
 		};
-		const ergebnis = await probiere(adapter);
-		assert.equal(ergebnis.gut, false);
-		if (ergebnis.gut) throw new Error('unerreichbar');
+		const ergebnis = fehlErgebnis(await probiere(adapter));
 		assert.equal(ergebnis.schritt, 'loeschen');
 		assert.match(ergebnis.grund, /Ordner schreibgeschützt/);
 	});

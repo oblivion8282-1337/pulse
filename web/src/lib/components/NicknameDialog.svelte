@@ -77,13 +77,9 @@
     }
   }
 
-  async function submit(e: SubmitEvent) {
-    e.preventDefault();
-    const next = value.trim();
-    if (next === (resolved ?? '')) {
-      onClose();
-      return;
-    }
+  /** Gemeinsamer Pfad von Setzen und Zurücksetzen — identische
+   *  Fehler-/Busy-Behandlung, nur Wert und Fehlmeldung unterscheiden sich. */
+  async function saveNickname(next: string, failMsg: string): Promise<void> {
     busy = true;
     try {
       const updated = isSelf
@@ -92,7 +88,7 @@
       onSaved?.(updated.nickname ?? null);
       onClose();
     } catch (err) {
-      toast.error(m.nickname_dialog_save_failed(), {
+      toast.error(failMsg, {
         description: (err as Error).message
       });
     } finally {
@@ -100,22 +96,19 @@
     }
   }
 
+  async function submit(e: SubmitEvent) {
+    e.preventDefault();
+    const next = value.trim();
+    if (next === (resolved ?? '')) {
+      onClose();
+      return;
+    }
+    await saveNickname(next, m.nickname_dialog_save_failed());
+  }
+
   async function reset() {
     if (busy) return;
-    busy = true;
-    try {
-      const updated = isSelf
-        ? await chatApi.setSelfNickname(guildId, '')
-        : await chatApi.setMemberNickname(guildId, userId, '');
-      onSaved?.(updated.nickname ?? null);
-      onClose();
-    } catch (err) {
-      toast.error(m.nickname_dialog_reset_failed(), {
-        description: (err as Error).message
-      });
-    } finally {
-      busy = false;
-    }
+    await saveNickname('', m.nickname_dialog_reset_failed());
   }
 </script>
 

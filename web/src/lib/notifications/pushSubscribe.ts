@@ -127,7 +127,7 @@ export async function requestPushPermission(): Promise<PushPermissionState> {
  * one is already active for the same `applicationServerKey`) so this is safe
  * to call repeatedly. Throws if the server reports push as disabled (503).
  */
-export async function subscribeUser(): Promise<void> {
+async function subscribeUser(): Promise<void> {
   if (!pushSupported()) throw new Error('push not supported');
   const reg = await getRegistration();
   if (!reg) throw new Error('no service worker registration');
