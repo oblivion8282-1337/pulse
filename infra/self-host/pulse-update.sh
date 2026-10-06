@@ -66,6 +66,14 @@ image="$(docker compose config --images | head -n1)"
 # `up -d` startete ihn fünf Minuten später wieder — auch ohne neues Image.
 # Nachgemessen am 2026-09-09 mit Compose 5.5.1: `ps -q` leer, `ps -aq` voll.
 container="$(docker compose ps -aq "$service" | head -n1)"
+# Kein Container = Deinstallation (docker compose down / docker rm) — der
+# Updater erweckt nichts wieder (Nutzer-Entscheid 2026-10-06: wer den
+# Container löscht, will ihn los sein; die Erstinstallation läuft per
+# `docker compose up -d` von Hand, README Schritt "Starten").
+if [ -z "$container" ]; then
+  echo "pulse-update: service $service hat keinen Container — nichts angelegt (Entfernen = Deinstallation)"
+  exit 0
+fi
 old_id=""
 if [ -n "$container" ]; then
   status="$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null || true)"

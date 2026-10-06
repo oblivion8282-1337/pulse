@@ -811,14 +811,34 @@ if docker inspect "${CONTAINER}-old" >/dev/null 2>&1; then
   fi
 fi
 
+# Nicht-existierender Container = Deinstallation (docker rm / docker rmi) —
+# der Updater erweckt nichts wieder (Nutzer-Entscheid 2026-10-06: wer den
+# Container löscht, will ihn los sein; die EINZIGE Anlege-Stelle ist der
+# Installer). Vorher lief ein fehlender Container auf "anlegen" hinaus —
+# damit war Deinstallation unmöglich, ohne vorher den Cron auszuklemmen.
+#
+# Einzige Ausnahme: "${CONTAINER}-old" existiert noch — dann ist ein
+# früherer Update-Lauf zwischen Umbenennen und Neustart gestorben (Host-Blitz,
+# Abort), und wir stellen den Rückweg wieder her statt neu zu erfinden.
+if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
+  if docker inspect "${CONTAINER}-old" >/dev/null 2>&1; then
+    docker rename "${CONTAINER}-old" "$CONTAINER" >/dev/null 2>&1 || true
+    docker start "$CONTAINER" >/dev/null 2>&1 || true
+    echo "pulse-update: unterbrochener Lauf wiederhergestellt — $CONTAINER aus ${CONTAINER}-old zurückgeholt"
+  else
+    echo "pulse-update: container $CONTAINER fehlt — nichts angelegt (Entfernen = Deinstallation)"
+  fi
+  exit 0
+fi
+
 # Ein Handstopp wird respektiert: steht der Container auf exited/paused
 # (docker stop / docker pause), rührt der Updater ihn nicht an — auch nicht
 # für ein neues Image. Vorher stellte er den angehaltenen Container beiseite
 # und startete den neuen: wer den Server für Wartung anhielt, hatte ihn fünf
 # Minuten nach dem nächsten Push wieder laufen. `restarting` fällt NICHT
 # darunter — das ist ein Absturzkarussell, und ein neues Image ist dort
-# womöglich gerade die Heilung; `docker inspect` auf einen fehlenden
-# Container liefert leer, und leer heisst hier "anlegen" wie bisher.
+# womöglich gerade die Heilung. Ein fehlender Container ist oben schon
+# behandelt (Deinstallation/Wiederherstellung) und kommt hier nie an.
 #
 # Der Riegel steht VOR Login und Pull — ursprünglich stand er dahinter, und
 # genau das füllte Platten (Fund 2026-10-06, Test-Server): gestoppter
