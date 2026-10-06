@@ -14,11 +14,7 @@ from __future__ import annotations
 
 import pytest
 from dcc_auth.models import User
-from dcc_auth.models_instances import (
-    InstanceApplication,
-    RegisteredInstance,
-    UserInstanceMembership,
-)
+from dcc_auth.models_instances import InstanceApplication
 from dcc_auth.snowflake import next_id
 from sqlalchemy import select
 

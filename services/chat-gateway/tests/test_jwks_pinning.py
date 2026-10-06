@@ -13,10 +13,7 @@ import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 import logging
-
-import pytest
 
 from dcc_chat_gateway.jwks_pinning import (
     check_and_update_pin,

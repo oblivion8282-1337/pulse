@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep

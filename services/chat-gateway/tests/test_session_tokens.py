@@ -11,11 +11,9 @@ Coverage:
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock
 
 import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from dcc_chat_gateway.session_tokens import (
     SESSION_TTL_SECONDS,
@@ -91,7 +89,6 @@ def test_tampered_token_returns_none(_tmp_key):
 def test_wrong_algorithm_token_returns_none(_tmp_key):
     """Token signed with a different algorithm → None."""
     import jwt as _jwt
-    import hashlib, hmac as _hmac
 
     # HS256 token with matching claims structure
     payload = {

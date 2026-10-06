@@ -9,11 +9,9 @@ real signatures live in test_s3.py (TODO when we add one).
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import select
 
 from dcc_chat_gateway.models import MessageAttachment

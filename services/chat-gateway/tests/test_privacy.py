@@ -13,7 +13,6 @@ from __future__ import annotations
 import random
 
 import pytest
-from sqlalchemy import select
 
 # Privacy routes are part of the Social layer — cloud-only.
 pytestmark = pytest.mark.usefixtures("cloud_mode")

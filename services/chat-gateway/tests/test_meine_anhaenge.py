@@ -11,8 +11,6 @@ from __future__ import annotations
 import random
 from datetime import datetime, timezone
 
-import pytest
-
 from dcc_chat_gateway.models import MessageAttachment
 from .conftest import make_auth_header
 

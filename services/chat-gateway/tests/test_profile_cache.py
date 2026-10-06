@@ -20,17 +20,14 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from unittest.mock import patch
 
 import jwt
 import pytest
 import pytest_asyncio
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jwt.algorithms import RSAAlgorithm
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from dcc_chat_gateway.db import Base
-from dcc_chat_gateway.models.moderation import CachedUserProfile
 from dcc_chat_gateway.user_profile_cache import (
     ProfileStatementInvalid,
     ProfileStatementReplay,

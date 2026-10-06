@@ -13,7 +13,6 @@ cross-connection frame ordering.
 from __future__ import annotations
 
 import asyncio
-import random
 
 import pytest
 from starlette.testclient import TestClient
