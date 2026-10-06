@@ -55,7 +55,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private static let privacyCss = """
     (function () {
       var style = document.createElement('style');
-      style.textContent = 'body.privacy-blur > div:not(script) { filter: blur(28px); }';
+      style.textContent = 'body.privacy-blur { filter: blur(28px); }';
       document.head.appendChild(style);
     })();
     """
