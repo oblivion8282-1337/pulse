@@ -8,7 +8,7 @@
 //! Shape: `{ok, binary, argv}`.
 
 use anyhow::{Result, anyhow};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::profiles::{BASELINE, profile_label};
 use crate::redact::redact_url;
@@ -72,13 +72,10 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         ten_bit,
     );
 
-    let mut out = Map::new();
-    out.insert("binary".to_string(), Value::String("pulse-linux-hq-sidecar".to_string()));
-    out.insert(
-        "argv".to_string(),
-        Value::Array(argv.into_iter().map(Value::String).collect()),
-    );
-    Ok(out)
+    Ok(super::json_to_map(json!({
+        "binary": "pulse-linux-hq-sidecar",
+        "argv": argv,
+    })))
 }
 
 #[cfg(test)]
