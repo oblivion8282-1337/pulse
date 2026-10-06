@@ -285,7 +285,7 @@ mod tests {
         let stand = w.stand.expect("nach der ersten Frage muss ein Stand dastehen");
         assert_eq!(w.ist_hdr(0), erst, "innerhalb der Frist dieselbe Antwort");
         assert_eq!(
-            w.stand.map(|(v, t)| (v, t)),
+            w.stand,
             Some(stand),
             "und ohne den Zeitstempel zu erneuern — sonst liefe die Frist nie ab"
         );

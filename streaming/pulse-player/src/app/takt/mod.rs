@@ -620,7 +620,7 @@ mod tests {
             t.einreihen(bild((k * 1500) as u32), jetzt);
             let _ = t.faellig(jetzt);
         }
-        let termin = t.naechster_termin().or(Some(jetzt)).unwrap();
+        let termin = t.naechster_termin().unwrap_or(jetzt);
         let vorlauf = termin.saturating_duration_since(jetzt);
         assert!(
             vorlauf <= Duration::from_millis(61),
