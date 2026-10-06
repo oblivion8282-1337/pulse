@@ -131,11 +131,12 @@ if (DEV_ZWEITINSTANZ) {
   // Geräte-Wand (409) hängen — und der Single-Instance-Lock würde gegen eine
   // laufende Pulse.exe entscheiden. Gleiche Regel wie unter Linux
   // (seit 2026-09-02: ~/.config/Pulse-Dev).
-  const newName = SERVER_MODE
-    ? 'Pulse Server'
-    : process.env.PULSE_DEV_URL && !app.isPackaged
-      ? 'Pulse-Dev'
-      : 'Pulse';
+  let newName = 'Pulse';
+  if (SERVER_MODE) {
+    newName = 'Pulse Server';
+  } else if (process.env.PULSE_DEV_URL && !app.isPackaged) {
+    newName = 'Pulse-Dev';
+  }
   const configHome = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config');
   const oldDir = path.join(configHome, '@dcc', 'desktop');
   const newDir = path.join(configHome, newName);
@@ -263,6 +264,14 @@ const quitApp = (): void => {
   isQuitting = true;
   app.quit();
 };
+
+/** An das Hauptfenster senden — no-op, wenn es (oder seine webContents) schon
+ *  weg sind. Ersetzt den dreifach kopierten Guard in den Sidecar-/Player-
+ *  Ereignis-Relays. */
+function sendToMainWindow(channel: string, payload: unknown): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send(channel, payload);
+}
 
 // ── Deep-Link / Invite-Handler ───────────────────────────────────────────────
 // Validation + buffering lives in `deeplink.ts` (kept out of this file for the
@@ -454,9 +463,8 @@ function createWindow(): void {
       // Landingpage. Server-App-Login → `/login` (NICHT `/app`: jede
       // Navigation dorthin gilt startLoginWatch als Login-Erfolg);
       // Normal-App → `/app` (die Hülle schickt Ohne-Sitzung nach /login).
-      const bootLoginOrigin = DEV_URL ?? PROD_URL;
-      mainWindow.loadURL(new URL('/login', bootLoginOrigin).href);
-      startLoginWatch(mainWindow, bootLoginOrigin);
+      mainWindow.loadURL(new URL('/login', TARGET_URL).href);
+      startLoginWatch(mainWindow, TARGET_URL);
     }
   } else {
     void mainWindow.loadURL(new URL('/app', TARGET_URL).href);
@@ -594,6 +602,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     creds = c;
     manager.setzeCreds(c);
   };
+  /** Realm-Kette wie login/logout/me/provision: gepairt → Instanz-Cloud,
+   *  sonst Dev-URL, sonst Produktion. Bei jedem Aufruf frisch lesen — die
+   *  Creds können sich zwischen zwei Aufrufen ändern. */
+  const realmOrigin = (): string => creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
   if (weltUser && String(legacyCreds?.ownerId ?? '') !== weltUser) {
     setCreds(loadCredsFuer(hostStore, weltUser));
     setzeContainerWelt(`u${weltUser}`);
@@ -879,7 +891,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     // Realm-Kette wie login/logout/me: gepairt → Instanz-Cloud, sonst Dev-URL,
     // sonst Produktion. Hartcodiertes PROD_URL fragte im Dev-Cloud-Betrieb
     // nach der falschen Session → "bitte zuerst einloggen" trotz Login.
-    const provisionOrigin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+    const provisionOrigin = realmOrigin();
     const result = await provision(provisionOrigin, { confirmTakeover }, () => getAccessToken(provisionOrigin));
     console.log('[provision] fertig:', JSON.stringify(result).slice(0, 200));
     if (result.ok) {
@@ -915,9 +927,8 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // der Creds. null bei fehlender Session → die UI blendet die Zeile aus.
   ipcMain.handle('host:me', async (e) => {
     if (!localSenderOnly(e)) return null;
-    // Dasselbe Realm wie host:login/-logout: gepairt → cloudOrigin, sonst
-    // DEV_URL, sonst Produktion (sonst fragt /me im Dev nach Prod-Tokens).
-    const origin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+    // Dasselbe Realm wie host:login/-logout (realmOrigin).
+    const origin = realmOrigin();
     const tokens = loadAuth(hostStore);
     const me = await fetchMe(origin, () => getAccessToken(origin)).catch(() => null);
     // Die Anmeldung bestimmt die Welt: beim ersten /me nach Login/Start auf
@@ -954,12 +965,8 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!localSenderOnly(e)) return { ok: false };
     const win = getWin();
     if (win && !win.isDestroyed()) {
-      // Dasselbe Realm wie die Status-Abfrage (host:me): gepairt → cloudOrigin,
-      // sonst Dev-URL (falls gesetzt), sonst Produktion. Hardcoded PROD_URL
-      // meldete im Dev-Cloud-Betrieb bei der FALSchen Cloud an — /me (und
-      // damit das "Angemeldet als") fragt die Instanz-Cloud und fand nie
-      // Tokens.
-      const loginOrigin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+      // Dasselbe Realm wie die Status-Abfrage (host:me, realmOrigin).
+      const loginOrigin = realmOrigin();
       await win.loadURL(loginOrigin + '/login');
       startLoginWatch(win, loginOrigin);
     }
@@ -967,7 +974,9 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   });
   ipcMain.handle('host:logout', async (e) => {
     if (!localSenderOnly(e)) return { ok: false };
-    const origin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
+    // Dasselbe Realm wie login/me (realmOrigin) — gilt unverändert für den
+    // ganzen Handler: das Pairing (creds) bleibt beim Logout bewusst angetastet.
+    const origin = realmOrigin();
     // Durablen Refresh-Token serverseitig entwerten (best effort) + lokal löschen.
     const tokens = loadAuth(hostStore);
     if (tokens) await revokeRefresh(origin, tokens.refreshToken);
@@ -987,9 +996,8 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     await syncLifecycleFromContainer().catch(() => {});
     const win = getWin();
     if (win && !win.isDestroyed()) {
-      const logoutOrigin = creds?.cloudOrigin ?? DEV_URL ?? PROD_URL;
-      await win.loadURL(new URL('/login', logoutOrigin).href);
-      startLoginWatch(win, logoutOrigin);
+      await win.loadURL(new URL('/login', origin).href);
+      startLoginWatch(win, origin);
     }
     return { ok: true };
   });
@@ -1391,9 +1399,7 @@ function wireSidecar(): void {
       // Experimental-Version: bei Stream-Ende/Fehler die sidecar.log hochladen
       // (no-op, wenn die Rust-Version aus ist — prüft den Store selbst).
       onSidecarEventForUpload(ev, slot);
-      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
-        mainWindow.webContents.send('sidecar:event', { ...ev, slot });
-      }
+      sendToMainWindow('sidecar:event', { ...ev, slot });
     });
   });
 
@@ -1572,9 +1578,8 @@ function wirePlayer(): void {
     // (der allgemeine Strom ist duenn und wird vollstaendig geloggt), und der
     // Renderer soll sie ohne Umformung absetzen koennen.
     if (ev?.ev === 'player:input') {
-      if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
       for (const nachricht of eingabeWeiche.verteilen(ev)) {
-        mainWindow.webContents.send('player:remoteInput', nachricht);
+        sendToMainWindow('player:remoteInput', nachricht);
       }
       return;
     }
@@ -1587,9 +1592,7 @@ function wirePlayer(): void {
       mainWindow.show();
       mainWindow.focus();
     }
-    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send('player:event', ev);
-    }
+    sendToMainWindow('player:event', ev);
   });
 
   ipcMain.handle('player:available', () => playerManager.isAvailable());
@@ -1968,24 +1971,16 @@ function wirePermissionGate(): void {
   // `details.requestingUrl` (Request) bzw. `requestingOrigin` (Check); nur wo
   // beides fehlt, fällt der Gate auf die Top-URL zurück.
   const erlaubt = (permission: string, quelle: string | null | undefined): boolean => {
+    // Fullscreen ist nutzerinitiiert und unkritisch — Watch-Party-Embeds
+    // (YouTube/Twitch-iframe) brauchen ihn, deren Origin durchfällt sonst.
+    // Bewusst VOR der Allowlist und OHNE Origin-Prüfung (beide Handler).
+    if (permission === 'fullscreen') return true;
     if (!_ALLOWED_PERMISSIONS.has(permission)) return false;
     return quelle != null && _isAllowedOrigin(quelle);
   };
   session.defaultSession.setPermissionRequestHandler(
     (webContents, permission, callback, details) => {
-      // Fullscreen ist nutzerinitiiert und unkritisch — Watch-Party-Embeds
-      // (YouTube/Twitch-iframe) brauchen ihn, deren Origin durchfällt sonst.
-      if (permission === 'fullscreen') {
-        callback(true);
-        return;
-      }
-      if (
-        erlaubt(permission, details?.requestingUrl ?? webContents?.getURL() ?? null)
-      ) {
-        callback(true);
-        return;
-      }
-      callback(false);
+      callback(erlaubt(permission, details?.requestingUrl ?? webContents?.getURL() ?? null));
     }
   );
   // Elektron verlangt BEIDE Handler für vollständige Permissions-Abdeckung
@@ -1993,10 +1988,7 @@ function wirePermissionGate(): void {
   // (pointerLock, clipboard-sanitized-write) laufen über DIESEN Handler — ohne
   // ihn galt dort weiterhin Electron-Default statt der Allowlist.
   session.defaultSession.setPermissionCheckHandler(
-    (_webContents, permission, requestingOrigin) => {
-      if (permission === 'fullscreen') return true;
-      return erlaubt(permission, requestingOrigin);
-    }
+    (_webContents, permission, requestingOrigin) => erlaubt(permission, requestingOrigin),
   );
 }
 

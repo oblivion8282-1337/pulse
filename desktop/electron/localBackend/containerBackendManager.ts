@@ -484,16 +484,19 @@ export class ContainerBackendManager {
     // macOS (gvproxy): UDP-Publishes raus (kommen nie an), dafür den
     // TCP-Port des UDP-Gateways — nur 127.0.0.1, der Weg ist Loopback.
     const udpViaGateway = process.platform === 'darwin';
-    const netArgs = hostNet
-      ? ['--network', 'host']
-      : udpViaGateway
-        ? [
-            '-p', `127.0.0.1:${HOST_HTTP_PORT}:8080`,
-            '-p', '0.0.0.0:1936:1936/tcp',
-            '-p', '0.0.0.0:3478:3478/tcp',
-            '-p', `127.0.0.1:${UDP_GATEWAY_PORT}:${UDP_GATEWAY_PORT}/tcp`,
-          ]
-        : ['-p', `127.0.0.1:${HOST_HTTP_PORT}:8080`, ...MEDIA_PORT_ARGS];
+    let netArgs: string[];
+    if (hostNet) {
+      netArgs = ['--network', 'host'];
+    } else if (udpViaGateway) {
+      netArgs = [
+        '-p', `127.0.0.1:${HOST_HTTP_PORT}:8080`,
+        '-p', '0.0.0.0:1936:1936/tcp',
+        '-p', '0.0.0.0:3478:3478/tcp',
+        '-p', `127.0.0.1:${UDP_GATEWAY_PORT}:${UDP_GATEWAY_PORT}/tcp`,
+      ];
+    } else {
+      netArgs = ['-p', `127.0.0.1:${HOST_HTTP_PORT}:8080`, ...MEDIA_PORT_ARGS];
+    }
 
     // 5. Alten Container ersetzen (Recreate statt Restart → nimmt frisch
     //    gepullte Images + Env-Änderungen mit; /data lebt im Named Volume).

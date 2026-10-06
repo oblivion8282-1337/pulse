@@ -45,7 +45,6 @@ const UI_EN = {
   'Klemmt: ': 'Blocked by: ',
   ' — alles danach hängt daran.': ' — everything after this depends on it.',
   'Cloud-Prüfung nicht erreichbar: ': 'Cloud check unreachable: ',
-  'Einrichten …': 'Setting up …',
   'Einrichtung fehlgeschlagen: ': 'Setup failed: ',
   'Verbinden fehlgeschlagen: ': 'Pairing failed: ',
   'Start fehlgeschlagen: ': 'Start failed: ',
