@@ -85,7 +85,7 @@ function buildDeviceLabel(): string {
 // Haupt-Flow
 // ---------------------------------------------------------------------------
 
-export interface IssueFlowResult {
+interface IssueFlowResult {
   statement: ProfileStatement | null;
   /** true = neues Keypair generiert; false = existierendes genutzt */
   keypairCreated: boolean;

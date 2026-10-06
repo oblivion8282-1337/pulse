@@ -24,7 +24,7 @@ export interface NachzieherQuelle {
 	holen(nachId: bigint | null, limit: number): Promise<AblageEintrag[]>;
 }
 
-export interface NachzieherBericht {
+interface NachzieherBericht {
 	/** Rahmen, die in diesem Durchlauf neu in der Ablage landeten. */
 	festigt: number;
 	/** Das Wasserzeichen nach dem Durchlauf — null, wenn die Ablage leer ist. */

@@ -11,7 +11,7 @@ import { serversStore } from './servers.svelte';
 
 export type AnrufArt = 'dm' | 'gruppe';
 
-export type AnrufAngabe = {
+type AnrufAngabe = {
   id: string;
 };
 
@@ -46,7 +46,7 @@ export function anrufAuflegen(callId: string): Promise<void> {
   }, cloudRoute());
 }
 
-export type AnrufTokenResponse = {
+type AnrufTokenResponse = {
   token: string;
   ws_url: string;
   room: string;

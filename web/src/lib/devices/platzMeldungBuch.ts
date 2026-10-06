@@ -42,7 +42,7 @@ export function meldungFaellig(stand: MeldeStand, serverId: string, schluessel: 
 
 /** Nach erfolgreicher Meldung. Gibt einen NEUEN Stand zurück (die Oberfläche
  *  hängt an der Zuweisung, nicht an einer Mutation). */
-export function nachMeldung(stand: MeldeStand, serverId: string, schluessel: string): MeldeStand {
+function nachMeldung(stand: MeldeStand, serverId: string, schluessel: string): MeldeStand {
   return { ...stand, [serverId]: schluessel };
 }
 

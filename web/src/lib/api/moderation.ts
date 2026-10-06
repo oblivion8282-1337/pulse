@@ -13,8 +13,8 @@ import { request } from './client';
 // ---------------------------------------------------------------------------
 
 export type ReasonCode = 'spam' | 'harassment' | 'illegal' | 'csam' | 'other';
-export type ReportStatus = 'new' | 'triaged' | 'resolved' | 'dismissed';
-export type ActionType =
+type ReportStatus = 'new' | 'triaged' | 'resolved' | 'dismissed';
+type ActionType =
   | 'ban'
   | 'kick'
   | 'message_delete'
@@ -39,7 +39,7 @@ export interface Report {
   escalated_at: string | null;
 }
 
-export interface ReportInput {
+interface ReportInput {
   target_message_id?: string;
   target_user_id?: string;
   target_channel_id?: string;

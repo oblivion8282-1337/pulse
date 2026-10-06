@@ -27,7 +27,7 @@
  */
 
 /** Was der Abgleich von einer Eintragung braucht. */
-export interface AbgleichEintragung {
+interface AbgleichEintragung {
   serverId: string;
   guildId: string;
   deviceId: string;

@@ -47,7 +47,7 @@ import { TYP_KLARTEXT_JSON } from './format.ts';
 import { leseNachricht, NutzlastFehler, type AblageNachricht } from './nutzlast.ts';
 import type { RequestRoute } from '../api/client';
 
-export interface KanalVerlaufErgebnis {
+interface KanalVerlaufErgebnis {
 	nachrichten: AblageNachricht[];
 	/** Segment-Luecken (aus `leser.ts`) UND Rahmen, die sich nicht als
 	 *  Nachricht lesen liessen (unbekannter Typ, kaputtes JSON) — beides in

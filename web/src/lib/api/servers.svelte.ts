@@ -78,7 +78,7 @@ export function serverDisplayName(entry: ServerEntry): string {
 }
 
 export const CLOUD_HOSTNAME = 'https://howispulse.com';
-export const CLOUD_LABEL = 'Pulse Cloud';
+const CLOUD_LABEL = 'Pulse Cloud';
 
 /** Key in beiden Backends identisch (Tresor wie localStorage). */
 const STORAGE_KEY = 'pulse.servers';

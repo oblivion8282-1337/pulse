@@ -85,11 +85,11 @@ export function isDefinitiveAuthError(err: unknown): boolean {
   return err instanceof ApiError && (err.status === 401 || err.status === 403);
 }
 
-export type ApiEndpoint = 'auth' | 'chat' | 'voice';
+type ApiEndpoint = 'auth' | 'chat' | 'voice';
 
 export const AUTH_BASE = '/api/auth';
 export const CHAT_BASE = '/api/chat';
-export const VOICE_BASE = '/api/voice';
+const VOICE_BASE = '/api/voice';
 
 function endpointPath(endpoint: ApiEndpoint): string {
   if (endpoint === 'auth') return AUTH_BASE;

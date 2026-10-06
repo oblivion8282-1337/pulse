@@ -40,7 +40,7 @@ import {
   SelfHostContactConfirmRequired,
 } from '$lib/api/add-server-flow';
 
-export type HostJoinPrepared =
+type HostJoinPrepared =
   | { ok: true; hostname: string }
   | { ok: false; message: string };
 

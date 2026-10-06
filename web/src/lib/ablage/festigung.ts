@@ -66,7 +66,7 @@ async function festigeEinenEintrag(
 	await ablageGuildApi.zwischenlagerQuittieren(guildId, eintragId);
 }
 
-export interface FestigungsErgebnis {
+interface FestigungsErgebnis {
 	erledigt: number;
 	fehlgeschlagen: number;
 }

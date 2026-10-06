@@ -14,13 +14,13 @@ import type { Session, Tokens, User } from './types';
  */
 export type MfaMethod = 'totp' | 'webauthn';
 
-export type MfaChallenge = {
+type MfaChallenge = {
   requires_mfa: true;
   mfa_ticket: string;
   methods: MfaMethod[];
 };
 
-export type LoginResult = Tokens | MfaChallenge;
+type LoginResult = Tokens | MfaChallenge;
 
 export function isMfaChallenge(result: LoginResult): result is MfaChallenge {
   return 'requires_mfa' in result && result.requires_mfa === true;
@@ -32,7 +32,7 @@ export type TotpSetup = {
   provisioning_uri: string;
 };
 
-export type BackupCodes = {
+type BackupCodes = {
   backup_codes: string[];
 };
 

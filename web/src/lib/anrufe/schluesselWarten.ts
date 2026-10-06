@@ -18,7 +18,7 @@ export const SCHLUESSEL_WARTEZEIT_MS = 10_000;
 
 const ABFRAGE_ABSTAND_MS = 100;
 
-export type WarteAbhaengigkeiten = {
+type WarteAbhaengigkeiten = {
   jetzt?: () => number;
   schlafen?: (ms: number) => Promise<void>;
 };

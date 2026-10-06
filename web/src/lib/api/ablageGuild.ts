@@ -9,7 +9,7 @@ import { request } from './client';
 
 const LAUFWERK_BASE = (guildId: string) => `/guilds/${guildId}/ablage`;
 
-export interface ZwischenlagerEintrag {
+interface ZwischenlagerEintrag {
   id: string;
   groesse: number;
   hochgeladen_von: string;

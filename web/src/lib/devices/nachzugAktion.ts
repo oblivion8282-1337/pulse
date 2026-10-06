@@ -13,7 +13,7 @@
  * Fehlerform, an der dieser Umbau schon dreimal gescheitert ist (Code, der
  * gut aussieht, aber im falschen Fall trotzdem greift).
  */
-export type NachzugAktion = 'nichts' | 'vergessen' | 'nachziehen';
+type NachzugAktion = 'nichts' | 'vergessen' | 'nachziehen';
 
 export function nachzugAktion(s: {
   /** Gibt es überhaupt eine lokale Eintragung mit dieser Gerätekennung? */
@@ -38,7 +38,7 @@ export function nachzugAktion(s: {
 
 /** Eine `device_changed`-Meldung, reduziert auf das, was die Entscheidung
  *  braucht — importfrei wie der Rest dieser Datei. */
-export interface DeviceChangedMeldung {
+interface DeviceChangedMeldung {
   deviceId: string;
   guildId: string;
   name: string;
@@ -48,7 +48,7 @@ export interface DeviceChangedMeldung {
 
 /** Was der Rechner bereits über seine eigenen Eintragungen weiss — reduziert
  *  auf das, was der Abgleich braucht. */
-export interface LokaleEintragung {
+interface LokaleEintragung {
   deviceId: string;
   guildId: string;
   name: string;

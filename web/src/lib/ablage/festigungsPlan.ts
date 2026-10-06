@@ -29,12 +29,12 @@ export interface FestigungsZiel {
 /** Nur die Felder, auf die es hier ankommt — bewusst nicht der volle
  *  `AblageVerbindung`-Typ, sonst bräuchte diese Datei einen Import und wäre
  *  nicht mehr direkt prüfbar. */
-export interface VerbindungsAuszug {
+interface VerbindungsAuszug {
 	fuerKanal?: string | null;
 	fuerGuild?: string | null;
 }
 
-export interface FestigungsPlan {
+interface FestigungsPlan {
 	zuStarten: FestigungsZiel[];
 	zuStoppen: FestigungsZiel[];
 }

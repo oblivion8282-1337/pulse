@@ -37,7 +37,7 @@ export type RoleCreatePayload = {
   mentionable?: boolean;
 };
 
-export type RolePatchPayload = {
+type RolePatchPayload = {
   name?: string;
   permissions?: string;
   color?: number | null;

@@ -24,12 +24,12 @@ import { cookieFetch, renewSession, safeParse, extractDetail } from './cookie-cl
 // Punkt, kein Listeneintrag mehr — siehe routes_instance_delete.py).
 // 'revoked' = App-Host-Freischaltung vom Admin zurückgenommen (nur origin
 // 'app_host' — Historie, der User darf neu beantragen).
-export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'closed' | 'revoked';
+type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'closed' | 'revoked';
 /** Antragsart im vereinten Antragssystem: VPS mit eigener Domain oder
  *  App-Hosting von zuhause (Server-App, kein Hostname). */
-export type ApplicationOrigin = 'vps' | 'app_host';
+type ApplicationOrigin = 'vps' | 'app_host';
 /** Ergebnis des beratenden Anschluss-Checks (lib/hosting/connectivityCheck). */
-export type NetworkCheck = 'ok' | 'cgnat' | 'symmetric' | 'blocked' | 'unknown';
+type NetworkCheck = 'ok' | 'cgnat' | 'symmetric' | 'blocked' | 'unknown';
 type InstanceStatus = 'active' | 'suspended';
 
 /** Spiegelt InstanceApplicationOut (User-Route). */
@@ -100,7 +100,7 @@ export interface AdminApplication {
 
 /** Spiegelt AppHostApprovalOut — Approve-Antwort für origin 'app_host'
  *  (kein client_secret; Pairing kommt später über den Bootstrap-Token). */
-export interface AppHostApproval {
+interface AppHostApproval {
   id: string;
   user_id: string;
   self_host_enabled: boolean;
@@ -109,7 +109,7 @@ export interface AppHostApproval {
 }
 
 /** Spiegelt ApprovalOut (EINMALIG — client_secret nur hier). */
-export interface Approval {
+interface Approval {
   instance_id: string;
   hostname: string;
   client_id: string;
@@ -149,7 +149,7 @@ export interface RotateSecretResult {
  *  Grund steht dort: dieselben Sätze erscheinen im Installer-Terminal, und
  *  zwei Kataloge beschrieben denselben Zustand nach kurzer Zeit verschieden.
  *  `befund` bleibt der maschinenlesbare Schlüssel — für Tests und Protokolle. */
-export interface DiagnoseSchritt {
+interface DiagnoseSchritt {
   schritt: string;
   ok: boolean;
   befund: string;
@@ -173,7 +173,7 @@ export interface DiagnoseErgebnis {
 }
 
 /** Spiegelt BootstrapTokenOut — One-Time-Token für den Ein-Befehl-Installer. */
-export interface BootstrapToken {
+interface BootstrapToken {
   token: string;
   expires_at: string;
   ttl_seconds: number;

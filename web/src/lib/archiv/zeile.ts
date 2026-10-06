@@ -25,7 +25,7 @@ import type { AnhangAngabe } from '../krypto/nachrichtNutzlast';
 // `verlauf/schema.ts`) — der Bundler akzeptiert die Endung unverändert.
 import { attachmentZuAngabe, anhangAngabeZuAttachment } from '../krypto/anhangAnzeige.ts';
 
-export type ArchivZeileKlar = {
+type ArchivZeileKlar = {
 	i: string;
 	t: string;
 	a: string;

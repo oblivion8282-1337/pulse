@@ -55,7 +55,7 @@ export const MAX_SEITEN = 200;
  *  Nachzieher würde sein Wasserzeichen auf die höchste gelieferte Id setzen
  *  (`nachzieher.ts`), womit die übersprungene Mitte für immer darunter läge.
  *  Ein Wurf hält das Wasserzeichen stehen und macht den Fall sichtbar. */
-export class LueckeZuGross extends Error {
+class LueckeZuGross extends Error {
 	constructor(seiten: number) {
 		super(
 			`Luecke groesser als ${seiten} Seiten a ${REST_SEITEN_GROESSE} — ` +

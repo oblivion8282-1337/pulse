@@ -26,9 +26,9 @@ export function isDnd(): boolean {
   return presence.myStatus === 'dnd';
 }
 
-export type NotifyKind = 'mention' | 'dm' | 'friend_request' | 'friend_accept';
+type NotifyKind = 'mention' | 'dm' | 'friend_request' | 'friend_accept';
 
-export type InPageNotifyInput = {
+type InPageNotifyInput = {
   kind: NotifyKind;
   title: string;
   body: string;

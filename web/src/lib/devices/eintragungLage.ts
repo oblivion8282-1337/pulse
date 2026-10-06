@@ -17,7 +17,7 @@
  * Importfrei für Nodes Testläufer.
  */
 
-export type EintragungLage =
+type EintragungLage =
   /** Kein lokaler Eintrag — der Rechner kann eingetragen werden. */
   | 'keine'
   /** Eintrag da, Gerätezeile aufgelöst — verwalten. */

@@ -52,7 +52,7 @@ import { backoffDeckel } from './backoffDeckel.ts';
  *  Offene sieht). */
 const deckel = backoffDeckel();
 
-export interface KanalFestigungsErgebnis {
+interface KanalFestigungsErgebnis {
 	festigt: number;
 	/** `null` = kein Fehler (auch dann, wenn dieses Gerät gar nicht der
 	 *  Besitzer ist — das ist kein Fehlerfall, s. Modulkopf). */
@@ -65,7 +65,7 @@ export interface KanalFestigungsErgebnis {
  * Besitzer-Gerät. Während des Deckel-Backoffs nach einem Fehlschlag ebenso
  * ein No-Op, bis die Sperrfrist abgelaufen ist.
  */
-export async function festigeKanalEinmal(kanalId: string): Promise<KanalFestigungsErgebnis> {
+async function festigeKanalEinmal(kanalId: string): Promise<KanalFestigungsErgebnis> {
 	if (!ablageVerbindungen.geladen) await ablageVerbindungen.laden();
 	const verbindung = ablageVerbindungen.verbindungFürKanal(kanalId);
 	if (!verbindung) return { festigt: 0, fehler: null };

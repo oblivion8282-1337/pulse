@@ -25,7 +25,7 @@ import { readState } from '$lib/stores/readState.svelte';
 import { lesestandAnker } from '$lib/stores/lesestandKern';
 import { m } from '$lib/paraglide/messages.js';
 
-export interface DmRoute {
+interface DmRoute {
   serverId?: string;
 }
 

@@ -84,7 +84,7 @@ export async function kopplungEinloesen(
 }
 
 /** Was die Oberflaeche vom Empfaenger wissen will. */
-export type EmpfangsStand = {
+type EmpfangsStand = {
   /** `null`, solange das alte Geraet die Gesamtzahl nicht gemeldet hat. */
   gesamt: number | null;
   geholt: number;

@@ -28,7 +28,7 @@
  * Importfrei (s. CLAUDE.md zur Falle bei `pnpm test:unit`).
  */
 
-export interface FreigabeZugang {
+interface FreigabeZugang {
 	/** DAV-Basis, ohne Schraegstrich am Ende. */
 	basis: string;
 	/** Das Freigabe-Token dient als Benutzername. */

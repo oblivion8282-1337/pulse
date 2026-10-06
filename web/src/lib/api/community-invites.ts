@@ -23,7 +23,7 @@ function cloudRoute(): { serverId?: string } {
 
 // ---- Types ---------------------------------------------------------------
 
-export type CommunityInvitePayload = {
+type CommunityInvitePayload = {
   id: string;
   inviter_id: string;
   invitee_id: string;
@@ -35,7 +35,7 @@ export type CommunityInvitePayload = {
   created_at: string;
 };
 
-export type CreateCommunityInviteBody = {
+type CreateCommunityInviteBody = {
   invitee_id: string;
   target_host: string;
   target_instance_id?: string | null;

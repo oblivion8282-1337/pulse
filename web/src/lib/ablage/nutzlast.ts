@@ -17,7 +17,7 @@ import type { Message } from '../api/types.ts';
 
 export const NUTZLAST_FASSUNG = 1;
 
-export interface AblageAnhang {
+interface AblageAnhang {
 	id: string;
 	name: string | null;
 	mime: string | null;

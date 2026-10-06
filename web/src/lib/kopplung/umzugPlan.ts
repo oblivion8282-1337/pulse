@@ -13,7 +13,7 @@
 /** Ein Satz des lokalen Verlaufs, wie er ueber die Leitung geht. Bewusst
  *  `unknown`-vertraeglich getippt: dieses Modul rechnet ueber die MENGE, es
  *  liest kein Feld. Die Form gehoert `verlauf/schema.ts`. */
-export type UmzugSatz = { schluessel: string };
+type UmzugSatz = { schluessel: string };
 
 /** Wie viele Saetze hoechstens in EIN Stueck gebuendelt werden.
  *

@@ -25,7 +25,7 @@ export type DMMessageSearchHit = {
 };
 
 /** Response of `GET /guilds/{id}/settings` (MANAGE_GUILD-gated). */
-export type GuildSettings = {
+type GuildSettings = {
   handle: string | null;
   is_public: boolean;
   /** Im Entdecken-Verzeichnis zeigen. Getrennt von `is_public`: eine
@@ -39,7 +39,6 @@ export type GuildSettings = {
 /** Kategorien des Verzeichnisses — feste Liste, spiegelt
  *  `community_categories.py` auf dem Server. **Synchron halten.** */
 export const COMMUNITY_CATEGORIES = ['gaming', 'music', 'tech', 'creative', 'other'] as const;
-export type CommunityCategory = (typeof COMMUNITY_CATEGORIES)[number];
 
 /** Ein Eintrag im Community-Verzeichnis (`GET /c`). */
 export type DirectoryEntry = {
@@ -53,7 +52,7 @@ export type DirectoryEntry = {
 
 /** Ein Limit aus Sicht der Community-Leitung: eigener Wert, Obergrenze des
  *  Betreibers, wirksamer Wert. Auflösungen sind Zeichenketten, sonst Zahlen. */
-export type GuildLimitValue = {
+type GuildLimitValue = {
   value: number | string | null;
   ceiling: number | string | null;
   effective: number | string | null;
@@ -90,7 +89,7 @@ export type GuildSoundOverrideOut = {
 };
 
 /** Response of `POST /channels/{id}/stream-token` (chat-gateway → media-svc proxy). */
-export type StreamTokenResponse = {
+type StreamTokenResponse = {
   token: string;
   mediamtx_path: string;
   push_protocol: string;
@@ -115,7 +114,7 @@ function cloudRoute(): { serverId?: string } {
 }
 
 /** Read-only view of the server-wide permission flags. */
-export type ServerCapabilities = {
+type ServerCapabilities = {
   allow_guild_creation: boolean;
   allow_member_invites: boolean;
   /** Konzept §2a: "regular" (wie bisher) oder "ablage_only" (erstellen

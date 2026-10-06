@@ -45,7 +45,7 @@ async function antwortetUeberhaupt(hostname: string, timeoutMs: number): Promise
   }
 }
 
-export type ServerInfo = {
+type ServerInfo = {
   server_version: string;
   /** Baustempel des Laufs (kurzer Commit-SHA, 'dev' ohne CI-Bau) — der
    *  Stand-Vergleich zwischen Cloud und Self-Host, s. server_info.py. */
@@ -55,14 +55,14 @@ export type ServerInfo = {
   capabilities: string[];
 };
 
-export type PreCheckOk = { ok: true; info: ServerInfo; hostname: string };
-export type PreCheckErr = {
+type PreCheckOk = { ok: true; info: ServerInfo; hostname: string };
+type PreCheckErr = {
   ok: false;
   /** 'unreachable' | 'too-old' | 'bad-response' | 'cors' */
   reason: 'unreachable' | 'too-old' | 'bad-response' | 'bad-url' | 'cors';
   details?: string;
 };
-export type PreCheckResult = PreCheckOk | PreCheckErr;
+type PreCheckResult = PreCheckOk | PreCheckErr;
 
 /**
  * Validiert URL-Form + ruft `.well-known/pulse-server-info` ab.

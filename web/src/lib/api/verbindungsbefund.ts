@@ -168,7 +168,7 @@ export type Netbefund =
   | 'zert-ungueltig';
 
 /** Ein Diagnoseschritt, so wie ihn `desktop/.../netdiag.ts` liefert. */
-export type NetdiagSchritt = {
+type NetdiagSchritt = {
   schritt: string;
   ok: boolean;
   befund?: string;

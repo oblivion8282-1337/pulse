@@ -68,7 +68,7 @@ function syncInstanceMembership(instanceId: string | null | undefined): void {
 /**
  * Ergebnis des Parsens eines Join-Inputs.
  */
-export type ParsedJoinInput =
+type ParsedJoinInput =
   | { kind: 'invite'; code: string; host: string | null }
   | { kind: 'public'; handle: string; host: string | null }
   | { kind: 'host'; host: string };

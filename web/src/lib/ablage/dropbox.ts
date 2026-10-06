@@ -30,7 +30,7 @@ export interface DropboxAnbindung {
 	holen?: typeof fetch;
 }
 
-export interface DropboxVerbindung {
+interface DropboxVerbindung {
 	zugangsToken: string;
 	/** Ablage-Ordner im App-Ordner, z. B. Pulse/ablage/kanal-1 */
 	ordner: string;

@@ -72,7 +72,7 @@ export const ANBIETER: readonly AnbieterEintrag[] = [
  * Verbinden-Dialog zeigt. Fuer das persoenliche Archiv ist er bewusst NICHT
  * waehlbar — dort bleibt es beim eigenen Ordner und den eigenen Clouds.
  */
-export const PULSE_ANBIETER: AnbieterEintrag = {
+const PULSE_ANBIETER: AnbieterEintrag = {
 	art: 'pulse',
 	name: 'Pulse-Laufwerk',
 	angeboten: true,

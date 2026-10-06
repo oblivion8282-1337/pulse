@@ -19,7 +19,7 @@
  * Manifest fehlt und aus den Segmenten neu gebaut werden muss.
  */
 
-export const RAHMEN_KENNUNG = 0x50554c53; // "PULS"
+const RAHMEN_KENNUNG = 0x50554c53; // "PULS"
 export const RAHMEN_FASSUNG = 1;
 export const RAHMEN_KOPF_LAENGE = 18;
 
@@ -51,7 +51,7 @@ export const TYP_MEGOLM = 2;
 export const TYP_SICHERUNG_AES = 3;
 
 /** Abweisungswert gegen Müll, der zufällig Kennung und Fassung trifft. */
-export const NUTZLAST_MAX_LAENGE = 4 * 1024 * 1024;
+const NUTZLAST_MAX_LAENGE = 4 * 1024 * 1024;
 
 export interface Rahmen {
 	typ: number;
@@ -59,7 +59,7 @@ export interface Rahmen {
 	nutzlast: Uint8Array;
 }
 
-export type RahmenAbbruchGrund =
+type RahmenAbbruchGrund =
 	| 'abgeschnitten'
 	| 'unbekannteKennung'
 	| 'unbekannteFassung'

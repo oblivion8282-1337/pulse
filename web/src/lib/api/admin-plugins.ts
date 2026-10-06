@@ -25,7 +25,7 @@ export type AdminPluginEntry = {
   description: string | null;
 };
 
-export type AdminPluginPutResult = {
+type AdminPluginPutResult = {
   plugin_name: string;
   in_allowlist: boolean;
   requires_restart: boolean;

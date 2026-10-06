@@ -128,7 +128,7 @@ export class AnmeldungAbgelaufenFehler extends Error {
 }
 
 /** Der Ausschnitt eines Zugangs, den der Auffrisch-Weg lesen muss. */
-export interface AuffrischbarerZugang {
+interface AuffrischbarerZugang {
 	zugangsToken: string;
 	nachspieleToken?: string;
 }

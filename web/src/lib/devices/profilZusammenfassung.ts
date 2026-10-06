@@ -6,7 +6,7 @@
  * Importfrei (Nodes Testläufer); die übersetzten Teile — den Namen der Quelle
  * und das Wort für „nativ" — reicht der Aufrufer herein.
  */
-export interface ProfilAuszug {
+interface ProfilAuszug {
   quelleName: string;
   codec: 'h264' | 'av1';
   /** Wert aus dem Katalog (`Native`, `4K`, …) — `Native` wird übersetzt. */

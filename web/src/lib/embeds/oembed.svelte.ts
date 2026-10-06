@@ -14,7 +14,7 @@
 import { SvelteMap } from 'svelte/reactivity';
 import type { EmbedProvider } from './providers';
 
-export interface OEmbedData {
+interface OEmbedData {
   title?: string;
   author_name?: string;
   thumbnail_url?: string;

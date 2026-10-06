@@ -28,7 +28,7 @@ export interface OnedriveAnbindung {
 	holen?: typeof fetch;
 }
 
-export interface OnedriveVerbindung {
+interface OnedriveVerbindung {
 	zugangsToken: string;
 	/** Ablage-Ordner im App-Ordner, z. B. Pulse/ablage/kanal-1 */
 	ordner: string;

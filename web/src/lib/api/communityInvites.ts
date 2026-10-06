@@ -28,7 +28,7 @@ export type CommunityInviteNotification = {
   created_at: string;
 };
 
-export type CommunityInviteAcceptResult = {
+type CommunityInviteAcceptResult = {
   guild: { id: string; name: string; icon_url: string | null };
   channel_id: string | null;
   /** Nur bei einer Einladung auf einen fremden Server gesetzt: die Cloud legt

@@ -61,11 +61,11 @@
 import type { AblageAdapter } from './adapter.ts';
 
 export const BEHAELTER_KENNUNG = 0x5042484c; // "PBHL"
-export const BEHAELTER_FASSUNG = 1;
+const BEHAELTER_FASSUNG = 1;
 const IV_LAENGE = 12;
 const KOPF_LAENGE = 4 + 1 + IV_LAENGE;
 
-export type BehaelterFehlerGrund =
+type BehaelterFehlerGrund =
 	| 'zuKurz'
 	| 'unbekannteKennung'
 	| 'unbekannteFassung'

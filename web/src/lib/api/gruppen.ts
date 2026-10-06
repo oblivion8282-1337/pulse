@@ -26,7 +26,7 @@ import { request } from './client';
 import { serversStore } from './servers.svelte';
 import { PRIVATE_GRUPPEN_ENABLED } from '../krypto/schalter';
 
-export interface GruppenMitglied {
+interface GruppenMitglied {
   user_id: string;
   beigetreten_am: string;
 }

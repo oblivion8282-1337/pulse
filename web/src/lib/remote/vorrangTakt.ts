@@ -65,7 +65,7 @@ export const SIDECAR_TAKT_MS = 1_000;
 export const AUFFRISCH_MS = 900;
 
 /** Was nach einer Sidecar-Meldung zu tun ist. */
-export type VorrangEntscheidung = {
+type VorrangEntscheidung = {
   /** Gilt jetzt (maschinenweit) ein Vorrang? */
   aktiv: boolean;
   /** Soll darüber eine Meldung an den Steuernden hinausgehen? */
@@ -147,7 +147,7 @@ export class VorrangBuch {
 }
 
 /** Was an den Steuernden hinausgeht, wenn eine Meldung fällig ist. */
-export type VorrangSignal = { aktiv: boolean; rest_ms: number };
+type VorrangSignal = { aktiv: boolean; rest_ms: number };
 
 /**
  * Die **ganze** Host-Seite einer Sidecar-Meldung: deuten, einbuchen, und —
@@ -191,7 +191,7 @@ export function hostMeldungWeiterreichen(
 
 /** Obergrenze für eine gemeldete Restzeit — die Wache hält Sekunden, nicht
  *  Tage. Schützt die Anzeige vor `Infinity` und absurden Zahlen. */
-export const REST_MAX_MS = 60_000;
+const REST_MAX_MS = 60_000;
 
 /** Eine gemeldete Restzeit auf etwas Anzeigbares bringen. */
 export function restZeit(wert: unknown): number {

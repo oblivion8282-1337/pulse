@@ -1,6 +1,6 @@
 import { request } from './client';
 
-export type VoiceTokenResponse = {
+type VoiceTokenResponse = {
   token: string;
   ws_url: string;
   room: string;
@@ -19,7 +19,7 @@ export function getVoiceToken(channelId: string, kind: 'voice' | 'screen' = 'voi
   });
 }
 
-export type VoiceOverrideResponse = { muted: boolean; deafened: boolean };
+type VoiceOverrideResponse = { muted: boolean; deafened: boolean };
 
 /** Patch the voice-override for a participant. Each field is
  * independently permission-gated server-side (``MUTE_MEMBERS`` /

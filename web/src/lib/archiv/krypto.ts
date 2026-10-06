@@ -39,7 +39,7 @@ const AAD_KDF_WRAP = 'pulse-archiv-kdf';
 const AAD_KANAL_WRAP = 'pulse-archiv-kanal';
 const AAD_ZEILE = 'pulse-archiv-zeile';
 
-export class ArchivKryptoFehler extends Error {
+class ArchivKryptoFehler extends Error {
 	constructor(meldung: string) {
 		super(meldung);
 		this.name = 'ArchivKryptoFehler';
@@ -95,7 +95,7 @@ async function gcm(
 	);
 }
 
-export type ArchivSchluesselPaar = { pubkey: Uint8Array; privkey: Uint8Array };
+type ArchivSchluesselPaar = { pubkey: Uint8Array; privkey: Uint8Array };
 
 /** Bytes → base64url (JWK-Felder). */
 function bytesZuB64url(bytes: Uint8Array): string {

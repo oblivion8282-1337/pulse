@@ -13,7 +13,7 @@
 /** `'kein-griff'`: es liegt gar kein Verzeichnis-Handle in der IndexedDB —
  *  weder verbunden noch je gespeichert. Jeder andere Wert ist der Stand der
  *  File-System-Access-Berechtigung für ein tatsächlich gefundenes Handle. */
-export type GriffZustand = PermissionState | 'kein-griff';
+type GriffZustand = PermissionState | 'kein-griff';
 
 /**
  * Nur eine ERTEILTE Berechtigung ist nutzbar. `'prompt'` ist nach einem

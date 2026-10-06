@@ -20,7 +20,7 @@
 
 export type AnrufZeilenSchluessel = 'verpasst' | 'abgelehnt' | 'dauer';
 
-export interface AnrufSystemzeile {
+interface AnrufSystemzeile {
   schluessel: AnrufZeilenSchluessel;
   dauerSek: number;
 }

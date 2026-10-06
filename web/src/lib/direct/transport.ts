@@ -47,7 +47,7 @@ export type DirectTransportServer = {
   origin?: 'vps' | 'app_host' | null;
 };
 
-export function directEligible(server: DirectTransportServer | undefined): boolean {
+function directEligible(server: DirectTransportServer | undefined): boolean {
   return !!server && !server.isCloud && !!server.instance_id;
 }
 

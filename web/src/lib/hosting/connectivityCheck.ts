@@ -30,7 +30,7 @@ const STUN_SERVERS = ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:
 const PROBE_TIMEOUT_MS = 5000;
 
 /** 100.64.0.0/10 (RFC 6598, Carrier-Grade NAT). */
-export function isCgnatIp(ip: string): boolean {
+function isCgnatIp(ip: string): boolean {
   const parts = ip.split('.');
   if (parts.length !== 4) return false; // IPv6-srflx → kein CGNAT-v4-Bereich
   const a = Number(parts[0]);
@@ -44,7 +44,7 @@ export function isCgnatIp(ip: string): boolean {
  * Nur aufrufen, wenn das Gathering natürlich endete (kein Timeout) — sonst
  * würde eine langsame Probe fälschlich als geblockt gewertet.
  */
-export function classifySrflx(ips: string[]): HostingVerdict {
+function classifySrflx(ips: string[]): HostingVerdict {
   if (ips.length === 0) return 'cannot-host';
   if (ips.some((ip) => isCgnatIp(ip))) return 'cannot-host';
   return 'ok';

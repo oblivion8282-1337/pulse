@@ -11,7 +11,7 @@ import { request } from './client';
 
 const PULSE_BASE = (guildId: string) => `/guilds/${guildId}/ablage/pulse`;
 
-export interface PulseStatus {
+interface PulseStatus {
   verbunden: boolean;
   genutzt_bytes: number;
   kontingent_bytes: number;

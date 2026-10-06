@@ -30,41 +30,41 @@ export type UserSearchHit = {
   avatar_url: string | null;
 };
 
-export type FriendRequestPayload = {
+type FriendRequestPayload = {
   id: string;
   sender_id: string;
   receiver_id: string;
   created_at: string;
 };
 
-export type FriendPayload = {
+type FriendPayload = {
   user_id: string;
   since: string;
 };
 
-export type FriendRequestListResponse = {
+type FriendRequestListResponse = {
   incoming: FriendRequestPayload[];
   outgoing: FriendRequestPayload[];
 };
 
-export type FriendRequestCreateResponse =
+type FriendRequestCreateResponse =
   | FriendRequestPayload
   | { auto_accepted: true; friendship: FriendPayload };
 
-export type BlockPayload = {
+type BlockPayload = {
   user_id: string;
   since: string;
 };
 
-export type PrivacyResponse = {
+type PrivacyResponse = {
   dm_policy: number;
   friend_request_policy: number;
   show_in_search: boolean;
 };
 
-export type PrivacyPatch = Partial<PrivacyResponse>;
+type PrivacyPatch = Partial<PrivacyResponse>;
 
-export type PresenceStatusValue = 'online' | 'idle' | 'dnd' | 'invisible';
+type PresenceStatusValue = 'online' | 'idle' | 'dnd' | 'invisible';
 
 // ---- API surface ---------------------------------------------------------
 
