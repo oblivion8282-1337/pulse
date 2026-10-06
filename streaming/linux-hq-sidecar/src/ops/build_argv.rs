@@ -144,7 +144,7 @@ fn build_argv(
     push_url: &str,
     ten_bit: bool,
 ) -> Vec<String> {
-    let argv = vec![
+    vec![
         "pulse-linux-hq-sidecar".to_string(),
         "--profile".to_string(),
         profile.to_string(),
@@ -164,6 +164,5 @@ fn build_argv(
         resolution.to_string(),
         "--out".to_string(),
         redact_url(push_url),
-    ];
-    argv
+    ]
 }

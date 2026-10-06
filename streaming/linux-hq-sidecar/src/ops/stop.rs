@@ -14,7 +14,7 @@ use crate::stream_controller::StreamController;
 pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     let ctrl = StreamController::singleton();
     if !ctrl.state().running {
-        return Ok(json_to_map(json!({
+        return Ok(super::json_to_map(json!({
             "running": false,
             "note": "kein laufender Stream",
         })));
@@ -22,12 +22,5 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     ctrl.stop()?;
     // Gleiche Shape wie der Idempotenz-Zweig — der Parent muss `running` nicht
     // je nach Pfad mal lesen können und mal nicht.
-    Ok(json_to_map(json!({ "running": false })))
-}
-
-fn json_to_map(v: Value) -> Map<String, Value> {
-    match v {
-        Value::Object(m) => m,
-        _ => Map::new(),
-    }
+    Ok(super::json_to_map(json!({ "running": false })))
 }

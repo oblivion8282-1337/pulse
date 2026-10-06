@@ -31,13 +31,6 @@ impl Vendor {
         }
     }
 
-    /// Encoder-Familie die dieser Vendor unter Linux nutzt (VAAPI vs NVENC).
-    pub fn encoder_family(self) -> &'static str {
-        match self {
-            Vendor::Nvidia => "nvenc",
-            Vendor::Amd | Vendor::Intel => "vaapi",
-        }
-    }
 }
 
 /// Treibername → Vendor. Reine Abbildung — wer nichts findet, protokolliert es
