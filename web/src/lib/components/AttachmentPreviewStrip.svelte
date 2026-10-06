@@ -48,6 +48,27 @@
     data-testid="attachment-preview-strip"
   >
     {#each pending as p (p.localId)}
+      {#snippet fortschritt()}
+        {#if p.state === 'uploading' || p.state === 'queued'}
+          <div class="absolute inset-x-0 bottom-0 h-1 overflow-hidden rounded-b-lg bg-black/40">
+            <div
+              class="h-full bg-primary transition-[width] duration-150"
+              style="width: {p.progress}%"
+            ></div>
+          </div>
+        {/if}
+      {/snippet}
+      {#snippet fehler()}
+        {#if p.state === 'error'}
+          <div
+            class="absolute inset-0 flex items-center justify-center rounded-md bg-destructive/80 text-2xs font-semibold text-white"
+            title={p.errorMessage ?? ''}
+            data-testid="attachment-error"
+          >
+            {m.attachment_preview_strip_error()}
+          </div>
+        {/if}
+      {/snippet}
       <!-- Sprachnachricht-Entwurf: hoerbar als Player-Zeile statt als stumme
            Datei-Kachel (Testrunde 2026-09-11) — gleiche Entfernen-/Fortschritts-
            Logik, nur breiter. -->
@@ -56,23 +77,8 @@
         <div class="relative flex items-center gap-2">
           <!-- svelte-ignore a11y_media_has_caption -->
           <video src={p.previewUrl ?? undefined} class="h-20 rounded-md border border-border" playsinline></video>
-          {#if p.state === 'uploading' || p.state === 'queued'}
-            <div class="absolute inset-x-0 bottom-0 h-1 overflow-hidden rounded-b-lg bg-black/40">
-              <div
-                class="h-full bg-primary transition-[width] duration-150"
-                style="width: {p.progress}%"
-              ></div>
-            </div>
-          {/if}
-          {#if p.state === 'error'}
-            <div
-              class="absolute inset-0 flex items-center justify-center rounded-md bg-destructive/80 text-2xs font-semibold text-white"
-              title={p.errorMessage ?? ''}
-              data-testid="attachment-error"
-            >
-              {m.attachment_preview_strip_error()}
-            </div>
-          {/if}
+          {@render fortschritt()}
+          {@render fehler()}
           <button
             type="button"
             class="bg-bg-panel text-text-muted hover:text-text-bright absolute -right-1.5 -top-1.5 z-10 rounded-full border border-border p-0.5"
@@ -86,23 +92,8 @@
       {:else if p.file.type.startsWith('audio/')}
         <div class="relative flex items-center">
           <AudioNachricht src={p.previewUrl ?? undefined} bekannteDauer={p.aufnahmeDauer} />
-          {#if p.state === 'uploading' || p.state === 'queued'}
-            <div class="absolute inset-x-0 bottom-0 h-1 overflow-hidden rounded-b-lg bg-black/40">
-              <div
-                class="h-full bg-primary transition-[width] duration-150"
-                style="width: {p.progress}%"
-              ></div>
-            </div>
-          {/if}
-          {#if p.state === 'error'}
-            <div
-              class="absolute inset-0 flex items-center justify-center rounded-md bg-destructive/80 text-2xs font-semibold text-white"
-              title={p.errorMessage ?? ''}
-              data-testid="attachment-error"
-            >
-              {m.attachment_preview_strip_error()}
-            </div>
-          {/if}
+          {@render fortschritt()}
+          {@render fehler()}
           <button
             type="button"
             class="bg-bg-panel text-text-muted hover:text-text-bright absolute -right-1.5 -top-1.5 z-10 rounded-full border border-border p-0.5"
@@ -125,23 +116,8 @@
             <FileIcon class="text-text-muted size-6" />
           {/if}
         </div>
-        {#if p.state === 'uploading' || p.state === 'queued'}
-          <div class="absolute inset-x-0 bottom-0 h-1 overflow-hidden rounded-b-lg bg-black/40">
-            <div
-              class="h-full bg-primary transition-[width] duration-150"
-              style="width: {p.progress}%"
-            ></div>
-          </div>
-        {/if}
-        {#if p.state === 'error'}
-          <div
-            class="absolute inset-0 flex items-center justify-center rounded-md bg-destructive/80 text-2xs font-semibold text-white"
-            title={p.errorMessage ?? ''}
-            data-testid="attachment-error"
-          >
-            {m.attachment_preview_strip_error()}
-          </div>
-        {/if}
+        {@render fortschritt()}
+        {@render fehler()}
         <button
           type="button"
           class="bg-bg-panel text-text-muted hover:text-text-bright absolute -right-1.5 -top-1.5 rounded-full border border-border p-0.5"

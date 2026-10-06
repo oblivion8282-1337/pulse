@@ -585,11 +585,12 @@ export class GatewayConnection {
         } catch {
           return;
         }
+        const op = (evt as unknown as { op: string }).op;
         // Keepalive reply — record liveness and swallow it before the
         // firstFrame/handler path so it never reaches the dispatch registry
         // (which would log it as an unknown op). `pong` is never the first
         // frame: it only arrives in response to a ping we send ≥25s post-open.
-        if ((evt as unknown as { op: string }).op === 'pong') {
+        if (op === 'pong') {
           this.lastPongAt = Date.now();
           return;
         }
@@ -597,21 +598,20 @@ export class GatewayConnection {
         // verschoben. Nächste Erneuerung aus dem NEUEN `exp` planen. Der
         // Rahmen ist kein Ereignis für die Stores — hier abfangen, sonst
         // meldet der Dispatcher ihn als unbekannte Op.
-        const tokenRenewed = evt as unknown as { op: string; exp?: number };
-        if (tokenRenewed.op === 'token_renewed') {
-          this._planeTokenErneuerungAus(tokenRenewed.exp ?? null);
+        if (op === 'token_renewed') {
+          this._planeTokenErneuerungAus((evt as unknown as { exp?: number }).exp ?? null);
           return;
         }
         // Replay-Rahmen (Antwort auf hist_replay) ist Meta — die INNERHALB
         // getragenen Ereignisse werden einzeln dispatched, der Rahmen selbst
         // geht nicht in die Stores.
-        if ((evt as unknown as { op: string }).op === 'replay') {
+        if (op === 'replay') {
           this._wendeReplayAn(evt as Extract<ServerEvent, { op: 'replay' }>);
           return;
         }
         if (firstFrame) {
           firstFrame = false;
-          if ((evt as unknown as { op: string }).op === 'hello') {
+          if (op === 'hello') {
             const hello = evt as unknown as HelloMeta & { op: 'hello' };
             this.helloMeta = {
               server_version: hello.server_version,
@@ -640,7 +640,7 @@ export class GatewayConnection {
             // (Replay + REST nur für cursor-lose Kanäle, sonst REST für
             // alle) liest bewusst das FRISCHE hello, nie stale helloMeta.
             this._stopGapfillTimer();
-            if (this._kannHistReplay()) {
+            if (this._hatFaehigkeit('hist_replay')) {
               // Die Cursor sind bis dahin live gelaufener Ereignisse
               // angewachsen — der Server verarbeitet die Subscribes
               // (gleicher Socket, FIFO) schon, also deckt das Replay die
@@ -811,10 +811,6 @@ export class GatewayConnection {
 
   // ── WS-Replay (hist_replay) — Centrifugo-Blaupause ────────────────────────
 
-  private _kannHistReplay(): boolean {
-    return (this.helloMeta?.capabilities ?? []).includes('hist_replay');
-  }
-
   private _histMerke(cid: string, id: string, seq: number): void {
     const cur = this._hist.get(cid);
     if (cur && cur.seq >= seq) return; // niemals rückwärts (Replay-Überlappung)
@@ -896,10 +892,11 @@ export class GatewayConnection {
   // verbinden reichen wir vor dem Ablauf ein frisches Token nach. Rechnung in
   // `token-erneuerung.ts`.
 
-  /** Kennt dieser Server den Austausch? Ein älterer Server sendet die
-   *  Fähigkeit nicht — dann bleibt es beim alten Reconnect-Weg. */
-  private _kannTokenTauschen(): boolean {
-    return (this.helloMeta?.capabilities ?? []).includes('token_refresh');
+  /** Kennt dieser Server eine Hello-Fähigkeit (`hist_replay`,
+   *  `token_refresh`)? Ein älterer Server sendet sie nicht — dann bleibt es
+   *  beim jeweiligen alten Weg (REST-Lückenfill bzw. 4001-Reconnect). */
+  private _hatFaehigkeit(faehigkeit: string): boolean {
+    return (this.helloMeta?.capabilities ?? []).includes(faehigkeit);
   }
 
   /** Frisches Token an den offenen Socket schieben. Öffentlich, weil der
@@ -908,7 +905,7 @@ export class GatewayConnection {
    *  diese Meldung wüsste der Server nichts davon und schlösse den Socket
    *  trotzdem — genau das war der 5-Minuten-Takt auf Self-Hosts. */
   pushToken(token: string): void {
-    if (!token || !this._kannTokenTauschen()) return;
+    if (!token || !this._hatFaehigkeit('token_refresh')) return;
     this._sendRaw({ op: 'token_refresh', token });
   }
 
@@ -927,7 +924,7 @@ export class GatewayConnection {
   }
 
   private _planeTokenErneuerungAus(expSekunden: number | null): void {
-    if (!this.isCloud || !this._kannTokenTauschen()) {
+    if (!this.isCloud || !this._hatFaehigkeit('token_refresh')) {
       this._stopTokenErneuerung();
       return;
     }

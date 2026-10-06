@@ -33,11 +33,7 @@ export function fireStreamDiff(channelId: string, oldIds: string[], newIds: stri
   const gid = guilds.guildIdForChannel(channelId);
   for (const uid of newIds) {
     if (oldSet.has(uid)) continue;
-    if (uid === me) {
-      sounds.play('stream.self_start', { guildId: gid });
-    } else {
-      sounds.play('stream.user_start', { guildId: gid });
-    }
+    sounds.play(uid === me ? 'stream.self_start' : 'stream.user_start', { guildId: gid });
   }
   for (const uid of oldIds) {
     if (newSet.has(uid) || uid === me) continue;

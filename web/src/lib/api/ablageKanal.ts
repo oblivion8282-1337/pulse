@@ -32,8 +32,7 @@
  * Sonderbehandlung.
  */
 
-import { ApiError, fetchAuthenticated, request, type RequestRoute } from './client';
-import { safeParse, extractDetail } from './parse';
+import { apiFehlerAus, fetchAuthenticated, request, type RequestRoute } from './client';
 
 /**
  * Liest `pfad` relativ zur Freigabe-Adresse des Kanal-Laufwerks, ueber den
@@ -52,11 +51,7 @@ export async function ablageKanalAbruf(
     route
   );
   if (resp.status === 404) return null;
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    const data = text ? safeParse(text) : null;
-    throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
-  }
+  if (!resp.ok) throw await apiFehlerAus(resp);
   return new Uint8Array(await resp.arrayBuffer());
 }
 
@@ -113,11 +108,7 @@ export async function ablageKanalSchreiben(
     },
     route
   );
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    const data = text ? safeParse(text) : null;
-    throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
-  }
+  if (!resp.ok) throw await apiFehlerAus(resp);
 }
 
 /**

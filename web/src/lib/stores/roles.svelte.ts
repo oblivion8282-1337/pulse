@@ -163,18 +163,9 @@ class RoleStore {
       this._setGuildPerm(guildId, GRANT_ALL_SAFE);
       return;
     }
-    const allRoles = this.byGuild[guildId] ?? [];
-    const mine = new Set(this.myRoleIds[guildId] ?? []);
-    const snapshots: RoleSnapshot[] = allRoles
-      .filter((r) => r.is_everyone || mine.has(r.id))
-      .map((r) => ({
-        id: r.id,
-        position: r.position,
-        permissions: toBitfield(r.permissions),
-        is_everyone: r.is_everyone
-      }));
     // Cache the snapshot list so snapshotsForUser() can skip the
     // filter+map+toBitfield on every channel-permission read.
+    const snapshots = this.#baueSnapshots(guildId);
     this._snapshotsCache.set(guildId, snapshots);
     const value = resolveGuildPermissions({
       isGlobalAdmin: isAdmin,
@@ -204,9 +195,15 @@ class RoleStore {
     const cached = this._snapshotsCache.get(guildId);
     if (cached) return cached;
     // Fallback for guilds not yet recomputed (e.g. during early hydration).
-    const all = this.byGuild[guildId] ?? [];
+    return this.#baueSnapshots(guildId);
+  }
+
+  /** Eigene Rollen einer Guild (@everyone inklusive) als Resolver-
+   *  Schnappschüsse — die geteilte Rechnung von `recomputeGuild` und dem
+   *  `snapshotsForUser`-Fallback. */
+  #baueSnapshots(guildId: string): RoleSnapshot[] {
     const mine = new Set(this.myRoleIds[guildId] ?? []);
-    return all
+    return (this.byGuild[guildId] ?? [])
       .filter((r) => r.is_everyone || mine.has(r.id))
       .map((r) => ({
         id: r.id,

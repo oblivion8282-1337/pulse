@@ -121,15 +121,6 @@
       <UserMinusIcon class="size-4" />
       <span>{m.popover_friend_actions_remove_friend()}</span>
     </MenuRow>
-    <MenuRow
-      variant="danger"
-      onclick={() => actions.blockUser(ctx())}
-      disabled={working}
-      data-testid="popover-block-btn"
-    >
-      <BanIcon class="size-4" />
-      <span>{m.popover_friend_actions_block()}</span>
-    </MenuRow>
   {:else if pendingOut}
     <MenuRow
       onclick={() => actions.cancelFriendRequest(ctx(), pendingOut!.id)}
@@ -138,15 +129,6 @@
     >
       <XIcon class="size-4" />
       <span>{m.popover_friend_actions_cancel_request()}</span>
-    </MenuRow>
-    <MenuRow
-      variant="danger"
-      onclick={() => actions.blockUser(ctx())}
-      disabled={working}
-      data-testid="popover-block-btn"
-    >
-      <BanIcon class="size-4" />
-      <span>{m.popover_friend_actions_block()}</span>
     </MenuRow>
   {:else if pendingIn}
     <MenuRow
@@ -165,15 +147,6 @@
       <XIcon class="size-4" />
       <span>{m.popover_friend_actions_decline_request()}</span>
     </MenuRow>
-    <MenuRow
-      variant="danger"
-      onclick={() => actions.blockUser(ctx())}
-      disabled={working}
-      data-testid="popover-block-btn"
-    >
-      <BanIcon class="size-4" />
-      <span>{m.popover_friend_actions_block()}</span>
-    </MenuRow>
   {:else}
     <MenuRow
       onclick={() => actions.sendFriendRequest(ctx())}
@@ -183,6 +156,10 @@
       <UserPlusIcon class="size-4" />
       <span>{m.popover_friend_actions_send_friend_request()}</span>
     </MenuRow>
+  {/if}
+  <!-- Blockieren steht in JEDEM nicht-blockierten Zustand als letzter Eintrag —
+       daher einmal hier statt viermal in den Zweigen darüber. -->
+  {#if !isBlocked}
     <MenuRow
       variant="danger"
       onclick={() => actions.blockUser(ctx())}

@@ -179,10 +179,6 @@
       .join('');
   }
 
-  function openRename(g: Guild) {
-    renameTarget = g;
-  }
-
   function openDelete(g: Guild) {
     deleteTarget = g;
     deleteConfirmOpen = true;
@@ -656,7 +652,7 @@
                 </ContextMenu.Item>
               {/if}
               {#if canManageGuild}
-                <ContextMenu.Item onSelect={() => openRename(g)} data-testid="guild-rename">
+                <ContextMenu.Item onSelect={() => (renameTarget = g)} data-testid="guild-rename">
                   <PencilIcon />
                   {m.guild_rail_rename_community()}
                 </ContextMenu.Item>

@@ -16,7 +16,7 @@
   import MessageList from './MessageList.svelte';
   import MemberList from './MemberList.svelte';
   import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
-  import { plainifyMentions } from './messageRender';
+  import { plainifyMentions, snippet80 } from './messageRender';
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import PinIcon from '@lucide/svelte/icons/pin';
@@ -288,13 +288,6 @@
   const canPin = $derived(channel?.guild_id ? isOwner : true);
   // Sprung in die Liste (von MessageList gemountet) für Klicks im Popover.
   let jumpToMessage = $state<((id: string) => void) | undefined>(undefined);
-  // Pin-Listen-Einträge können aus dem pin_update-WS-Event stammen und dann
-  // noch keine Inhalte tragen (nur id/channel/pinned_at) — deshalb defensiv
-  // (`text` darf undefined sein). Dient auch der Reply-Banner-Vorschau unten.
-  function snippet80(text: string | undefined): string {
-    const t = (text ?? '').replace(/\s+/g, ' ').trim();
-    return t.length > 80 ? t.slice(0, 77) + '…' : t;
-  }
 
   // Laufenden Drag bei Kanalwechsel abbrechen — sonst bleibt das Drop-Overlay
   // sichtbar, wenn der User während eines Drags den Kanal wechselt.

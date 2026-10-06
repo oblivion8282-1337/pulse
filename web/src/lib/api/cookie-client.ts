@@ -19,7 +19,7 @@
  * 60-s-Admin-Polls (Anträge/Beschwerden) würden endlos 401 feuern.
  */
 
-import { AUTH_BASE, ApiError, getCloudBearer } from './client';
+import { AUTH_BASE, getCloudBearer, parseResponse } from './client';
 import { clearTokens, loadTokens } from './storage';
 import { safeParse, extractDetail } from './parse';
 
@@ -96,11 +96,7 @@ export async function cookieFetch<T>(
     }
   }
 
-  if (resp.status === 204) return undefined as T;
-  const text = await resp.text();
-  const data = text ? safeParse(text) : null;
-  if (!resp.ok) throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
-  return data as T;
+  return parseResponse<T>(resp);
 }
 
 // Re-exported (imported above from ./parse) so existing importers

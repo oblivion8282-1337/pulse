@@ -202,6 +202,13 @@ export function plainifyMentions(content: string): string {
   return out;
 }
 
+/** Erste 80 Zeichen als Einzeiler (Reply-Vorschau) — geteilt von ChatView
+ *  (Reply-Banner + Verlaufs-Pfeil) und MessageList (Reply-Zeile). */
+export function snippet80(text: string | undefined): string {
+  const t = (text ?? '').replace(/\s+/g, ' ').trim();
+  return t.length > 80 ? t.slice(0, 77) + '…' : t;
+}
+
 /**
  * Public render entry point. Safe to call with `mentions=undefined` — the
  * markup pass becomes a no-op and the output matches the legacy renderer.

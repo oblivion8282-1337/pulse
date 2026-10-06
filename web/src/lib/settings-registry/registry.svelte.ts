@@ -83,11 +83,6 @@ function getHandle(): PersistenceHandle {
   return storageHandle;
 }
 
-/** Read the persisted root blob; sections grab their own slice from it. */
-function readRoot(): Record<string, unknown> {
-  return getHandle().read();
-}
-
 /** Resolve the effective persistence mode for a section. Default
  *  ``'local'`` keeps every pre-Schritt-3b section unchanged. */
 function modeOf(config: AnyConfig): PersistenceMode {
@@ -166,7 +161,7 @@ export function registerSettingsSection<T>(
   const existing = sections.get(name);
   if (existing) return existing.store as SectionStore<T>;
 
-  const root = readRoot();
+  const root = getHandle().read();
   const meta = (root._meta ?? {}) as Record<string, unknown>;
   const storedVersion =
     typeof meta[`${name}_version`] === 'number' ? (meta[`${name}_version`] as number) : 0;

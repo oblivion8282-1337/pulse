@@ -32,8 +32,7 @@ export function anrufSystemzeile(
   dauerSek: number
 ): AnrufSystemzeile | null {
   if (art !== 'dm' || rolle !== 'ausgehend') return null;
-  if (grund === 'verpasst') return { schluessel: 'verpasst', dauerSek: 0 };
-  if (grund === 'abgelehnt') return { schluessel: 'abgelehnt', dauerSek: 0 };
+  if (grund === 'verpasst' || grund === 'abgelehnt') return { schluessel: grund, dauerSek: 0 };
   if (grund === 'aufgelegt' && dauerSek > 0) return { schluessel: 'dauer', dauerSek };
   return null;
 }

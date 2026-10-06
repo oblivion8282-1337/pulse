@@ -40,15 +40,13 @@
       : []
   );
   /** Der geschlossene Select zeigt das AKTUELLE Ausgabegerät. */
-  let routeWert = $derived(
-    !audioRouteState.liste
-      ? ''
-      : audioRouteState.liste.current === 'device'
-        ? 'device:' + audioRouteState.liste.currentDeviceId
-        : audioRouteState.liste.current === 'earpiece'
-          ? 'earpiece'
-          : 'speaker'
-  );
+  let routeWert = $derived.by(() => {
+    if (!audioRouteState.liste) return '';
+    if (audioRouteState.liste.current === 'device') {
+      return 'device:' + audioRouteState.liste.currentDeviceId;
+    }
+    return audioRouteState.liste.current === 'earpiece' ? 'earpiece' : 'speaker';
+  });
   function onRouteChange(v: string): void {
     if (v.startsWith('device:')) {
       void audioRouteState.geraetWaehlen(Number(v.slice('device:'.length)));
