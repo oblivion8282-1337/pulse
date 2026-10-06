@@ -472,13 +472,6 @@ function createWindow(): void {
   }
 }
 
-/** Server-App: wechselt nach erfolgreichem Login vom howispulse.com-Login auf
- *  das lokale server.html.
- *
- *  Primärsignal ist die SPA-Navigation nach /app — sie feuert im selben Moment
- *  wie der Login-Erfolg. Der frühere 1,5-s-Cookie-Poll allein ließ die volle
- *  Chat-Oberfläche bis zum nächsten Tick aufblitzen; er bleibt nur als Netz
- *  für Wege ohne Navigation (z.B. Session war beim Start schon gültig). */
 /** Nach dem Login die Web-App-Tokens in den durablen Store der Server-App
  *  übernehmen — damit die Cloud-Calls (me/cloudStatus/provision/giveUp)
  *  App-Neustarts überleben (serverAuth).
@@ -515,6 +508,13 @@ async function captureAuthTokens(win: BrowserWindow): Promise<void> {
   } catch { /* localStorage/fetch nicht lesbar → Cookie-Fallback */ }
 }
 
+/** Server-App: wechselt nach erfolgreichem Login vom howispulse.com-Login auf
+ *  das lokale server.html.
+ *
+ *  Primärsignal ist die SPA-Navigation nach /app — sie feuert im selben Moment
+ *  wie der Login-Erfolg. Der frühere 1,5-s-Cookie-Poll allein ließ die volle
+ *  Chat-Oberfläche bis zum nächsten Tick aufblitzen; er bleibt nur als Netz
+ *  für Wege ohne Navigation (z.B. Session war beim Start schon gültig). */
 function startLoginWatch(win: BrowserWindow, loginOrigin: string): void {
   let done = false;
   const toServer = async () => {
@@ -588,7 +588,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   const manager: ContainerBackendManager | NativeBackendManager = NATIVE_BACKEND
     ? new NativeBackendManager()
     : new ContainerBackendManager();
-  const hostStore = { get: storeGet, set: (k: string, v: unknown) => storeSet(k, v) };
+  const hostStore = { get: storeGet, set: storeSet };
   // Benutzer-Welten (2026-10-01): die Welt (Container/Volume/Creds) gehört dem
   // Konto, das in der Server-App angemeldet ist. Beim Benutzerwechsel stoppt
   // die alte Welt (Daten bleiben im Volume), die des neuen Kontos kommt dran.
