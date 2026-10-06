@@ -4,7 +4,7 @@
   ist `window.pulse?.tray` undefined → no-op.
 -->
 <script lang="ts">
-  import { voice } from '$lib/voice/livekit.svelte';
+  import { voiceState } from '$lib/voice/state.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { isElectron } from '$lib/platform/runtime';
@@ -13,10 +13,10 @@
   $effect(() => {
     if (!isElectron() || !window.pulse?.tray) return;
 
-    const inVoice = voice.connected;
-    const muted = inVoice && !voice.micEnabled && !settings.voice.pttMode;
-    const deafened = inVoice && voice.deafened;
-    // "Nicht im Channel" ist kein Mute-Zustand — `voice.micEnabled` ist nach
+    const inVoice = voiceState.connected;
+    const muted = inVoice && !voiceState.micEnabled && !settings.voice.pttMode;
+    const deafened = inVoice && voiceState.deafened;
+    // "Nicht im Channel" ist kein Mute-Zustand — `voiceState.micEnabled` ist nach
     // Disconnect false, würde aber sonst fälschlich als "stumm" das Tray rot
     // zeichnen. Erst connected zeigt Mute/Deaf eine Farbe.
     let state: TrayState = 'normal';

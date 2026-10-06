@@ -16,7 +16,7 @@
   import { isValidActionId } from '$lib/shortcuts/actions';
   import { globalAccelerators } from '$lib/shortcuts/desktop';
   import { settings } from '$lib/stores/settings.svelte';
-  import { voice } from '$lib/voice/livekit.svelte';
+  import { voiceState, getVoiceActions } from '$lib/voice/state.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import { stream } from '$lib/stream/state.svelte';
@@ -94,16 +94,16 @@
       // sobald man im Voice ist — Discord-Style). Guards verhindern, dass
       // toggleMic()s Sound spielt ohne dass Connection da ist.
       register('voice.toggleMute', () => {
-        if (!voice.connected) return;
-        voice.toggleMic();
+        if (!voiceState.connected) return;
+        getVoiceActions()?.toggleMic();
       }),
       register('voice.toggleDeafen', () => {
-        if (!voice.connected) return;
-        voice.toggleDeafen();
+        if (!voiceState.connected) return;
+        getVoiceActions()?.toggleDeafen();
       }),
       register('voice.disconnect', () => {
-        if (!voice.connected) return;
-        void voice.disconnect({ reason: 'user' });
+        if (!voiceState.connected) return;
+        void getVoiceActions()?.disconnect({ reason: 'user' });
       }),
       register('stream.toggleHq', () => {
         if (!isElectron() || !(isLinux() || isWindows() || isMac()) || !stream.sidecarAvailable) {
@@ -114,18 +114,22 @@
           void sidecar.stop();
           return;
         }
-        if (!voice.channelId) {
+        // ponytail: voiceState.channelId setzt erst nach dem Handshake (statt
+        // schon beim Verbinden wie VoiceRoom.channelId) — im ~1s-Connect-Fenster
+        // erscheint der Hinweis statt des Dialogs. Upgrade: channelId-Spiegel
+        // erweitern, kostet aber Konsistenz bei den anderen voiceState-Lesern.
+        if (!voiceState.channelId) {
           toast.info(m.shortcut_host_join_voice_to_stream());
           return;
         }
         uiOverlays.hqStreamDialogOpen = true;
       }),
       register('stream.toggleScreenshare', () => {
-        if (!voice.connected) {
+        if (!voiceState.connected) {
           toast.info(m.shortcut_host_join_voice_to_share());
           return;
         }
-        voice.toggleScreenShare();
+        getVoiceActions()?.toggleScreenShare();
       }),
       register('stream.highlightClip', () => {
         // ShadowPlay: sichert alle laufenden Slots — wer zwei Bildschirme

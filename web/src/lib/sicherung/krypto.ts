@@ -25,10 +25,10 @@
  * Passwort-Änderung = nur Re-Wrap: neues Salt, neue Nonce, derselbe DEK —
  * das Archiv im Laufwerk bleibt bytegleich.
  *
- * Import-frei bis auf hash-wasm (npm-Paket, Node auflöst) — Node-Testläufer-regel.
+ * Dynamisch import-frei bis auf hash-wasm (nur in `ableiteKek`, npm-Paket,
+ * Node auflöst) — Node-Testläufer-regel; der Import liegt bewusst in der
+ * Funktion, damit das 194-KB-Paket nicht im Chat-Firstload landet.
  */
-
-import { argon2id } from 'hash-wasm';
 
 export const SICHERUNG_KENNUNG = 0x50555349; // "PUSI"
 export const SICHERUNG_FASSUNG = 1;
@@ -76,6 +76,9 @@ export async function ableiteKek(
 	passwort: string,
 	parameter: ArgonParameter,
 ): Promise<Uint8Array> {
+	// Dynamisch: Aufrufer sind ohnehin async, und hash-wasm (194 KB) soll nicht
+	// im Firstload jedes Chats hängen, sondern erst beim Schlüssel-Ableiten.
+	const { argon2id } = await import('hash-wasm');
 	return new Uint8Array(
 		await argon2id({
 			password: passwort,

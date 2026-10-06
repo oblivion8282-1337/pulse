@@ -37,6 +37,7 @@ import { cloudGateway, gatewayForServer } from '$lib/ws/connection';
 import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
 import { gesundheitTor } from '$lib/stream/gesundheitTor';
+import { pruefeGesundheit } from '$lib/stream/state.svelte';
 import { standplatz } from '$lib/remote/standplatz.svelte';
 import { postfachAbholenUndAnzeigen } from './chat';
 import { teardownGuildLocally } from './guildTeardown';
@@ -332,7 +333,14 @@ export function register(
     // und da es kein Nachmelden gibt, blieb das Gerät die ganze Sitzung lang
     // für alle anderen „offline". Das Tor wartet auf die Messung statt auf eine
     // geratene Frist (`stream/gesundheitTor.ts`).
+    //
+    // **Die Messung angefordert wird aber nur noch für EINGESCHRIEBENE Geräte**
+    // (perf hunt 2026-10-06): der health-Ruf startet den Sidecar-Prozess, und
+    // der Boot-Probe-Ruf, der ihn früher für JEDEN beim App-Start losließ, ist
+    // weg. Ohne Eintragung auf DIESEM Server bleibt das Tor zu und die
+    // Anmeldung unterbleibt — korrekt, es gäbe nichts anzumelden.
     if (sid) {
+      if (geraeteAnmeldung.fuerServer(sid)) void pruefeGesundheit();
       void gesundheitTor.bekannt().then(() => standplatzAnmelden(sid));
     }
     ctx.onReadySeeded();

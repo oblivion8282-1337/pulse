@@ -29,6 +29,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
   import { getSettingsTabs } from './settingsTabs';
+  import { pruefeGesundheit } from '$lib/stream/state.svelte';
   import {
     alleGeraeteVorladen,
     sichtbareReiterJetzt
@@ -43,6 +44,16 @@
 
   let activeTab = $state<SettingsTab>('audio-video');
   let mobileView = $state<MobileView>('list');
+
+  // Sidecar-Gesundheit beim Öffnen nachmessen — der health-Ruf startet den
+  // Sidecar-Prozess und läuft seit dem perf hunt 2026-10-06 nicht mehr beim
+  // App-Start. Die Einstellungen zeigen aber Fähigkeiten aus der Messung
+  // (Standplatz-Einstieg hängt an `stream.fernsteuerbar`, Codec-Fähigkeiten an
+  // `stream.tenBitAvailable` …), und die gelten erst nach dem ersten Ruf als
+  // gemessen. Öffnen ist ein seltener, absichtsvoller Anlass. Idempotent.
+  $effect(() => {
+    if (open) void pruefeGesundheit();
+  });
 
   // Jump to the requested tab whenever the dialog is (re)opened. `initialTab`
   // is read untracked so a parent-driven re-bind mid-open doesn't re-fire the
