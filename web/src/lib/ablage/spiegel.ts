@@ -30,7 +30,7 @@
 import type { AblageAdapter } from './adapter.ts';
 
 /** Zustand eines einzelnen Spiegel-Ziels — Rohmaterial für die Verbindungsanzeige (E1). */
-export interface SpiegelZielZustand {
+interface SpiegelZielZustand {
 	/** Position im `ziele`-Array, mit dem der Adapter erzeugt wurde. */
 	index: number;
 	/** Hat die letzte Schreib-/Löschrunde dieses Ziel bestätigt? */
@@ -62,7 +62,7 @@ function gleicheBytes(a: Uint8Array, b: Uint8Array): boolean {
 	return true;
 }
 
-export interface SpiegelAdapter extends AblageAdapter {
+interface SpiegelAdapter extends AblageAdapter {
 	// Der Spiegel bietet `lösche` immer an — er entscheidet selbst je Ziel,
 	// ob es dort greift (Ziel unterstützt es) oder als Grabstein liegen
 	// bleibt (Ziel unterstützt es nicht), s. `adapter.ts`-Kopfkommentar.

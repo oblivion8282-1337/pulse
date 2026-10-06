@@ -9,7 +9,7 @@
  */
 import type { Channel, DMChannel } from '$lib/api/types';
 
-export interface SynthGruppe {
+interface SynthGruppe {
   id: string;
   name: string;
   created_at: string;

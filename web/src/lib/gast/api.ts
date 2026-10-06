@@ -28,7 +28,7 @@ export type GastBeitritt = {
 
 export type GastVoiceToken = { token: string; ws_url: string; room: string };
 
-export type GastStreamStand = {
+type GastStreamStand = {
   stream_states: {
     channel_id: string;
     user_ids?: string[];

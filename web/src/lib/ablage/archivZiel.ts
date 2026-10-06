@@ -36,7 +36,7 @@ export function direktErreichbar(anbieter: string): boolean {
 	return anbieter === 'sync_ordner';
 }
 
-export interface ArchivSicht {
+interface ArchivSicht {
 	id: string;
 	anbieter: string;
 	istArchiv?: boolean;

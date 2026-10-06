@@ -13,12 +13,12 @@
  * noch, was diese Funktion ihm sagt.
  */
 
-export interface ArchivTraeger {
+interface ArchivTraeger {
 	id: string;
 	istArchiv?: boolean;
 }
 
-export interface ArchivAenderung {
+interface ArchivAenderung {
 	id: string;
 	istArchiv: boolean;
 }

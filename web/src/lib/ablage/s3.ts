@@ -14,7 +14,7 @@ import type { AblageAdapter } from './adapter.ts';
 import { bytesZuHex } from './hex.ts';
 import { sha256Hex } from './pruefsumme.ts';
 
-export interface S3Anbindung {
+interface S3Anbindung {
 	/** Basisadresse ohne Eimer, z. B. https://fsn1.your-objectstorage.com */
 	wirt: string;
 	region: string;

@@ -2,7 +2,7 @@
  *  The catalog itself lives in `emoji-data.ts` (one source of truth, kept
  *  separate so this file stays under the 350-line policy as it grows). */
 
-export type EmojiCategory =
+type EmojiCategory =
   | 'smileys'
   | 'gestures'
   | 'hearts'
@@ -25,7 +25,7 @@ export { EMOJIS } from './emoji-data';
 import { EMOJIS } from './emoji-data';
 
 /** Map of every name+alias → emoji. Built once at module load. */
-export const SHORTCODE_MAP: Record<string, string> = (() => {
+const SHORTCODE_MAP: Record<string, string> = (() => {
   const m: Record<string, string> = {};
   for (const e of EMOJIS) {
     m[e.name] = e.emoji;

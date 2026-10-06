@@ -32,7 +32,7 @@ const SCREEN_SHARE_FPS_DEFAULT = 30;
 const VALID_CODECS: ScreenShareCodec[] = ['h264', 'av1'];
 const VALID_RESOLUTIONS: ScreenShareResolution[] = ['native', '1080p', '720p', '480p'];
 
-export const DEFAULTS_SCREEN_SHARE: ScreenShareSettings = {
+const DEFAULTS_SCREEN_SHARE: ScreenShareSettings = {
   codec: 'h264',
   resolution: '1080p',
   fps: SCREEN_SHARE_FPS_DEFAULT,
@@ -52,7 +52,7 @@ export function clampScreenShareBitrateMbps(v: number): number {
 // Resolution ordering for the admin ceiling (descending size, 'native' =
 // uncapped). Backs both the settings UI (filter the option list) and the
 // publish path (clamp a chosen value down to the admin-set ns_resolution_max).
-export const NS_RESOLUTION_ORDER: ScreenShareResolution[] = ['native', '1080p', '720p', '480p'];
+const NS_RESOLUTION_ORDER: ScreenShareResolution[] = ['native', '1080p', '720p', '480p'];
 
 /** Resolutions allowed under a ceiling (max first → smallest). */
 export function allowedNsResolutions(maxRes: string): ScreenShareResolution[] {

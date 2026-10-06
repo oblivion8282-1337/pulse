@@ -19,7 +19,7 @@ import { gastStreamStand, gastWhepUrl } from './api';
 /** Abfragetakt. Fünf Sekunden: kurz genug, dass niemand denkt, es sei kaputt,
  *  lang genug, dass eine Besprechung mit zehn Gästen den Gateway nicht mit
  *  zwei Abfragen je Sekunde beschäftigt. */
-export const ABFRAGE_MS = 5000;
+const ABFRAGE_MS = 5000;
 
 /** Ein ansehbarer Sender. Ein User kann MEHRERE Streams gleichzeitig fahren
  *  (Slots — zwei Monitore als zwei Übertragungen); die Server-Antwort trägt

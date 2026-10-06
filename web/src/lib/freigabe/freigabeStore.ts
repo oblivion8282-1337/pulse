@@ -10,7 +10,7 @@
  * der alte war nicht mehr gemeint).
  */
 
-export type GeteilteFreigabe = {
+type GeteilteFreigabe = {
   text: string | null;
   bild: { base64: string; mime: string } | null;
 };

@@ -83,7 +83,7 @@ import { ART_GRUPPENNACHRICHT } from '../krypto/gruppe/gruppenNutzlast.ts';
 
 /** Holt den vollen offenen Postfach-Bestand des genannten Geräts — ohne
  *  Cursor, s. Modulkopf. Produktiv `(k) => postfachApi.abholen({device_pubkey: k}, route)`. */
-export type PostfachAbruf = (deviceKennung: string) => Promise<PostfachZustellung[]>;
+type PostfachAbruf = (deviceKennung: string) => Promise<PostfachZustellung[]>;
 
 /** Öffnet eine Gruppennachricht oder liefert `null`, wenn sie liegen bleiben
  *  muss (s. Modulkopf). Produktiv `oeffneGruppennachricht` aus
@@ -92,7 +92,7 @@ export type PostfachAbruf = (deviceKennung: string) => Promise<PostfachZustellun
  *  anzuzeigen (Wiedereinspiel, fremde Absender-Angabe) — die Ablage nimmt
  *  solche Zustellungen nicht auf (sie sind es nie wert, auch nicht später),
  *  hält an ihnen aber auch nicht an, denn sie heilen nie. */
-export type ZustellungOeffner = (
+type ZustellungOeffner = (
   zustellung: PostfachZustellung
 ) => Promise<Message | 'verworfen' | null>;
 

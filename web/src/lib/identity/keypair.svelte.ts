@@ -24,7 +24,7 @@ const IDB_KEY = 'pulse.keypair';
  * Prüft ob WebCrypto Ed25519 im aktuellen Browser verfügbar ist.
  * Chrome 113+, Firefox 130+, Safari 17+. Electron 42 (Chromium 130) = ✓.
  */
-export async function supportsWebCryptoEd25519(): Promise<boolean> {
+async function supportsWebCryptoEd25519(): Promise<boolean> {
   try {
     if (typeof window === 'undefined') return false;
     if (!window.crypto?.subtle) return false;
@@ -41,7 +41,7 @@ export async function supportsWebCryptoEd25519(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 /** WebCrypto-Keypair. */
-export interface WebCryptoKeypair {
+interface WebCryptoKeypair {
   type: 'webcrypto';
   publicKey: CryptoKey;
   /**
@@ -53,7 +53,7 @@ export interface WebCryptoKeypair {
 }
 
 /** Serialisierte Form für IndexedDB (CryptoKey-Objekte sind direkt speicherbar). */
-export type StoredKeypair = WebCryptoKeypair;
+type StoredKeypair = WebCryptoKeypair;
 
 // ---------------------------------------------------------------------------
 // Core-Funktionen

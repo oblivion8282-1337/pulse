@@ -85,14 +85,19 @@ function shQuote(wert: string): string {
 // im Rückfallzweig braucht, nicht bash.
 const BASH_ABS = execFileSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim();
 
-/** Ruft `jget` MIT echtem python3 auf dem PATH auf (Normalfall). */
-function jget(json: string, feld: string): string {
+/** Baut das Aufruf-Skript: schneidet `jget` aus der Quelle und ruft es mit JSON und Feldpfad auf. */
+function jgetSkript(json: string, feld: string): string {
   const quelle = readFileSync(SKRIPT, 'utf8');
-  const skript = `
+  return `
 set -euo pipefail
 ${funktion(quelle, 'jget')}
 jget ${shQuote(json)} ${shQuote(feld)}
 `;
+}
+
+/** Ruft `jget` MIT echtem python3 auf dem PATH auf (Normalfall). */
+function jget(json: string, feld: string): string {
+  const skript = jgetSkript(json, feld);
   return execFileSync(BASH_ABS, ['-c', skript], { encoding: 'utf8' }).trim();
 }
 
@@ -109,7 +114,6 @@ interface Ergebnis {
  * verweisen. python3 fehlt darin absichtlich.
  */
 function jgetOhnePython3(json: string, feld: string): Ergebnis {
-  const quelle = readFileSync(SKRIPT, 'utf8');
   const dir = mkdtempSync(join(tmpdir(), 'pulse-jget-'));
   for (const werkzeug of ['grep', 'sed', 'tr', 'head']) {
     const echterPfad = execFileSync(BASH_ABS, ['-c', `command -v ${werkzeug}`], {
@@ -118,11 +122,7 @@ function jgetOhnePython3(json: string, feld: string): Ergebnis {
     writeFileSync(join(dir, werkzeug), `#!/bin/sh\nexec "${echterPfad}" "$@"\n`, { mode: 0o755 });
     chmodSync(join(dir, werkzeug), 0o755);
   }
-  const skript = `
-set -euo pipefail
-${funktion(quelle, 'jget')}
-jget ${shQuote(json)} ${shQuote(feld)}
-`;
+  const skript = jgetSkript(json, feld);
   try {
     const wert = execFileSync(BASH_ABS, ['-c', skript], {
       env: { PATH: dir },
@@ -144,12 +144,7 @@ jget ${shQuote(json)} ${shQuote(feld)}
  * `json.load` mit `JSONDecodeError` abbrechen.
  */
 function jgetMitPython3RobustAufrufen(json: string, feld: string): Ergebnis {
-  const quelle = readFileSync(SKRIPT, 'utf8');
-  const skript = `
-set -euo pipefail
-${funktion(quelle, 'jget')}
-jget ${shQuote(json)} ${shQuote(feld)}
-`;
+  const skript = jgetSkript(json, feld);
   try {
     const wert = execFileSync(BASH_ABS, ['-c', skript], { encoding: 'utf8' }).trim();
     return { exit: 0, wert };

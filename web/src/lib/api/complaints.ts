@@ -17,7 +17,7 @@ import { cookieFetch, extractDetail, safeParse } from './cookie-client';
 // Typen — gespiegelt von ComplaintOut / ForwardResult im Backend
 // ---------------------------------------------------------------------------
 
-export type ComplaintStatus = 'new' | 'acknowledged' | 'forwarded' | 'resolved';
+type ComplaintStatus = 'new' | 'acknowledged' | 'forwarded' | 'resolved';
 
 export interface Complaint {
   id: string;
@@ -40,7 +40,7 @@ export interface Complaint {
 }
 
 /** Spiegelt ForwardResult — sagt, ob die E-Mail tatsächlich rausging. */
-export interface ForwardResult {
+interface ForwardResult {
   id: string;
   status: string;
   email_sent: boolean;
@@ -48,7 +48,7 @@ export interface ForwardResult {
   forwarded_to_email: string | null;
 }
 
-export interface AbuseReportInput {
+interface AbuseReportInput {
   body: string;
   target_url?: string | null;
   /** Gemeldeter Cloud-Nutzer (z.B. aus einer Direktnachricht-Meldung, die keinen

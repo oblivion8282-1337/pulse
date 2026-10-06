@@ -23,8 +23,8 @@
  * Rein rechnerisch und import-frei — Node-Testläufer-regel.
  */
 
-export const DATEI_KENNUNG = 0x50414446; // "PADF"
-export const DATEI_FASSUNG = 1;
+const DATEI_KENNUNG = 0x50414446; // "PADF"
+const DATEI_FASSUNG = 1;
 
 const IV_LAENGE = 12;
 
@@ -35,7 +35,7 @@ export class DateiablageFehler extends Error {
   }
 }
 
-export interface DateiKopf {
+interface DateiKopf {
   fassung: number;
   name: string;
   mime: string;

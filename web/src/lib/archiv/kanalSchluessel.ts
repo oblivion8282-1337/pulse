@@ -30,7 +30,7 @@ const gewickeltFuer = new Set<string>();
 export type ArchivPubkeyZiel = { id: string; pubkey: string };
 
 /** Ein Wrap-Auftrag für den Server, wie `archivEinliefern` ihn nimmt. */
-export type ArchivWrapAuftrag = { channel_id: string; user_id: string; wrap_b64: string };
+type ArchivWrapAuftrag = { channel_id: string; user_id: string; wrap_b64: string };
 
 function bytesZuB64(bytes: Uint8Array): string {
 	let binär = '';

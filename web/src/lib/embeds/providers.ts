@@ -39,7 +39,7 @@ const VIMEO_VIDEO_PATH = /^\/(video\/)?\d+(?:\/|$)/;
 
 const SPOTIFY_PATH = /\/(track|album|playlist|episode|show|artist)\/[A-Za-z0-9]+/;
 
-export const PROVIDERS: EmbedProvider[] = [
+const PROVIDERS: EmbedProvider[] = [
   {
     name: 'YouTube',
     matches: (u) => {
@@ -67,7 +67,7 @@ export const PROVIDERS: EmbedProvider[] = [
   }
 ];
 
-export interface DetectedEmbed {
+interface DetectedEmbed {
   provider: EmbedProvider;
   url: string;
 }

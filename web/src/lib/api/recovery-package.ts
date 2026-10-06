@@ -12,7 +12,7 @@
 
 import { request, ApiError } from './client';
 
-export interface RecoveryPackageOut {
+interface RecoveryPackageOut {
   ciphertext: string;
   updated_at: string;
 }

@@ -41,9 +41,9 @@ import type { AblageNachricht } from '../ablage/nutzlast.ts';
 export const SCHLUESSEL_DATEI = 'key.puls';
 
 /** Spülen spätestens nach so vielen Millisekunden — kein Upload je Nachricht. */
-export const SPUEL_VERZOEGERUNG_MS = 60_000;
+const SPUEL_VERZOEGERUNG_MS = 60_000;
 /** … oder sofort, wenn so viele Einträge warten. */
-export const SPUEL_SCHWELLE = 50;
+const SPUEL_SCHWELLE = 50;
 
 /** Sichert-Eintrag im Wartezimmer. */
 export interface WarteEintrag {
@@ -198,7 +198,7 @@ export function schreibrechtHalten(
 	return { bereit, abgeben: () => ende() };
 }
 
-export interface SpiegelOptionen {
+interface SpiegelOptionen {
 	verzoegerungMs?: number;
 	schwelle?: number;
 	/** Wird nach jedem Spül-Versuch gerufen — mit der gespülten Partie, damit

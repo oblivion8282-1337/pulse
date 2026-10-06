@@ -22,7 +22,7 @@
  * die Komponente.
  */
 
-export type ExportAnhang = {
+type ExportAnhang = {
   id: string;
   dateiname: string | null;
   /** `false`, wenn die Bytes lokal nicht (mehr) vorliegen — der Grund dafür
@@ -49,9 +49,9 @@ export type ExportDatei =
   | { art: 'text'; pfad: string; inhalt: string }
   | { art: 'anhang'; pfad: string; anhangId: string };
 
-export type ExportFehlstelle = { kanalName: string; dateiname: string; grund: string };
+type ExportFehlstelle = { kanalName: string; dateiname: string; grund: string };
 
-export type ExportErgebnis = {
+type ExportErgebnis = {
   dateien: ExportDatei[];
   fehlstellen: ExportFehlstelle[];
 };

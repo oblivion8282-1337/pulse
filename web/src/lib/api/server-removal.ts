@@ -40,7 +40,7 @@ export function removeServerLocally(serverId: string): void {
 
 /** Ergebnis eines „Server entfernen" — bestimmt den Toast + ob lokal entfernt
  *  wurde. */
-export type LeaveServerOutcome = 'left' | 'owner' | 'unreachable' | 'owns-communities';
+type LeaveServerOutcome = 'left' | 'owner' | 'unreachable' | 'owns-communities';
 
 /**
  * Aus einer Self-Host-Instanz austreten UND danach lokal aufräumen — der EINE

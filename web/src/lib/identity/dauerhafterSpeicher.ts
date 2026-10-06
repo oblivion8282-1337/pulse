@@ -37,7 +37,7 @@
  * Server, heute nicht mehr.
  */
 
-export type SpeicherErgebnis =
+type SpeicherErgebnis =
   /** Speicher ist dauerhaft — schon vorher oder gerade gewährt. */
   | 'dauerhaft'
   /** Der Browser kann es, hat aber abgelehnt (Heuristik oder Nutzer-Nein). */

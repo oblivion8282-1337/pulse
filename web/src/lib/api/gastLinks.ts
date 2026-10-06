@@ -22,7 +22,7 @@ export type GastLink = {
   code?: string | null;
 };
 
-export type GastLinkZeitfenster = {
+type GastLinkZeitfenster = {
   /** Dauer in Stunden — nur relevant, wenn kein absolutes Ende gesetzt ist. */
   gueltigStunden?: number;
   /** ISO-Zeitpunkte (oder null = ab sofort). ``gueltigBis`` gewinnt über die

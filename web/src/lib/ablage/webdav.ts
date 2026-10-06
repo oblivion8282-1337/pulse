@@ -44,7 +44,7 @@ function wirfWennZugangTot(status: number, was: string): void {
 	}
 }
 
-export interface WebdavAnbindung {
+interface WebdavAnbindung {
 	/** DAV-Wurzel des Benutzers, z. B. https://cloud.example/remote.php/dav/files/lena */
 	basis: string;
 	/** Ablage-Ordner unter der Wurzel, z. B. Pulse/ablage/kanal-123 */

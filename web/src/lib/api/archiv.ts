@@ -22,7 +22,7 @@ function cloudRoute(): { serverId?: string } {
 
 // --- chat-gateway: Zeilen + Kanal-Wraps --------------------------------------
 
-export interface ArchivZeileFern {
+interface ArchivZeileFern {
 	id: string;
 	channel_id: string;
 	nutzlast_b64: string;
@@ -83,7 +83,7 @@ export async function archivPubkeys(
 
 // --- auth-Dienst: Konto-Schlüssel --------------------------------------------
 
-export interface ArchivKontoSchluessel {
+interface ArchivKontoSchluessel {
 	pubkey_b64: string;
 	kdf_salt_b64: string;
 	wrap_kdf_b64: string;

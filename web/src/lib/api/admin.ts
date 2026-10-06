@@ -28,7 +28,7 @@ export type AdminUser = {
   self_host_enabled: boolean;
 };
 
-export type AuthSettings = {
+type AuthSettings = {
   registration_mode: RegistrationMode;
 };
 
@@ -121,7 +121,7 @@ export type SmtpSettingsPatch = {
   use_ssl: boolean;
 };
 
-export type SmtpTestPayload = {
+type SmtpTestPayload = {
   to: string;
   provider?: SmtpProvider | null;
   host?: string | null;
@@ -132,7 +132,7 @@ export type SmtpTestPayload = {
   use_ssl?: boolean | null;
 };
 
-export type SmtpTestResult = {
+type SmtpTestResult = {
   ok: boolean;
   error: string | null;
 };
@@ -150,7 +150,7 @@ export type ChatStats = {
 };
 
 /** Self-Host pg_dump-Snapshots (F11b) — vom Instanz-backup-Service. */
-export type SelfHostBackupEntry = {
+type SelfHostBackupEntry = {
   filename: string;
   size_bytes: number;
   created_at: string;
@@ -243,7 +243,7 @@ export type Community = {
 
 /** Owner-set per-community caps. Full set sent each save; quality/quota null
  *  clears (inherit / unlimited). size/count always carry a value. */
-export type CommunityLimits = {
+type CommunityLimits = {
   voice_bitrate_max_kbps: number | null;
   stream_bitrate_max_kbps: number | null;
   stream_fps_max: number | null;
@@ -262,7 +262,7 @@ export type CommunityLimits = {
   dropbox_quota_bytes: number | null;
 };
 
-export type CommunityList = {
+type CommunityList = {
   communities: Community[];
   /** Cursor for the next page, or null when the last page was reached. */
   next_before: string | null;

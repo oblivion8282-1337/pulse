@@ -8,7 +8,7 @@
 
 import { request } from './client';
 
-export type DropboxEntryKind = 0 | 1; // 0 = folder, 1 = file
+type DropboxEntryKind = 0 | 1; // 0 = folder, 1 = file
 
 export interface DropboxConfig {
   guild_id: string;
@@ -40,7 +40,7 @@ export interface DropboxEntry {
   thumb_url: string | null;
 }
 
-export interface DropboxChannel {
+interface DropboxChannel {
   id: string;
   guild_id: string;
   name: string;

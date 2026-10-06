@@ -21,7 +21,7 @@ import { request } from './client';
  *  und danach gegen die Rolle (`alt`/`neu`) dieser Kopplung. */
 type Geraeteangabe = { device_pubkey: string };
 
-export interface KopplungStand {
+interface KopplungStand {
   id: string;
   eingeloest: boolean;
   neu_device_pubkey: string | null;

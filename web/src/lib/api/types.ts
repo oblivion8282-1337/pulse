@@ -262,7 +262,7 @@ export type Ban = {
   banned_by_id: string;
 };
 
-export type GuildSummary = {
+type GuildSummary = {
   id: string;
   name: string;
   icon_url: string | null;

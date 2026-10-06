@@ -21,7 +21,7 @@ const STATEMENT_KEY = 'pulse.profile-statement';
 // ---------------------------------------------------------------------------
 
 /** Geparste Claims aus dem Profile-Statement-JWT-Payload. */
-export interface ProfileStatementClaims {
+interface ProfileStatementClaims {
   statement_id: string;
   user_id: string;
   username: string;
@@ -76,7 +76,7 @@ export function parseStatementClaims(jwt: string): ProfileStatementClaims | null
 }
 
 /** Gibt true zurück wenn das Statement abgelaufen ist. */
-export function isStatementExpired(statement: ProfileStatement): boolean {
+function isStatementExpired(statement: ProfileStatement): boolean {
   return Math.floor(Date.now() / 1000) >= statement.claims.exp;
 }
 
@@ -96,7 +96,7 @@ export function isStatementExpiringSoon(
 // IndexedDB-Persistenz
 // ---------------------------------------------------------------------------
 
-export async function loadProfileStatement(): Promise<ProfileStatement | null> {
+async function loadProfileStatement(): Promise<ProfileStatement | null> {
   if (typeof indexedDB === 'undefined') return null;
   try {
     const db = await openIdentityDb();
@@ -109,14 +109,14 @@ export async function loadProfileStatement(): Promise<ProfileStatement | null> {
   }
 }
 
-export async function saveProfileStatement(statement: ProfileStatement): Promise<void> {
+async function saveProfileStatement(statement: ProfileStatement): Promise<void> {
   if (typeof indexedDB === 'undefined') throw new Error('IndexedDB nicht verfügbar');
   const db = await openIdentityDb();
   await idbPutIdentity(db, STATEMENT_KEY, statement);
   db.close();
 }
 
-export async function wipeProfileStatement(): Promise<void> {
+async function wipeProfileStatement(): Promise<void> {
   if (typeof indexedDB === 'undefined') return;
   try {
     const db = await openIdentityDb();

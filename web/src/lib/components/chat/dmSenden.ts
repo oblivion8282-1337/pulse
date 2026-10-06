@@ -16,7 +16,7 @@ import { messages } from '$lib/stores/messages.svelte';
 import { sendeKlartextDm } from '$lib/components/chat/dmKlartextSenden';
 import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
-export interface DmSendeAuftrag {
+interface DmSendeAuftrag {
   userId: string | null;
   aktiveGruppe: { id: string } | undefined;
   activeDM: DMChannel | undefined;

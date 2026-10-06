@@ -11,7 +11,7 @@
  * wieder jeden offenen Eintrag sieht (Begründung dort, nicht hier wiederholt).
  */
 
-export interface BackoffDeckel {
+interface BackoffDeckel {
 	/** Erhöht den Fehlversuchszähler und sperrt bis zum nächsten Backoff-Ziel. */
 	vermerkeFehlschlag(schluessel: string): void;
 	/** Löscht Zähler und Sperre — der nächste Versuch ist wieder sofort fällig. */

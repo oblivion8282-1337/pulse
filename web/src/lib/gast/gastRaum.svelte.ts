@@ -42,7 +42,7 @@ import { gastBeitritt, gastVoiceToken, type GastBeitritt, type GastVoiceToken } 
  *  gegenseitig laut, weil ihre Wiedergabe durch denselben Gain läuft. */
 const TON_MAKEUP = 4.0;
 
-export type GastVideo = {
+type GastVideo = {
   /** LiveKit-Identität des Sendenden (`user-<id>` oder `gast-<id>`). */
   identity: string;
   name: string;
@@ -62,7 +62,7 @@ export type GastTeilnehmer = {
   stumm: boolean;
 };
 
-export type GastPhase = 'vorraum' | 'verbinde' | 'drin' | 'weg';
+type GastPhase = 'vorraum' | 'verbinde' | 'drin' | 'weg';
 
 class GastRaum {
   phase = $state<GastPhase>('vorraum');

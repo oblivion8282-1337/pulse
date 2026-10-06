@@ -68,7 +68,7 @@ export async function legeGriffAb(griffId: string, griff: Griff): Promise<boolea
 
 /** Holt das gemerkte Handle zurück — `null`, wenn keins liegt oder die
  *  IndexedDB nicht erreichbar ist. */
-export async function holeGriff(griffId: string): Promise<Griff | null> {
+async function holeGriff(griffId: string): Promise<Griff | null> {
 	try {
 		const db = await openIdentityDb();
 		return ((await idbGetIdentity(db, schlüsselFür(griffId))) as Griff | undefined) ?? null;
@@ -89,7 +89,7 @@ export async function vergissGriff(griffId: string): Promise<void> {
 }
 
 /** Schreibrecht ohne Nachfrage prüfen — sicher ohne Klick aufrufbar. */
-export async function griffBerechtigung(griff: Griff): Promise<PermissionState> {
+async function griffBerechtigung(griff: Griff): Promise<PermissionState> {
 	if (!griff.queryPermission) return 'granted'; // ältere Implementierung ohne Permission-API
 	try {
 		return await griff.queryPermission({ mode: 'readwrite' });

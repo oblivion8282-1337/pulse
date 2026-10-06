@@ -22,7 +22,7 @@ import { messages } from '$lib/stores/messages.svelte';
 import { verlaufSpeichern } from '$lib/verlauf';
 import { cloudGateway } from '$lib/ws/connection';
 
-export interface KlartextSendeAuftrag {
+interface KlartextSendeAuftrag {
   cid: string;
   text: string;
   autorId: string;

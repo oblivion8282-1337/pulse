@@ -18,11 +18,11 @@ import { cookieFetch } from './cookie-client';
 
 
 
-export interface ProfileStatementResponse {
+interface ProfileStatementResponse {
   token: string;
 }
 
-export interface ProfileUpdatePayload {
+interface ProfileUpdatePayload {
   display_name?: string | null;
   // avatar_hash is deliberately not part of the update payload — the avatar is
   // changed via POST /me/avatar (image upload), and the backend ignores any
@@ -32,7 +32,7 @@ export interface ProfileUpdatePayload {
   profile_gradient_angle?: number | null;
 }
 
-export interface ProfileUpdateResponse {
+interface ProfileUpdateResponse {
   updated: string[];
   display_name: string | null;
   avatar_hash: string | null;

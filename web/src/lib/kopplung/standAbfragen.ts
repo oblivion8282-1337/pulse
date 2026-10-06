@@ -14,7 +14,7 @@
 import { einloesFehlerAus } from './einloesFehler.ts';
 import type { EinloesFehler } from './einloesFehler.ts';
 
-export type StandErgebnis =
+type StandErgebnis =
   | { ok: true; bereit: boolean; gesamt: number }
   | { ok: false; fehler: EinloesFehler };
 

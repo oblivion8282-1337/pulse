@@ -15,7 +15,7 @@
 
 export const SYNC_ORDNER_VERBINDUNGS_ID = 'sync-ordner';
 
-export interface HauptschluesselTraeger {
+interface HauptschluesselTraeger {
 	hauptschlüsselB64: string;
 }
 

@@ -13,7 +13,7 @@
  * lesbar ist (`dataTransfer.types` steht vor dem Drop, die Daten erst beim
  * Drop). Mit einem geteilten Typ ließe sich vorher nicht sagen, WAS da kommt.
  */
-export const GERAET_ZUG_MIME = 'application/x-pulse-device';
+const GERAET_ZUG_MIME = 'application/x-pulse-device';
 
 /** Die Gerätekennung in den Zug legen. Ohne `dataTransfer` ein No-op. */
 export function startGeraetZug(e: DragEvent, deviceId: string): void {

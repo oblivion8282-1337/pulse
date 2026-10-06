@@ -68,9 +68,9 @@ export interface Device {
  * zu `Device` (in jeder Geräteliste wäre es eine Lüge), deshalb ein eigener
  * Antwort-Typ nur für diese eine Route.
  */
-export type DevicePatchAntwort = Device & { role_grants_cleared?: number };
+type DevicePatchAntwort = Device & { role_grants_cleared?: number };
 
-export type GrantArt = 'user' | 'role' | 'everyone';
+type GrantArt = 'user' | 'role' | 'everyone';
 
 export interface Grant {
   id: string;

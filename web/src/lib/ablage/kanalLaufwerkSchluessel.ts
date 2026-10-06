@@ -28,7 +28,7 @@
 
 import { openIdentityDb, idbGetIdentity, idbPutIdentity } from '../identity/idb-shared';
 
-export interface KanalLaufwerkSchluessel {
+interface KanalLaufwerkSchluessel {
 	/** Base64. */
 	hauptschluessel: string;
 	freigabeAdresse: string;

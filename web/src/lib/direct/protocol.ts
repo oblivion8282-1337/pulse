@@ -15,14 +15,14 @@ export interface ReqFrame {
   fin: boolean;
 }
 
-export interface BodyFrame {
+interface BodyFrame {
   t: 'body';
   id: number;
   b64: string;
   fin: boolean;
 }
 
-export interface ResFrame {
+interface ResFrame {
   t: 'res';
   id: number;
   status: number;
@@ -30,7 +30,7 @@ export interface ResFrame {
   fin: boolean;
 }
 
-export interface ErrFrame {
+interface ErrFrame {
   t: 'err';
   id: number;
   message: string;

@@ -43,7 +43,7 @@ export class TicketFehler extends Error {
 }
 
 type TicketAntwort = { ticket: string; expires_in: number; instance_id: string };
-export type SitzungAntwort = { session_token: string; expires_in: number };
+type SitzungAntwort = { session_token: string; expires_in: number };
 
 /**
  * Holt bei der Cloud einen Ausweis für den Server unter diesem **Hostnamen**.

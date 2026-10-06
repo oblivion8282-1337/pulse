@@ -7,7 +7,7 @@
  * Importfrei, damit Nodes eingebauter Testläufer sie direkt laden kann
  * (Muster wie `restzeit.ts`).
  */
-export interface FreigabenUmfang {
+interface FreigabenUmfang {
   jeder: boolean;
   anzahl: number;
 }

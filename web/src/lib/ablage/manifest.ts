@@ -19,7 +19,7 @@
  */
 
 export const MANIFEST_DATEI = 'manifest.puls';
-export const MANIFEST_FASSUNG = 1;
+const MANIFEST_FASSUNG = 1;
 
 export interface SegmentEintrag {
 	index: number;
