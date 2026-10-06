@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-10-06.1",
+      "date": "2026-10-06",
+      "style": "Sachlich",
+      "title": "Schlanker Start, zuverlässige Stream-Klänge, entlastete Server",
+      "intro": "Diese Ausgabe ist ein Runderneuerungstag unter der Haube: Die App kommt beim ersten Öffnen mit deutlich weniger Daten aus, Klänge für Streams sind jetzt Standard in jeder Community — und eigene Uploads spielen zuverlässig bei jedem Mal. Die Desktop-App wird im Alltag leichter, und auf selbst gehosteten Servern hört das stille Ansammeln alter Images auf.",
+      "items": [
+        "App-Start: Der erste Seitenaufbau kommt mit rund einem Viertel weniger Daten aus — das Sprachpaket lädt erst, wenn ein Sprachkanal betreten wird. Hintergrund-Updates übertragen statt rund 8 MB nur noch das Nötigste.",
+        "Stream-Klänge: Eigene Community-Klänge für Stream-Start und -Stopp spielen jetzt zuverlässig bei jedem Mal (bisher fielen sie im Wechsel stumm). Neu: Standard-Klänge für Streams sind enthalten — jede neue Community klingt damit von Anfang an; bestehende Überschreibungen bleiben unberührt.",
+        "Desktop-App: Der Bildschirm-Aufnahme-Dienst startet nur noch bei Bedarf und endet nach 10 Minuten Ruhe — wer nicht streamt, spart dauerhaft rund 100 MB Arbeitsspeicher. Fehlerberichte lesen Log-Dateien nur noch am Ende, das Fenster friert beim Stream-Ende nicht mehr ein.",
+        "Hintergrund: Anzeige-Badges fragen alle 5 Minuten statt minütlich nach (Ereignisse kommen weiterhin sofort), Sprachräume melden ihren Zustand nur bei Änderung, und die Stream-Überwachung drosselt sich im Leerlauf auf ein Zehntel.",
+        "Server: Anmeldesitzungen schreiben bis zu 100-mal seltener in die Datenbank (Abmelde-Regeln bleiben identisch), veraltete Anmelde-Token werden regelmäßig aufgeräumt, und die Nachrichtensuche in Direktnachrichten ist gegen Missbrauch gedrosselt.",
+        "Selbst-Hosting: Der Update-Dienst lädt nichts mehr, während der Container gestoppt ist (bisher bis zu 4,5 GB am Tag), ein gelöschter Container bleibt gelöscht — Entfernen ist jetzt eine echte Deinstallation. Log-Dateien rotieren mit Deckel, und die Stream-Überwachung läuft mit den vollen Qualitätsschaltern wie in der Cloud."
+      ]
+    },
+    {
       "id": "2026-10-04.1",
       "date": "2026-10-04",
       "style": "Sachlich",
