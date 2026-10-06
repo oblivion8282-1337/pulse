@@ -2,6 +2,9 @@
   "appId": "com.howispulse.app",
   "appName": "Pulse",
   "webDir": "www",
+  "ios": {
+    "contentInset": "always"
+  },
   "server": {
     "url": "https://howispulse.com/app",
     "cleartext": false

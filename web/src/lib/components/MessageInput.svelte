@@ -698,7 +698,7 @@
       onfocus={() => (eingabeFokus = true)}
       placeholder={effectivePlaceholder}
       {disabled}
-      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2 text-[15px] leading-6 outline-none disabled:cursor-not-allowed disabled:opacity-60 nicht-handy:min-h-9 nicht-handy:py-1.5"
+      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2 text-base desktop:text-[15px] leading-6 outline-none disabled:cursor-not-allowed disabled:opacity-60 nicht-handy:min-h-9 nicht-handy:py-1.5"
       data-testid="message-input"
     ></textarea>
     <MentionTriggerOverlay
