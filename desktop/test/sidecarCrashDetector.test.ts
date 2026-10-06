@@ -64,3 +64,26 @@ test('starting then silent death before any fps → still synthesise', () => {
   t.note(STARTING);
   assert.equal(t.shouldSynthesiseStopOnExit(false), true);
 });
+
+// mayBeStreaming — the idle-exit (sidecar.ts LEERLAUF_MS) asks this so it
+// never EOF-stops a child whose stream might still be in flight.
+
+test('mayBeStreaming: false before any running-report, true while live, false after terminal', () => {
+  const t = createStreamLifecycleTracker();
+  // A warm query-only child (health, gpu_info) is NOT streaming.
+  assert.equal(t.mayBeStreaming(), false);
+  t.note(STARTING);
+  assert.equal(t.mayBeStreaming(), true);
+  t.note(FPS);
+  assert.equal(t.mayBeStreaming(), true);
+  t.note(STOPPED);
+  assert.equal(t.mayBeStreaming(), false);
+});
+
+test('mayBeStreaming: silent crash keeps it true — idle exit must not fire mid-stream', () => {
+  const t = createStreamLifecycleTracker();
+  t.note(LIVE);
+  t.note(FPS);
+  // No terminal report → the idle shutdown stays away from this child.
+  assert.equal(t.mayBeStreaming(), true);
+});

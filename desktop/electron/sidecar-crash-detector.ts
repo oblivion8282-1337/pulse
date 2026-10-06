@@ -23,6 +23,14 @@ export interface StreamLifecycleTracker {
    * this was neither a `stop` op's shutdown, an EOF, nor an app quit).
    */
   shouldSynthesiseStopOnExit(deliberateShutdown: boolean): boolean;
+  /**
+   * True from the child's first running-report (`fps`, or `state` with
+   * `running:true`) until a terminal report — a stream MIGHT still be in
+   * flight. The idle shutdown in `sidecar.ts` asks this before closing stdin,
+   * because a silent live stream emits no lines for a long time: recency
+   * alone cannot tell "live" from "warm", and an EOF would end the capture.
+   */
+  mayBeStreaming(): boolean;
 }
 
 export function createStreamLifecycleTracker(): StreamLifecycleTracker {
@@ -46,5 +54,6 @@ export function createStreamLifecycleTracker(): StreamLifecycleTracker {
     shouldSynthesiseStopOnExit(deliberateShutdown: boolean): boolean {
       return !deliberateShutdown && sawActivity && !sawTerminal;
     },
+    mayBeStreaming: () => sawActivity && !sawTerminal,
   };
 }
