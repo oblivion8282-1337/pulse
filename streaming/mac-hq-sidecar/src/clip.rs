@@ -170,8 +170,6 @@ struct Unit {
     data: Bytes,
 }
 
-const TIME_BASE: (i32, i32) = (1, 1000);
-
 struct Writer {
     output: ffmpeg::format::context::Output,
     video_spur: Option<usize>,
@@ -514,10 +512,6 @@ mod tests {
 
     fn puffer(v: &[u8]) -> Bytes {
         Bytes::copy_from_slice(v)
-    }
-
-    fn obu(typ: u8, nutzlast: u8) -> [u8; 3] {
-        [(typ << 3) | 0b10, 1, nutzlast]
     }
 
     /// Ring fuellen, Clip schreiben, Datei wieder einlesen: Spur und

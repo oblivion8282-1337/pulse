@@ -4,19 +4,35 @@
 //! read from the [`StreamController`] snapshot.
 
 use anyhow::Result;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Number, Value};
 
 use crate::stream_controller::StreamController;
 
 pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     let s = StreamController::singleton().state();
-    // `Option`-Felder serialisieren als Null bei None, sonst Zahl bzw. Liste —
-    // exakt die bisherige Hand-Auflistung (nicht-finite Zahlen inklusive).
-    Ok(super::json_to_map(json!({
-        "running": s.running,
-        "state": s.state,
-        "fps": s.fps,
-        "uptime_s": s.uptime_s,
-        "argv": s.argv_redacted,
-    })))
+    let mut out = Map::new();
+    out.insert("running".to_string(), Value::Bool(s.running));
+    out.insert("state".to_string(), Value::String(s.state));
+    out.insert(
+        "fps".to_string(),
+        s.fps
+            .and_then(Number::from_f64)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+    );
+    out.insert(
+        "uptime_s".to_string(),
+        s.uptime_s
+            .and_then(Number::from_f64)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+    );
+    out.insert(
+        "argv".to_string(),
+        match s.argv_redacted {
+            Some(v) => Value::Array(v.into_iter().map(Value::String).collect()),
+            None => Value::Null,
+        },
+    );
+    Ok(out)
 }
