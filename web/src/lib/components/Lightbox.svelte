@@ -14,6 +14,7 @@
   import DownloadIcon from '@lucide/svelte/icons/download';
   import { m } from '$lib/paraglide/messages.js';
   import type { Attachment } from '$lib/api/types';
+  import { dateiTeilenOderLaden } from '$lib/platform/dateiTeilen';
 
   let {
     open = $bindable(false),
@@ -36,10 +37,9 @@
   let laeuft = $state(false);
 
   /** Speichert das Bild lokal: verschlüsselt über `anhangBlob` (Archiv zuerst,
-   *  dann Postfach), Klartext via `fetch` auf die Adresse. Anschließend der
-   *  `<a download>`-Trick auf einer Objekt-URL — ein direktes `download` auf
-   *  der Adresse reicht nicht, sie ist fremdorigin bzw. läuft ohne sie ins
-   *  Navigieren (s. `MessageAttachments.svelte::ERSATZ_DATEINAME`). */
+   *  dann Postfach), Klartext via `fetch` auf die Adresse. Das Speichern selbst
+   *  macht `dateiTeilenOderLaden` — Share-Sheet in der iOS-WKWebView (dort
+   *  funktioniert kein Download-Manager), Anker-Trick auf Desktop. */
   async function herunterladen(): Promise<void> {
     if (laeuft) return;
     laeuft = true;
@@ -58,13 +58,11 @@
         blob = antwort.ok ? await antwort.blob() : null;
       }
       if (!blob) return;
+      // Frische Objekt-URL als Brücke zum Blob; sie gehört HIER und wird wie
+      // bisher nach der Frist revoket — die Funktion revoket nur ihre eigene
+      // Anker-Adresse im Desktop-Fall, nie eine übergebene.
       const adresse = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = adresse;
-      a.download = filename || 'bild';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      await dateiTeilenOderLaden(adresse, filename || 'bild');
       setTimeout(() => URL.revokeObjectURL(adresse), 10_000);
     } catch {
       // `anhangBlob` kann hier sachlich scheitern (z. B. 410 anhang_abgelaufen

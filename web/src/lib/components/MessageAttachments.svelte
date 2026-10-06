@@ -51,6 +51,7 @@ import { Portal } from 'bits-ui';
   import { m } from '$lib/paraglide/messages.js';
   import { formatBytes } from '$lib/utils/formatBytes';
   import { istAnhangAbgelaufenFehler } from '$lib/krypto/anhangAbgelaufen';
+  import { dateiTeilenOderLaden } from '$lib/platform/dateiTeilen';
 
   let { attachments }: { attachments: Attachment[] } = $props();
 
@@ -409,16 +410,6 @@ import { Portal } from 'bits-ui';
     vollbildUrl = null;
   }
 
-  /** Ersatz, wenn ein Anhang keinen Dateinamen traegt.
-   *
-   *  Kein Schoenheitsdetail: mit `undefined` faellt das `download`-Attribut
-   *  ganz weg, und ohne `download` NAVIGIERT der Klick auf die
-   *  `blob:`-Adresse, statt zu speichern — ein Anhang mit `text/html` liefe
-   *  dann als Skript im Ursprung der Anwendung. Zusammen mit
-   *  `krypto/sichererBlobTyp.ts` sind das die zwei Haelften derselben
-   *  Absicherung; eine allein genuegt nicht. */
-  const ERSATZ_DATEINAME = 'anhang';
-
   function kind(mime: string | null): 'image' | 'video' | 'audio' | 'pdf' | 'other' {
     if (!mime) return 'other';
     if (mime.startsWith('image/')) return 'image';
@@ -552,13 +543,16 @@ import { Portal } from 'bits-ui';
             <RefreshCwIcon class="text-text-muted size-4 shrink-0" />
           </button>
         {:else}
-          <a
-            href={quelleDatei || undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="bg-bg-input hover:bg-bg-hover flex w-fit max-w-md items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-sm transition-colors"
+          <!-- Speichern über die Web-Share-API (iOS-WKWebView hat keinen
+               Download-Manager), Anker-Fallback passiert in
+               `dateiTeilenOderLaden` — s. dort, inkl. Ersatz-Dateinamen. -->
+          <button
+            type="button"
+            class="bg-bg-input hover:bg-bg-hover flex w-fit max-w-md items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-left text-sm transition-colors"
             data-testid="attachment-download"
-            download={a.filename || ERSATZ_DATEINAME}
+            onclick={() => {
+              if (quelleDatei) void dateiTeilenOderLaden(quelleDatei, a.filename ?? '').catch(() => {});
+            }}
           >
             <div class="text-text-muted shrink-0">
               {#if k === 'pdf'}
@@ -580,7 +574,7 @@ import { Portal } from 'bits-ui';
               </p>
             </div>
             <DownloadIcon class="text-text-muted size-4 shrink-0" />
-          </a>
+          </button>
         {/if}
       {/if}
     {/each}

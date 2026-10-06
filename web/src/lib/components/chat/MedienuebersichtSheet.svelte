@@ -19,6 +19,7 @@
   import type { Attachment, Message } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
   import { formatBytes } from '$lib/utils/formatBytes';
+  import { dateiTeilenOderLaden } from '$lib/platform/dateiTeilen';
 
   let {
     messages,
@@ -133,17 +134,19 @@
                 <span class="text-text-muted block text-2xs">{formatBytes(a.size)}</span>
               </span>
               {#if quelle}
-                <a
-                  href={quelle}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  download={a.filename ?? 'anhang'}
+                <!-- Web-Share statt Anker-Download (iOS-WKWebView hat keinen
+                     Download-Manager) — s. `dateiTeilenOderLaden`. -->
+                <button
+                  type="button"
                   class="text-primary hover:bg-bg-hover flex size-8 items-center justify-center rounded-full"
                   aria-label={m.medien_datei_laden()}
                   data-testid={`media-file-download-${a.id}`}
+                  onclick={() => {
+                    if (quelle) void dateiTeilenOderLaden(quelle, a.filename ?? '').catch(() => {});
+                  }}
                 >
                   <DownloadIcon class="size-4" />
-                </a>
+                </button>
               {/if}
             </li>
           {/each}

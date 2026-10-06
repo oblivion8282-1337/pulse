@@ -29,6 +29,7 @@
   import { medienNachziehen } from '$lib/verlauf/medienNachzug';
   import { meineAnhaengeApi } from '$lib/api/meineAnhaenge';
   import { chatApi } from '$lib/api/chat';
+  import { dateiTeilenOderLaden } from '$lib/platform/dateiTeilen';
   import type { MedienZeile } from '$lib/verlauf/schema';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
@@ -197,17 +198,19 @@
                 <span class="text-text-muted block text-2xs">{formatBytes(z.size)}</span>
               </span>
               {#if quelle}
-                <a
-                  href={quelle}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  download={z.dateiname ?? 'anhang'}
+                <!-- Web-Share statt Anker-Download (iOS-WKWebView hat keinen
+                     Download-Manager) — s. `dateiTeilenOderLaden`. -->
+                <button
+                  type="button"
                   class="text-primary hover:bg-bg-hover flex size-8 items-center justify-center rounded-full"
                   aria-label={m.medien_datei_laden()}
                   data-testid={`media-archive-file-download-${z.id}`}
+                  onclick={() => {
+                    if (quelle) void dateiTeilenOderLaden(quelle, z.dateiname ?? '').catch(() => {});
+                  }}
                 >
                   <DownloadIcon class="size-4" />
-                </a>
+                </button>
               {/if}
             </li>
           {/each}
