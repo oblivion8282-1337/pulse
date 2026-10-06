@@ -49,6 +49,13 @@ services:
     image: registry.howispulse.com/pulse-allinone:stable
     container_name: pulse
     restart: unless-stopped
+    # Log-Begrenzung wie Prod (x-logging-Anker in infra/prod/docker-compose.yml):
+    # json-file sammelt sonst UNBEGRENZT. 10 MB x 5 = hoechstens 50 MB.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     env_file: .env
     volumes:
       - pulse-data:/data

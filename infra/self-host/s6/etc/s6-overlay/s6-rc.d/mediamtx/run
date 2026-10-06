@@ -2,11 +2,18 @@
 # MediaMTX — HQ stream relay (RTMPS→WHEP). authHTTP → mediamtx-auth-hook
 # at 127.0.0.1:8005. Config rendered by cont-init.
 #
-# `PULSE_KEYFRAME_INTERVAL=0` — wie die Cloud (infra/prod/docker-compose.yml)
-# den fest verdrahteten 2-s-Vollbild-Takt des Forks abschalten. Der Fork
-# (PULSE_MEDIAMTX_TAG im Dockerfile, seit 2026-09-07) kennt den Schalter;
-# ohne ihn fordert MediaMTX alle 2 s ein Vollbild vom Sender an — gemessen
-# 2026-09-25 als Mit-Ursache des wachsenden Zuschauer-Lags an einem
-# Self-Host (s. Kommentar zu `hls` in 08-init-mediamtx.sh).
+# Vier PULSE_*-Schalter, identisch zur Cloud (infra/prod/docker-compose.yml —
+# dort je Schalter Begruendung samt Messung): PULSE_KEYFRAME_INTERVAL=0
+# schaltet den fest verdrahteten 2-s-Vollbild-Takt des Forks ab (Fork kennt
+# die Schalter seit PULSE_MEDIAMTX_TAG im Dockerfile, 2026-09-07; ohne ihn
+# fordert MediaMTX alle 2 s ein Vollbild an — gemessen 2026-09-25 als
+# Mit-Ursache des wachsenden Zuschauer-Lags an einem Self-Host, s. Kommentar
+# zu `hls` in 08-init-mediamtx.sh). Dazu wie in der Cloud: AV1-Dependency-
+# Descriptor ueber die Neuverpackung tragen (sonst Vollbilder auf Verdacht),
+# Vollbild erst bei echtem Verwurf anfordern, Umordnungsfenster 128 Pakete.
 exec 2>&1
-PULSE_KEYFRAME_INTERVAL=0 exec /usr/sbin/gosu pulse /usr/local/bin/mediamtx /etc/mediamtx/mediamtx.yml
+PULSE_KEYFRAME_INTERVAL=0 \
+PULSE_DEPENDENCY_DESCRIPTOR=1 \
+PULSE_KEYFRAME_ON_DISCARD=1 \
+PULSE_VIDEO_REORDER_BUFFER=128 \
+    exec /usr/sbin/gosu pulse /usr/local/bin/mediamtx /etc/mediamtx/mediamtx.yml

@@ -27,7 +27,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: dcc_night_redis
-    command: ["redis-server", "--appendonly", "yes"]
+    # --save "" schaltet die Default-RDB-Savepoints ab (Doppelpersistenz zu AOF everysec); maxmemory bewusst offen — VPS-Sizing-Entscheid offen.
+    command: ["redis-server", "--appendonly", "yes", "--save", ""]
     volumes:
       - redisdata:/data
     ports:
