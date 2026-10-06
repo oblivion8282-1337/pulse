@@ -27,7 +27,6 @@
     zieleLesen,
     zieleSchreiben,
     zieleLeeren,
-    zielEntfernen,
     zieleBesetzt,
     type SicherungZiele,
   } from '$lib/sicherung/ziele';

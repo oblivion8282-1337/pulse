@@ -25,7 +25,7 @@
     dropboxAdapter,
     type DropboxAnbindung,
   } from '$lib/ablage/dropbox';
-  import { erzeugePkce, type Pkce } from '$lib/ablage/oauth';
+  import { erzeugePkce } from '$lib/ablage/oauth';
   import { DateiSpeicher } from '$lib/ablage/dateispeicher';
   import { sichererBlobTyp } from '$lib/krypto/sichererBlobTyp';
   import type { DateiInfo } from '$lib/ablage/dateispeicher';

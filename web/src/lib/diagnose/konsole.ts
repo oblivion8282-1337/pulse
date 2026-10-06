@@ -30,9 +30,6 @@
 // und Node lösen dasselbe Ziel), gleiche Praxis wie quellenummer.ts u. a.
 import { melde } from './app-diagnose.ts';
 
-/** Query-Werte, die nie im Ring landen dürfen — geprüft als Parameter-NAME. */
-const SCHWARZLISTE = /(token|secret|password|signature|key)=/i;
-
 /** Schwärzt token-artige Query-Werte: `?token=abc…` → `?token=…`. */
 function schwaerzen(text: string): string {
   return text.replace(/([?&][^?&\s]*?(token|secret|password|signature|key))=[^&\s]+/gi, '$1=…');
