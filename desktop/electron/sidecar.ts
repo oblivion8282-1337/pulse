@@ -31,7 +31,6 @@ import {
   createStreamLifecycleTracker,
   type StreamLifecycleTracker,
 } from './sidecar-crash-detector';
-import { storeGet } from './store';
 
 // ── Config ──────────────────────────────────────────────────────────────────
 

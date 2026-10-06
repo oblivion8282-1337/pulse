@@ -29,12 +29,6 @@ export interface PairingStatus {
   relaySubdomain?: string | null;
 }
 
-export interface PairResult {
-  paired: boolean;
-  error?: string;
-  status?: PairingStatus;
-}
-
 export interface StoreLike {
   get(k: string): unknown;
   set(k: string, v: unknown): void;
