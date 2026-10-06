@@ -72,7 +72,7 @@ pub fn available_video_codecs() -> Vec<&'static str> {
 /// transiente Fähigkeit vertrauen).
 pub fn gemeldete_video_codecs() -> Option<Vec<&'static str>> {
     let (caps, definitiv) = probe_mit_definitiv();
-    definitiv.then(|| caps.codecs)
+    definitiv.then_some(caps.codecs)
 }
 
 /// Volle Fähigkeiten (Codecs + Bittiefe), aus EINEM Probe-Lauf und derselben
@@ -101,13 +101,13 @@ pub fn probe_mit_definitiv() -> (Caps, bool) {
     if let Some(v) = cache.definitive.as_ref() {
         return (v.clone(), true);
     }
-    if let Some((at, v)) = cache.last.as_ref() {
-        if at.elapsed() < RETRY_EVERY {
-            // Konnte nur das `last` sein, wenn es nicht definitiv war — ein
-            // definitives Ergebnis läge in `cache.definitive` und hätte
-            // oben geantwortet.
-            return (v.clone(), false);
-        }
+    if let Some((at, v)) = cache.last.as_ref()
+        && at.elapsed() < RETRY_EVERY
+    {
+        // Konnte nur das `last` sein, wenn es nicht definitiv war — ein
+        // definitives Ergebnis läge in `cache.definitive` und hätte
+        // oben geantwortet.
+        return (v.clone(), false);
     }
     let (caps, definitive) = probe_all();
     if definitive {

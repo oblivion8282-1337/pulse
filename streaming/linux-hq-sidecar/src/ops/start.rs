@@ -16,7 +16,7 @@
 //!   IMMER zusätzlich ausgeschlossen — Echo-Schutz, siehe `AudioSelection`)
 
 use anyhow::{Context, Result, anyhow, bail};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::capture::audio::AudioSelection;
 use crate::profiles::{BASELINE, profile_label};
@@ -191,12 +191,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         argv.clone(),
     )?;
 
-    let mut out = Map::new();
-    out.insert(
-        "argv".to_string(),
-        Value::Array(argv.into_iter().map(Value::String).collect()),
-    );
-    Ok(out)
+    Ok(super::json_to_map(json!({ "argv": argv })))
 }
 
 /// Wunsch aus dem Wire-Format lesen: `overrides.bit_depth` = 8|10. Alles
