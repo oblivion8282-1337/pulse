@@ -23,7 +23,12 @@
   import { m } from '$lib/paraglide/messages.js';
   import type { Channel } from '$lib/api/types';
 
-  let { channel }: { channel: Channel } = $props();
+  let {
+    channel,
+    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
+     *  an die Kacheln durchgereicht (Profil: Tippen-Blatt vs Rechtsklick). */
+    handy
+  }: { channel: Channel; handy: boolean } = $props();
 
   // Mobil startet der Streifen ZUGEKLAPPT: der Stream soll den Bildschirm
   // füllen, die Teilnehmerzahl steht trotzdem da. Einmal klappen gilt nur für
@@ -122,7 +127,7 @@
                sich WAAGERECHT WISCHEN — ohne würden sie gestaucht, statt zu
                überlaufen. -->
           <div class="shrink-0">
-            <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
+            <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} {handy} />
           </div>
         {/each}
       {/if}

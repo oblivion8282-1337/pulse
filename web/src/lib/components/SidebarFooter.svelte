@@ -21,14 +21,18 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from './VoiceControlBar.svelte';
   import UserFooter from './UserFooter.svelte';
-  import { viewport } from '$lib/stores/viewport.svelte';
+
+  /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung):
+   *  ChannelList und DMChannelList reichen den Wert ihrer Routen durch. */
+  let { handy = false }: { handy?: boolean } = $props();
 </script>
 
-{#if (voice.connected || voice.connecting) && !viewport.isMobile}
-  <VoiceControlBar />
+{#if (voice.connected || voice.connecting) && !handy}
+  <!-- Nur-Desktop: der obere Zweig gate die Leiste schon an `!handy`. -->
+  <VoiceControlBar handy={false} />
 {/if}
-<!-- Auf Mobil sitzt der eigene User unten in der GuildRail (s. dort) — hier
-     nur auf Desktop, mit Name + Chip. -->
-{#if !viewport.isMobile}
+<!-- Auf Mobil sitzt der eigene User unten im Raeume-Bereich (die Rail ist
+     dort ausgeblendet) — hier nur auf Desktop, mit Name + Chip. -->
+{#if !handy}
   <UserFooter />
 {/if}

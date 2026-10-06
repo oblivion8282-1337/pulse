@@ -23,13 +23,15 @@
   import { m } from '$lib/paraglide/messages.js';
   import { toggleFullscreen } from '../fullscreen';
   import { statsVisible } from '../statsVisible.svelte';
-  import { viewport } from '$lib/stores/viewport.svelte';
   import TileDock from './TileDock.svelte';
   import TileMobilSteuerung from '$lib/components/mobile/TileMobilSteuerung.svelte';
   import type { TileShellProps } from './tileShellProps';
 
   let {
     kind,
+    /** Handy-Klasse? Vom Mount-Punkt (Route/Hintergrund-Host) hereingereicht
+     *  — s. tileShellProps. Ohne sie fragte die Kachel selbst den Viewport. */
+    handy,
     containerTestid,
     testidPrefix,
     identity,
@@ -63,6 +65,13 @@
     queuePanel
   }: TileShellProps = $props();
 
+  // Handy quer: die Kachel springt automatisch ins Element-Vollbild (Kippen).
+  // **Seit der Geräteklassen-Vereinheitlichung (2026-09-04) tot:** der alte
+  // Ausdruck `istHandy && !isMobile` verglich dieselbe Klasse mit ihrer
+  // eigenen Negation und war damit immer falsch — das hier erhält dieses
+  // Verhalten bit-identisch (false), eine Wiederbelebung fürs Tablet wäre
+  // eine Verhaltensänderung und gehört nicht in die Geräte-Trennung.
+  const quer = false;
   const KindIcon = $derived(
     { hq: RocketIcon, screen: MonitorIcon, cam: VideoIcon, party: ClapperboardIcon }[kind]
   );
@@ -77,7 +86,7 @@
   // Rundet kaufmännisch (87 → 85, 88 → 90); nach dem Pegeln steht der Wert
   // im Raster und der Effekt beruhigt sich.
   $effect(() => {
-    if (!viewport.istHandy || volume === undefined || !onVolumeChange) return;
+    if (!handy || volume === undefined || !onVolumeChange) return;
     if (Number.isInteger(volume / 5)) return;
     onVolumeChange(Math.round(volume / 5) * 5);
   });
@@ -100,7 +109,7 @@
   // im Vollbild an den Fade gekoppelt.
   const showStats = $derived(!!stats && statsVisible.on && (!isFullscreen || hudEffective));
   // Detach gibt's nicht im Vollbild und nicht auf Mobile.
-  const showDetach = $derived(!!onDetach && !isFullscreen && !viewport.istHandy);
+  const showDetach = $derived(!!onDetach && !isFullscreen && !handy);
 
   function pokeHud(): void {
     if (!isFullscreen) return;
@@ -115,10 +124,10 @@
     // Im Vollbild auf Touch: Tap blendet die schwebende Steuerung ein und
     // startet den Ausblend-Timer neu (kein Toggle mehr — Nutzerwunsch: nach
     // HUD_HIDE_AFTER_MS ohne Tap weg, Tap zeigt sie wieder).
-    if (viewport.istHandy && isFullscreen) pokeHud();
+    if (handy && isFullscreen) pokeHud();
   }
   function handleCatcherDblClick(): void {
-    if (!viewport.istHandy) toggleFs();
+    if (!handy) toggleFs();
   }
 
   function toggleFs(): void {
@@ -140,7 +149,6 @@
   // erneut quer gedreht wird.
   let warQuer = false;
   $effect(() => {
-    const quer = viewport.istHandy && !viewport.isMobile;
     if (kind === 'party') return; // iframe: kein requestFullscreen auf dem Div
     if (quer && !warQuer && containerEl) {
       containerEl.requestFullscreen?.().catch(() => {
@@ -155,7 +163,7 @@
   // Handy-Querformat wäre `isMobile` schon vorher falsch gewesen und das
   // Vollbild liesse sich gar nicht mehr automatisch schliessen).
   $effect(() => {
-    if (!(viewport.istHandy && !viewport.isMobile) && isFullscreen && warQuer) {
+    if (!quer && isFullscreen && warQuer) {
       document.exitFullscreen?.().catch(() => {});
     }
   });
@@ -225,7 +233,7 @@
   bind:this={containerEl}
   class="bg-bg-chat flex h-full overflow-hidden {isFullscreen
     ? 'rounded-none border-0'
-    : 'rounded-2xl border border-border max-md:rounded-none max-md:border-0'}"
+    : 'rounded-2xl border border-border handy:rounded-none handy:border-0'}"
   data-testid={containerTestid}
   data-identity={identity}
 >
@@ -256,12 +264,12 @@
            genauso automatisch verlassen, ein Pfeil wäre redundant
            (Nutzerwunsch 2026-08-26). Am Rechner bleiben Dock-Leiste und
            Doppelklick wie bisher. -->
-      {#if viewport.istHandy}
+      {#if handy}
         <TileMobilSteuerung
           {testidPrefix}
           {isFullscreen}
           fadeClass={isFullscreen ? fadeClass : ''}
-          zeigeVollbildAus={viewport.isMobile}
+          zeigeVollbildAus={handy}
           {volume}
           {volumeMax}
           {onVolumeChange}
@@ -287,7 +295,7 @@
       <!-- Vollbild am RECHNER: Leiste als fadendes Overlay über dem unteren
            Bildrand, das nach Inaktivität (HUD_HIDE_AFTER_MS) ausgeblendet
            wird. Am Handy greift stattdessen die neue schwebende Steuerung. -->
-      {#if isFullscreen && !hideDock && !viewport.istHandy}
+      {#if isFullscreen && !hideDock && !handy}
         <div
           class="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 {fadeClass}"
         >
@@ -298,13 +306,13 @@
       {#if isFullscreen && chatOpen}
         {@render chatOverlay?.()}
       {/if}
-      {#if chatOpen && !isFullscreen && viewport.istHandy}
+      {#if chatOpen && !isFullscreen && handy}
         <!-- Mobile: Chat als Vollflächen-Overlay statt Seitenpanel. -->
         <div class="absolute inset-0 z-20">
           {@render chatPanel?.()}
         </div>
       {/if}
-      {#if queueOpen && !isFullscreen && viewport.istHandy}
+      {#if queueOpen && !isFullscreen && handy}
         <div class="absolute inset-0 z-20">
           {@render queuePanel?.()}
         </div>
@@ -315,17 +323,17 @@
          und am Handy gar nicht: dort steuern die schwebenden Knöpfe (Schließen,
          Vollbild, Lautstärke) das Bild direkt, eine Leiste darunter kostet
          nur Höhe vom Stream. Im Vollbild übernimmt das fadende Overlay. -->
-    {#if !isFullscreen && !hideDock && !viewport.istHandy}
+    {#if !isFullscreen && !hideDock && !handy}
       <div class="bg-bg-panel border-t border-border">
         <TileDock {...dockProps} overlay={false} wide={dockWide} />
       </div>
     {/if}
   </div>
 
-  {#if chatOpen && !isFullscreen && !viewport.istHandy}
+  {#if chatOpen && !isFullscreen && !handy}
     {@render chatPanel?.()}
   {/if}
-  {#if queueOpen && !isFullscreen && !viewport.istHandy}
+  {#if queueOpen && !isFullscreen && !handy}
     {@render queuePanel?.()}
   {/if}
 </div>

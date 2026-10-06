@@ -530,7 +530,7 @@
   <!-- pt-[var(--safe-top)]: clears the iOS notch / status bar in the installed
        PWA and the Android APK (no-op as a browser tab). md restores the
        regular padding. -->
-  <div class="flex flex-1 gap-0 p-0 pt-[var(--safe-top)] md:gap-3 md:p-3 md:pt-3 min-h-0">
+  <div class="flex flex-1 gap-0 p-0 pt-[var(--safe-top)] nicht-handy:gap-3 nicht-handy:p-3 nicht-handy:pt-3 min-h-0">
     {#if zeigeSpalteLinks}
       <TabletNavRail />
     {/if}
@@ -549,7 +549,7 @@
     <!-- `mb-2`, wenn die Bereichs-Leiste darunter steht: Abstand statt
          Kleben — das Dock sitzt damit spürbar über der Navigation. -->
     <div class="shrink-0 {zeigeLeisteUnten ? 'mb-2' : 'pb-[var(--safe-bottom)]'}">
-      <VoiceControlBar />
+      <VoiceControlBar handy={true} />
     </div>
   {/if}
   <!-- Anruf-Overlay (Anrufe-Epic C): global über allem, weil ein Anruf
@@ -594,14 +594,14 @@
      anchor (docked) or as a floating corner window (navigation away).
      The inline tile was removed from StreamGrid; this is the only mount
      point. -->
-<HqStreamBackgroundHost />
+<HqStreamBackgroundHost handy={viewport.isMobile} />
 
 <!-- Renders CameraTile + ScreenShareTile per open LiveKit video on top
      of its StreamGrid anchor (docked) or as a corner window (navigation
      away). Same mechanism as HqStreamBackgroundHost. -->
-<LiveKitBackgroundHost />
+<LiveKitBackgroundHost handy={viewport.isMobile} />
 
 <!-- Hält den Watch-Party-Player über Navigation hinweg am Leben: angedockt im
      Voice-Grid, beim Weg-Navigieren als festes Eck-Fenster (Ton+Bild laufen
      weiter, kein Neuladen). -->
-<WatchBackgroundHost />
+<WatchBackgroundHost handy={viewport.isMobile} />

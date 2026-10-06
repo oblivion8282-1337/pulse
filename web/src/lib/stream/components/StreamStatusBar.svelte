@@ -45,7 +45,7 @@
 
   // Icon-Größe passend zur Voice-Leiste (Mute/Hangup): mobile size-6,
   // desktop size-4 — siehe `iconCls` in VoiceControlBar.svelte.
-  const iconCls = 'size-6 md:size-4';
+  const iconCls = 'size-6 nicht-handy:size-4';
   // Per-Chip Icon-Buttons (Edit-Cancel / Edit-Label / Stop) — gleiche Geometrie,
   // nur andere Hover-Farbe pro Aktion.
   const chipIconBtn = 'rounded-full p-1.5 text-text-muted';

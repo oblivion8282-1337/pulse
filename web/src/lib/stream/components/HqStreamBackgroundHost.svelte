@@ -22,6 +22,10 @@
   import WatchBackgroundFrame from '$lib/watch/WatchBackgroundFrame.svelte';
   import WhepPlayer from './WhepPlayer.svelte';
 
+  // Handy-Klasse? Reicht die app-layout-Route hereingereicht an die Kacheln
+  // durch (Geräte-Trennung — der Host fragt selbst nicht).
+  let { handy }: { handy: boolean } = $props();
+
   // Every open, non-detached HQ stream-tile whose (user, slot) is currently
   // live (otherwise the tile would sit as an error placeholder when the
   // streamer goes offline). Source is `openedTiles` (opened via sidebar /
@@ -89,6 +93,7 @@
     <WhepPlayer
       channelId={e.channelId}
       userId={e.userId}
+      {handy}
       streamSlot={e.slot}
       name={tileName(e.channelId, e.userId, e.slot)}
       canDetach={true}

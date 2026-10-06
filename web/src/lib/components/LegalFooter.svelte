@@ -18,7 +18,7 @@
       href={link.href}
       class="border-border/40 text-muted-foreground/80 hover:bg-muted/40 hover:text-foreground
              rounded-full border px-3 py-1 text-xs transition-colors
-             md:border-white/[0.08] md:bg-white/[0.03] md:text-white/45 md:hover:bg-white/[0.08] md:hover:text-white/80"
+             nicht-handy:border-white/[0.08] nicht-handy:bg-white/[0.03] nicht-handy:text-white/45 nicht-handy:hover:bg-white/[0.08] nicht-handy:hover:text-white/80"
     >
       {link.label}
     </a>

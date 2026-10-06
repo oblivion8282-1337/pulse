@@ -40,7 +40,7 @@
 </script>
 
 <div
-  class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 text-center md:rounded-2xl"
+  class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 text-center nicht-handy:rounded-2xl"
   data-testid="route-error"
 >
   <h1 class="text-text-bright text-lg font-semibold">{m.error_page_title()}</h1>

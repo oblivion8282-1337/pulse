@@ -373,6 +373,7 @@
 <ChannelList
   guild={activeGuild ?? null}
   channels={channelsForGuild}
+  handy={false}
   {activeChannelId}
   onSelect={selectChannel}
   onCreateClick={() => (creatingChannel = true)}
@@ -386,6 +387,7 @@
 {#snippet chatBody()}
   <ChatView
     channel={activeChannel}
+    handy={viewport.isMobile}
     messages={visibleMessages}
     onSend={(text, replyToId, attachmentIds) =>
       kanalNachrichten.sendMessage(guildId, activeChannel, text, replyToId, attachmentIds)}
@@ -421,7 +423,7 @@
   {/key}
 {:else if isVoiceChannel && activeChannel}
   {#key activeChannel.id}
-    <VoiceChannelView channel={activeChannel} />
+    <VoiceChannelView channel={activeChannel} handy={viewport.isMobile} />
   {/key}
 {:else if isDropboxChannel && activeChannel}
   {#key activeChannel.id}
@@ -429,7 +431,7 @@
   {/key}
 {:else if guildSuspended}
   <section
-    class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 rounded-none p-8 text-center md:rounded-2xl"
+    class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 rounded-none p-8 text-center nicht-handy:rounded-2xl"
     data-testid="community-suspended"
   >
     <h2 class="text-text-bright text-lg font-semibold">{pm.community_suspended_title()}</h2>
@@ -440,7 +442,7 @@
        der Normalzustand eines App-Host-Servers, kein Fehlerfall. Verständliche
        Tafel statt technischem Fehlertext; Retry misst die Anwesenheit frisch. -->
   <section
-    class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 rounded-none p-8 text-center md:rounded-2xl"
+    class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 rounded-none p-8 text-center nicht-handy:rounded-2xl"
     data-testid="server-schlaeft"
   >
     <h2 class="text-text-bright text-lg font-semibold">{pm.server_schlaeft_seite_titel()}</h2>
@@ -451,7 +453,7 @@
     >{pm.channel_page_retry()}</Button>
   </section>
 {:else if kanalWechsel.loadError}
-  <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
+  <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 nicht-handy:rounded-2xl">
     <FieldError message={kanalWechsel.loadError} testId="load-error" />
     <Button
       onclick={() => kanalWechsel.retry(guildId, channelId)}
@@ -474,7 +476,7 @@
 -->
 {#if showTamagotchi && activeChannel}
   <aside
-    class="border-border bg-bg-chat hidden h-full w-56 shrink-0 flex-col gap-2 overflow-y-auto border-l p-2 md:flex md:rounded-2xl md:border-0"
+    class="border-border bg-bg-chat hidden h-full w-56 shrink-0 flex-col gap-2 overflow-y-auto border-l p-2 nicht-handy:flex nicht-handy:rounded-2xl nicht-handy:border-0"
     data-testid="guild-plugin-rail"
   >
     <h2 class="text-text-muted px-2 pt-1 text-xs font-bold uppercase tracking-wide">

@@ -39,7 +39,7 @@
   <button
     type="button"
     onclick={() => (open = !open)}
-    class="flex items-center justify-center rounded-full p-3 backdrop-blur-sm md:p-1.5 {active
+    class="flex items-center justify-center rounded-full p-3 backdrop-blur-sm nicht-handy:p-1.5 {active
       ? 'bg-primary text-primary-foreground hover:bg-primary/80'
       : 'bg-black/55 text-white hover:bg-black/75'}"
     aria-label={m.watch_party_tile_captions_aria()}
@@ -48,9 +48,9 @@
     data-testid="watch-party-captions"
   >
     {#if active}
-      <CaptionsIcon class="size-5 md:size-3.5" />
+      <CaptionsIcon class="size-5 nicht-handy:size-3.5" />
     {:else}
-      <CaptionsOffIcon class="size-5 md:size-3.5" />
+      <CaptionsOffIcon class="size-5 nicht-handy:size-3.5" />
     {/if}
   </button>
   {#if open}

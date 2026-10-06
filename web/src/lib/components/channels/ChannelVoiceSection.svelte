@@ -27,7 +27,6 @@
   import { chooseHqForUser } from '$lib/stream/hqTile';
   import { channelNameStyle } from '$lib/utils/nameColor';
   import { settings } from '$lib/stores/settings.svelte';
-  import { viewport } from '$lib/stores/viewport.svelte';
   import { CHANNEL_BTN_CLASS } from '$lib/channels/stil';
   import {
     KanalZiehen,
@@ -53,6 +52,10 @@
     channels,
     guild,
     myId,
+    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung):
+     *  blendet den Raumklang-Eintrag im Kontextmenue aus und wandert an
+     *  VoiceChannelPresence weiter (dort: raeumlicher Klang-Steller). */
+    handy,
     activeChannelId = null,
     canCreate = false,
     canManagePermissions = false,
@@ -69,6 +72,7 @@
     channels: Channel[];
     guild: Guild | null;
     myId: string | null;
+    handy: boolean;
     activeChannelId?: string | null;
     canCreate?: boolean;
     canManagePermissions?: boolean;
@@ -110,7 +114,7 @@
 {#if channels.length > 0}
   <div class="my-3 hairline bg-border" aria-hidden="true"></div>
   <div
-    class="text-text-muted mb-1.5 inline-block rounded-full border border-border bg-bg-input px-2.5 py-1 text-sm font-bold md:mb-0 md:rounded-none md:border-0 md:bg-transparent md:px-2.5 md:py-0 md:text-xs"
+    class="text-text-muted mb-1.5 inline-block rounded-full border border-border bg-bg-input px-2.5 py-1 text-sm font-bold nicht-handy:mb-0 nicht-handy:rounded-none nicht-handy:border-0 nicht-handy:bg-transparent nicht-handy:px-2.5 nicht-handy:py-0 nicht-handy:text-xs"
   >
     {m.channel_list_voice_channels()}
   </div>
@@ -138,19 +142,19 @@
           ondragend={() => beenden(ziehen)}
           data-testid={`channel-${c.id}`}
         >
-          <Volume2Icon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary" />
+          <Volume2Icon class="text-text-muted size-6 shrink-0 nicht-handy:size-[17px] group-data-[active=true]:text-primary" />
           <span class="truncate" style={channelNameStyle(c)}>{c.name}</span>
           <span class="ml-auto flex shrink-0 items-center gap-1.5">
             {#if c.user_limit && c.user_limit > 0}
               <span
-                class="text-text-muted text-2xs tabular-nums md:text-2xs"
+                class="text-text-muted text-2xs tabular-nums nicht-handy:text-2xs"
                 title={m.channel_list_user_limit_title({ limit: c.user_limit })}
                 data-testid={`channel-user-limit-${c.id}`}
               >{voicePresence.usersIn(c.id).length}/{c.user_limit}</span>
             {/if}
             {#if c.restricted}
               <LockIcon
-                class="text-text-muted size-4 md:size-3.5"
+                class="text-text-muted size-4 nicht-handy:size-3.5"
                 data-testid={`channel-lock-${c.id}`}
                 aria-label={m.channel_list_restricted()}
               />
@@ -161,7 +165,7 @@
                 title={m.channel_list_autoconnect_marker()}
                 data-testid={`channel-autoconnect-${c.id}`}
               >
-                <ZapIcon class="size-4 text-primary md:size-3.5" aria-label={m.channel_list_autoconnect_marker()} />
+                <ZapIcon class="size-4 text-primary nicht-handy:size-3.5" aria-label={m.channel_list_autoconnect_marker()} />
               </span>
             {/if}
             {#if inVoiceChannel(c.id)}
@@ -187,7 +191,7 @@
           {m.channel_list_autoconnect_set()}
         {/if}
       </ContextMenu.Item>
-      {#if !viewport.isMobile}
+      {#if !handy}
         <ContextMenu.CheckboxItem
           checked={settings.audio.spatialMode !== 'off'}
           onCheckedChange={(v) => {
@@ -244,7 +248,7 @@
       {/if}
     </ContextMenu.Content>
   </ContextMenu.Root>
-  <VoiceChannelPresence channel={c} {myId} {onSelect} />
+  <VoiceChannelPresence channel={c} {myId} {handy} {onSelect} />
   <!-- Standplatz-Geraete stehen UNTER ihrem Kanal, nicht in einer eigenen
        Kategorie (Aenderung 2026-08-16, Begruendung in DeviceChannelRows) —
        und unter ALLEN Menschen des Kanals, nicht ueber ihnen: die

@@ -204,7 +204,7 @@ import { errText } from '$lib/utils/errText';
             </div>
           </div>
 
-          <div class="text-text-muted hidden shrink-0 text-right text-xs sm:block">
+          <div class="text-text-muted hidden shrink-0 text-right text-xs nicht-handy:block">
             <div>{m.admin_communities_storage_label()}: {formatBytes(c.storage_bytes)}</div>
             <div>{m.admin_communities_created_label()}: {fmtDate(c.created_at)}</div>
           </div>

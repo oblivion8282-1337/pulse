@@ -11,7 +11,7 @@
 </script>
 
 <section
-  class="glass-panel hidden h-full min-w-0 flex-1 items-center justify-center rounded-none p-8 md:flex md:rounded-2xl"
+  class="glass-panel hidden h-full min-w-0 flex-1 items-center justify-center rounded-none p-8 nicht-handy:flex nicht-handy:rounded-2xl"
   data-testid="tablet-placeholder"
 >
   <p class="text-text-muted max-w-xs text-center text-sm">{text}</p>

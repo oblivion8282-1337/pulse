@@ -76,7 +76,7 @@
       autocomplete="current-password"
       bind:value={password}
       required
-      class="h-11 md:h-9"
+      class="h-11 nicht-handy:h-9"
       data-testid="delete-account-password"
     />
   </div>
@@ -94,7 +94,7 @@
           spellcheck={false}
           bind:value={backupCode}
           required
-          class="h-11 md:h-9"
+          class="h-11 nicht-handy:h-9"
           data-testid="delete-account-backup"
         />
       </div>
@@ -111,7 +111,7 @@
           bind:value={code}
           required
           maxlength={7}
-          class="h-11 text-center font-mono tracking-[0.2em] md:h-9"
+          class="h-11 text-center font-mono tracking-[0.2em] nicht-handy:h-9"
           data-testid="delete-account-code"
         />
       </div>
