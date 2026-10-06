@@ -811,6 +811,30 @@ if docker inspect "${CONTAINER}-old" >/dev/null 2>&1; then
   fi
 fi
 
+# Ein Handstopp wird respektiert: steht der Container auf exited/paused
+# (docker stop / docker pause), rührt der Updater ihn nicht an — auch nicht
+# für ein neues Image. Vorher stellte er den angehaltenen Container beiseite
+# und startete den neuen: wer den Server für Wartung anhielt, hatte ihn fünf
+# Minuten nach dem nächsten Push wieder laufen. `restarting` fällt NICHT
+# darunter — das ist ein Absturzkarussell, und ein neues Image ist dort
+# womöglich gerade die Heilung; `docker inspect` auf einen fehlenden
+# Container liefert leer, und leer heisst hier "anlegen" wie bisher.
+#
+# Der Riegel steht VOR Login und Pull — ursprünglich stand er dahinter, und
+# genau das füllte Platten (Fund 2026-10-06, Test-Server): gestoppter
+# Container, rollender ':edge'-Tag aktualisiert ~5×/Tag → jeder Lauf lud
+# ~890 MB, das verdrängte Image blieb namenlos (dangling) liegen, und der
+# Karussell-Aufräum-Block oben läuft im Handstopp nie (er verlangt einen
+# LAUFenden $CONTAINER). ~4,5 GB/Tag ohne Zweck. Ein gestoppter Container
+# will keinen Image-Ballast, den er vor dem Wiederanstellen ohnehin nicht
+# benutzt — der nächste Lauf nach dem Wiederanstellen holt ihn.
+cur_status="$(docker inspect --format '{{.State.Status}}' "$CONTAINER" 2>/dev/null || true)"
+case "$cur_status" in
+  exited|paused)
+    echo "pulse-update: container is stopped ($cur_status) — leaving it alone"
+    exit 0 ;;
+esac
+
 if [ -n "${REG_PASS:-}" ]; then
   printf '%s' "$REG_PASS" | docker login "$REGISTRY" -u "$REG_USER" --password-stdin >/dev/null 2>&1 \
     || { echo "pulse-update: registry login failed, will retry next run" >&2; exit 0; }
@@ -821,20 +845,6 @@ new_id="$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
 cur_id="$(docker inspect --format '{{.Image}}' "$CONTAINER" 2>/dev/null || true)"
 [ -n "$new_id" ] || { echo "pulse-update: cannot read image id, skipping" >&2; exit 0; }
 [ "$new_id" = "$cur_id" ] && exit 0   # already up to date
-# Ein Handstopp wird respektiert: steht der Container auf exited/paused
-# (docker stop / docker pause), rührt der Updater ihn nicht an — auch nicht
-# für ein neues Image. Vorher stellte er den angehaltenen Container beiseite
-# und startete den neuen: wer den Server für Wartung anhielt, hatte ihn fünf
-# Minuten nach dem nächsten Push wieder laufen. `restarting` fällt NICHT
-# darunter — das ist ein Absturzkarussell, und ein neues Image ist dort
-# womöglich gerade die Heilung; `docker inspect` auf einen fehlenden
-# Container liefert leer, und leer heisst hier "anlegen" wie bisher.
-cur_status="$(docker inspect --format '{{.State.Status}}' "$CONTAINER" 2>/dev/null || true)"
-case "$cur_status" in
-  exited|paused)
-    echo "pulse-update: container is stopped ($cur_status) — leaving it alone"
-    exit 0 ;;
-esac
 
 echo "pulse-update: updating $CONTAINER -> $new_id"
 # Alten Container beiseitestellen statt sofort löschen → Rollback bei Fehlstart.
