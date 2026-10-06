@@ -31,7 +31,7 @@
  * ungepackten Builds; siehe `ENDPOINT` unten, Security-Scan 2026-09-18).
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
 
@@ -58,6 +58,39 @@ const ENDPOINT = (() => {
 
 /** Muss zum Server-`MAX_LOG_CHARS` (routes_experimental_logs.py) passen. */
 const MAX_LOG_BYTES = 512 * 1024;
+
+/** Wie viel der Datei höchstens gelesen wird — etwas mehr als MAX_LOG_BYTES,
+ *  damit nach dem Abschneiden einer eventuell halben ersten Zeile noch die
+ *  volle Berichtsmenge übrig bleibt. */
+const LESE_FENSTER_BYTES = 600 * 1024;
+
+/**
+ * Nur den Schwanz der Log-Datei lesen (perf hunt 2026-10-06): vorher las
+ * `readFileSync` die ganze Datei (bis 16 MB) ein, um hinten 512 KB
+ * abzuschneiden — bei jedem Stream-Ende. `fs.read` ab Position spart das.
+ *
+ * Das Fenster kann mitten in einem UTF-8-Zeichen beginnen; das erste Zeichen
+ * kann also defekt ankommen. Billig gegengesteuert, wo es geht: beginnt das
+ * Fenster nicht am Dateianfang, wird bis zur ersten Zeilengrenze verworfen.
+ */
+function liesSchwanz(path: string, bytes: number): string {
+  const fd = openSync(path, 'r');
+  try {
+    const { size } = fstatSync(fd);
+    const start = Math.max(0, size - bytes);
+    const laenge = size - start;
+    const buf = Buffer.allocUnsafe(laenge);
+    readSync(fd, buf, 0, laenge, start);
+    let text = buf.toString('utf8');
+    if (start > 0) {
+      const nl = text.indexOf('\n');
+      if (nl >= 0) text = text.slice(nl + 1);
+    }
+    return text;
+  } finally {
+    closeSync(fd);
+  }
+}
 
 /**
  * Die Felder aus `health.sidecar`, die in den Bericht wandern.
@@ -213,7 +246,7 @@ async function uploadExperimentalLog(reason: string, slot: number): Promise<void
   const path = join(app.getPath('userData'), 'sidecar.log');
   if (!existsSync(path)) return;
 
-  let logText = readFileSync(path, 'utf8');
+  let logText = liesSchwanz(path, LESE_FENSTER_BYTES);
   if (logText.length > MAX_LOG_BYTES) logText = logText.slice(-MAX_LOG_BYTES);
   if (!logText.trim()) return;
 

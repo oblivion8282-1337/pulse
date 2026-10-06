@@ -50,6 +50,18 @@ const SHUTDOWN_EOF_GRACE_MS = 1_500;
 /** How long to wait after SIGTERM before escalating to SIGKILL. */
 const SHUTDOWN_SIGTERM_GRACE_MS = 2_000;
 
+/** How long a warm child may sit without a single request, response or event
+ *  before we shut it down (perf hunt 2026-10-06 — measured 146 MB RSS in dev /
+ *  67 MB in prod, held for the whole session by users who stream once and then
+ *  never again). Mirrors the player (`player.ts` LEERLAUF_MS): the next `call()`
+ *  respawns lazily, and the shutdown is the same graceful ladder the app quit
+ *  uses — stdin EOF first, never a bare kill. The Frist is generous next to the
+ *  player's 30 s because a stream START takes a portal dialog + user thought on
+ *  Linux (up to the 60 s start fuse); a respawn in the middle of that flow would
+ *  be the bad kind of surprise, so the child must outlive any plausible pause
+ *  between opening the stream dialog and pressing Start. */
+const LEERLAUF_MS = 10 * 60_000;
+
 // ── Sidecar resolver ────────────────────────────────────────────────────────
 //
 // Drei Umsetzungen desselben Zeilen-JSON-über-stdio-Protokolls:
@@ -293,6 +305,10 @@ class SidecarManager {
    *  silent native crash (renderer left stuck "live") from a normal end. Fresh
    *  instance per spawn. Pure logic in `sidecar-crash-detector.ts`. */
   private lifecycle: StreamLifecycleTracker = createStreamLifecycleTracker();
+  /** Idle-exit timer (see LEERLAUF_MS). Armed whenever the child shows life
+   *  (spawn, request, response, event); fires only into the graceful
+   *  `shutdown()`, never a bare kill. */
+  private leerlaufGriff: ReturnType<typeof setTimeout> | null = null;
 
   /** Register the event callback (set once by main.ts → relays to the renderer).
    *  Does NOT spawn the sidecar; spawning stays lazy on first `call()`. */
@@ -393,6 +409,7 @@ class SidecarManager {
         }
       });
     } finally {
+      this.merkeLebendig();
       // Fresh process per stream — see the doc comment above. Runs on success
       // *and* on a failed/timed-out stop (a wedged sidecar gets killed too).
       // `await` keeps it deterministic: by the time `call()` resolves, the old
@@ -435,6 +452,35 @@ class SidecarManager {
     const child = this.child;
     if (!child) return;
     try { child.kill('SIGKILL'); } catch { /* schon tot */ }
+  }
+
+  /**
+   * Lebenszeichen verbuchen: die Leerlauf-Frist läuft neu (see LEERLAUF_MS).
+   * Gerufen an jeder Stelle, die beweist, dass das Kind lebt — Spawn, jeder
+   * Ruf (im `finally`, also auch bei Fehlschlägen), jede Antwort und jedes
+   * Ereignis auf stdout. Läuft die Frist trotzdem ab, endet das Kind über
+   * denselben geordneten `shutdown()`-Weg wie beim App-Ende (stdin-EOF →
+   * SIGTERM → SIGKILL); der nächste `call()` spawnt frisch (Mechanismus wie
+   * beim Windows-Respawn-nach-Stop). Nie mitten im Stream: eine Frist, die
+   * ohne jede Zeile abläuft, kann nur einen warmen, nicht aber einen sendenden
+   * Kindprozess treffen — davor schützt `lifecycle.mayBeStreaming()` (eine
+   * stumme Live-Sendung sieht der Recency nach nicht von „warm" verschieden).
+   */
+  private merkeLebendig(): void {
+    if (this._shuttingDown) return;
+    if (this.leerlaufGriff) clearTimeout(this.leerlaufGriff);
+    this.leerlaufGriff = setTimeout(() => {
+      this.leerlaufGriff = null;
+      if (this.pending.size > 0 || this.lifecycle.mayBeStreaming()) {
+        this.merkeLebendig(); // doch noch etwas los — nächste Gelegenheit
+        return;
+      }
+      logSidecar(
+        'lifecycle',
+        `idle ${Math.round(LEERLAUF_MS / 60_000)} min — shutting warm sidecar down (next call respawns)`,
+      );
+      void this.shutdown();
+    }, LEERLAUF_MS);
   }
 
   private async _doShutdown(child: ChildProcessWithoutNullStreams): Promise<void> {
@@ -575,12 +621,16 @@ class SidecarManager {
       this.cleanupChild();
     });
 
+    // Fresh child → fresh idle deadline (see LEERLAUF_MS).
+    this.merkeLebendig();
+
     return child;
   }
 
   private onStdoutLine(line: string): void {
     const text = line.trim();
     if (!text) return;
+    this.merkeLebendig(); // jede Antwort / jedes Ereignis ist ein Lebenszeichen
     logSidecar('out', text);
     let msg: unknown;
     try {
@@ -634,6 +684,10 @@ class SidecarManager {
   }
 
   private cleanupChild(): void {
+    if (this.leerlaufGriff) {
+      clearTimeout(this.leerlaufGriff);
+      this.leerlaufGriff = null;
+    }
     try {
       this.rl?.close();
     } catch {
