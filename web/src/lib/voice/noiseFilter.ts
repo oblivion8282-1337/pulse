@@ -1,10 +1,30 @@
 import type { Track, TrackProcessor, ProcessorOptions } from 'livekit-client';
-import { RnnoiseWorkletNode, NoiseGateWorkletNode, loadRnnoise } from '@sapphi-red/web-noise-suppressor';
+// WICHTIG: die Wert-Importe dieser Bibliothek sind bewusst DYNAMISCH (unten,
+// `suppressorModul()`). Sie deklariert auf Modul-Ebene
+// `class NoiseGateWorkletNode extends AudioWorkletNode` — und `AudioWorkletNode`
+// existiert in WebKit NUR in Secure Contexts. Ein statischer Import wirft darum
+// auf jedem http-Origin (Dev-Stack übers LAN auf dem Gerät, plain-http-
+// Self-Host) schon beim App-Boot einen ReferenceError und lässt die Seite
+// komplett leer. Die `?url`-Importe bleiben statisch: Sie erzeugen nur
+// Zeichenketten und evaluieren die Bibliothek nicht.
+import type {
+  NoiseGateWorkletNode,
+  RnnoiseWorkletNode
+} from '@sapphi-red/web-noise-suppressor';
 import rnnoiseWorkletPath from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
 import rnnoiseWasmPath from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url';
 import rnnoiseSimdWasmPath from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url';
 import noiseGateWorkletPath from '@sapphi-red/web-noise-suppressor/noiseGateWorklet.js?url';
 import type { NoiseSuppressionMode } from '$lib/stores/settings.svelte';
+
+type SuppressorModul = typeof import('@sapphi-red/web-noise-suppressor');
+let _suppressorModul: Promise<SuppressorModul> | null = null;
+
+/** Einmaliges, faules Laden der Noise-Suppressor-Bibliothek (s. Import-Kommentar). */
+function suppressorModul(): Promise<SuppressorModul> {
+  _suppressorModul ??= import('@sapphi-red/web-noise-suppressor');
+  return _suppressorModul;
+}
 
 /** Tracks AudioContext instances that have had the RNNoise + gate worklet
  *  modules registered, so restart() skips the addModule round-trips when
@@ -75,6 +95,8 @@ class RnnoiseGatedTrackProcessor implements TrackProcessor<Track.Kind.Audio> {
   #tapRaf: number | null = null;
   #dest: MediaStreamAudioDestinationNode | null = null;
   #wasmBinary: ArrayBuffer | null = null;
+  /** Bibliotheks-Namensraum, beim ersten Graph-Aufbau geladen (s. Import-Kommentar). */
+  #suppressor: SuppressorModul | null = null;
   #openDb: number;
   #makeupGain: number;
 
@@ -150,7 +172,7 @@ class RnnoiseGatedTrackProcessor implements TrackProcessor<Track.Kind.Audio> {
   };
 
   #makeGate(ctx: AudioContext): NoiseGateWorkletNode {
-    return new NoiseGateWorkletNode(ctx, {
+    return new (this.#suppressor!.NoiseGateWorkletNode)(ctx, {
       openThreshold: this.#openDb,
       closeThreshold: this.#openDb - GATE_CLOSE_BELOW_OPEN_DB,
       holdMs: GATE_HOLD_MS,
@@ -163,6 +185,8 @@ class RnnoiseGatedTrackProcessor implements TrackProcessor<Track.Kind.Audio> {
     const ctx = audioContext ?? new AudioContext({ sampleRate: 48000 });
     this.#ctx = ctx;
 
+    if (!this.#suppressor) this.#suppressor = await suppressorModul();
+    const { RnnoiseWorkletNode, loadRnnoise } = this.#suppressor;
     if (!this.#wasmBinary) {
       this.#wasmBinary = await loadRnnoise({ url: rnnoiseWasmPath, simdUrl: rnnoiseSimdWasmPath });
     }
