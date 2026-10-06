@@ -1,6 +1,6 @@
 """Shared helpers for the dropbox feature — used across all dropbox route
-modules so we don't have to duplicate path-normalisation, quota mutation
-and event-publish logic.
+modules so we don't have to duplicate name validation, content-type
+relabelling and event-publish logic.
 
 Split out from ``routes/dropbox.py`` to keep each file under the
 350-line soft cap (PLAN.md §12.1). The *permission* side — who may use the
@@ -18,8 +18,6 @@ from dcc_shared.events import (
     DropboxEntryPurgedEvent,
     DropboxQuotaUpdatedEvent,
 )
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.models import DropboxConfig
@@ -99,37 +97,6 @@ def normalize_content_type(ct: str | None) -> str:
     return "application/octet-stream"
 
 
-def normalize_parent_path(raw: str | None) -> str:
-    """Return the canonical ``parent_path`` representation.
-
-    * empty / None → ``""`` (root)
-    * leading + trailing ``/`` → stripped
-    * double slashes → collapsed
-    * backslashes normalised to forward-slashes (Windows-Pickup from the
-      ``webkitGetAsEntry`` API can hand us those)
-
-    Rejects empty components (the result of leading/trailing slashes
-    after stripping) so a "foo//bar" doesn't sneak through."""
-
-    if raw is None:
-        return ""
-    # Normalise Windows separators + collapse runs.
-    cleaned = raw.replace("\\", "/").strip("/")
-    if not cleaned:
-        return ""
-    parts = [p for p in cleaned.split("/") if p]
-    if any(p in ("",) for p in parts):
-        # Defensive — split+filter already drops empties, but a ".."
-        # would survive and let a user escape the dropbox root.
-        raise ValueError("parent_path contains empty component")
-    for p in parts:
-        if p in (".", ".."):
-            raise ValueError(
-                f"parent_path must not contain '{p}' components"
-            )
-    return "/".join(parts)
-
-
 def _fold_name(name: str) -> str:
     """Die kanonische Form, die tatsächlich gespeichert wird.
 
@@ -203,49 +170,6 @@ def validate_name(name: str, *, max_len: int = 255) -> str:
     # ``.gitignore``) sind ein gültiger Upload. ``.`` und ``..`` sind oben
     # bereits abgewiesen.
     return cleaned
-
-
-# Quota mutation ------------------------------------------------------
-
-
-def bump_used(config: DropboxConfig, delta: int) -> None:
-    """Adjust the cached ``used_bytes`` by ``delta`` (positive on upload,
-    negative on delete / restore-from-trash → - used).
-
-    **Es gibt keinen Abgleich, der einen abgedrifteten Zähler heilt** — der
-    frühere Docstring behauptete das, aber der stündliche Sweep fasst
-    ``used_bytes`` nicht an und ``s3.guild_dropbox_bytes()`` hat keinen
-    Aufrufer. Jeder Aufrufer muss deshalb selbst sicherstellen, dass er genau
-    einmal bucht: ``_dropbox_writes.py`` hängt die Buchung an ein bedingtes
-    UPDATE, das nur eine von zwei parallelen Anfragen gewinnt.
-
-    Synchronous because we only mutate an attribute the session already
-    tracks — caller's own ``commit()`` makes the change durable."""
-
-    new_val = config.used_bytes + delta
-    # Guard against underflow — the cached counter must never go
-    # negative. The sweep will reconcile if a buggy path let this drift.
-    config.used_bytes = max(0, new_val)
-
-
-async def locked_config(
-    session: AsyncSession, guild_id: int
-) -> DropboxConfig | None:
-    """Read the quota row with a row-level lock so two concurrent
-    quota-mutating requests can't both pass the check before either
-    commits the bump. Returns ``None`` if the dropbox was never
-    provisioned.
-
-    The per-guild ``asyncio.Lock`` (``with_quota_lock``) is the
-    caller-side synchronisation; this bare helper only adds the DB
-    row-lock where the dialect supports it (Postgres). On SQLite the
-    app-level lock alone closes the reader/writer gap."""
-
-    bind = session.get_bind()
-    stmt = select(DropboxConfig).where(DropboxConfig.guild_id == guild_id)
-    if bind.dialect.name == "postgresql":
-        stmt = stmt.with_for_update()
-    return (await session.execute(stmt)).scalars().first()
 
 
 # Event helpers -------------------------------------------------------
