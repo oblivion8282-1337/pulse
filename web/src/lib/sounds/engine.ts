@@ -184,9 +184,10 @@ class SoundEngine {
         void guildSounds.refresh(gid);
         // Aber DIESER Play bleibt nicht stumm: auf das gebündelte Default
         // ausweichen — derselbe Degradationsgrad wie der Alters-Guard in
-        // guildSounds.urlFor (>8 min → einmalig Default). Vorher starb der
-        // Cue lautlos, wenn eine Signatur trotz Guard alt war (z. B.
-        // replayReadyForActivation seedet alte URLs mit frischem
+        // guildSounds.urlFor (schweigt erst am Signaturende, siehe
+        // sounds/frische.ts). Vorher starb der Cue lautlos, wenn eine
+        // Signatur trotz Guard alt war (z. B. replayReadyForActivation
+        // seedet alte URLs mit frischem
         // fetchedAt — Security-/Bug-Nachfrage 2026-09-18, Stream-Start-
         // Sound nach Serverwechsel).
         const fallback = defaultUrls(id).find((u) => !this.#missing.has(u));
