@@ -10,14 +10,13 @@
   er am Avatar und führte in die Einstellungen; er ist mit seinem Ziel hierher
   gewandert.
 
-  Die Rail ist `hidden lg:flex`. Auf Tablet und Handy sitzt derselbe Einstieg
+  Die Rail ist `hidden desktop:flex`. Auf Tablet und Handy sitzt derselbe Einstieg
   am Fuss der Räume-Liste (`/app/rooms`) — beide rufen dieselbe Route.
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
   import ServerIcon from '@lucide/svelte/icons/server';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-  import { viewport } from '$lib/stores/viewport.svelte';
   import { selfHostEinstiegSichtbar, selfHostHinweisOffen } from '$lib/selfhost/hinweis.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -26,7 +25,12 @@
 </script>
 
 {#if sichtbar}
-  <Tooltip.Provider delayDuration={200} disabled={viewport.isMobile}>
+  <!-- Nur-Desktop-Komponente: einziger Mount ist die GuildRail, deren nav
+       an `isDesktop ? 'flex' : 'hidden'` haengt — auf Handy/Tablet ist der
+       Knopf unsichtbar (display:none, raus aus dem A11y-Baum), ein
+       Tooltip-Verhalten dort ist also unbeobachtbar. Tooltips daher fest
+       an. -->
+  <Tooltip.Provider delayDuration={200}>
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
@@ -34,11 +38,11 @@
             <button
               {...props}
               onclick={() => goto('/app/server')}
-              class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md md:size-10"
+              class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md nicht-handy:size-10"
               data-testid="open-self-host"
               aria-label={m.self_host_entry_label()}
             >
-              <ServerIcon class="size-6 md:size-5" />
+              <ServerIcon class="size-6 nicht-handy:size-5" />
             </button>
             {#if hinweis}
               <span

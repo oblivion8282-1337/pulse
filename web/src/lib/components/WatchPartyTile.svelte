@@ -58,6 +58,9 @@
   interface Props {
     channelId: string;
     party: WatchPartyState;
+    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
+     *  an die TileShell durchgereicht. */
+    handy: boolean;
     /** Wenn false (Popup-Modus), kein Detach-Button — wir sind ja schon
      *  entkoppelt. */
     canDetach?: boolean;
@@ -72,7 +75,7 @@
     onDock?: () => void;
   }
 
-  let { channelId, party, canDetach = true, canHide = true, onDock }: Props = $props();
+  let { channelId, party, handy, canDetach = true, canHide = true, onDock }: Props = $props();
 
   // Rechtes Seitenpanel: Chat ODER Warteschlange, nie beide gleichzeitig
   // (teilen sich den Slot). Die beiden Toggles schliessen sich gegenseitig.
@@ -366,6 +369,7 @@
 
 <TileShell
   kind="party"
+  {handy}
   containerTestid="watch-party-tile"
   testidPrefix="watch-party"
   name={sourceLabel}
@@ -462,12 +466,12 @@
       <button
         type="button"
         onclick={onDock}
-        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 md:p-1.5"
+        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 nicht-handy:p-1.5"
         aria-label={m.watch_popup_reattach_label()}
         title={m.watch_popup_reattach_title()}
         data-testid="watch-party-dock"
       >
-        <PictureInPicture2Icon class="size-5 md:size-3.5" />
+        <PictureInPicture2Icon class="size-5 nicht-handy:size-3.5" />
       </button>
     {/if}
     {#if viewerReadonly && captions.tracks.length > 0}
@@ -482,34 +486,34 @@
         <button
           type="button"
           onclick={() => controller.backToBuffer()}
-          class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 md:p-1.5"
+          class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 nicht-handy:p-1.5"
           aria-label={m.watch_party_tile_rewind30_aria()}
           title={m.watch_party_tile_rewind30_aria()}
           data-testid="watch-party-rewind30"
         >
-          <RewindIcon class="size-5 md:size-3.5" />
+          <RewindIcon class="size-5 nicht-handy:size-3.5" />
         </button>
       {/if}
       <button
         type="button"
         onclick={() => (changeOpen = true)}
-        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 md:p-1.5"
+        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 nicht-handy:p-1.5"
         aria-label={m.watch_party_tile_change_source_aria()}
         title={m.watch_party_tile_change_source_aria()}
         data-testid="watch-party-change-source"
       >
-        <ReplaceIcon class="size-5 md:size-3.5" />
+        <ReplaceIcon class="size-5 nicht-handy:size-3.5" />
       </button>
       <WatchPartyHandoffMenu {channelId} {partyId} others={otherWatchers} />
       <button
         type="button"
         onclick={stop}
-        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-destructive md:p-1.5"
+        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-destructive nicht-handy:p-1.5"
         aria-label={m.watch_party_tile_stop_aria()}
         title={m.watch_party_tile_stop_aria()}
         data-testid="watch-party-stop"
       >
-        <XIcon class="size-5 md:size-3.5" />
+        <XIcon class="size-5 nicht-handy:size-3.5" />
       </button>
     {/if}
   {/snippet}

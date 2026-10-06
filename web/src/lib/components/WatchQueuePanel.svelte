@@ -88,7 +88,7 @@
 </script>
 
 <div
-  class="glass-panel flex h-full w-full flex-col overflow-hidden border-l border-border md:w-72"
+  class="glass-panel flex h-full w-full flex-col overflow-hidden border-l border-border nicht-handy:w-72"
   data-testid="watch-queue-panel"
 >
   <header class="flex items-center gap-2 border-b border-border px-3 py-2.5">

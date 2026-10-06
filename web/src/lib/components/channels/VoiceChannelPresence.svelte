@@ -18,7 +18,6 @@
   import { watchPartyPicker, openPartyTile } from '$lib/watch/openParty.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { settings } from '$lib/stores/settings.svelte';
-  import { viewport } from '$lib/stores/viewport.svelte';
   import VoiceChannelMembers from '../VoiceChannelMembers.svelte';
   import SpatialPositionerPanel from '../SpatialPositionerPanel.svelte';
   import type { Channel } from '$lib/api/types';
@@ -27,10 +26,15 @@
   let {
     channel,
     myId,
+    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung):
+     *  blendet den raeumlichen Klang-Steller aus und wandert an die
+     *  Mitglieder-Koepfe weiter (Profil: Tippen-Blatt vs Rechtsklick). */
+    handy,
     onSelect
   }: {
     channel: Channel;
     myId: string | null;
+    handy: boolean;
     onSelect: (c: Channel) => void;
   } = $props();
 
@@ -105,6 +109,7 @@
         userIds={members}
         channelId={channel.id}
         guildId={channel.guild_id}
+        {handy}
         streamingUserIds={streamers}
         camUserIds={camUserIds}
         speakingUserIds={speakers}
@@ -146,7 +151,7 @@
         }}
       />
     </div>
-    {#if settings.audio.spatialMode !== 'off' && voice.connected && voice.channelId === channel.id && !viewport.isMobile}
+    {#if settings.audio.spatialMode !== 'off' && voice.connected && voice.channelId === channel.id && !handy}
       <!-- Spatial on + connected here: the drag circle sits BELOW the member
            list. The list stays for names, badges and stream/cam/party
            actions; the circle is purely for arranging everyone around you. -->

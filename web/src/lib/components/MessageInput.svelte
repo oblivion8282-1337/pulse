@@ -488,7 +488,7 @@
 </script>
 
 <form
-  class="px-2 pt-2 pb-[calc(1.25rem+var(--safe-bottom))] md:px-2 md:pb-2"
+  class="px-2 pt-2 pb-[calc(1.25rem+var(--safe-bottom))] nicht-handy:px-2 nicht-handy:pb-2"
   ondragenter={onDragEnter}
   ondragover={onDragOver}
   ondragleave={onDragLeave}
@@ -505,7 +505,7 @@
        sobald der Text mehrzeilig wird. Bei einer Zeile ist es einerlei, weil der
        Textkasten genauso hoch ist wie die Knöpfe (siehe unten). -->
   <div
-    class="bg-bg-input relative flex items-end gap-1.5 border border-border px-3 py-2 shadow-[var(--panel-shadow)] backdrop-blur-sm md:gap-2 md:px-4 md:py-3 dark:shadow-none
+    class="bg-bg-input relative flex items-end gap-1.5 border border-border px-3 py-2 shadow-[var(--panel-shadow)] backdrop-blur-sm nicht-handy:gap-2 nicht-handy:px-4 nicht-handy:py-3 dark:shadow-none
            {replyTo || anhaenge.zeilen.length > 0 ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'}"
   >
     {#if isDragging}
@@ -584,7 +584,7 @@
       <Button
         variant="ghost"
         size="icon"
-        class="size-10 md:size-9"
+        class="size-10 nicht-handy:size-9"
         aria-label={m.message_input_attach_file()}
         onclick={() => {
           // Am Handy: Auswahl-Blatt (Foto / Galerie / Dokument). Am Rechner
@@ -675,7 +675,7 @@
     <!-- `min-h-*` + `py-*` in zwei Grössen: Der Kasten ist damit jeweils so hoch
          wie die Knöpfe daneben und führt seine Zeile selbst mittig — 44px auf dem
          Handy (`size-10`-Knöpfe: 24px Zeilenhöhe + 2x8px Abstand), 36px ab
-         Tablet (`md:size-9`: 24px + 2x6px). Weil die Reihe mit `items-end`
+         Tablet (`nicht-handy:size-9`: 24px + 2x6px). Weil die Reihe mit `items-end`
          unten ausrichtet, würde ein niederer Kasten mit seiner Unterkante an
          den Knöpfen kleben und die Textzeile unter die Feldmitte rutschen
          (auf dem Handy um gut 4px, gemessen).
@@ -698,7 +698,7 @@
       onfocus={() => (eingabeFokus = true)}
       placeholder={effectivePlaceholder}
       {disabled}
-      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2 text-[15px] leading-6 outline-none disabled:cursor-not-allowed disabled:opacity-60 md:min-h-9 md:py-1.5"
+      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2 text-[15px] leading-6 outline-none disabled:cursor-not-allowed disabled:opacity-60 nicht-handy:min-h-9 nicht-handy:py-1.5"
       data-testid="message-input"
     ></textarea>
     <MentionTriggerOverlay

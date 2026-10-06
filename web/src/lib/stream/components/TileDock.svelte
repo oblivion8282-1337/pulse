@@ -106,7 +106,7 @@
       ? 'text-white/90 hover:bg-white/15'
       : 'text-text-muted hover:bg-bg-hover hover:text-text'
   );
-  const BTN_BASE = 'flex items-center justify-center rounded-md p-2 transition-colors md:p-1.5';
+  const BTN_BASE = 'flex items-center justify-center rounded-md p-2 transition-colors nicht-handy:p-1.5';
   const ICON = 'size-4';
   function btn(active = false): string {
     return `${BTN_BASE} ${tone} ${active ? '!text-primary' : ''}`;
@@ -183,7 +183,7 @@
       <button
         type="button"
         onclick={() => onEnableAudio?.()}
-        class="flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-white hover:bg-destructive/90 md:py-1"
+        class="flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-white hover:bg-destructive/90 nicht-handy:py-1"
         data-testid={`${testidPrefix}-unblock-audio`}
       >
         <VolumeXIcon class="size-3.5" />

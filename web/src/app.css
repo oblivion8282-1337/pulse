@@ -6,6 +6,30 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Geräte-Varianten (Geräte-Trennung, Regel seit 2026-09-04): Die drei
+   Geräteklassen aus `geraetKlasse.ts` hängen am Wurzel-Div des Root-Layouts
+   (`geraet-desktop` / `geraet-tablet` / `geraet-handy`) — am GERAET, nie an
+   der Fensterbreite. Diese Varianten ersetzen die Fensterbreiten-Klassen
+   (`md:`/`lg:`/`sm:` …): Handy bekommt seine eigene Anordnung (Basis-Klasse),
+   Desktop/Tablet die geteilte (`nicht-handy:`), reine Desktop-Feinjustierung
+   (`desktop:`). Ein schmales Fenster am Rechner bleibt die Desktop-Anordnung,
+   ein quer gedrehtes Handy die Handy-Anordnung.
+   ponytail-Grenze: die alten Fensterstufen sm→md→lg kollabieren in diese
+   Zweistufung (Gerät statt Fenster) — Feinjustierung innerhalb einer Klasse
+   über konkrete Werte, nicht über neue Stufen.
+   WICHTIG (Fehler vom 2026-10-06, erste Fassung): `:is()` statt `:where()` —
+   `:where` gab den Varianten NULL Vorrangs-Gewicht, und die Reihenfolge ließ
+   `nicht-handy:` (Mittel-Stufe) gegen `desktop:` (Groß-Stufe) gewinnen → die
+   Desktop-App sah flächendeckend anders aus. Reihenfolge = Kaskade: erst
+   `nicht-handy`, dann `desktop`, damit die feine Stufe auf dem Desktop gewinnt. */
+@custom-variant handy (&:is(.geraet-handy *));
+@custom-variant tablet (&:is(.geraet-tablet *));
+/* nicht-handy = desktop+tablet (Partition!) — bewusst kommafrei formuliert:
+   der Dev-Compiler (tailwindcss/vite) erzeugte für die Komma-Liste in :is()
+   keine Utilities, der Build schon (Falle vom 2026-10-06). */
+@custom-variant nicht-handy (&:not(.geraet-handy *));
+@custom-variant desktop (&:is(.geraet-desktop *));
+
 /* Mobile Slide-Rein: Detail-Bildschirme (Chat, Community, Entdecken …)
    schieben sich auf dem Handy von rechts rein — WhatsApp-Prinzip, als
    einfache Mount-Animation direkt am Bildschirm (keine View-Transition-API:

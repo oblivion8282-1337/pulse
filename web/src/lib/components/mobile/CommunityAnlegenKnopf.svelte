@@ -3,7 +3,7 @@
    * „Community erstellen" für die Bereichs-Ansicht Räume (`< lg`).
    *
    * **Warum es diesen Knopf überhaupt braucht.** Auf `< lg` gibt es die
-   * `GuildRail` nicht (`hidden lg:flex`), und mit ihr fehlte der einzige Weg,
+   * `GuildRail` nicht (`hidden desktop:flex`), und mit ihr fehlte der einzige Weg,
    * eine Community anzulegen: Der Leerzustand bot allein „Entdecken" an — und
    * wer als Erster auf einen frischen eigenen Server kommt, findet dort
    * nichts zu entdecken. Auf einem Telefon oder in einem schmalen Fenster war

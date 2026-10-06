@@ -40,7 +40,16 @@ class Viewport {
    *  Sichtbarkeits-Getter darunter. Reaktiv über `zeigerGrob` und die
    *  Fenstermaße; die Klasse selbst wechselt im Betrieb nur, wenn ein Tablet
    *  angedockt/abgedockt wird (Zeigerwechsel), nie durch Fensterresizen. */
+  /** Dev-Sichtschalter (nur im Dev-Build vorhanden, Produktion ohne): mit
+   *  `localStorage.setItem('dev-geraet', 'handy')` + Seitenneuladen wird die
+   *  Klasse erzwungen — Ansichten testen ohne echtes Gerät. */
+  private devOverride: GeraetKlasse | null =
+    import.meta.env.DEV && typeof localStorage !== 'undefined'
+      ? (localStorage.getItem('dev-geraet') as GeraetKlasse | null)
+      : null;
+
   get geraet(): GeraetKlasse {
+    if (this.devOverride) return this.devOverride;
     return geraetKlasse(
       isElectron(),
       this.zeigerGrob,

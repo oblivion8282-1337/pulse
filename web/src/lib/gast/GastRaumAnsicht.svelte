@@ -36,7 +36,7 @@
     </span>
   </header>
 
-  <main class="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-0 md:gap-3 md:p-3">
+  <main class="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-0 nicht-handy:gap-3 nicht-handy:p-3">
     <GastVideoFlaeche />
 
     {#if gastRaum.teilnehmer.length > 0}

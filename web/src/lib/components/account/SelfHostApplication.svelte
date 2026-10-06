@@ -109,7 +109,7 @@ import { currentLocale } from '$lib/i18n';
          (eigenes Gerät) braucht keinen Antrag mehr: die Server-App
          registriert sich beim ersten Login selbst (Entscheid 2026-09-27). -->
     <p class="text-text-bright text-xs font-medium">{m.hosting_apply_mode_label()}</p>
-    <div class="flex flex-col gap-2 sm:flex-row">
+    <div class="flex flex-col gap-2 nicht-handy:flex-row">
       <button type="button" disabled
         class="{MODE_BTN} {modeBtnState(true)}"
         data-testid="hosting-mode-vps">

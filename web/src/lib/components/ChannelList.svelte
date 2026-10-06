@@ -40,6 +40,10 @@ import { errText } from '$lib/utils/errText';
   let {
     guild,
     channels,
+    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
+     *  an die Abschnitte durchgereicht (Raumklang-Eintrag, Klang-Steller,
+     *  Profil-Huelle in den Sprachkanal-Teilnehmern). */
+    handy,
     activeChannelId = null,
     onSelect,
     onCreateClick,
@@ -52,6 +56,7 @@ import { errText } from '$lib/utils/errText';
   }: {
     guild: Guild | null;
     channels: Channel[];
+    handy: boolean;
     activeChannelId?: string | null;
     onSelect: (c: Channel) => void;
     onCreateClick: () => void;
@@ -199,7 +204,7 @@ import { errText } from '$lib/utils/errText';
   this={variant === 'sheet' ? 'div' : 'aside'}
   class={variant === 'sheet'
     ? 'text-text-base flex min-h-0 w-full flex-col'
-    : 'glass-panel text-text-base flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:w-60 md:flex-none md:rounded-2xl lg:w-68'}
+    : 'glass-panel text-text-base flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none nicht-handy:w-60 nicht-handy:flex-none nicht-handy:rounded-2xl desktop:w-68'}
   data-testid="channel-list"
 >
   <ChannelListHeader {guild} {canInvite} {canCreate} {onCreateClick} {onBack} />
@@ -247,6 +252,7 @@ import { errText } from '$lib/utils/errText';
   <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-3">
     <ChannelSections
       {guild}
+      {handy}
       {textChannels}
       {dropboxChannels}
       {voiceChannels}
@@ -266,6 +272,6 @@ import { errText } from '$lib/utils/errText';
   </nav>
 
   {#if variant === 'aside'}
-    <SidebarFooter />
+    <SidebarFooter {handy} />
   {/if}
 </svelte:element>

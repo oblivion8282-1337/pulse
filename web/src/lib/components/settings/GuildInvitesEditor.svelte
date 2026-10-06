@@ -158,7 +158,7 @@ import { errText } from '$lib/utils/errText';
 
   <!-- Create form -->
   <div class="border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4">
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+    <div class="flex flex-col gap-3 nicht-handy:flex-row nicht-handy:items-end">
       <div class="flex flex-1 flex-col gap-1.5">
         <Label for="invite-expiry">{m.guild_invites_expire_after()}</Label>
         <Select
@@ -232,7 +232,7 @@ import { errText } from '$lib/utils/errText';
         <h3 class="text-text-bright text-sm font-semibold">{m.guild_invites_addbyid_title()}</h3>
         <p class="text-text-muted text-xs">{m.guild_invites_addbyid_subtitle()}</p>
       </div>
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <div class="flex flex-col gap-3 nicht-handy:flex-row nicht-handy:items-end">
         <div class="flex flex-1 flex-col gap-1.5">
           <Label for="addbyid-input">{m.guild_invites_addbyid_title()}</Label>
           <Input

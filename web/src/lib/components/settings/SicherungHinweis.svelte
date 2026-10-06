@@ -10,11 +10,14 @@
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
-  import { viewport } from '$lib/stores/viewport.svelte';
   import CloudUploadIcon from '@lucide/svelte/icons/cloud-upload';
 
+  // Sprung-Ziel-Klasse vom Mount-Punkt (@me-Seite) hereingereicht
+  // (Geraete-Trennung): Handy-Route, sonst Einstellungs-Dialog.
+  let { handy }: { handy: boolean } = $props();
+
   function zuSicherung(): void {
-    if (viewport.isMobile) void goto('/app/me/sicherung');
+    if (handy) void goto('/app/me/sicherung');
     else uiOverlays.openSettings('sicherung');
   }
 </script>
