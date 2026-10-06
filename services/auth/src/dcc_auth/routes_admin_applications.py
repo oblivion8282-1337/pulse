@@ -27,10 +27,6 @@ from sqlalchemy.orm import selectinload
 
 from dcc_auth.admin_events import publish_application_decided
 from dcc_auth.db import SessionDep
-from dcc_auth.instance_provisioning import (
-    provision_app_host_instance,
-    user_has_active_owner_instance,
-)
 from dcc_auth.models import User
 from dcc_auth.models_instances import (
     InstanceApplication,

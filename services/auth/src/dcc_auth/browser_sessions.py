@@ -21,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, Response, status
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_auth.models import User, UserSession
