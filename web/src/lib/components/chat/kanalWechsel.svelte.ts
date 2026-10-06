@@ -24,6 +24,7 @@ import { gateway } from '$lib/ws/connection';
 import { voice } from '$lib/voice/livekit.svelte';
 import { hatServerVerlauf } from '$lib/verlauf';
 import { ladeAblageKanalVerlauf } from '$lib/components/chat/ablageKanalVerlauf';
+import { vorbereiten } from './dmKanalWechsel.svelte';
 import type { Channel } from '$lib/api/types';
 import { m as pm } from '$lib/paraglide/messages.js';
 
@@ -167,15 +168,6 @@ export function erstelleKanalWechsel() {
     const entry = sid ? serversStore.find(sid) : undefined;
     if (entry?.origin !== 'app_host' || !entry.instance_id) return false;
     return appHostAnwesenheit.istOffline(entry.instance_id);
-  }
-
-  /** Altbestand des Zielkanals vor dem ersten Rendern leeren (Begründung s.
-   *  `dmKanalWechsel.vorbereiten` — sonst blitzt die Liste einen Frame lang
-   *  den Altbestand, bevor der Sprung nach unten kommt). */
-  function vorbereiten(cid: string) {
-    untrack(() => {
-      if (cid && messages.loadedChannels[cid]) messages.setInitial(cid, []);
-    });
   }
 
   // WS reconnect path: connection.ts calls messages.clearChannel(cid) for every

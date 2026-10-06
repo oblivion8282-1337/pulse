@@ -203,7 +203,7 @@ export function restZeit(wert: unknown): number {
  *  nichts an. Ohne Platz in der Meldung zählt sie als Platz 0 — die Brücke
  *  hängt ihn an jedes Sidecar-Ereignis an, aber darauf zu BAUEN hiesse, dass
  *  eine ältere Shell den Vorrang wortlos verlöre. */
-export function ausMeldung(ev: unknown): { aktiv: boolean; restMs: number; platz: number } | null {
+function ausMeldung(ev: unknown): { aktiv: boolean; restMs: number; platz: number } | null {
   if (!ev || typeof ev !== 'object') return null;
   const m = ev as { ev?: unknown; state?: unknown; hold_ms?: unknown; slot?: unknown };
   if (m.ev !== 'remote_state') return null;

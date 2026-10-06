@@ -101,7 +101,7 @@ function werfeAnbieterFehler(fehler: string | null | undefined): never {
 }
 
 /** Rückgabe-URL (Electron) in Code + State zerlegen. */
-export function zerlegeRueckgabe(rueckgabe: string): { code: string; state: string } {
+function zerlegeRueckgabe(rueckgabe: string): { code: string; state: string } {
 	const code = /[?&]code=([^&]+)/.exec(rueckgabe)?.[1];
 	const state = /[?&]state=([^&]+)/.exec(rueckgabe)?.[1];
 	const fehler = /[?&]error=([^&]+)/.exec(rueckgabe)?.[1];
@@ -111,7 +111,7 @@ export function zerlegeRueckgabe(rueckgabe: string): { code: string; state: stri
 }
 
 /** Rückgabe aus der Rückkehr-Route prüfen (Browser-Weg): State muss passen. */
-export function pruefeRueckgabe(roh: string, erwarteterState: string): string {
+function pruefeRueckgabe(roh: string, erwarteterState: string): string {
 	const geparst = JSON.parse(roh) as { state?: string; code?: string; error?: string };
 	if (geparst.error) werfeAnbieterFehler(geparst.error);
 	if (geparst.state !== erwarteterState || typeof geparst.code !== 'string') {

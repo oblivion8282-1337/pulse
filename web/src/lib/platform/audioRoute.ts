@@ -119,7 +119,7 @@ export async function setVoiceActive(active: boolean): Promise<void> {
 }
 
 /** Collect the native audio-routing snapshot. No-op outside the Android wrapper. */
-export async function getAudioDiagnostic(): Promise<AudioDiagnostic | null> {
+async function getAudioDiagnostic(): Promise<AudioDiagnostic | null> {
   if (!isCapacitorAndroid()) return null;
   try {
     return await plugin.snapshot();
@@ -131,7 +131,7 @@ export async function getAudioDiagnostic(): Promise<AudioDiagnostic | null> {
 
 /** Send a diagnostic snapshot to the backend (chat-gateway). Authenticated via
  *  the caller's session; routes to the active server. */
-export async function sendAudioDiagnostic(dump: AudioDiagnostic): Promise<void> {
+async function sendAudioDiagnostic(dump: AudioDiagnostic): Promise<void> {
   try {
     await request('/audio-diagnostic', { method: 'POST', body: dump });
   } catch (e) {

@@ -13,7 +13,7 @@
 import { m } from '$lib/paraglide/messages.js';
 import type { Herkunft, Rechtsstand } from './herkunft';
 
-export function herkunftText(h: Herkunft): string {
+function herkunftText(h: Herkunft): string {
   switch (h.art) {
     case 'besitzer':
       return m.kanalrechte_woher_besitzer();

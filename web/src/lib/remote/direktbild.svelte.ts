@@ -65,11 +65,6 @@ let hostAbo: (() => void) | null = null;
 /** Hört der Steuernde gerade auf die Player-Ereignisse? */
 let controllerAbo: (() => void) | null = null;
 
-/** Aktueller Zustand — für die Anzeige beim Steuernden. */
-export function direktZustand(): DirektZustand {
-  return zustand.wert;
-}
-
 function setze(w: DirektZustand): void {
   zustand.wert = w;
 }
@@ -279,7 +274,6 @@ export function hostEnde(): void {
  * die Verbrauchsstelle ohne Erklärung lesbar bleibt.
  */
 export const direktbild = {
-  direktZustand,
   steuerndStart,
   steuerndAnswer,
   steuerndSitzung,
