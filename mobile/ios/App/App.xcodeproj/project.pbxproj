@@ -19,6 +19,7 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		A1B2C3D4E5F6071800000004 /* UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000003 /* UITests.swift */; };
 		A1B2C3D4E5F60718000000C1 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000C2 /* GoogleService-Info.plist */; };
+		A1B2C3D4E5F60718000000C5 /* pulse-push.caf in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000C6 /* pulse-push.caf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +41,7 @@
 		A1B2C3D4E5F6071800000003 /* UITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718000000C2 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = GoogleService-Info.plist; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718000000C4 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = App.entitlements; path = App.entitlements; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718000000C6 /* pulse-push.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = pulse-push.caf; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -99,6 +101,7 @@
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
+				A1B2C3D4E5F60718000000C6 /* pulse-push.caf */,
 				A1B2C3D4E5F60718000000C4 /* App.entitlements */,
 				A1B2C3D4E5F60718000000C2 /* GoogleService-Info.plist */,
 				A1B2C3D4E5F60718293A4B60 /* InfoPlist.strings */,
@@ -219,6 +222,7 @@
 				504EC30F1FED79650016851F /* Assets.xcassets in Resources */,
 				A1B2C3D4E5F60718293A4B61 /* InfoPlist.strings in Resources */,
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
+				A1B2C3D4E5F60718000000C5 /* pulse-push.caf in Resources */,
 				A1B2C3D4E5F60718000000C1 /* GoogleService-Info.plist in Resources */,
 				A1B2C3D4E5F60718293A4B5C /* PrivacyInfo.xcprivacy in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,

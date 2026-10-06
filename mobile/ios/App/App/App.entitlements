@@ -7,5 +7,10 @@
 	     die automatische Signierung beim Archivieren auf production um. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Zeitkritische Mitteilungen: durchbrechen Fokus-Modi (Stumm schaltet
+	     nur den Ton aus). Vom Server gesetzt (apns-interruption-level).
+	     Apples Zeitkritisch-Capability für das App-ID-Profil. -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
 </dict>
 </plist>

@@ -115,6 +115,18 @@ def _send_one(*, token: str, payload: dict) -> str:
                     title=payload["title"], body=payload["body"]
                 ),
                 token=token,
+                # iOS: eigener Sound (pulse-push.caf im Bundle) + zeitkritisch
+                # — durchbricht Fokus-Modi; das Zeitkritisch-Privileg vergibt
+                # der Nutzer einmalig im Systemdialog.
+                apns=messaging.ApnsConfig(
+                    headers={
+                        "apns-push-type": "alert",
+                        "apns-interruption-level": "time-sensitive",
+                    },
+                    payload=messaging.APNSPayload(
+                        aps=messaging.ApsSound(name="pulse-push.caf")
+                    ),
+                ),
                 # channel_id im data-Block: das ist die Pulse-Kanalkennung für
                 # den Deep-Link des Klienten, nicht der Android-Kanal.
                 android=messaging.AndroidConfig(
