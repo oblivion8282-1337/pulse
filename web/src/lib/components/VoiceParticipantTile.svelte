@@ -19,14 +19,7 @@
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
-  let {
-    p,
-    channelId,
-    guildId,
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
-     *  ins Nutzer-Profil durchgereicht: Tippen-Blatt statt Rechtsklick-Karte. */
-    handy
-  }: { p: VoiceParticipant; channelId: string; guildId: string; handy: boolean } = $props();
+  let { p, channelId, guildId }: { p: VoiceParticipant; channelId: string; guildId: string } = $props();
 
   $effect(() => {
     if (p.userId) userCache.queue(p.userId);
@@ -146,7 +139,6 @@
   displayName={resolvedName}
   avatarUrl={avatarSrc}
   {guildId}
-  {handy}
 >
   {#snippet children({ props })}
       <button
@@ -261,7 +253,7 @@
              Bild. Status-Zeile darunter mit fester Mindesthöhe: Mute-Icons
              und Lautstärke-Prozent dürfen weder Kachelbreite noch Name
              verschieben. -->
-        <div class="flex flex-col items-center gap-1 text-sm nicht-handy:text-xs">
+        <div class="flex flex-col items-center gap-1 text-sm md:text-xs">
           <!-- Fester Namens-Slot: der Bold-Wechsel beim Sprechen darf die
                Kachel nicht verbreitern, sonst zentriert das Grid sie neu und
                das Icon zittert. -->
@@ -352,7 +344,7 @@
         </Avatar.Fallback>
       </Avatar.Root>
     </div>
-    <div class="flex flex-col items-center gap-1 text-sm nicht-handy:text-xs">
+    <div class="flex flex-col items-center gap-1 text-sm md:text-xs">
       <span
         class="text-text-bright w-28 text-center truncate transition-[font-weight] duration-200 ease-out {p.isSpeaking
           ? 'font-bold'

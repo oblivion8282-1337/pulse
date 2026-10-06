@@ -69,7 +69,7 @@
     value={gainPctDisplay}
     oninput={onInput}
     onchange={onChange}
-    class="accent-primary h-3 w-full nicht-handy:h-auto"
+    class="accent-primary h-3 w-full md:h-auto"
     data-testid="settings-input-makeup"
   />
 

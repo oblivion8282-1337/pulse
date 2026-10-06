@@ -11,6 +11,9 @@
 -->
 <script lang="ts">
   import VoiceParticipantStrip from './VoiceParticipantStrip.svelte';
+  import VoiceParticipantTile from './VoiceParticipantTile.svelte';
+  import UsersIcon from '@lucide/svelte/icons/users';
+  import { m } from '$lib/paraglide/messages.js';
   import { voice } from '$lib/voice/livekit.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -22,16 +25,16 @@
   import { hqTileId } from '$lib/stream/hqTile';
   import { liveKitBackground } from '$lib/stream/liveKitBackground.svelte';
   import { inVoiceChannel } from '$lib/voice/state.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { untrack } from 'svelte';
   import type { Channel } from '$lib/api/types';
 
-  let {
-    channel,
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
-     *  an die Teilnehmer-Kacheln durchgereicht — deren Nutzer-Profil
-     *  oeffnet dort als Tippen-Blatt statt Rechtsklick-Karte. */
-    handy
-  }: { channel: Channel; handy: boolean } = $props();
+  let { channel }: { channel: Channel } = $props();
+
+  // Handy quer mit Stream: keine Leisten, kein Streifen — der Nutzer-Knopf
+  // oben rechts trägt die Teilnehmer (mit Stumm-/Streaming-Status). Hochkant
+  // und am Rechner bleibt der Streifen unter dem Stream.
+  let nutzerOffen = $state(false);
 
   // What the viewer has actually opened, in this channel, per kind.
   // Detached tiles are excluded — they're showing in a separate window.
@@ -148,10 +151,8 @@
   // Inline grid-template — Tailwind class interpolation could leave a stale
   // `grid-cols-*`, so we set it as a style binding instead.
   let gridStyle = $derived.by(() => {
-    // Handy-Klasse: immer 1 Spalte; mehrere Kacheln teilen die Hoehe
-    // (auto-rows-fr). Die Antwort kommt als Prop vom Mount-Punkt
-    // (Geraete-Trennung), nicht aus einer Viewport-Abfrage hier.
-    if (handy) return 'grid-template-columns: minmax(0, 1fr);';
+    // Mobile: always 1 column; multiple tiles share the height (auto-rows-fr).
+    if (viewport.istHandy) return 'grid-template-columns: minmax(0, 1fr);';
     const cols =
       videoTileCount <= 1 ? 1 : videoTileCount <= 4 ? 2 : videoTileCount <= 9 ? 3 : 4;
     return `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
@@ -160,9 +161,9 @@
 
 <!-- Mobil randlos (p-0, gap-0): das Video füllt den Bildschirm, Kantenrundung
      und Rand macht TileShell mobil ebenfalls weg. Ab md wie bisher mit Polster. -->
-<div class="relative flex min-h-0 min-w-0 flex-1 flex-col gap-0 p-0 nicht-handy:gap-2 nicht-handy:p-3" data-testid="stream-area">
+<div class="relative flex min-h-0 min-w-0 flex-1 flex-col gap-0 p-0 md:gap-2 md:p-3" data-testid="stream-area">
   <div
-    class="grid min-h-0 flex-1 auto-rows-fr gap-0 nicht-handy:gap-2"
+    class="grid min-h-0 flex-1 auto-rows-fr gap-0 md:gap-2"
     style={gridStyle}
     data-testid="stream-grid"
   >
@@ -203,13 +204,33 @@
     {/each}
   </div>
 
-  <!-- Der Teilnehmer-Streifen unter dem Grid. Ein ehemals geplanter
-       Nutzer-Knopf fuer quer gehaltene Handys lebte hier bis zur
-       Geraeteklassen-Vereinheitlichung: sein Gate
-       `istHandy && !isMobile` (zwei Getter fuer dieselbe Klasse) war
-       immer false — gezeigt hat stets nur dieser Streifen. Der Zweig
-       ist deshalb entfernt; das „nur bei Querformat"-Verhalten
-       wiederzubeleben braeuchte ein echtes Querformat-Signal am
-       Mount-Punkt (VoiceChannelView). -->
-  <VoiceParticipantStrip {channel} {handy} />
+  {#if viewport.istHandy && !viewport.isMobile}
+    <button
+      type="button"
+      class="border-border bg-bg-panel/90 absolute top-2 right-2 z-30 flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold text-white shadow-lg backdrop-blur-sm"
+      onclick={() => (nutzerOffen = !nutzerOffen)}
+      aria-expanded={nutzerOffen}
+      aria-label={m.voice_channel_view_toggle_member_list_aria()}
+      data-testid="stream-participants-toggle"
+    >
+      <UsersIcon class="size-4" />
+      {voice.participants.length}
+    </button>
+    {#if nutzerOffen}
+      <div
+        class="border-border bg-bg-panel/95 absolute top-12 right-2 z-30 flex max-h-[75%] w-56 flex-col gap-1 overflow-y-auto rounded-2xl border p-2 shadow-xl backdrop-blur-md"
+        data-testid="stream-participants-list"
+        role="dialog"
+        aria-label={m.voice_channel_view_toggle_member_list_aria()}
+      >
+        {#each voice.participants as p (p.identity)}
+          <div class="rounded-xl px-1 py-0.5">
+            <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {:else}
+    <VoiceParticipantStrip {channel} />
+  {/if}
 </div>

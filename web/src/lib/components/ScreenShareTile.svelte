@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
   import { onDestroy, mount, unmount } from 'svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
   import { ReceiveStatsReader, type ReceiveStats } from '$lib/voice/screenShareStats';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -32,10 +33,7 @@
     track,
     audioTrack,
     name,
-    identity,
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
-     *  an die TileShell durchgereicht. */
-    handy
+    identity
   }: {
     /** Voice channel this share lives in — needed for the per-streamer chat. */
     channelId: string;
@@ -45,7 +43,6 @@
     audioTrack?: RemoteAudioTrack;
     name: string;
     identity: string;
-    handy: boolean;
   } = $props();
 
   // `name` kommt von LiveKit — auf einem Self-Host immer leer, Rückfall ist
@@ -297,7 +294,6 @@
 
   <TileShell
     kind="screen"
-    {handy}
     containerTestid="screen-share-tile"
     testidPrefix="screen-share"
     {identity}
@@ -321,14 +317,12 @@
       <!-- svelte-ignore a11y_media_has_caption -->
       <!-- IMMER das ganze Bild (contain) — Beschneiden ist keine Option. Mobil
            ohne schwarzen Grund: behält das Bild ein anderes Seitenformat, geht
-           der Rand im Panel-Ton auf statt als harte Balken. Die Klasse hängt
-           an der Geraeteklasse des Wurzel-Divs, nicht an einer Viewport-
-           Abfrage hier. -->
+           der Rand im Panel-Ton auf statt als harte Balken. -->
       <video
         bind:this={videoEl}
         autoplay
         playsinline
-        class="h-full min-h-0 w-full min-w-0 object-contain nicht-handy:bg-black"
+        class="h-full min-h-0 w-full min-w-0 {viewport.isMobile ? 'object-contain' : 'bg-black object-contain'}"
       ></video>
       <!-- hidden audio element for screen-share audio track -->
       <!-- svelte-ignore a11y_media_has_caption -->

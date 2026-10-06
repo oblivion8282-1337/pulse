@@ -65,7 +65,7 @@
      Rahmen-Entwurfs: keine Voll-Karten um die Zeilen (wirkte klotzig), nur
      die Sektionsgrenze bekommt eine leichte Fläche. Ab md unverändert offen. -->
 <div
-  class="text-text-muted mb-1.5 inline-block rounded-full border border-border bg-bg-input px-2.5 py-1 text-sm font-bold nicht-handy:mb-0 nicht-handy:rounded-none nicht-handy:border-0 nicht-handy:bg-transparent nicht-handy:px-2.5 nicht-handy:py-0 nicht-handy:text-xs"
+  class="text-text-muted mb-1.5 inline-block rounded-full border border-border bg-bg-input px-2.5 py-1 text-sm font-bold md:mb-0 md:rounded-none md:border-0 md:bg-transparent md:px-2.5 md:py-0 md:text-xs"
 >
   {m.channel_list_text_channels()}
 </div>
@@ -93,19 +93,19 @@
           ondragend={() => beenden(ziehen)}
           data-testid={`channel-${c.id}`}
         >
-          <HashIcon class="text-text-muted size-6 shrink-0 nicht-handy:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
+          <HashIcon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
           <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}" style={channelNameStyle(c)}>{c.name}</span>
           <span class="ml-auto flex shrink-0 items-center gap-1.5">
             {#if c.legacy_readonly}
               <ArchiveIcon
-                class="text-text-muted size-4 nicht-handy:size-3.5"
+                class="text-text-muted size-4 md:size-3.5"
                 data-testid={`channel-legacy-readonly-${c.id}`}
                 aria-label={m.channel_list_legacy_readonly()}
               />
             {/if}
             {#if c.restricted}
               <LockIcon
-                class="text-text-muted size-4 nicht-handy:size-3.5"
+                class="text-text-muted size-4 md:size-3.5"
                 data-testid={`channel-lock-${c.id}`}
                 aria-label={m.channel_list_restricted()}
               />

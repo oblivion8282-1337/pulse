@@ -43,7 +43,7 @@
 {/if}
 
 <div
-  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none nicht-handy:rounded-2xl"
+  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
   data-testid="me-section-page"
 >
   <header class="border-border text-text-bright flex h-14 shrink-0 items-center gap-1 border-b px-2">

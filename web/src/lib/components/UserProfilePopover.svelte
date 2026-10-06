@@ -28,6 +28,7 @@
   import PopoverFriendActions from './PopoverFriendActions.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { roles } from '$lib/stores/roles.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { Perm } from '$lib/permissions/bitfield';
   import type { Snippet } from 'svelte';
@@ -40,11 +41,6 @@
     avatarUrl,
     guildId,
     nickname,
-    /** Handy-Klasse? Wird vom Mount-Punkt hereingereicht (Geräte-Trennung:
-     *  die Geräte-Frage fällt dort, nicht hier). Steuert nur TRIGGER und
-     *  Hülle: Tippen → BottomSheet von unten gegen Rechtsklick → schwebende
-     *  Karte. Der Karteninhalt ist in beiden Fällen derselbe. */
-    handy,
     onAction,
     extra,
     children
@@ -61,7 +57,6 @@
      *  lazily resolve it on open). Only meaningful when ``guildId`` is
      *  provided. */
     nickname?: string | null | undefined;
-    handy: boolean;
     /** Fired after an action navigates away — used by the caller to close
      *  parent overlays (e.g. the mobile member-list sheet). */
     onAction?: () => void;
@@ -153,7 +148,7 @@
 {/if}
 {/snippet}
 
-{#if handy}
+{#if viewport.isMobile}
   <!-- Auf dem Handy fuehrt ein normaler TIPP zum Profil, und die Karte faehrt
        als Blatt von unten herein (Entwurf 11a).
        Das Kontextmenue darueber oeffnet per Rechtsklick — den es auf einem

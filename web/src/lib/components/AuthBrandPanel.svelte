@@ -62,12 +62,12 @@
 </script>
 
 <!--
-  Zeigt sich nur ab nicht-handy: (≥768 px) — auf Mobil ist display:none (hidden).
+  Zeigt sich nur ab md: (≥768 px) — auf Mobil ist display:none (hidden).
   Der äußere Container hat position:relative + overflow:hidden, damit die
   Glow-Blobs nicht herausragen.
 -->
 <div
-  class={`relative hidden flex-1 flex-col justify-center overflow-hidden nicht-handy:flex ${rootClass}`}
+  class={`relative hidden flex-1 flex-col justify-center overflow-hidden md:flex ${rootClass}`}
   style={bareBg
     ? ''
     : 'background: linear-gradient(150deg, #0e1f3a, #0a1525 60%, #08130c);'}
@@ -85,10 +85,10 @@
   {/if}
 
   <!-- Inhalt -->
-  <div class="relative z-10 flex flex-col gap-6 px-10 py-12 desktop:px-14">
+  <div class="relative z-10 flex flex-col gap-6 px-10 py-12 xl:px-14">
     <!-- Headline (Akzent-Wort im Verlauf) + Sub-Zeile leichter/kleiner -->
     <h2
-      class="text-4xl font-extrabold leading-tight tracking-tight text-white motion-safe:animate-fade-up desktop:text-5xl"
+      class="text-4xl font-extrabold leading-tight tracking-tight text-white motion-safe:animate-fade-up xl:text-5xl"
     >
       {#if accent}{accent.pre}<span class="accent-gradient-text">{accent.word}</span>{accent.post}{:else}{headline}{/if}{#if headlineSub}<span
           class="mt-2 block text-3xl font-semibold text-white/55">{headlineSub}</span

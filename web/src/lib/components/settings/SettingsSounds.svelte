@@ -94,7 +94,7 @@
         value={Math.round(settings.sounds.masterVolume * 100)}
         oninput={onMasterVolume}
         disabled={!settings.sounds.masterEnabled}
-        class="h-3 accent-[var(--brand)] disabled:opacity-50 nicht-handy:h-auto"
+        class="h-3 accent-[var(--brand)] disabled:opacity-50 md:h-auto"
         data-testid="sounds-master-volume"
       />
     </label>
@@ -141,7 +141,7 @@
           value={Math.round(catSettings.volume * 100)}
           oninput={(e) => onCategoryVolume(cat.key, e)}
           disabled={dimmed}
-          class="h-3 accent-[var(--brand)] disabled:opacity-50 nicht-handy:h-auto"
+          class="h-3 accent-[var(--brand)] disabled:opacity-50 md:h-auto"
           data-testid="sounds-category-{cat.key}-volume"
         />
       </label>

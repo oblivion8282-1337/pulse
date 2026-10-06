@@ -18,6 +18,7 @@
   import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
   import { pendingAppHostApplications } from '$lib/stores/pendingAppHostApplications.svelte';
   import { pendingComplaints } from '$lib/stores/pendingComplaints.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import ShieldIcon from '@lucide/svelte/icons/shield';
 
@@ -48,10 +49,7 @@
        und Server-Sektionen oben in der Rail. Steht INNERHALB des Admin-Gates,
        damit er nie über dem Avatar eines normalen Users schwebt. -->
   <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>
-  <!-- Kein Tooltip-Schalter für Mobil: der einzige Mount ist die GuildRail,
-       die nur in der Desktop-Klasse sichtbar ist — ein Hover-Popup kann also
-       nur dort erscheinen, wo eine Maus existiert. -->
-  <Tooltip.Provider delayDuration={200}>
+  <Tooltip.Provider delayDuration={200} disabled={viewport.isMobile}>
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
@@ -59,11 +57,11 @@
             <button
               {...props}
               onclick={() => goto('/app/admin')}
-              class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md nicht-handy:size-10"
+              class="text-text-muted hover:bg-bg-hover hover:text-primary flex size-12 items-center justify-center rounded-xl transition-all hover:rounded-md md:size-10"
               data-testid="open-admin"
               aria-label={m.user_footer_server_admin()}
             >
-              <ShieldIcon class="size-6 nicht-handy:size-5" />
+              <ShieldIcon class="size-6 md:size-5" />
             </button>
             {#if alertCount > 0}
               <span

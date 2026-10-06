@@ -208,7 +208,7 @@
         </div>
       {/if}
 
-      <div class="grid grid-cols-2 gap-2 text-xs nicht-handy:grid-cols-4">
+      <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         <div><span class="text-text-muted block">{m.admin_diagnose_zeit()}</span>{formatTimestamp(details.created_at)}</div>
         <div><span class="text-text-muted block">{m.admin_diagnose_rolle()}</span>{details.role ?? '—'}</div>
         <div><span class="text-text-muted block">IP</span>{details.client_ip ?? '—'}</div>

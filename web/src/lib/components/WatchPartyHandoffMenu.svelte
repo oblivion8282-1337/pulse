@@ -34,12 +34,12 @@
   <button
     type="button"
     onclick={() => (open = !open)}
-    class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-black/75 nicht-handy:p-1.5"
+    class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-black/75 md:p-1.5"
     aria-label={m.watch_party_tile_handoff_aria()}
     title={m.watch_party_tile_handoff_aria()}
     data-testid="watch-party-handoff"
   >
-    <UsersIcon class="size-5 nicht-handy:size-3.5" />
+    <UsersIcon class="size-5 md:size-3.5" />
   </button>
   {#if open}
     <div

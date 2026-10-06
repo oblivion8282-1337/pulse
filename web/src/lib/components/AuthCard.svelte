@@ -48,8 +48,8 @@
     {rotatingWords}
   />
 
-  <!-- Formular-Pane: auf Mobil volle Breite + zentriert; ab nicht-handy: fixe 46 % -->
-  <div class="flex flex-1 items-center justify-center p-4 nicht-handy:flex-none nicht-handy:basis-[46%]">
+  <!-- Formular-Pane: auf Mobil volle Breite + zentriert; ab md: fixe 46 % -->
+  <div class="flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]">
     {@render children()}
   </div>
 </div>

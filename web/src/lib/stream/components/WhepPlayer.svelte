@@ -19,6 +19,7 @@
 -->
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { formatDiagnostic } from '../whep-stats';
   import { hqStreams, type ManagedHqStream } from '../hqStreamManager.svelte';
   import { acquireWakeLock } from '$lib/platform/wakeLock';
@@ -50,16 +51,11 @@
     userId,
     streamSlot = 0,
     name,
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
-     *  an die TileShell durchgereicht — schwebende Kachel-Steuerung statt
-     *  Dock-Leiste. */
-    handy,
     canDetach = true,
     canHide = true
   }: {
     channelId: string;
     userId: string;
-    handy: boolean;
     /** Which of the user's streams this tile plays (0 = primary, 1 = second). */
     streamSlot?: number;
     name?: string;
@@ -398,7 +394,6 @@
 
 <TileShell
   kind="hq"
-  {handy}
   containerTestid="hq-stream-player"
   testidPrefix="hq-stream"
   name={name ?? 'Stream'}
@@ -435,7 +430,7 @@
         bind:this={videoEl}
         autoplay
         playsinline
-        class="h-full w-full object-contain nicht-handy:bg-black"
+        class="h-full w-full {viewport.isMobile ? 'object-contain' : 'bg-black object-contain'}"
       ></video>
     {/if}
   {/snippet}

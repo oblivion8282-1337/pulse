@@ -102,7 +102,7 @@
       <Input
         bind:value={nameDraft}
         maxlength={64}
-        class="h-9 text-sm nicht-handy:h-7"
+        class="h-9 text-sm md:h-7"
         data-testid="passkey-rename-input"
         onkeydown={(e: KeyboardEvent) => {
           if (e.key === 'Enter') saveRename();

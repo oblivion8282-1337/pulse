@@ -16,10 +16,6 @@
   import WatchBackgroundFrame from './WatchBackgroundFrame.svelte';
   import WatchPartyTile from '$lib/components/WatchPartyTile.svelte';
 
-  // Handy-Klasse? Reicht die app-layout-Route hereingereicht an die Kachel
-  // durch (Geräte-Trennung — der Host fragt selbst nicht).
-  let { handy }: { handy: boolean } = $props();
-
   // Every open party that is still live and not detached into a popup.
   let shown = $derived(
     watchBackground
@@ -58,6 +54,6 @@
   {@const rect = watchBackground.anchorRect(o.channelId, o.partyId)}
   <WatchBackgroundFrame {rect} index={i} onReturn={() => returnTo(o.channelId)}
     onClose={() => watchBackground.closeParty(o.channelId, o.partyId)}>
-    <WatchPartyTile channelId={o.channelId} party={o.party!} {handy} />
+    <WatchPartyTile channelId={o.channelId} party={o.party!} />
   </WatchBackgroundFrame>
 {/each}

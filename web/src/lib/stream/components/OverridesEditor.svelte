@@ -249,7 +249,7 @@
       Refresh-Knopf (Button size="xs") aufgespannt. Ohne die feste Höhe säße
       „Video" rund 4 px höher als „Quelle", weil hier kein Knopf danebensteht. -->
  <div class="flex h-6 items-center"><Label>Video</Label></div>
- <div class="grid gap-3 nicht-handy:grid-cols-2">
+ <div class="grid gap-3 sm:grid-cols-2">
   <div class="flex flex-col gap-1.5">
     <Label for="ov-codec" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">Codec</Label>
     <Select

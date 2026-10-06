@@ -107,7 +107,7 @@
       >
         <MonitorIcon class="size-3" />
       </span>
-      <span class="text-text-base truncate font-mono text-sm nicht-handy:text-xs">{d.name}</span>
+      <span class="text-text-base truncate font-mono text-sm md:text-xs">{d.name}</span>
       {#if live}
         <!-- Eigener Klickbereich IM Knopf: `stopPropagation`, sonst landete der
              Zuschauer in der Geräteansicht statt im Bild. Als `<span role>` und

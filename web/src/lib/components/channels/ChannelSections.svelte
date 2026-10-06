@@ -22,10 +22,6 @@
 
   let {
     guild,
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
-     *  an den Sprachkanal-Abschnitt durchgereicht (Raumklang-Eintrag +
-     *  Klang-Steller + Profil-Huelle in den Teilnehmern). */
-    handy,
     textChannels,
     dropboxChannels,
     voiceChannels,
@@ -43,7 +39,6 @@
     onReport
   }: {
     guild: Guild | null;
-    handy: boolean;
     textChannels: Channel[];
     dropboxChannels: Channel[];
     voiceChannels: Channel[];
@@ -99,7 +94,6 @@
   channels={voiceChannels}
   {guild}
   {myId}
-  {handy}
   {activeChannelId}
   {canCreate}
   {canManagePermissions}

@@ -13,11 +13,6 @@ import type { TileKind } from '../openedTiles.svelte';
 
 export interface TileShellProps {
   kind: TileKind;
-  /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geräte-Trennung: die
-   *  Frage fällt in der Route/Hintergrund-Host, nicht in der Kachel).
-   *  Steuert Hülle und Steuerung: Handy = schwebende Knöpfe auf dem Bild,
-   *  sonst Dock-Leiste und Doppelklick-Vollbild. */
-  handy: boolean;
   /** data-testid des äußeren Containers (kind-spezifisch, kein Schema). */
   containerTestid: string;
   /** Prefix für alle inneren Testids: `${prefix}-mute`, `-fullscreen`, … */

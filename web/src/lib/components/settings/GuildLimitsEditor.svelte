@@ -120,7 +120,7 @@ import { errText } from '$lib/utils/errText';
     {#each GROUPS as group (group.title)}
       <div class="flex flex-col gap-3">
         <h3 class="text-text-bright text-sm font-semibold">{group.title}</h3>
-        <div class="grid grid-cols-1 gap-3 nicht-handy:grid-cols-2">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {#each group.fields as field (field.key)}
             <GuildLimitRow
               label={field.label()}

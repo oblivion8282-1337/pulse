@@ -31,9 +31,6 @@ import { Button } from '$lib/components/ui/button';
     speakingUserIds = [],
     watchPartyHostUserIds = [],
     userStates = {},
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
-     *  ins Nutzer-Profil durchgereicht: Tippen-Blatt statt Rechtsklick-Karte. */
-    handy,
     onLiveOpen,
     onPartyOpen,
     onCamOpen
@@ -59,7 +56,6 @@ import { Button } from '$lib/components/ui/button';
     watchPartyHostUserIds?: string[];
     /** Per-user self-reported mute/deafen flags. Missing entries == default off. */
     userStates?: Record<string, UserVoiceState>;
-    handy: boolean;
     /** Click on a user's LIVE badge (HQ + screen-share union). Caller resolves
      *  which kinds are active and opens the matching tiles. */
     onLiveOpen?: (userId: string) => void;
@@ -131,7 +127,6 @@ import { Button } from '$lib/components/ui/button';
     displayName={name}
     avatarUrl={avatarSrc}
     {guildId}
-    {handy}
   >
     {#snippet children({ props })}
         <button
@@ -312,7 +307,7 @@ import { Button } from '$lib/components/ui/button';
 
 {#if kickGast}
   <Dialog.Root open={!!kickGast} onOpenChange={(o) => { if (!o) kickGast = null; }}>
-    <Dialog.Content class="nicht-handy:max-w-md">
+    <Dialog.Content class="sm:max-w-md">
       <Dialog.Header>
         <Dialog.Title>{m.gast_kick_titel()}</Dialog.Title>
         <Dialog.Description>

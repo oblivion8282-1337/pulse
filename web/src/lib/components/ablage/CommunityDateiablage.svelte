@@ -249,7 +249,7 @@
 </script>
 
 <section
-  class="glass-panel flex h-full min-w-0 flex-1 flex-col rounded-none nicht-handy:rounded-2xl"
+  class="glass-panel flex h-full min-w-0 flex-1 flex-col rounded-none md:rounded-2xl"
   data-testid="community-ablage-ansicht"
 >
   {#if status === 'laedt'}
@@ -366,7 +366,7 @@
           {/if}
         </div>
       {:else if istRaster}
-        <div class="grid grid-cols-2 gap-3 nicht-handy:grid-cols-3 nicht-handy:grid-cols-4 desktop:grid-cols-5">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {#each gefiltert as zeile (zeile.id)}
             {@const Icon = zeile.istOrdner ? FolderIcon : dateiIcon(zeile.mime)}
             <div

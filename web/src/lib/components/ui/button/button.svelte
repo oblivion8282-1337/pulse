@@ -40,13 +40,13 @@
 			},
 			// Feste Höhen, KEINE responsive Vergrösserung auf Touch-Geräten.
 			//
-			// Ein Versuch am 2026-07-19, hier pauschal `h-9 nicht-handy:h-8` einzuziehen (um
-			// die beim Umstellen verlorenen `py-2 nicht-handy:py-1.5` der handgebauten
+			// Ein Versuch am 2026-07-19, hier pauschal `h-9 md:h-8` einzuziehen (um
+			// die beim Umstellen verlorenen `py-2 md:py-1.5` der handgebauten
 			// Buttons aufzufangen), ist zurückgenommen: er hat die Voice-Leiste
 			// umbrechen lassen, sodass das Auflegen-Symbol in die nächste Zeile
 			// rutschte. Grund ist, dass die Aufrufstellen, denen Trefferflächen
 			// wirklich wichtig sind, das SELBST und gezielter lösen — die
-			// Voice-Leiste etwa mit `size-14 nicht-handy:size-8`, also 56px statt der 4px,
+			// Voice-Leiste etwa mit `size-14 md:size-8`, also 56px statt der 4px,
 			// die eine pauschale Regel gebracht hätte. Eine Komponenten-weite
 			// Vergrösserung addiert sich dort nur dazu und sprengt enge Leisten.
 			//
@@ -55,9 +55,6 @@
 			size: {
 				default: "h-9 gap-1.5 px-3.5 in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
 				xs: "h-6 gap-1 px-2.5 text-xs in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-				// Übergangs-Aliase: die ~213 Aufrufstellen mit `size="sm"`/`"lg"`
-				// bleiben so typ- und lauffähig, bis ihre Umbenennung auf die
-				// Geraete-Namen durch ist. Danach beide Zeilen loeschen.
 				sm: "h-8 gap-1 px-3 in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
 				lg: "h-10 gap-1.5 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
 				icon: "size-9",

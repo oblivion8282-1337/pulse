@@ -73,7 +73,7 @@ import { errText } from '$lib/utils/errText';
   {:else if current}
     <div class="flex flex-col gap-2">
       <div
-        class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 nicht-handy:flex-row nicht-handy:items-center nicht-handy:justify-between nicht-handy:gap-4"
+        class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
       >
         <div class="min-w-0 flex-1">
           <div class="text-text-bright text-sm font-medium">

@@ -107,11 +107,11 @@
      private Gespraeche ein eigener Bereich (Chats), eine zweite Liste hier
      waere derselbe Inhalt an zwei Orten. -->
 {#if !viewport.isMobile}
-  <DMChannelList activeDMId={null} onSelect={selectDM} handy={false} />
+  <DMChannelList activeDMId={null} onSelect={selectDM} />
 {/if}
 
 <section
-  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none nicht-handy:rounded-2xl"
+  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
   data-testid="friends-page"
 >
   <BereichsKopf titel={m.friends_page_title()}>
@@ -120,7 +120,7 @@
            Liste gehört dem Inhalt, Seltenes (Hinzufügen, Anfragen, Blockiert)
            steckt im Menü. Die Anfragen-Zahl wandert als Badge mit. -->
       <FriendsKopfAktionen {activeTab} {pendingBadge} onSwitch={switchTab} />
-      <div class="nicht-handy:hidden">
+      <div class="md:hidden">
       <DropdownMenu.Root>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
@@ -185,7 +185,7 @@
            Ausnahmefälle, kein parallel sichtbarer Zustand. -->
       <button
         type="button"
-        class="text-text-muted hover:text-text-bright mb-3 flex items-center gap-1 pt-4 text-sm font-semibold nicht-handy:hidden"
+        class="text-text-muted hover:text-text-bright mb-3 flex items-center gap-1 pt-4 text-sm font-semibold md:hidden"
         onclick={() => switchTab('all')}
         data-testid="friends-back"
       >
@@ -200,7 +200,7 @@
         <AddFriendPanel />
       {/if}
     {:else}
-      <FriendList suche={freundeSuche} handy={viewport.isMobile} />
+      <FriendList suche={freundeSuche} />
     {/if}
   </div>
 </section>

@@ -181,7 +181,7 @@
       </AlertDialog.Header>
 
       <ul
-        class="text-text-base list-disc space-y-2 pl-5 text-sm nicht-handy:space-y-1"
+        class="text-text-base list-disc space-y-2 pl-5 text-sm md:space-y-1"
         data-testid="delete-account-bullets"
       >
         <li>{m.delete_account_dialog_bullet_profile()}</li>
@@ -207,7 +207,7 @@
           autocomplete="off"
           spellcheck={false}
           bind:value={confirmUsername}
-          class="h-11 nicht-handy:h-9"
+          class="h-11 md:h-9"
           data-testid="delete-account-username-input"
         />
       </div>

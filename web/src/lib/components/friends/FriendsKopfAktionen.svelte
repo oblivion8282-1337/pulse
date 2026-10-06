@@ -42,7 +42,7 @@
          deshalb traegt jedes `title` UND `aria-label`, damit weder Maus noch
          Screenreader raten muss. Auf `< md` bleibt das Menue: drei
          48-px-Flaechen nebeneinander kosten dort zu viel Breite. -->
-    <div class="hidden items-center gap-0.5 nicht-handy:flex">
+    <div class="hidden items-center gap-0.5 md:flex">
       <button
         type="button"
         class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-12 items-center justify-center rounded-[14px] transition-colors data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:text-primary"

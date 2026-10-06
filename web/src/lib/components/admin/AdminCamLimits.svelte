@@ -85,7 +85,7 @@ import { errText } from '$lib/utils/errText';
   {:else if current}
     <div class="flex flex-col gap-2">
       <!-- Resolution ceiling -->
-      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 nicht-handy:flex-row nicht-handy:items-center nicht-handy:justify-between nicht-handy:gap-4">
+      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div class="min-w-0 flex-1">
           <div class="text-text-bright text-sm font-medium">{m.admin_cam_limits_max_resolution()}</div>
           <div class="text-text-muted text-xs mt-0.5">{m.admin_cam_limits_max_resolution_desc()}</div>
@@ -101,7 +101,7 @@ import { errText } from '$lib/utils/errText';
       </div>
 
       <!-- FPS ceiling -->
-      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 nicht-handy:flex-row nicht-handy:items-center nicht-handy:justify-between nicht-handy:gap-4">
+      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div class="min-w-0 flex-1">
           <div class="text-text-bright text-sm font-medium">{m.admin_cam_limits_max_fps()}</div>
           <div class="text-text-muted text-xs mt-0.5">{m.admin_cam_limits_max_fps_desc()}</div>

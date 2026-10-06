@@ -2,6 +2,7 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import MemberQuickRoleMenu from './MemberQuickRoleMenu.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import { startUserDrag } from '$lib/voice/userDrag';
   import { userCache } from '$lib/stores/users.svelte';
@@ -24,10 +25,7 @@
     canQuickRole,
     onActivityClick,
     onPartyClick,
-    onClose,
-    /** Handy-Klasse? Vom Mount-Punkt hereingereicht (Geraete-Trennung) und
-     *  ins Nutzer-Profil durchgereicht: Tippen-Blatt statt Rechtsklick-Karte. */
-    handy
+    onClose
   }: {
     member: Member;
     guildId: string;
@@ -41,7 +39,6 @@
     /** Click on the PARTY badge — opens (or lets you pick) the user's party. */
     onPartyClick: (uid: string) => void;
     onClose?: () => void;
-    handy: boolean;
   } = $props();
 
   let name = $derived(member.nickname ?? userCache.displayName(member.user_id));
@@ -63,7 +60,6 @@
   {guildId}
   nickname={member.nickname}
   onAction={onClose}
-  {handy}
 >
   {#snippet children({ props })}
     <!--
@@ -153,10 +149,8 @@
     {#if canQuickRole}
       <div class="mt-3">
         <!-- Im Blatt von unten (Handy) als flache Liste: dort gibt es kein
-             Kontextmenue, in dem ein Untermenue aufklappen koennte. Die
-             Handy-Antwort kommt als Prop vom Mount-Punkt (`handy`) — der
-             einzige Mount (MemberList) reicht sie durch. -->
-        <MemberQuickRoleMenu {guildId} userId={member.user_id} flach={handy} />
+             Kontextmenue, in dem ein Untermenue aufklappen koennte. -->
+        <MemberQuickRoleMenu {guildId} userId={member.user_id} flach={viewport.isMobile} />
       </div>
     {/if}
   {/snippet}

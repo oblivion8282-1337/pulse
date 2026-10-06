@@ -165,7 +165,7 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="flex max-h-[85dvh] flex-col overflow-hidden nicht-handy:max-w-lg">
+  <Dialog.Content class="flex max-h-[85dvh] flex-col overflow-hidden sm:max-w-lg">
     <Dialog.Header>
       <Dialog.Title>{m.gast_links_titel()}</Dialog.Title>
       <Dialog.Description>{m.gast_links_hinweis()}</Dialog.Description>

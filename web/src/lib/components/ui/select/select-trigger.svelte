@@ -23,7 +23,7 @@
 	bind:ref
 	data-slot="select-trigger"
 	class={cn(
-		"dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 rounded-xl border bg-card px-3 py-1 text-base shadow-xs transition-[color,box-shadow] focus-visible:ring-3 nicht-handy:text-sm w-full min-w-0 outline-none flex items-center justify-between gap-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 data-placeholder:text-muted-foreground [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:opacity-50",
+		"dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 rounded-xl border bg-card px-3 py-1 text-base shadow-xs transition-[color,box-shadow] focus-visible:ring-3 md:text-sm w-full min-w-0 outline-none flex items-center justify-between gap-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 data-placeholder:text-muted-foreground [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:opacity-50",
 		className
 	)}
 	{...restProps}
