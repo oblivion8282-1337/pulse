@@ -5,11 +5,6 @@ Redis wird via FakeRedis gemockt (hermetic, kein externes Redis erforderlich).
 
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import UTC, datetime
-from typing import Any
-
-import pytest
 import pytest_asyncio
 
 from dcc_auth.models import User

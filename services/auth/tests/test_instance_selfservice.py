@@ -8,11 +8,9 @@ und den Cookie-Zwang.
 
 from __future__ import annotations
 
-import secrets
-
 import pytest
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from dcc_auth.models import User
 from dcc_auth.models_instances import (
@@ -139,9 +137,6 @@ async def test_limits_are_per_account(client, session_factory):
 async def test_voller_durchlauf_selbstbedienung_bis_container_env(
     client, alice_cookie, session_factory
 ):
-    from dcc_auth.models_instances import InstanceBootstrapToken
-    from dcc_auth.bootstrap import hash_bootstrap_token
-
     uid = await _user_id(client, alice_cookie)
 
     # 1. Selbstbedienung: anlegen.
