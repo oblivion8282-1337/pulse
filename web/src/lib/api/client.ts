@@ -17,7 +17,7 @@
  */
 
 import { clearTokens, isAccessExpired, loadTokens, saveTokens } from './storage';
-import { serversStore, CLOUD_HOSTNAME } from './servers.svelte';
+import { serversStore } from './servers.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { safeParse, extractDetail } from './parse';

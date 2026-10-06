@@ -22,7 +22,6 @@ import {
 	DateiablageFehler,
 	öffneDateiContainer,
 	packeDateiContainer,
-	leeresVerzeichnis,
 	öffneVerzeichnis,
 	verschlüsseleVerzeichnis,
 	type AblageEintrag,

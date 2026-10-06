@@ -91,6 +91,17 @@ function lenaAdapter(server: ReturnType<typeof davServer>) {
 	});
 }
 
+/** Adapter mit abgewiesenen Zugangsdaten — jeder Aufruf endet im 401. */
+function fremdAdapter(server: ReturnType<typeof davServer>) {
+	return webdavAdapter({
+		basis: BASIS,
+		ordner: ORDNER,
+		benutzer: 'falsch',
+		passwort: 'passwort',
+		holen: server.holen,
+	});
+}
+
 describe('Ablage-WebDAV: URLs', () => {
 	it('setzt Basis, Ordner und Datei zusammen — kodiert, ohne Doppel-Schrägen', () => {
 		assert.equal(
@@ -161,13 +172,7 @@ describe('Ablage-WebDAV: Adapter gegen den Mini-Server', () => {
 	it('wirft bei echten Fehlern eine WebdavFehler, bleibt aber bei 404 ruhig', async () => {
 		const server = davServer();
 		server.dateien.set('/remote.php/dav/files/lena/Pulse/ablage/kanal-1/x.puls', new Uint8Array(1));
-		const adapter = webdavAdapter({
-			basis: BASIS,
-			ordner: ORDNER,
-			benutzer: 'falsch',
-			passwort: 'passwort',
-			holen: server.holen,
-		});
+		const adapter = fremdAdapter(server);
 		// Falsche Zugangsdaten sind ein 401 — und der hat seit dem 2026-09-01
 		// einen eigenen Typ, weil ein zurueckgezogener Freigabe-Link genau so
 		// aussieht und NICHT als voruebergehender Netzfehler durchgehen darf.
@@ -203,13 +208,7 @@ describe('Ablage-WebDAV: Löschen', () => {
 
 	it('ein abgewiesenes Löschen wirft, statt Erfolg vorzutäuschen', async () => {
 		const server = davServer();
-		const adapter = webdavAdapter({
-			basis: BASIS,
-			ordner: ORDNER,
-			benutzer: 'falsch',
-			passwort: 'passwort',
-			holen: server.holen,
-		});
+		const adapter = fremdAdapter(server);
 		await assert.rejects(() => adapter.lösche!('x.puls'), AnmeldungAbgelaufenFehler);
 	});
 });

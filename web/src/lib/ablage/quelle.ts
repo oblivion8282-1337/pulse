@@ -32,7 +32,6 @@
 import { TYP_KLARTEXT_JSON } from './format.ts';
 import { ausWire, kodiereNachricht } from './nutzlast.ts';
 import type { NachzieherQuelle } from './nachzieher.ts';
-import type { AblageEintrag } from './schreiber.ts';
 import type { Message } from '../api/types.ts';
 
 /** Signatur passend zu `chatApi.listMessages` — beide Cursor optional. */

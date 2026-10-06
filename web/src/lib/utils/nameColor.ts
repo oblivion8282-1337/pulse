@@ -22,7 +22,7 @@ export function sanitizeProfileColor(c: string | null | undefined): string | nul
 
 /** Schwarz oder Weiß — je nachdem, was auf `hex` als Hintergrund besser lesbar
  *  ist (für Avatar-Initialen auf der Namensfarbe). Weiß-Default bei Müll. */
-export function idealTextColor(hex: string | null | undefined): string {
+function idealTextColor(hex: string | null | undefined): string {
   const c = sanitizeProfileColor(hex);
   if (!c) return '#fff';
   let h = c.slice(1);
@@ -50,7 +50,7 @@ export function avatarFallbackStyle(hex: string | null | undefined): string {
 }
 
 /** Rollenfarbe des Users in einer Guild als `#rrggbb`, oder null. */
-export function roleNameColor(guildId: string, userId: string): string | null {
+function roleNameColor(guildId: string, userId: string): string | null {
   const ids = memberRoles.for(guildId, userId);
   const top = roles.topColorRole(guildId, ids);
   if (!top) return null;

@@ -9,7 +9,7 @@
  * Import-frei bis auf format.ts (mit Endung, Node-Testläufer-regel).
  */
 
-import { type Rahmen, kodiereRahmen, leseRahmenFolge } from './format.ts';
+import { type Rahmen, kodiereRahmen } from './format.ts';
 
 export const SEGMENT_KENNUNG = 0x50534547; // "PSEG"
 export const SEGMENT_FASSUNG = 1;

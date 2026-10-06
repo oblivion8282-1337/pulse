@@ -24,7 +24,7 @@ const STATE_COLORS: Record<TrayState, string> = {
 };
 
 /** Badge-Inhalt: Mentions (@) gewinnen vor unread (dringender). */
-export function badgeContent(unread: number, mentions: number): { text: string; fontSize: number } | null {
+function badgeContent(unread: number, mentions: number): { text: string; fontSize: number } | null {
   if (mentions > 0) return { text: '@', fontSize: 30 };
   if (unread > 0) return { text: unread > 99 ? '99+' : String(unread), fontSize: 22 };
   return null;

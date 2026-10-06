@@ -20,7 +20,7 @@
 
 import { auth } from '$lib/stores/auth.svelte';
 import type { Message } from '$lib/api/types';
-import { archivKanalSchluessel, archivSeite, type ArchivZeileFern } from '$lib/api/archiv';
+import { archivKanalSchluessel, archivSeite } from '$lib/api/archiv';
 import { kanalSchluesselHolen } from './kanalSchluessel';
 import { entschluesseleZeile } from './krypto';
 import { leseZeilenKlar } from './zeile';
