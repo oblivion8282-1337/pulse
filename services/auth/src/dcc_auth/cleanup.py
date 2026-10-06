@@ -7,10 +7,11 @@ Three cohorts get swept once per day:
     reset attempt. Used tokens fall out the same way: their ``expires_at``
     is set at issue time, so they age out alongside the unused ones.
   * ``email_verification_tokens`` -- same shape, same grace.
-  * ``refresh_tokens`` -- only the *revoked* rows (``revoked_at IS NOT NULL``)
-    older than ``token_cleanup_grace_days_revoked`` (default 30 d). Active /
-    unexpired refresh tokens are kept regardless of age; the JWT itself
-    carries the expiry the verifier checks.
+  * ``refresh_tokens`` -- revoked rows (``revoked_at IS NOT NULL``) older than
+    ``token_cleanup_grace_days_revoked`` (default 30 d), plus never-revoked
+    rows past ``expires_at`` by the same 30 d: an expired JWT is worthless
+    (the verifier rejects it anyway), so the forensics grace runs from expiry.
+    Active / unexpired refresh tokens are kept regardless of age.
   * ``username_reservations`` -- rows whose ``released_at`` has passed (Block 1.D).
   * ``revoked_credentials`` -- Grabsteine widerrufener Geraete-Zertifikate,
     deren ``expires_at`` durch ist. Keine Sekunde frueher: bis dahin haette
@@ -21,9 +22,6 @@ What we deliberately do **not** touch:
 
   * ``user_backup_codes`` -- even ``used_at`` rows stay until the user
     disables 2FA (which cascades them). They are audit-trail.
-  * Non-revoked ``refresh_tokens`` rows past their ``expires_at`` -- same
-    story, cheap to keep, useful for forensics. We can extend the sweep
-    later once a concrete need shows up.
 
 No APScheduler / no extra dep -- ``asyncio.sleep`` in a supervised loop
 is enough at one tick per day.
@@ -35,7 +33,9 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import and_ as sa_and
 from sqlalchemy import delete as sa_delete
+from sqlalchemy import or_ as sa_or
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from dcc_auth.browser_sessions import purge_expired_sessions
@@ -68,10 +68,19 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> dict[str, int]:
                 EmailVerificationToken.expires_at < expired_cutoff
             )
         )
+        # Widerrufene Zeilen: 30-Tage-Forensik-Grace ab Widerruf. Nie
+        # widerrufene, aber abgelaufene: nach expires_at wertlos (der
+        # Verifier prueft das JWT-Ablaufdatum eh), deshalb dieselbe Grace
+        # ab Ablauf — frueher loeschen wir nicht.
         rt_res = await session.execute(
             sa_delete(RefreshToken).where(
-                RefreshToken.revoked_at.is_not(None),
-                RefreshToken.revoked_at < revoked_cutoff,
+                sa_or(
+                    sa_and(
+                        RefreshToken.revoked_at.is_not(None),
+                        RefreshToken.revoked_at < revoked_cutoff,
+                    ),
+                    RefreshToken.expires_at < revoked_cutoff,
+                )
             )
         )
         ur_res = await session.execute(

@@ -145,6 +145,8 @@ async def test_run_once_deletes_old_revoked_refresh_tokens(
     jti_old = uuid4()
     jti_fresh_revoked = uuid4()
     jti_active = uuid4()
+    jti_expired_unrevoked = uuid4()
+    jti_expired_recent = uuid4()
     async with session_factory() as s:
         # old-revoked: revoked 60 days ago — deleted
         s.add(
@@ -166,7 +168,7 @@ async def test_run_once_deletes_old_revoked_refresh_tokens(
                 revoked_at=now - timedelta(days=1),
             )
         )
-        # active: never revoked — kept regardless of age
+        # active: never revoked, not expired — kept regardless of age
         s.add(
             RefreshToken(
                 jti=jti_active,
@@ -176,17 +178,39 @@ async def test_run_once_deletes_old_revoked_refresh_tokens(
                 revoked_at=None,
             )
         )
+        # expired-unrevoked: never revoked, expired 60 days ago — deleted
+        # (token is worthless past expiry; 30 d forensics grace from expiry)
+        s.add(
+            RefreshToken(
+                jti=jti_expired_unrevoked,
+                user_id=uid,
+                issued_at=now - timedelta(days=90),
+                expires_at=now - timedelta(days=60),
+                revoked_at=None,
+            )
+        )
+        # expired-recent: never revoked, expired only yesterday — kept
+        # (forensics grace must be visible)
+        s.add(
+            RefreshToken(
+                jti=jti_expired_recent,
+                user_id=uid,
+                issued_at=now - timedelta(days=31),
+                expires_at=now - timedelta(days=1),
+                revoked_at=None,
+            )
+        )
         await s.commit()
 
     counts = await _run_once(engine, _settings())
-    assert counts["refresh_tokens_revoked"] == 1
+    assert counts["refresh_tokens_revoked"] == 2
 
     async with session_factory() as s:
         remaining = (
             await s.execute(select(RefreshToken.jti))
         ).scalars().all()
     assert sorted(str(j) for j in remaining) == sorted(
-        [str(jti_fresh_revoked), str(jti_active)]
+        [str(jti_fresh_revoked), str(jti_active), str(jti_expired_recent)]
     )
 
 

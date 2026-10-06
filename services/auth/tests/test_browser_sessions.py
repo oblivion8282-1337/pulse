@@ -178,17 +178,22 @@ async def test_read_only_request_persists_session_extension(client, session_fact
     Regression for bug 7: validate_session() extends expires_at, but read-only
     routes never call db.commit(), so the extension was silently rolled back on
     session-context exit. The bump must now be persisted inside validate_session.
+
+    The slide only fires once last_seen_at is >=5 min old (write throttle), so
+    the row is aged accordingly first.
     """
     login_r = await _register_and_login(client)
     sid_str = login_r.cookies["pulse_session"]
     sid = uuid.UUID(sid_str)
 
-    # Push expires_at close to now so any extension is clearly observable.
+    # Make the slide due: last_seen_at past the 5-min throttle, expires_at
+    # close to now so any extension is clearly observable.
     async with session_factory() as db:
         row = await db.get(UserSession, str(sid))
         assert row is not None
         near = datetime.now(UTC) + timedelta(seconds=5)
         row.expires_at = near
+        row.last_seen_at = datetime.now(UTC) - timedelta(minutes=10)
         await db.commit()
         before = near
 
@@ -202,6 +207,42 @@ async def test_read_only_request_persists_session_extension(client, session_fact
         assert row is not None
         after = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
         assert after > before, "read-only request did not persist the window extension"
+
+
+@pytest.mark.asyncio
+async def test_fresh_session_request_skips_the_window_write(client, session_factory):
+    """A request inside the 5-min slide window must not write to the row.
+
+    Write-throttle: validate_session() used to run UPDATE+COMMIT on every
+    validated request (~50-100x more writes than needed). Within the throttle
+    window it must work on the loaded object only — last_seen_at and
+    expires_at stay as persisted.
+    """
+    login_r = await _register_and_login(client)
+    sid_str = login_r.cookies["pulse_session"]
+    sid = uuid.UUID(sid_str)
+
+    # Pin the row to known values well inside the window (last_seen fresh,
+    # plenty of TTL left).
+    pinned_seen = datetime.now(UTC) - timedelta(minutes=1)
+    pinned_exp = datetime.now(UTC) + timedelta(minutes=10)
+    async with session_factory() as db:
+        row = await db.get(UserSession, str(sid))
+        assert row is not None
+        row.last_seen_at = pinned_seen
+        row.expires_at = pinned_exp
+        await db.commit()
+
+    r = await client.get("/me", headers={"Cookie": f"pulse_session={sid_str}"})
+    assert r.status_code == 200, r.text
+
+    async with session_factory() as db:
+        row = await db.get(UserSession, str(sid))
+        assert row is not None
+        seen = row.last_seen_at if row.last_seen_at.tzinfo else row.last_seen_at.replace(tzinfo=UTC)
+        exp = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
+        assert seen == pinned_seen, "request inside the slide window wrote last_seen_at"
+        assert exp == pinned_exp, "request inside the slide window wrote expires_at"
 
 
 # ---- logout tests -----------------------------------------------------

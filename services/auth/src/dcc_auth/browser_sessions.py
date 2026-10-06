@@ -1,7 +1,7 @@
 """Browser-Session-Cookie helpers (DE 11 Phase 1).
 
 Cloud-internal: HttpOnly + SameSite=strict + Secure, 30 min TTL,
-last_seen_at refreshed on every validated request.
+last_seen_at persisted at most once per 5 min (write-throttled slide).
 
 API summary
 -----------
@@ -30,6 +30,11 @@ from dcc_auth.models import User, UserSession
 
 COOKIE_NAME = "pulse_session"
 _DEFAULT_TTL = 1800  # 30 minutes
+# Sliding window is persisted at most once per this interval: one UPDATE+COMMIT
+# per request was ~50-100x more writes than needed. The 30-min inactivity TTL
+# keeps its semantics, just with 5-min granularity (worst case a session lives
+# ~35 min instead of exactly 30) -- deliberately accepted.
+_SLIDE_GRANULARITY = timedelta(minutes=5)
 
 
 # ---- DB helpers -------------------------------------------------------
@@ -74,8 +79,10 @@ async def validate_session(
 ) -> UserSession | None:
     """Return the UserSession row if valid, else None.
 
-    Also slides ``last_seen_at`` and extends ``expires_at`` by the full
-    TTL window (activity-based auto-refresh as specified in DE 11).
+    Slides ``last_seen_at`` and extends ``expires_at`` by the full TTL window
+    (activity-based auto-refresh as specified in DE 11) -- but only when the
+    persisted ``last_seen_at`` is at least ``_SLIDE_GRANULARITY`` old, so
+    per-request writes collapse to at most one per 5 minutes.
 
     The window bump is committed here so the sliding window is persisted even
     on read-only endpoints, which otherwise never call ``db.commit()`` and so
@@ -96,12 +103,21 @@ async def validate_session(
     exp = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
     if exp <= now:
         return None
-    # Slide the window and persist it (read-only callers don't commit).
-    # SessionLocal uses expire_on_commit=False, so ``row`` keeps the bumped
-    # values in memory and remains usable for sync attribute reads afterwards.
-    row.last_seen_at = now
-    row.expires_at = now + timedelta(seconds=ttl)
-    await db.commit()
+    # Slide the window only past the write-throttle threshold (compare against
+    # the already-loaded row, no extra query); within the window work on the
+    # in-memory object only. When we do write, persist it here (read-only
+    # callers don't commit). SessionLocal uses expire_on_commit=False, so
+    # ``row`` keeps the bumped values in memory and remains usable for sync
+    # attribute reads afterwards.
+    last_seen = (
+        row.last_seen_at
+        if row.last_seen_at.tzinfo
+        else row.last_seen_at.replace(tzinfo=UTC)
+    )
+    if now - last_seen >= _SLIDE_GRANULARITY:
+        row.last_seen_at = now
+        row.expires_at = now + timedelta(seconds=ttl)
+        await db.commit()
     return row
 
 
