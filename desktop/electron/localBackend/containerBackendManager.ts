@@ -140,9 +140,10 @@ export function abschiedsKoerper(creds: BootstrapCreds): {
   };
 }
 
-/** Welt-Verzeichnisname für die Env-Datei (unter userData). */
+/** Welt-Verzeichnisname für die Env-Datei (unter userData) — dasselbe Namens-
+ *  schema wie der Container der Welt. */
 export function weltVerzeichnis(): string {
-  return CONTAINER_NAME + (containerWelt ? `-${containerWelt}` : '');
+  return containerName();
 }
 export const DEFAULT_IMAGE = 'registry.howispulse.com/pulse-allinone:edge';
 

@@ -76,9 +76,6 @@ export async function lastAutoBackupAt(
   return neueste || null;
 }
 
-/** Exportiert das Volume als tar nach targetPath. Der Aufrufer (main.ts)
- *  stoppt/startet den Container drumherum — hier nur der reine Datenstrom.
- *  Fehlschlag räumt die halb geschriebene Zieldatei weg. */
 /** Importiert ein Export-tar zurück ins Volume (Gegenstück zu exportVolume):
  *  tar streamt aus der Quelldatei in die stdin eines Wegwerf-Containers
  *  (rtExecFromFile — gleicher Grund wie beim Export: Portal-/Sandbox-Pfade
@@ -110,6 +107,9 @@ export async function importVolume(
   }
 }
 
+/** Exportiert das Volume als tar nach targetPath. Der Aufrufer (main.ts)
+ *  stoppt/startet den Container drumherum — hier nur der reine Datenstrom.
+ *  Fehlschlag räumt die halb geschriebene Zieldatei weg. */
 export async function exportVolume(
   rt: ContainerRuntime,
   image: string,

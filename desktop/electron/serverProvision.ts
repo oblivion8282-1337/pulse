@@ -57,7 +57,9 @@ function renewSessionCookie(cloudOrigin: string, bearer: string): Promise<void> 
     });
     req.setHeader('Authorization', `Bearer ${bearer}`);
     req.on('response', (res) => {
-      res.resume(); // Inhalt egal — nur Status-Header zählen; Socket freigeben
+      // Runtime ist ein Node-Readable (Body verwerfen, Socket freigeben) — die
+      // Electron-d.ts typisiert IncomingMessage nur schmaler, daher der Cast.
+      (res as unknown as { resume(): void }).resume();
       res.on('end', () => {
         const roh = res.headers['set-cookie'];
         const liste = Array.isArray(roh) ? roh : roh ? [roh] : undefined;
@@ -140,7 +142,7 @@ function netJsonOnce(
     const abschliessen = (ergebnis: { status: number; json: unknown }) => {
       if (fertig) return;
       fertig = true;
-      req.destroy();
+      (req as unknown as { destroy(): void }).destroy();
       resolve(ergebnis);
     };
     const frist = setTimeout(

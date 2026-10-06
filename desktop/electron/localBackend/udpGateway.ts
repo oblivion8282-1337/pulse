@@ -101,7 +101,7 @@ export function startUdpGatewayRelayMapped(
 
       listener.on('error', (e) => {
         // EADDRINUSE etc. → Port überspringen, Rest läuft (fail-soft).
-        log(`[udp-gateway-relay] Port ${port} nicht bindbar (${(e as NodeJS.ErrnoException).code ?? e.message}) — übersprungen`);
+        log(`[udp-gateway-relay] Port ${listen} nicht bindbar (${(e as NodeJS.ErrnoException).code ?? e.message}) — übersprungen`);
         try { listener.close(); } catch { /* schon zu */ }
         resolve();
       });

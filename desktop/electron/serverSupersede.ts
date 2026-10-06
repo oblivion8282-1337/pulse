@@ -16,7 +16,7 @@
  * Keine Electron-Imports — läuft unverändert unter node:test.
  */
 
-import type { BootstrapCreds } from './pairing';
+import type { BootstrapCreds } from './localBackend/pairing';
 
 export type SupersedeVerdict = 'valid' | 'superseded' | 'unknown';
 

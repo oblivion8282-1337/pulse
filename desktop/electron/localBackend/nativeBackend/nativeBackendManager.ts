@@ -54,6 +54,12 @@ import { NATIVE_PORTS } from './types.ts';
 
 const execFileAsync = promisify(execFile);
 
+/** userData aus dem Electron-Default-Import — unter bare Node (Unit-Tests)
+ *  liefert electron einen String ohne .app, daher das Duck-Typing. */
+function userDataPfad(): string | undefined {
+  return (electron as { app?: { getPath?: (k: string) => string } }).app?.getPath?.('userData');
+}
+
 /** Welt-Suffix (Multi-Account) — Spiegel von setzeContainerWelt. */
 let nativeWelt: string | null = null;
 export function setzeNativeWelt(key: string | null): void {
@@ -95,15 +101,13 @@ async function ensureRtmpsCert(
   if (existsSync(join(certDir, 'mediamtx.crt')) && existsSync(join(certDir, 'mediamtx.key'))) return;
   mkdirSync(certDir, { recursive: true });
   const helper = join(nativeRoot(), 'gen_selfsigned_cert.py');
-  const r = await execFileAsync(venvPy, [helper, join(certDir, 'mediamtx.crt'), join(certDir, 'mediamtx.key'), hostname])
+  await execFileAsync(venvPy, [helper, join(certDir, 'mediamtx.crt'), join(certDir, 'mediamtx.key'), hostname])
     .catch((e) => { throw new Error(`[native] RTMPS-Cert fehlgeschlagen: ${e.message}`); });
-  void r;
 }
 
 export class NativeBackendManager {
   private creds: BootstrapCreds | null = null;
   private processes: SupervisedProcess[] = [];
-  private stopping = false;
 
   setzeCreds(creds: BootstrapCreds | null): void {
     this.creds = creds;
@@ -270,13 +274,11 @@ export class NativeBackendManager {
 
   async stop(): Promise<void> {
     if (this.processes.length === 0) return;
-    this.stopping = true;
     // Umgekehrter Startreihenfolge abfahren — chat-gateway zuerst, Postgres zuletzt.
     for (const proc of [...this.processes].reverse()) {
       await proc.stop().catch(() => {});
     }
     this.processes = [];
-    this.stopping = false;
   }
 
   /** give-up "Server aufgeben": Prozesse stoppen, Daten LÖSCHEN. */
@@ -285,7 +287,7 @@ export class NativeBackendManager {
   }
 
   async removeDataVolume(): Promise<boolean> {
-    const userData = (electron as { app?: { getPath?: (k: string) => string } }).app?.getPath?.('userData');
+    const userData = userDataPfad();
     if (!userData) throw new Error('userData unbekannt — Datenverzeichnis wird nicht gelöscht');
     const root = datenRoot(userData);
     if (basename(root) !== `data${weltSuffix()}`) throw new Error('unerwarteter Datenpfad — Abbruch');
@@ -295,7 +297,7 @@ export class NativeBackendManager {
 
   /** host:dataInfo für den nativen Pfad. */
   async dataInfo(): Promise<{ sizeBytes: number | null; lastAutoBackupAt: number | null }> {
-    const userData = (electron as { app?: { getPath?: (k: string) => string } }).app?.getPath?.('userData');
+    const userData = userDataPfad();
     if (!userData) return { sizeBytes: null, lastAutoBackupAt: null };
     const dirs = datenDirs(datenRoot(userData));
     let lastAutoBackupAt: number | null = null;
@@ -310,7 +312,7 @@ export class NativeBackendManager {
 
   /** Export: Datenverzeichnis als tar (Windows-eigenes bsdtar). */
   async exportData(tarPath: string): Promise<{ ok: boolean; error?: string }> {
-    const userData = (electron as { app?: { getPath?: (k: string) => string } }).app?.getPath?.('userData');
+    const userData = userDataPfad();
     if (!userData) return { ok: false, error: 'userData unbekannt' };
     const root = datenRoot(userData);
     if (!existsSync(root)) return { ok: false, error: 'keine Daten vorhanden' };
@@ -320,7 +322,7 @@ export class NativeBackendManager {
 
   /** Import: tar entpacken, Datenverzeichnis vorher leeren. */
   async importData(tarPath: string): Promise<{ ok: boolean; error?: string }> {
-    const userData = (electron as { app?: { getPath?: (k: string) => string } }).app?.getPath?.('userData');
+    const userData = userDataPfad();
     if (!userData) return { ok: false, error: 'userData unbekannt' };
     const root = datenRoot(userData);
     await rm(root, { recursive: true, force: true });

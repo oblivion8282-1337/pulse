@@ -76,7 +76,6 @@ import { runGiveUp } from './serverGiveUp';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
 import { diagnostiziere } from './localBackend/netdiag';
-import { checkCredsSupersede } from './serverSupersede';
 import { checkCredsSupersede, checkInstanceDeleted } from './serverSupersede';
 
 /** Intervall für den periodischen Ablöse-Check (③c-Ergänzung) — 10 Min sind
@@ -587,7 +586,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // die alte Welt (Daten bleiben im Volume), die des neuen Kontos kommt dran.
   const legacyCreds = loadCreds(hostStore);
   let weltUser: string | null = (storeGet('pulse.host.weltUser') as string | undefined) ?? null;
-  let creds: BootstrapCreds | null;
+  let creds: BootstrapCreds | null = null;
   /** Jede creds-Änderung läuft hierdurch: der Manager braucht den aktuellen
    *  Stand für den Abschieds-Call beim Stopp — auch wenn er den Container
    *  dieser Sitzung nur adoptiert hat (nie start() sah). */
