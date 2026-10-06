@@ -908,11 +908,24 @@ class ConnectionManager(
                 if gesehen < frisch_grenze
             ]
             for ws in tote:
+                # Frische-Check unmittelbar vor dem Schließen: könnte der
+                # Nutzer genau jetzt aufgewacht sein, bleibt der Socket stehen.
+                if self._ws_last_seen.get(ws, 0.0) >= frisch_grenze:
+                    continue
+                nutzer = self._ws_user.get(ws)
                 try:
                     await ws.close(code=1001, reason="stale connection")
                 except Exception:  # noqa: BLE001 — schon zu/abgebaut
                     pass
                 await self.remove_socket(ws)
+                # Presence-Korrektur: war das der letzte Socket des Nutzers,
+                # müssen die Peers das offline sehen (derselbe Broadcast wie
+                # im regulären Disconnect-Pfad, s. ws_ops.py).
+                if nutzer is not None and self.user_socket_count(nutzer.id) == 0:
+                    try:
+                        await self.broadcast_presence_update(str(nutzer.id), online=False)
+                    except Exception:  # noqa: BLE001 — best effort
+                        pass
             if tote:
                 log.info("stale sockets entfernt: %d", len(tote))
 

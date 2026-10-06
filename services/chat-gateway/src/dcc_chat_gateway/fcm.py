@@ -96,6 +96,45 @@ def reset_fcm_cache_for_tests() -> None:
     _FCM_APP = None
 
 
+
+def _build_dm_message(*, token: str, payload: dict) -> "messaging.Message":
+    """Baut die FCM-Message für eine DM (Alert + iOS-Sound + Zeitkritisch +
+    Android-Kanal + Deep-Link-Daten). Eigenständige Funktion, damit der Test
+    den echten Bau durch den firebase-Encoder schicken kann (Befund
+    2026-10-06: messaging.ApsSound existierte nicht — nur ein echter
+    Konstruktions-Test fängt so etwas)."""
+    from firebase_admin import messaging
+    return messaging.Message(
+        notification=messaging.Notification(
+            title=payload["title"], body=payload["body"]
+        ),
+        token=token,
+        # iOS: eigener Sound (pulse-push.caf im Bundle) + zeitkritisch —
+        # durchbricht Fokus-Modi; das Zeitkritisch-Privileg vergibt der
+        # Nutzer einmalig im Systemdialog.
+        apns=messaging.APNSConfig(
+            headers={
+                "apns-push-type": "alert",
+                "apns-interruption-level": "time-sensitive",
+            },
+            payload=messaging.APNSPayload(
+                aps=messaging.Aps(
+                    alert=messaging.ApsAlert(
+                        title=payload["title"], body=payload["body"]
+                    ),
+                    sound="pulse-push.caf",
+                )
+            ),
+        ),
+        # channel_id im data-Block: das ist die Pulse-Kanalkennung für den
+        # Deep-Link des Klienten, nicht der Android-Kanal.
+        android=messaging.AndroidConfig(
+            notification=messaging.AndroidNotification(channel_id=ANDROID_CHANNEL_ID),
+            data={k: v for k, v in payload.items() if isinstance(v, str)},
+        ),
+    )
+
+
 def _send_one(*, token: str, payload: dict) -> str:
     """Ein Sendeversuch. Liefert ``"ok"``, ``"dead"`` oder ``"warn"``.
 
@@ -109,39 +148,7 @@ def _send_one(*, token: str, payload: dict) -> str:
         log.error("firebase_admin nicht installiert; FCM-Push deaktiviert")
         return "warn"
     try:
-        messaging.send(
-            messaging.Message(
-                notification=messaging.Notification(
-                    title=payload["title"], body=payload["body"]
-                ),
-                token=token,
-                # iOS: eigener Sound (pulse-push.caf im Bundle) + zeitkritisch
-                # — durchbricht Fokus-Modi; das Zeitkritisch-Privileg vergibt
-                # der Nutzer einmalig im Systemdialog.
-                apns=messaging.APNSConfig(
-                    headers={
-                        "apns-push-type": "alert",
-                        "apns-interruption-level": "time-sensitive",
-                    },
-                    payload=messaging.APNSPayload(
-                        aps=messaging.Aps(
-                            alert=messaging.ApsAlert(
-                                title=payload["title"], body=payload["body"]
-                            ),
-                            sound="pulse-push.caf",
-                        )
-                    ),
-                ),
-                # channel_id im data-Block: das ist die Pulse-Kanalkennung für
-                # den Deep-Link des Klienten, nicht der Android-Kanal.
-                android=messaging.AndroidConfig(
-                    notification=messaging.AndroidNotification(
-                        channel_id=ANDROID_CHANNEL_ID
-                    ),
-                    data={k: v for k, v in payload.items() if isinstance(v, str)},
-                ),
-            )
-        )
+        messaging.send(_build_dm_message(token=token, payload=payload))
         return "ok"
     except messaging.UnregisteredError:
         return "dead"
