@@ -21,7 +21,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private func injectSafeAreaInsets() {
         if safeAreaInjected { return }
         guard let webView = window?.rootViewController?.view as? WKWebView else { return }
-        let insets = webView.safeAreaInsets
+        // Vom Fenster lesen, nicht von der WebView: UIWindow.safeAreaInsets
+        // steht früher verlässlich (Bughunt 2026-10-06 — der WebView-Layout-
+        // Pass kann beim ersten Active noch 0 liefern).
+        let insets = window?.safeAreaInsets ?? webView.safeAreaInsets
         // Noch kein Layout passiert → beim nächsten applicationDidBecomeActive erneut versuchen.
         if insets.top == 0, insets.bottom == 0 { return }
         safeAreaInjected = true

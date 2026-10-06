@@ -85,8 +85,8 @@ end
 # unlesbar machen.
 set -l archiv_secret (_read_env_var ARCHIV_SCHRANK_SECRET)
 if test -z "$archiv_secret"
-    set archiv_secret (python3 -c 'import secrets, base64; print(base64.b64encode(secrets.token_bytes(32)).decode())')
-    echo "ARCHIV_SCHRANK_SECRET=$archiv_secret" >> .env
+    set archiv_secret (python3 -c 'import secrets, base64; print(base64.b64encode(secrets.token_bytes(32)).decode())'); or _die "python3 fehlt — ARCHIV_SCHRANK_SECRET kann nicht generiert werden"
+    echo "ARCHIV_SCHRANK_SECRET=$archiv_secret" >> .env; or _die ".env nicht beschreibbar — das Secret würde bei jedem Lauf rotieren und bestehende Archiv-Schränke unlesbar machen"
     _warn "ARCHIV_SCHRANK_SECRET fehlte in .env — neu generiert und angehängt."
 end
 
