@@ -229,12 +229,6 @@ pub(super) fn register_codecs(
     Ok(())
 }
 
-/// Die fertige webrtc-rs-API, aus der die Verbindung entsteht.
-///
-/// Steht hier und nicht in `whip/mod.rs`, weil sie ueber den Inhalt des
-/// Angebots entscheidet: was in der Media-Engine steht, steht im SDP. Der Test
-/// am Ende dieser Datei kommt so an dieselbe Funktion wie der Betrieb — sonst
-/// pruefte er einen Nachbau und nicht den Weg.
 /// Die Bildmarke im Angebot anbieten.
 ///
 /// Nur fuer Video: eine Bildnummer auf einer Tonspur ergaebe keinen Sinn, und
@@ -257,6 +251,12 @@ pub(super) fn register_header_extensions(media: &mut MediaEngine) -> Result<()> 
         .context("Bildmarke als Header-Erweiterung anmelden")
 }
 
+/// Die fertige webrtc-rs-API, aus der die Verbindung entsteht.
+///
+/// Steht hier und nicht in `whip/mod.rs`, weil sie ueber den Inhalt des
+/// Angebots entscheidet: was in der Media-Engine steht, steht im SDP. Der Test
+/// am Ende dieser Datei kommt so an dieselbe Funktion wie der Betrieb — sonst
+/// pruefte er einen Nachbau und nicht den Weg.
 pub fn baue_api(
     video: &RTCRtpCodecCapability,
     audio: &RTCRtpCodecCapability,
