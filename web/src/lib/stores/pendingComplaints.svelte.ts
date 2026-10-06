@@ -14,7 +14,9 @@ import { auth } from '$lib/stores/auth.svelte';
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 
-const POLL_MS = 60_000;
+// 5 Min statt 60 s (Perf-Hunt 06.10.): WS-Ereignisse rufen refresh() — der
+// Poll ist nur Fallback (z. B. verpasstes Event nach Reconnect).
+const POLL_MS = 300_000;
 const LS_LAST_SEEN = 'pulse.complaints.lastSeen';
 
 class PendingComplaints {
