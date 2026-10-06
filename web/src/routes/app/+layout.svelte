@@ -403,6 +403,14 @@
         .flat()
         .filter((c) => c.type === 0 && readState.isUnread(c.id)).length;
     badgeSetzen(ungeleseneGespraeche);
+    // Bei Resume auffrischen: die Mitteilungserlaubnis kann nachtraeglich
+    // erteilt worden sein (Simulator-Befund 2026-10-06 — setBadgeCount
+    // scheitert stumm ohne Erlaubnis).
+    const badgeBeiSichtbar = () => {
+      if (document.visibilityState === 'visible') badgeSetzen(ungeleseneGespraeche);
+    };
+    document.addEventListener('visibilitychange', badgeBeiSichtbar);
+    return () => document.removeEventListener('visibilitychange', badgeBeiSichtbar);
   });
 
   // Native Leisten (StatusBar, iOS-Tastatur) tragen dieselbe Theme-Farbe wie
