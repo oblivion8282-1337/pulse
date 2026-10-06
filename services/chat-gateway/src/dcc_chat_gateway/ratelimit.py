@@ -108,6 +108,10 @@ _RULES: dict[str, tuple[int, float]] = {
     # aller Gruppenmitglieder — ohne Bremse hammerbar als Klingel-Spam an
     # ganze Gruppen. 5/Minute: ein Mensch ruft nicht im Minutentakt an.
     "anruf_start": (5, 60.0),
+    # DM-Nachrichtensuche (Perf-Hunt 06.10.): ILIKE-Volltext über die eigene
+    # Kanalhistorie in der größten Tabelle des Schemas, as-you-type getippt.
+    # 30/Minute: ein Mensch tippt seine Suche aus, kein Skript.
+    "dm_search": (30, 60.0),
 }
 
 

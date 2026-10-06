@@ -11,6 +11,7 @@ its sidebar without a refetch.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import re
 import secrets
@@ -70,6 +71,35 @@ def purge_icon_file(guild_id: int) -> None:
         log.warning("guild_icon_purge_failed", guild_id=guild_id)
 
 
+class _KaputtesBild(ValueError):
+    """Decode-Check (``Image.open``/``verify``) fehlgeschlagen → 400.
+
+    Eigene Klasse statt bloßem ``except ValueError``, damit ein späterer
+    ValueError aus exif_transpose/thumbnail/save weiterhin ein 500 bleibt.
+    """
+
+
+def _icon_verarbeiten(raw: bytes, ziel: Path) -> None:
+    """CPU-Teil des Icon-Uploads: dekodieren, drehen, skalieren, als WebP
+    schreiben. PIL ist durchweg sync — der Aufrufer verlagert das per
+    ``asyncio.to_thread`` in den Thread-Pool (Muster wie ``push.py``), damit
+    ein bis-5-MB-Bild den Event-Loop nicht anhält (Perf-Hunt 06.10.).
+
+    Gleiche Schritte, gleiche Reihenfolge wie vormals inline im Handler.
+    """
+    try:
+        img = Image.open(io.BytesIO(raw))
+        img.verify()
+        img = Image.open(io.BytesIO(raw))
+    except Exception as exc:
+        raise _KaputtesBild("invalid image file") from exc
+    img = ImageOps.exif_transpose(img)  # Handy-JPEGs: Orientation physisch anwenden
+    if img.mode in ("P", "LA"):
+        img = img.convert("RGBA")  # Paletten-Transparenz geht sonst verloren
+    img.thumbnail((_MAX_DIM, _MAX_DIM), Image.LANCZOS)
+    img.save(ziel, "WEBP", quality=85)
+
+
 @router.post("/guilds/{guild_id}/icon", response_model=GuildOut)
 async def upload_icon(
     guild_id: int,
@@ -95,25 +125,19 @@ async def upload_icon(
             status.HTTP_400_BAD_REQUEST, detail="file too large (max 5 MB)"
         )
 
-    try:
-        img = Image.open(io.BytesIO(raw))
-        img.verify()
-        img = Image.open(io.BytesIO(raw))
-    except Exception as exc:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, detail="invalid image file"
-        ) from exc
-
-    img = ImageOps.exif_transpose(img)  # Handy-JPEGs: Orientation physisch anwenden
-    if img.mode in ("P", "LA"):
-        img = img.convert("RGBA")  # Paletten-Transparenz geht sonst verloren
-    img.thumbnail((_MAX_DIM, _MAX_DIM), Image.LANCZOS)
     # Temp-Datei + Umbenennen nach dem Commit (Bughunt Runde 7, Spiegel zu
     # routes_avatar): das Icon ist die EINZIGE Kopie — ein Commit-Fehler nach
     # dem Überschreiben hätte das alte Wappen still zerstört, während die DB
     # weiter darauf zeigte.
     icon_tmp = _icon_path(guild.id).with_suffix(".webp.tmp")
-    img.save(icon_tmp, "WEBP", quality=85)
+    try:
+        # CPU-Anteil (Dekodieren/Drehen/Skalieren/WebP) läuft im Thread-Pool,
+        # nicht am Event-Loop (Perf-Hunt 06.10., Muster wie push.py).
+        await asyncio.to_thread(_icon_verarbeiten, raw, icon_tmp)
+    except _KaputtesBild as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="invalid image file"
+        ) from exc
 
     guild.icon_url = f"/api/chat/guild-icons/{guild.id}.webp?v={secrets.token_urlsafe(6)}"
     await session.commit()
