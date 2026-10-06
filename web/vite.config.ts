@@ -159,6 +159,17 @@ export default defineConfig({
   },
   server: {
     port: WEB_PORT,
+    // VITE_HTTPS_CERT/KEY: lokales HTTPS (mkcert) für Gerätetests — ohne
+    // Secure Context fehlt crypto.subtle und die Krypto-Identität
+    // („keine Gerätekennung" beim Senden) streikt. Ohne die Variablen bleibt
+    // alles beim gewohnten HTTP-Dev.
+    https:
+      process.env.VITE_HTTPS_CERT && process.env.VITE_HTTPS_KEY
+        ? {
+            cert: readFileSync(process.env.VITE_HTTPS_CERT),
+            key: readFileSync(process.env.VITE_HTTPS_KEY)
+          }
+        : undefined,
     host: '127.0.0.1',
     headers: {
       // Dev-CSP (Security-Audit 2026-09-16): das frühere Meta-CSP in app.html
