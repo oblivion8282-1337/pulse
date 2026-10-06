@@ -28,7 +28,7 @@
       type="text"
       bind:value
       {placeholder}
-      class="placeholder:text-text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
+      class="placeholder:text-text-muted min-w-0 flex-1 bg-transparent text-base outline-none md:text-sm"
       data-testid="{testid}-input"
       aria-label={placeholder}
     />

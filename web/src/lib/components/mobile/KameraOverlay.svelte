@@ -852,7 +852,7 @@
             type="text"
             bind:value={entwurfText}
             placeholder={m.message_input_placeholder()}
-            class="mb-4 w-full rounded-2xl border border-white/15 bg-black/50 px-4 py-3 text-sm text-white backdrop-blur-md outline-none placeholder:text-white/50 focus:border-white/30"
+            class="mb-4 w-full rounded-2xl border border-white/15 bg-black/50 px-4 py-3 text-base text-white backdrop-blur-md outline-none placeholder:text-white/50 focus:border-white/30 md:text-sm"
             onkeydown={(e) => {
               if (e.key === 'Enter' && !e.isComposing) void entwurfSenden();
             }}
