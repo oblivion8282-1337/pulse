@@ -102,7 +102,7 @@ am iPhone nötig (ich baue vor) · **Portal** = braucht Michaels Zugänge (Apple
 
 | # | Punkt | Ist → Ziel | Aufw. | Verifikation |
 |---|---|---|---|---|
-| 15 | Push-Basis PM/Erwähnung | FCM nur Android ([fcm.ts](../../web/src/lib/platform/fcm.ts) ruft nur Android-Plugin) → APNs-Key im Firebase, Push-Entitlement, Registrierung iOS | M | Portal + Gerät |
+| 15 | Push-Basis PM/Erwähnung — **FERTIG 2026-10-06, am Gerät verifiziert**: APNs-Keys (Sandbox&Production-Key D4X4VN6JF2 in Firebase Dev+Prod-Zeile), Entitlement, FCM-Weg für iOS-Hülle geöffnet, Token-Registrierung + Banner am Gerät bestätigt. Notwendig dafür war zusätzlich: FIREBASE_SERVICE_ACCOUNT_KEY am Gateway (dev-up) und Garage/MinIO-Port-Frieden im Dev-Stack | ✅ | Gerät ✓ |
 | 16 | Universal Links | fehlt → Entitlement + `apple-app-site-association` auf howispulse.com; Grundlage für Push-Taps | M | Portal + Gerät |
 | 17 | Icon-Badge | Web-Title-Punkt → `setApplicationBadgeNumber` aus Ungelesen-Stand | S | Sim |
 | 18 | Rich-Push + Direkt-Antwort | — → UNNotificationCategory „Antworten", Bild-Anhänge | M | Gerät |
