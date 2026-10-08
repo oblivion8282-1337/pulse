@@ -25,6 +25,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { URL } from 'node:url';
+import { execFile } from 'node:child_process';
 // Injected by esbuild's `--define` at build time (see `esbuild.mjs`) so only
 // the version string is baked in, not the whole `package.json` object.
 declare const __APP_VERSION__: string;
@@ -2492,8 +2493,30 @@ async function bootServer(): Promise<void> {
 
   // Tray-Host war evtl. noch nicht da, als das Symbol registriert wurde
   // (Autostart mitten im Session-Hochlauf): einmalig neu registrieren, damit
-  // das Symbol nicht verloren bleibt.
-  setTimeout(() => recreateTray(), 20_000);
+  // das Symbol nicht verloren bleibt. NUR dann: Chromium meldet ein
+  // abgebautes Symbol nicht bei der Leiste ab — lief der Host schon, stand
+  // danach ein zweites, totes Symbol daneben (Linux-Test 2026-10-08, niri:
+  // StatusNotifierItem/1 und /2 aus demselben Prozess). Deshalb nur nach
+  // Autostart und nur, wenn beim Start KEIN Tray-Host auf dem Bus war.
+  if (process.platform === 'linux' && process.argv.includes('--autostarted')) {
+    void trayHostDa().then((da) => {
+      if (!da) setTimeout(() => recreateTray(), 20_000);
+    });
+  }
+}
+
+/** Läuft ein StatusNotifierWatcher (Tray-Host) auf dem Session-Bus? Electron
+ *  hat dafür keine API; `gdbus` liegt in der Flatpak-Runtime wie auf jedem
+ *  GLib-Desktop. Scheitert die Abfrage, gilt der Host als fehlend — dann
+ *  greift der alte Weg (Neuregistrierung), lieber ein Geist als kein Symbol. */
+function trayHostDa(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile('gdbus', [
+      'call', '--session', '--dest', 'org.freedesktop.DBus',
+      '--object-path', '/org/freedesktop/DBus',
+      '--method', 'org.freedesktop.DBus.NameHasOwner', 'org.kde.StatusNotifierWatcher',
+    ], { timeout: 3_000 }, (err, stdout) => resolve(!err && /true/.test(String(stdout))));
+  });
 }
 
 app.whenReady().then(() => void (SERVER_MODE ? bootServer() : bootClient()));
