@@ -4,8 +4,9 @@
  *  - Win/Mac: `app.setLoginItemSettings` (per Dep injiziert — dieses Modul
  *    bleibt electron-frei für node:test).
  *  - Linux: XDG-Autostart-Datei nach `~/.config/autostart/` — das Server-
- *    Flatpak hat `--filesystem=host`, das Verzeichnis ist also DIREKT
- *    beschreibbar (kein Background-Portal/D-Bus nötig; Electron hat dafür
+ *    Flatpak gibt genau dieses Verzeichnis frei (`--filesystem=xdg-config/
+ *    autostart:create`; bis 2026-10-08 `--filesystem=host`), es ist also
+ *    DIREKT beschreibbar (kein Background-Portal/D-Bus nötig; Electron hat dafür
  *    ohnehin keine API und neue Dependencies sind tabu). Exec-Zeile im
  *    Flatpak = `flatpak run <app-id>`, sonst der Electron-Binary-Pfad.
  *

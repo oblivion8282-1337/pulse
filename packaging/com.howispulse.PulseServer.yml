@@ -28,17 +28,49 @@ finish-args:
   - --socket=x11
   - --socket=wayland
   - --share=ipc
-  # GPU-Zugriff — Electron/Chromium braucht ihn zum Rendern (auch des schmalen
-  # server.html); ohne --device=all crasht der GPU-Prozess im Flatpak → leeres
-  # Fenster. (Wie der Client-Flatpak; NVIDIA /dev/nvidia* braucht --device=all.)
-  - --device=all
+  # GPU: nur /dev/dri, nicht --device=all. Der Launcher startet mit
+  # --disable-gpu (Software-Rendering — die Server-App ist ein schmales
+  # Kontrollpanel, gestreamt wird im Container). Am 2026-07-09 kamen
+  # --device=all und --disable-gpu GEMEINSAM gegen ein weißes Fenster bzw.
+  # einen GPU-Prozess-Absturz (exit 133) herein; ob --disable-gpu allein schon
+  # reicht, wurde nie getrennt gemessen. /dev/dri bleibt deshalb als Polster
+  # für Mesa/EGL im Wayland-Pfad. --device=all hätte zusätzlich Webcams,
+  # NVIDIA-Knoten und jedes andere Gerät freigegeben — gebraucht wird davon
+  # bei abgeschalteter GPU nichts. (Ungetestet: Start auf NVIDIA-proprietär
+  # ohne /dev/nvidia*.)
+  - --device=dri
   # Login bei howispulse.com + Pulse-Cloud-API + Server-Netzwerk.
   - --share=network
-  # Der Server-Container läuft im HOST-Podman (flatpak-spawn --host podman) —
-  # braucht den Flatpak-Session-Bus (wie das Client-App-Hosting).
+  # Der Server-Container läuft im HOST-Podman/-Docker (`flatpak-spawn --host
+  # podman|docker`, containerRuntime.ts). Bewusste Entscheidung: dieser
+  # Bus-Name ist faktisch ein Ausbruch aus der Sandbox (flatpak-spawn --host
+  # führt beliebige Befehle als der Nutzer aus) — anders lässt sich ein
+  # Container auf dem Host aber nicht verwalten; ein Podman im Sandkasten ist
+  # fragil (rootless-Namespaces in bwrap) und hätte keinen Host-Netzzugang für
+  # die Medienports. Boxbuddy-Muster, Flathub-akzeptiert.
   - --talk-name=org.freedesktop.Flatpak
-  # Podman-Socket/-Daten auf dem Host für die Container-Verwaltung.
-  - --filesystem=host
+  # KEIN --filesystem=host (bis 2026-10-08 stand es hier, begründet mit dem
+  # Podman-Socket — der wird nie direkt angesprochen, nur über flatpak-spawn
+  # auf dem Host). Was die App an Dateien braucht, liegt ohne Freigabe offen:
+  #  - userData (Store, container.env, Wegwerf-Registry-Anmeldung) liegt unter
+  #    ~/.var/app/com.howispulse.PulseServer/ — innen und aussen derselbe
+  #    Pfad, deshalb findet der Host-Podman die Dateien, die die App ihm per
+  #    `--env-file`/`--authfile` nennt (registryAuth.ts).
+  #  - Export/Import der Serverdaten: Dateidialog (Portal), den Strom schreibt
+  #    bzw. liest die App selbst (rtExecToFile/rtExecFromFile), der Host-Podman
+  #    sieht den Zielpfad nie.
+  #  - Autostart schreibt ~/.config/autostart/pulse-server.desktop direkt
+  #    (autostart.ts, os.homedir()) — genau dieses eine Verzeichnis:
+  - --filesystem=xdg-config/autostart:create
+  # Schlüsselbund für safeStorage (Zugangsdaten der Instanz, client_secret).
+  # Ohne diese Namen findet Chromium keinen Secret-Service, wählt
+  # `basic_text` (fest eingebautes Passwort) und die Geheimnisse liegen
+  # faktisch im Klartext im Store. Der Launcher wählt dazu den Speicher
+  # (--password-store), weil Chromium ausserhalb von GNOME/KDE sonst
+  # ebenfalls basic_text nimmt.
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.kde.kwalletd6
+  - --talk-name=org.kde.kwalletd5
   # System-Tray + ggf. Notifications.
   - --talk-name=org.kde.StatusNotifierWatcher
   - --talk-name=org.freedesktop.portal.Desktop
@@ -91,8 +123,26 @@ modules:
       - type: dir
         path: ../desktop/electron/dist
         dest: app-dist
-      - type: dir
-        path: ../packaging
+      # Einzeln statt `type: dir ../packaging`: das ganze Verzeichnis zog
+      # auch `packaging/.gpg/` (den privaten Signaturschlüssel, lokal von
+      # publish.fish dort angelegt) in den Bauordner. Ausserdem steht jede
+      # Datei hier zugleich als Pfad-Filter in flatpak.yml — eine Liste, die
+      # man gegeneinander lesen kann, statt eines Verzeichnisses, das
+      # stillschweigend alles mitnimmt.
+      - type: file
+        path: launcher-server.sh
+        dest: packaging
+      - type: file
+        path: com.howispulse.PulseServer.desktop
+        dest: packaging
+      - type: file
+        path: com.howispulse.PulseServer.svg
+        dest: packaging
+      - type: file
+        path: com.howispulse.PulseServer.metainfo.xml
+        dest: packaging
+      - type: file
+        path: pulse-server.package.json
         dest: packaging
       - type: file
         path: ../desktop/electron/icon-server.png

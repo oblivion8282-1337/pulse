@@ -594,8 +594,25 @@ modules:
       - type: dir
         path: ../desktop/electron/dist
         dest: app-dist
-      - type: dir
-        path: ../packaging
+      # Einzeln statt `type: dir ../packaging` (Linux-Scan 2026-10-08): das
+      # ganze Verzeichnis zog auch `packaging/.gpg/` — den privaten
+      # Signaturschlüssel, lokal von publish.fish dort angelegt — in den
+      # Bauordner. Ins Paket kam er nie (installiert werden nur die Dateien
+      # unten), aber Bauordner und Builder-Cache sind kein Ort für ihn.
+      - type: file
+        path: launcher.sh
+        dest: packaging
+      - type: file
+        path: com.howispulse.Pulse.desktop
+        dest: packaging
+      - type: file
+        path: com.howispulse.Pulse.svg
+        dest: packaging
+      - type: file
+        path: com.howispulse.Pulse.metainfo.xml
+        dest: packaging
+      - type: file
+        path: pulse-app.package.json
         dest: packaging
       - type: file
         path: ../desktop/electron/icon.png
