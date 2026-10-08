@@ -154,6 +154,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Meldung eintrifft. Sie haengen nicht an der Mitteilungserlaubnis —
         // registrieren darf man sie immer.
         mitteilungsAktionenRegistrieren()
+        // PushKit + CallKit SOFORT scharf machen (Punkt 40). Hier und nicht im
+        // Plugin: ein VoIP-Push trifft die App auch kalt gestartet, bevor
+        // irgendeine WebView existiert — ein Capacitor-Plugin gibt es dann
+        // noch nicht. Begründung im Kopf von `AnrufPlugin.swift`.
+        Anrufverwaltung.geteilt.starten()
         NotificationCenter.default.addObserver(
             self, selector: #selector(lageGewechselt),
             name: UIDevice.orientationDidChangeNotification, object: nil)

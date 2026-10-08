@@ -269,6 +269,31 @@ class Settings(BaseSettings):
     # Siehe ``fcm.ensure_fcm``.
     firebase_service_account_key: str | None = None
 
+    # ── APNs direkt, nur für VoIP-Pushes (iOS-Liste Punkt 40) ──────────────
+    # Jeder andere Push läuft über Firebase. Ein VoIP-Push kann Firebase
+    # nicht: er verlangt ``apns-push-type: voip`` auf dem Topic
+    # ``<bundle>.voip``. Deshalb hier ein zweiter, schmaler Weg — Begründung
+    # im Kopf von ``apns_voip.py``.
+    #
+    # Fehlt einer dieser vier Werte, gibt es keine VoIP-Pushes und sonst
+    # ändert sich nichts: ein Anruf erreicht dann wie bisher nur, wer eine
+    # offene WebSocket hat. Eine Fehlkonfiguration darf keinen Anruf
+    # verhindern, der sonst zustande käme.
+    #
+    # ``apns_key_file`` ist der Pfad zur ``.p8``-Datei von Apple. **Derselbe
+    # Schlüssel darf parallel in Firebase liegen** — Apple erlaubt einem
+    # Schlüssel mehrere Nutzer, es braucht also keinen zweiten.
+    apns_key_file: str | None = None
+    apns_key_id: str | None = None
+    apns_team_id: str | None = None
+    apns_bundle_id: str | None = None
+    # Ein Gerätetoken gehört zu GENAU EINER Umgebung. Ein Entwicklungs-Bau
+    # (``aps-environment = development``) liefert Sandbox-Tokens, und die
+    # Produktions-Adresse weist sie mit ``BadDeviceToken`` ab — was aussieht
+    # wie ein kaputter Token und keine falsche Adresse. Vorgabe ``True``,
+    # weil heute genau so gebaut wird; für den Store-Bau auf ``False``.
+    apns_sandbox: bool = True
+
     # Background cleanup of long-idle Web-Push subscriptions. ``push.py``
     # already drops a sub when the provider returns 404/410; this catches
     # the case where the endpoint still answers 2xx but belongs to a

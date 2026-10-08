@@ -25,6 +25,7 @@
 		A1B2C3D4E5F60718000000E1 /* OrientationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000E2 /* OrientationPlugin.swift */; };
 		A1B2C3D4E5F60718000000F1 /* WachhaltenPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000F2 /* WachhaltenPlugin.swift */; };
 		A1B2C3D4E5F6071800000101 /* QrScanPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000102 /* QrScanPlugin.swift */; };
+		A1B2C3D4E5F6071800000111 /* AnrufPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000112 /* AnrufPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +53,7 @@
 		A1B2C3D4E5F60718000000E2 /* OrientationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrientationPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718000000F2 /* WachhaltenPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WachhaltenPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000102 /* QrScanPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrScanPlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6071800000112 /* AnrufPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -111,6 +113,7 @@
 				A1B2C3D4E5F60718000000E2 /* OrientationPlugin.swift */,
 				A1B2C3D4E5F60718000000F2 /* WachhaltenPlugin.swift */,
 				A1B2C3D4E5F6071800000102 /* QrScanPlugin.swift */,
+				A1B2C3D4E5F6071800000112 /* AnrufPlugin.swift */,
 				A1B2C3D4E5F60718293A4B5D /* PrivacyInfo.xcprivacy */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -258,6 +261,7 @@
 				A1B2C3D4E5F60718000000E1 /* OrientationPlugin.swift in Sources */,
 				A1B2C3D4E5F60718000000F1 /* WachhaltenPlugin.swift in Sources */,
 				A1B2C3D4E5F6071800000101 /* QrScanPlugin.swift in Sources */,
+				A1B2C3D4E5F6071800000111 /* AnrufPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

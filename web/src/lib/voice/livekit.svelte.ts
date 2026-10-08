@@ -453,7 +453,7 @@ class VoiceRoom {
     // mode switch a head start before any track exists. No-op off Capacitor-Android;
     // cleared again in #teardown on leave.
     await setVoiceActive(true);
-    tonVoice(true);
+    tonVoice('sprachkanal', true);
 
     // Aufgelegt, waehrend der Ruf-Modus gesetzt wurde — gar nicht erst
     // verbinden. Ohne diesen Wachposten baut der Handschlag den Raum noch
@@ -680,7 +680,7 @@ class VoiceRoom {
     await raumVerwerfen(room);
     if (this.channelId === null) {
         void setVoiceActive(false);
-        tonVoice(false);
+        tonVoice('sprachkanal', false);
     }
   }
 
@@ -1765,7 +1765,7 @@ class VoiceRoom {
     // Android: release MODE_IN_COMMUNICATION + the comm device so the phone
     // leaves call-mode after we hang up. No-op off Capacitor-Android.
     void setVoiceActive(false);
-    tonVoice(false);
+    tonVoice('sprachkanal', false);
     // Wake-Lock freigeben, BEVOR die Referenz fällt — sonst bleibt das Display
     // für die restliche Sitzung an (der Griff ist dann nicht mehr erreichbar).
     this.#releaseWakeLock?.();

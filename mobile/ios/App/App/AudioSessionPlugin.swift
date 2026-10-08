@@ -50,9 +50,19 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Voice-Modus an/aus: `aktiv` = playAndRecord + voiceChat (Mikro, Echo-
     /// Auslösen, Bluetooth), sonst Session deaktivieren mit
     /// notifyOthersOnDeactivation (pausiert höflich fremde Musik-Apps).
+    ///
+    /// **Während CallKit einen Anruf führt, wird die Session NICHT selbst
+    /// aktiviert oder deaktiviert** (Punkt 40). Apples Regel: bei CallKit
+    /// konfiguriert die App die Kategorie, AKTIVIERT aber der `CXProvider`
+    /// (`didActivate`). Wer sie daneben selbst anfasst, nimmt sie ihm weg —
+    /// der angenommene Anruf bleibt stumm, und das `setActive(false)` beim
+    /// Verlassen würde einen laufenden CallKit-Anruf mitreissen. Die
+    /// Kategorie wird weiter gesetzt: sie ist unsere Sache und sagt dem
+    /// System, WAS für eine Sitzung das ist.
     @objc func setVoiceActive(_ call: CAPPluginCall) {
         let aktiv = call.getBool("aktiv") ?? false
         let session = AVAudioSession.sharedInstance()
+        let callkit = Anrufverwaltung.geteilt.callkitAktiv
         do {
             if aktiv {
                 try session.setCategory(
@@ -60,8 +70,8 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
                     mode: .voiceChat,
                     options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
                 )
-                try session.setActive(true)
-            } else {
+                if !callkit { try session.setActive(true) }
+            } else if !callkit {
                 try session.setActive(false, options: [.notifyOthersOnDeactivation])
             }
             call.resolve()

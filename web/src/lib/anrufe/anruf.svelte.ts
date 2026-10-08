@@ -25,7 +25,7 @@
 
 import { ConnectionState, Room, RoomEvent, Track, ExternalE2EEKeyProvider } from 'livekit-client';
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
-import { isCapacitorAndroid } from '$lib/platform/runtime';
+import { isCapacitorAndroid, isCapacitorIOS } from '$lib/platform/runtime';
 import {
   anrufAnnehmen,
   anrufAblehnen,
@@ -36,6 +36,7 @@ import {
 } from '$lib/api/anrufe';
 import { sounds } from '$lib/sounds/engine';
 import { setVoiceActive } from '$lib/platform/audioRoute';
+import { tonVoice } from '$lib/platform/iosTon';
 import { toast } from 'svelte-sonner';
 import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
 import { m } from '$lib/paraglide/messages.js';
@@ -80,26 +81,52 @@ function e2eeWorker(): Worker {
 }
 
 /**
- * Native Brücke (nur im Capacitor-Android-APK, s. mobile/android …/AnrufPlugin.java,
- * Anrufe-Epic E): eingehende Anrufe zeigen eine Full-Screen-Intent-Notification
- * über dem Sperrbildschirm; Annehmen/Ablehnen aus der Notification kommen als
- * `aktion`-Event zurück, weil die Signalisierung (anrufAnnehmen/anrufAblehnen)
- * im Klienten lebt. In Browser/Electron No-op.
+ * Native Brücke in die Mobil-Hüllen: Android zeigt eine
+ * Full-Screen-Intent-Notification über dem Sperrbildschirm
+ * (`mobile/android …/AnrufPlugin.java`, Anrufe-Epic E), iOS seit dem
+ * 2026-10-08 den System-Anrufbildschirm (`mobile/ios …/AnrufPlugin.swift`,
+ * Punkt 40). Beide Seiten tragen denselben Vertrag: gleicher JS-Name,
+ * gleiche Methoden, gleiches `aktion`-Ereignis.
+ *
+ * Annehmen/Ablehnen kommen als `aktion`-Ereignis zurück, weil die
+ * Signalisierung (anrufAnnehmen/anrufAblehnen) im Klienten lebt.
+ * In Browser/Electron No-op.
  */
 interface AnrufNativPlugin {
   ankommen(opts: { callId: string; gegenstelle: string }): Promise<void>;
   beenden(): Promise<void>;
   addListener(
     event: 'aktion',
-    cb: (data: { aktion: 'annehmen' | 'ablehnen'; callId: string }) => void
+    cb: (data: {
+      aktion: 'annehmen' | 'ablehnen';
+      callId: string;
+      /** Nur vorhanden, wenn die Aktion aus einem VoIP-Push stammt (iOS):
+       *  dann kennt das Web den Anruf noch nicht und braucht den Kanal. */
+      channel_id?: string;
+      anruf_art?: string;
+      einleiter_id?: string;
+      einleiter_name?: string;
+    }) => void
   ): Promise<PluginListenerHandle>;
 }
 
 const anrufNativ = registerPlugin<AnrufNativPlugin>('Anruf');
 
-/** Klingel-Notification nativ zeigen (No-op außerhalb des Android-Wrappers). */
+/** Gibt es hier überhaupt eine native Anrufanzeige? An EINER Stelle, weil
+ *  die Antwort drei Riegel in dieser Datei bedient — ein Riegel, der die
+ *  neue Hülle vergisst, fällt sonst nur auf dem Gerät auf. */
+function nativeHuelle(): boolean {
+  return isCapacitorAndroid() || isCapacitorIOS();
+}
+
+/** Eingehenden Anruf nativ anzeigen (No-op außerhalb der Mobil-Hüllen).
+ *
+ *  Auf iOS kann derselbe Anruf ZWEIMAL hier ankommen: einmal über die
+ *  WebSocket (dieser Weg) und einmal über den VoIP-Push. Die native Seite
+ *  prüft deshalb die Kennung und meldet keinen zweiten Bildschirm für
+ *  denselben Anruf. */
 async function nativAnkommen(callId: string, gegenstelle: string): Promise<void> {
-  if (!isCapacitorAndroid()) return;
+  if (!nativeHuelle()) return;
   try {
     await anrufNativ.ankommen({ callId, gegenstelle });
   } catch (e) {
@@ -107,9 +134,11 @@ async function nativAnkommen(callId: string, gegenstelle: string): Promise<void>
   }
 }
 
-/** Klingel-Notification nativ entfernen (No-op außerhalb des Android-Wrappers). */
+/** Native Anzeige entfernen (No-op außerhalb der Mobil-Hüllen). Auf iOS
+ *  beendet das den CallKit-Bildschirm — ohne diesen Ruf klingelte das Telefon
+ *  weiter, nachdem der Anruf im Web vorbei ist. */
 async function nativBeenden(): Promise<void> {
-  if (!isCapacitorAndroid()) return;
+  if (!nativeHuelle()) return;
   try {
     await anrufNativ.beenden();
   } catch (e) {
@@ -576,6 +605,18 @@ class AnrufStore {
       // im Auto leises A2DP). So läuft der Anruf über die Anruf-Lautstärke und
       // der Mic-Dienst hält die Verbindung bei gesperrtem Bildschirm am Leben.
       await setVoiceActive(true);
+      // **iOS: hier fehlte die Audio-Session ganz** (gefunden 2026-10-08 beim
+      // Bau von Punkt 40). `setVoiceActive` ist Android-only; den iOS-Weg
+      // kannte nur der Sprachkanal (`voice/livekit.svelte.ts`), nicht der
+      // Anruf. Folge: ein ausgehender oder im Web angenommener Anruf lief ohne
+      // `.playAndRecord`/`.voiceChat` — kein Mikro-Routing, kein
+      // System-Echo-Auslösen. Nur ein über CallKit angenommener Anruf hatte
+      // Ton, weil dort der `CXProvider` die Session selbst aktiviert.
+      //
+      // Eigene Kennung, nicht `'sprachkanal'`: Anruf und Kanal laufen
+      // unabhängig, und mit einer gemeinsamen Kennung nähme das Auflegen dem
+      // Kanal die Session weg (s. `platform/iosTon.ts`).
+      tonVoice('anruf', true);
 
       await room.connect(resp.ws_url, resp.token);
       if (gen !== this.#abbauGen) {
@@ -637,20 +678,39 @@ class AnrufStore {
     // Android: Ruf-Modus + Mic-Dienst freigeben (No-op außerhalb des Wrappers) —
     // sonst bleibt das Telefon im Call-Modus hängen (falscher Lautstärkeregler).
     void setVoiceActive(false);
+    tonVoice('anruf', false);
   }
 }
 
 export const anrufe = new AnrufStore();
 
-// Annehmen/Ablehnen aus der nativen Sperrbildschirm-Notification (feuert nur
-// unter Capacitor-Android). Fremde oder abgelaufene callIds (verspäteter Tap
+// Annehmen/Ablehnen aus der nativen Anzeige (Android: Notification, iOS:
+// CallKit). Fremde oder abgelaufene callIds (verspäteter Tap
 // auf eine alte Klingel-Notification) werden ignoriert.
 // Guard ist PFLICHT: der Web-Stub von registerPlugin wirft beim addListener
 // ("not implemented on web") und riss sonst das komplette Boot mit — die
 // Login-Seite blieb im Browser weiß (Befund 2026-09-09).
-if (isCapacitorAndroid()) {
-  void anrufNativ.addListener('aktion', ({ aktion, callId }) => {
-    const anruf = anrufe.aktiv;
+if (nativeHuelle()) {
+  void anrufNativ.addListener('aktion', (daten) => {
+    const { aktion, callId } = daten;
+    let anruf = anrufe.aktiv;
+    // **Der kalt gestartete Anruf ist der Fall, der hier leicht fehlt.** Wird
+    // ein Anruf per VoIP-Push auf dem Sperrbildschirm angenommen, hat das Web
+    // nie ein `call_klingelt` gesehen: `aktiv` ist leer, und ein blosses
+    // „Kennung passt nicht" verwürfe die Annahme. Der Push trägt den Kanal
+    // mit, also wird der Zustand hier nachgezogen — erst danach annehmen.
+    if (!anruf && daten.channel_id) {
+      anrufe.eingehend(
+        {
+          call_id: callId,
+          art: daten.anruf_art ?? 'audio',
+          channel_id: daten.channel_id,
+          einleiter_id: daten.einleiter_id ?? ''
+        },
+        daten.einleiter_name ?? 'Pulse'
+      );
+      anruf = anrufe.aktiv;
+    }
     if (!anruf || anruf.id !== callId) return;
     if (aktion === 'annehmen') void anrufe.annehmen(anruf.gegenstelle);
     else void anrufe.ablehnen();

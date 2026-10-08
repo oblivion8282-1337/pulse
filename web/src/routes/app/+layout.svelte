@@ -33,6 +33,7 @@
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import { netzwacheStarten } from '$lib/ws/netzwache';
   import { schriftGroesseVerfolgen } from '$lib/platform/schriftGroesse';
+  import { voipTokenVerfolgen } from '$lib/platform/voipToken';
   import VerbindungsHinweis from '$lib/components/VerbindungsHinweis.svelte';
   import BerechtigungVorerklaerung from '$lib/components/BerechtigungVorerklaerung.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
@@ -282,6 +283,9 @@
     netzwacheStarten();
     // Systemschriftgröße anwenden, falls die Hülle sie meldet (Punkt 38).
     schriftGroesseVerfolgen();
+    // PushKit-Token anmelden, damit ein Anruf das Telefon erreicht, auch wenn
+    // keine WebSocket offen ist (Punkt 40).
+    voipTokenVerfolgen();
 
     // Vom Betreiber gelöschte Self-Host-Server aus der lokalen Liste räumen
     // (öffentliche Suspend-Liste der Cloud, anonymer Abgleich). Fire-and-forget.

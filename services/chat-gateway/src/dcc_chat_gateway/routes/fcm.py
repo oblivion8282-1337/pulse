@@ -20,13 +20,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import badgezaehler
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import FcmToken
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
+from dcc_chat_gateway.routes import _geraetetoken as geraetetoken
 from dcc_chat_gateway.security import CurrentUser
 
 router = APIRouter(prefix="/fcm", tags=["fcm"])
@@ -66,61 +65,14 @@ async def token_speichern(
     """
     if not ratelimit_check("fcm_token", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate_limited")
-    await session.execute(
-        delete(FcmToken).where(
-            FcmToken.token == payload.token, FcmToken.user_id != current.id
-        )
+    await geraetetoken.upsert(
+        session=session,
+        modell=FcmToken,
+        user_id=current.id,
+        geraet_id=payload.geraet_id,
+        token=payload.token,
+        konflikt_detail="fcm_token_belegt",
     )
-    existing = (
-        await session.execute(
-            select(FcmToken).where(
-                FcmToken.user_id == current.id,
-                FcmToken.geraet_id == payload.geraet_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        existing.token = payload.token
-    else:
-        session.add(
-            FcmToken(
-                user_id=current.id,
-                geraet_id=payload.geraet_id,
-                token=payload.token,
-            )
-        )
-    try:
-        await session.commit()
-    except IntegrityError:
-        # Rennen (zwei Start-Aufrufe desselben Geräts): der andere Aufruf hat
-        # die Zeile (user_id, geraet_id) gewonnen. Rollback, dann den
-        # Überlebenden explizit auf DEN hier angekommenden Token ziehen —
-        # sonst würde ein verlorener Rennlauf still 204 liefern, ohne dass
-        # der frische Token je ankommt (Befund 03.10.).
-        await session.rollback()
-        uebrig = (
-            await session.execute(
-                select(FcmToken).where(
-                    FcmToken.user_id == current.id,
-                    FcmToken.geraet_id == payload.geraet_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if uebrig is None:
-            # Kein Rennen um die Zeile — ein anderer Grund (z. B. Token-Unique
-            # gegen ein parallel wanderndes Gerät). Ehrlich scheitern statt
-            # Erfolg behaupten; der App-Start wiederholt den Aufruf.
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, detail="fcm_token_belegt"
-            ) from None
-        uebrig.token = payload.token
-        try:
-            await session.commit()
-        except IntegrityError:
-            await session.rollback()
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, detail="fcm_token_belegt"
-            ) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -132,12 +84,9 @@ async def token_entfernen(
 ) -> Response:
     """Token abmelden (Sign-Out). Still 204 auf einem unbekannten Token —
     die Route ist idempotent und verrät nicht, was fremde Geräte tun."""
-    await session.execute(
-        delete(FcmToken).where(
-            FcmToken.user_id == current.id, FcmToken.token == payload.token
-        )
+    await geraetetoken.entfernen(
+        session=session, modell=FcmToken, user_id=current.id, token=payload.token
     )
-    await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

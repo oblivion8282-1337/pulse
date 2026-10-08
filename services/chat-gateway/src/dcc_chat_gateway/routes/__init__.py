@@ -23,7 +23,6 @@ from dcc_chat_gateway.routes import (
     bans,
     blocks,
     capabilities,
-    session_ticket,
     channels,
     community_invites,
     device_grants,
@@ -32,9 +31,10 @@ from dcc_chat_gateway.routes import (
     dropbox,
     dropbox_admin,
     fcm,
-    meine_anhaenge,
     friends,
+    gast,
     geraete,
+    guest_links,
     guild_icons,
     guild_limits,
     guild_plugins,
@@ -45,8 +45,7 @@ from dcc_chat_gateway.routes import (
     invites,
     kopplung,
     kopplung_umzug,
-    gast,
-    guest_links,
+    meine_anhaenge,
     member_invites,
     mention_search,
     messages,
@@ -73,12 +72,14 @@ from dcc_chat_gateway.routes import (
     schluessel_abholen,
     schluessel_auskunft,
     server_info,
+    session_ticket,
     sounds,
     stream_chat,
     stream_reactions,
     streaming,
     users,
     voice_pull,
+    voip,
     watch,
     watch_chat,
     ws,
@@ -184,6 +185,7 @@ router.include_router(dropbox.kanal_router)
 router.include_router(dropbox_admin.admin_router, dependencies=_dropbox_gate)
 router.include_router(notifications.router)
 router.include_router(fcm.router)
+router.include_router(voip.router)
 router.include_router(meine_anhaenge.router)
 router.include_router(anrufe.router)
 router.include_router(archiv.router)

@@ -45,6 +45,10 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<!-- voip: Pflicht für PushKit (iOS-Liste Punkt 40). Ohne diesen
+		     Eintrag liefert iOS KEINEN einzigen VoIP-Push aus — und zwar
+		     ohne Fehlermeldung, der Push verschwindet einfach. -->
+		<string>voip</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

@@ -22,6 +22,7 @@ import { drafts } from '$lib/stores/drafts.svelte';
 import { isCapacitorAndroid, isCapacitorIOS } from './runtime';
 import { berechtigungsblatt } from './berechtigung.svelte';
 import type { Stand } from './berechtigungRegel';
+import { pushGeraetId } from './geraeteKennungPush';
 
 /** Schmaler Ausschnitt der Plugin-Oberfläche (nur was wir rufen). */
 interface FcmPlugin {
@@ -59,26 +60,11 @@ function plugin(): FcmPlugin | null {
  */
 const KANAL_ID = 'messages';
 
-const GERAET_KEY = 'pulse-fcm-geraet-id';
-
-function geraetId(): string {
-  try {
-    let id = window.localStorage.getItem(GERAET_KEY);
-    if (!id) {
-      id = crypto.randomUUID();
-      window.localStorage.setItem(GERAET_KEY, id);
-    }
-    return id;
-  } catch {
-    return 'geraet-ohne-speicher';
-  }
-}
-
 async function meldeAn(fcm: FcmPlugin): Promise<void> {
   const { token } = await fcm.getToken();
   await request<void>('/fcm/token', {
     method: 'POST',
-    body: { token, geraet_id: geraetId() }
+    body: { token, geraet_id: pushGeraetId() }
   });
 }
 

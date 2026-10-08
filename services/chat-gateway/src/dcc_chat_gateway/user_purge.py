@@ -41,6 +41,7 @@ from dcc_chat_gateway.models import (
     Device,
     DirectMessageChannel,
     FcmToken,
+    VoipToken,
     FriendRequest,
     Friendship,
     Guild,
@@ -350,6 +351,7 @@ async def _purge_db(
 
     # 8b. FCM-Tokens der Android-Geräte (Übergabe P0.1).
     await session.execute(sa_delete(FcmToken).where(FcmToken.user_id == user_id))
+    await session.execute(sa_delete(VoipToken).where(VoipToken.user_id == user_id))
 
     # 8c. Anrufe, die das Konto eingeleitet hat (Befund 03.10. — kein FK auf
     # einleiter_id). DM-Anrufe räumt `_delete_dm_channels` mit dem Kanal weg;

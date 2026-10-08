@@ -87,4 +87,33 @@ class FcmToken(Base):
     )
 
 
-__all__ = ["FcmToken", "WebPushSubscription"]
+class VoipToken(Base):
+    """Ein PushKit-Token eines iOS-Geräts (iOS-Liste Punkt 40).
+
+    **Warum eine eigene Tabelle und nicht ``fcm_tokens``.** Der PushKit-Token
+    ist ein ANDERER Token als der FCM-Token: eigene Registry im System, eigener
+    APNs-Topic (``<bundle>.voip``), eigener Lebenszyklus. Dasselbe Gerät führt
+    beide gleichzeitig. In ``fcm_tokens`` wäre ``token`` UNIQUE über zwei
+    verschiedene Bedeutungen — zwei Zeilen desselben Geräts, von denen der
+    FCM-Versand eine fälschlich mitnähme.
+
+    **Nebenwirkung, die eine Spalte erspart:** wer hier eine Zeile hat, IST ein
+    iOS-Gerät. Ein Plattform-Feld in ``fcm_tokens`` wird dadurch für diesen
+    Zweck unnötig — die Frage „welches Gerät braucht einen VoIP-Push" beantwortet
+    die Existenz der Zeile.
+
+    Schlüssel, Eindeutigkeit und das fehlende FK auf ``user_id``: wie bei
+    ``FcmToken``, Begründung dort.
+    """
+
+    __tablename__ = "voip_tokens"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    geraet_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    token: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    erstellt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+__all__ = ["FcmToken", "VoipToken", "WebPushSubscription"]

@@ -945,7 +945,7 @@ class ConnectionManager(
                 # dagegen.
                 log.warning("stale_sockets_entfernt anzahl=%d", len(tote))
 
-    def user_socket_count(self, user_id: int) -> int:
+    def user_socket_count(self, user_id: int, frische_s: float | None = None) -> int:
         """How many open sockets the given user currently has. Used by the WS
         endpoint to decide whether ending one socket should end that user's
         hosted watch parties (only true if this was their last socket).
@@ -954,8 +954,19 @@ class ConnectionManager(
         SOCKET_STALE_SEKUNDEN) — halboffene Verbindungen suspendierter
         Mobilgeräte zählen nicht als online (s. mark_seen / reaper). Der
         Reaper entfernt sie asynchron aus den maps; bis dahin liefert dieser
-        Count 0 und der FCM-Push wird korrekt ausgelöst."""
-        frisch_grenze = time.monotonic() - self.SOCKET_STALE_SEKUNDEN
+        Count 0 und der FCM-Push wird korrekt ausgelöst.
+
+        ``frische_s`` verengt das Fenster für Aufrufer, die nicht 95 s warten
+        können. **Der Anruf-Pfad ist genau so ein Fall und der Grund, warum
+        dieser Parameter existiert:** ein Anruf klingelt 45 s
+        (``KLINGEL_TIMEOUT_MS``), die Vorgabe hier ist 95 — ein im Hintergrund
+        suspendiertes Telefon gilt also länger als online, als der Anruf
+        überhaupt dauert, und der VoIP-Push bliebe aus. Der Anruf wäre
+        verpasst, ohne dass irgendwo etwas schiefgeht. Begründung der dort
+        gewählten Zahl: ``anruf_push.ANRUF_FRISCHE_S``."""
+        frisch_grenze = time.monotonic() - (
+            self.SOCKET_STALE_SEKUNDEN if frische_s is None else frische_s
+        )
         return sum(
             1
             for ws in self._user_conns.get(user_id, ())

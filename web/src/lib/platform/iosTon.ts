@@ -34,13 +34,27 @@ import { zielModus, type TonModus } from './tonModus';
  * Plugin-Schicht; Android hat mit `audioRoute.ts` sein eigenes Gegenstück).
  */
 
-let voiceAktiv = false;
+/**
+ * Die VOICE-Quellen, nicht ein Schalter.
+ *
+ * Bis zum 2026-10-08 stand hier ein `boolean`, und das ging gut, solange es
+ * genau einen Voice-Verbraucher gab (den Sprachkanal). Mit den Anrufen gibt es
+ * zwei, und sie laufen unabhängig: ein Anruf fasst den Sprachkanal nicht an,
+ * man kann also in einem Kanal sitzen und telefonieren. Mit einem Schalter
+ * hätte das Auflegen die Session des Kanals mit abgeräumt — genau die
+ * Fehlerklasse, vor der der Kopf dieser Datei warnt („wer sie unabhängig
+ * schaltet, reisst dem anderen den Ton weg"), nur eine Ebene höher.
+ *
+ * Eine Menge statt eines Zählers, aus demselben Grund wie bei den
+ * Wiedergaben: sie ist von sich aus idempotent.
+ */
+const voiceQuellen = new Set<string>();
 const wiedergaben = new Set<string>();
 let angewandt: TonModus = 'aus';
 
 async function anwenden(): Promise<void> {
   if (!isCapacitorIOS()) return;
-  const ziel = zielModus(voiceAktiv, wiedergaben.size);
+  const ziel = zielModus(voiceQuellen.size > 0, wiedergaben.size);
   if (ziel === angewandt) return;
   angewandt = ziel;
   if (ziel === 'voice') await iosVoiceAktiv(true);
@@ -85,10 +99,17 @@ function unterbrechungenBeobachten(): void {
   });
 }
 
-/** Sprachkanal betreten (`true`) oder verlassen (`false`). */
-export function tonVoice(aktiv: boolean): void {
+/**
+ * Eine Voice-Quelle an- oder abmelden.
+ *
+ * `kennung` unterscheidet die Verbraucher (`'sprachkanal'`, `'anruf'`). Ohne
+ * sie würde der eine dem anderen die Session wegnehmen — Begründung an
+ * `voiceQuellen`.
+ */
+export function tonVoice(kennung: string, aktiv: boolean): void {
   unterbrechungenBeobachten();
-  voiceAktiv = aktiv;
+  if (aktiv) voiceQuellen.add(kennung);
+  else voiceQuellen.delete(kennung);
   void anwenden();
 }
 
@@ -115,7 +136,7 @@ export function tonWiedergabe(kennung: string, an: boolean, titel?: string): voi
 
 /** Testhilfe / Abmeldung: alles zurück auf Anfang. */
 export function tonZuruecksetzen(): void {
-  voiceAktiv = false;
+  voiceQuellen.clear();
   wiedergaben.clear();
   angewandt = 'aus';
 }

@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
+from dcc_chat_gateway import anruf_push
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     Anruf,
@@ -111,11 +112,16 @@ async def _beenden(
     anruf.grund = grund
     anruf.beendet_at = datetime.now(tz=timezone.utc)
     await session.commit()
+    teilnehmer = await _teilnehmer(session, anruf)
     await _publish(
         request,
-        await _teilnehmer(session, anruf),
+        teilnehmer,
         CallEndeEvent(call_id=str(anruf.id), grund=GRUND_NAMEN[grund], dauer_sek=dauer_sek),
     )
+    # Abbruch-Push: ohne ihn klingelt ein iPhone ins Leere, auch wenn der
+    # Anruf hier längst beendet ist. Warum an ALLE Teilnehmer und nicht nur an
+    # die offline geglaubten, steht bei ``fan_out_abbruch``.
+    await anruf_push.fan_out_abbruch(empfaenger_ids=set(teilnehmer), call_id=str(anruf.id))
 
 
 @router.post("/anrufe", response_model=AnrufOut, status_code=status.HTTP_201_CREATED)
@@ -167,6 +173,20 @@ async def anruf_starten(
             channel_id=str(anruf.channel_id),
             einleiter_id=str(current.id),
         ),
+    )
+    # VoIP-Push an die iOS-Geräte, deren WebSocket nicht frisch ist (Punkt 40).
+    # Ohne ihn erreicht ein Anruf nur, wer eine offene Verbindung hat — wer das
+    # Telefon in der Tasche hat, verpasst ihn, ohne dass irgendwo etwas
+    # schiefgeht (Begründung im Kopf von ``apns_voip.py``). Fail-open: ohne
+    # APNs-Schlüssel passiert hier nichts und es bleibt beim alten Verhalten.
+    await anruf_push.fan_out_klingeln(
+        empfaenger_ids=set(andere),
+        call_id=str(anruf.id),
+        art=payload.art,
+        channel_id=str(anruf.channel_id),
+        einleiter_id=str(current.id),
+        einleiter_name=current.username,
+        manager=getattr(request.app.state, "connection_manager", None),
     )
     return AnrufOut(id=str(anruf.id))
 

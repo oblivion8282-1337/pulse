@@ -104,6 +104,8 @@ _RULES: dict[str, tuple[int, float]] = {
     # upsertet einmal je Gerät — ein Mensch braucht dafür keine zehn Anläufe
     # je Minute; das Band fängt nur durchgedrehte Clients.
     "fcm_token": (10, 60.0),
+    # Wie fcm_token: der App-Start meldet EINMAL an, nicht im Takt.
+    "voip_token": (10, 60.0),
     # Ungelesen-Stand fürs Icon-Badge (POST /fcm/badge). Der Klient drosselt
     # selbst, meldet aber bei jeder Änderung des Stands — in einem lebhaften
     # Gespräch sind das mehrere Meldungen je Minute. 30/Minute: reichlich für
