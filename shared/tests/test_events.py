@@ -160,6 +160,10 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "op": "application_decided",
         "data": {"kind": "app_host", "status": "approved", "rejection_reason": None},
     },
+    "instance_status": {
+        "op": "instance_status",
+        "data": {"instance_id": "21000000000000077", "online": False, "anzeigename": "Michaels Server"},
+    },
     "friend_request_received": {
         "op": "friend_request_received",
         "data": {"request_id": "9", "from": "3"},

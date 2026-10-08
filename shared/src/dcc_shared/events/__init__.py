@@ -70,6 +70,7 @@ from __future__ import annotations
 
 from dcc_shared.events._base import _EventBase
 from dcc_shared.events.applications import ApplicationDecidedEvent
+from dcc_shared.events.instances import InstanceStatusEvent
 from dcc_shared.events.chat import (
     GruppeLesestandEvent,
     GruppeNeuEvent,
@@ -195,6 +196,7 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     # ---- direct-delivery (user:events)
     "mention_added": MentionAddedEvent,
     "application_decided": ApplicationDecidedEvent,
+    "instance_status": InstanceStatusEvent,
     "friend_request_received": FriendRequestReceivedEvent,
     "friend_request_accepted": FriendRequestAcceptedEvent,
     "friend_request_declined": FriendRequestDeclinedEvent,
@@ -282,6 +284,7 @@ __all__ = [
     "StreamReactionEvent",
     # friends
     "ApplicationDecidedEvent",
+    "InstanceStatusEvent",
     "FriendRemovedEvent",
     "FriendRequestAcceptedEvent",
     "FriendRequestCancelledEvent",

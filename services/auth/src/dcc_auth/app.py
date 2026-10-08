@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
 from dcc_auth.cleanup import cleanup_loop
+from dcc_auth.instance_status import waechter_loop
 from dcc_auth.config import get_settings
 from dcc_auth.db import engine
 from dcc_auth.routes import router
@@ -84,10 +85,17 @@ async def lifespan(app: FastAPI):
     # app.state.skip_cleanup = True after create_app so the per-test
     # in-memory SQLite engine isn't held open by a stray task).
     cleanup_task: asyncio.Task | None = None
+    waechter_task: asyncio.Task | None = None
     if not getattr(app.state, "skip_cleanup", False):
         cleanup_task = asyncio.create_task(
             cleanup_loop(settings, engine), name="dcc-auth-token-cleanup"
         )
+        # Heim-Server, die ohne Abmeldung verstummen (Absturz, Stromausfall),
+        # aus der Leiste nehmen — nur die Cloud führt ein Telefonbuch.
+        if settings.pulse_instance_mode == "cloud":
+            waechter_task = asyncio.create_task(
+                waechter_loop(app, settings, engine), name="dcc-auth-instance-status"
+            )
     # Redis-Client für die Optional-Pfade (Suspend-Listen-Cache,
     # ``admin:events``-Benachrichtigungen). Die Konsumenten prüfen alle auf
     # ``None`` und arbeiten ohne Redis weiter — deshalb ist ein Verbindungs-
@@ -105,10 +113,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        if cleanup_task is not None:
-            cleanup_task.cancel()
+        for task in (cleanup_task, waechter_task):
+            if task is None:
+                continue
+            task.cancel()
             try:
-                await cleanup_task
+                await task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         if app.state.redis is not None:
