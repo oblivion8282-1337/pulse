@@ -1,8 +1,15 @@
 # iOS-Roadmap
 
-**Stand:** 2026-10-06 · **Quelle:** fünf Scans am selben Tag (3 Code-Sweeps, 1 empirischer
-Mobil-Durchlauf als `dev` im Handy-Viewport, 1 Detail-Verifikation) — jeder Befund ist gegen
-den Baum verifiziert, nichts geraten. Basis-Zweig: `feat/ios`.
+**Stand:** 2026-10-08 · **Quelle:** fünf Scans am 2026-10-06 (3 Code-Sweeps, 1 empirischer
+Mobil-Durchlauf als `dev` im Handy-Viewport, 1 Detail-Verifikation), seither gegen den Baum
+fortgeschrieben — jeder Haken unten ist am Code geprüft, nicht aus einer Commit-Überschrift
+geschlossen. Basis-Zweig: `feat/ios`.
+
+> **Pflege-Regel.** Diese Liste war am 2026-10-08 an vier Stellen falsch: 17, 19 und 20a
+> waren gebaut, standen aber als offen, und 23 war halb gebaut und sah ganz offen aus.
+> Gegen eine Liste zu arbeiten, die den Stand nicht kennt, kostet mehr als das Nachtragen.
+> **Wer einen Punkt erledigt, hakt ihn im selben Commit hier ab** — und wer einen Punkt
+> HALB erledigt, schreibt hin, welche Hälfte fehlt.
 
 **Zielbild:** Die iOS-App fühlt sich nativ an. Der Kern bleibt eine Web-Codebasis für alle
 Plattformen; die Ränder (Tastatur, Audio, Push, Teilen, Mediensteuerung) sind konsequent
@@ -104,19 +111,19 @@ am iPhone nötig (ich baue vor) · **Portal** = braucht Michaels Zugänge (Apple
 |---|---|---|---|---|
 | 15 | Push-Basis PM/Erwähnung — **FERTIG 2026-10-06, am Gerät verifiziert**: APNs-Keys (Sandbox&Production-Key D4X4VN6JF2 in Firebase Dev+Prod-Zeile), Entitlement, FCM-Weg für iOS-Hülle geöffnet, Token-Registrierung + Banner am Gerät bestätigt. Notwendig dafür war zusätzlich: FIREBASE_SERVICE_ACCOUNT_KEY am Gateway (dev-up) und Garage/MinIO-Port-Frieden im Dev-Stack | ✅ | Gerät ✓ |
 | 16 | Universal Links | fehlt → Entitlement + `apple-app-site-association` auf howispulse.com; Grundlage für Push-Taps | M | Portal + Gerät |
-| 17 | Icon-Badge | Web-Title-Punkt → `setApplicationBadgeNumber` aus Ungelesen-Stand | S | Sim |
+| 17 | Icon-Badge — **FERTIG 2026-10-08, am Gerät verifiziert.** Gezählt werden ungelesene NACHRICHTEN der privaten Gespräche. Die Zahl reist im Push mit (`aps.badge`), weil die JS-Engine im Hintergrund eingefroren ist; der Server führt sie als Fortschreibung je Konto (`badgezaehler.py`), der wache Klient korrigiert sie über `POST /fcm/badge`. Zwei Fallen, beide am Gerät gefunden: der Klient darf seine 0 erst melden, wenn der Postfach-Abholweg durch ist (sonst löscht „weiss ich nicht" den richtigen Stand), und `latestByChannel` muss aus dem `ready`-Rahmen gesät werden (sonst ist `isUnread` beim Start immer false und die App zeigt nirgends eine Marke) | ✅ | Gerät ✓ |
 | 18 | Rich-Push + Direkt-Antwort | — → UNNotificationCategory „Antworten", Bild-Anhänge | M | Gerät |
-| 19 | Zeitkritische Pushs + Sounds | Default → Interrupt-Level konfigurierbar, eigener Sound | S | Gerät |
-| 20 | **Server: Stale-WS-Erkennung** — im Hintergrund suspendierte mobile Apps halten halboffene WebSockets, die der Gateway Minuten als online zählt und dabei Pushes unterdrückt (Befund Push-Tests 2026-10-06). Fix: WS-Ping/Pong mit Close-on-Timeout serverseitig | M | Server |
-| 20 | Review-Prompt | — → Store-Review-API am richtigen Moment (nach erfolgreichem Senden) | S | Sim-Gate |
+| 19 | Zeitkritische Pushs + Sounds — **FERTIG**: `apns-interruption-level: time-sensitive` + eigener Sound `pulse-push.caf` (im Bundle, Copy-Resources), Entitlement `com.apple.developer.usernotifications.time-sensitive` | ✅ | Gerät ✓ |
+| 20a | **Server: Stale-WS-Erkennung** — **FERTIG**: `ConnectionManager.stale_socket_reaper_loop` (Schwelle 95 s gegen den 25-s-Client-Ping), `user_socket_count` zählt nur frische Sockets. Im Hintergrund suspendierte Apps hielten sonst halboffene WebSockets, die der Gateway Minuten als online zählte und dabei Pushes unterdrückte | ✅ | Server |
+| 20b | Review-Prompt | — → Store-Review-API am richtigen Moment (nach erfolgreichem Senden) | S | Sim-Gate |
 
 ## Etappe 3 — Audio nativ
 
 | # | Punkt | Ist → Ziel | Aufw. | Verifikation |
 |---|---|---|---|---|
-| 21 | Audio-Session | WKWebView-Default → `.playAndRecord`+`.voiceChat` für Voice, `.playback` für Stream/Watch (native Schaltstelle) | S–M | Sim+Gerät |
+| 21 | Audio-Session — **GEBAUT, Gerätetest der Sprachseite offen**: `AudioSessionPlugin.swift` (`.playAndRecord`+`.voiceChat`), verdrahtet in `livekit.svelte.ts` (Betreten/Verlassen/Teardown). Der `.playback`-Zweig gehört zu 23 und hängt noch | M | Gerät |
 | 22 | Echo-Unterdrückung | Nur RNNoise (web, lazy) → System-AEC dazu, Kombination am Gerät messen | S | Gerät |
-| 23 | Ton im Hintergrund/gesperrt | `UIBackgroundModes` fehlt → `audio`-Mode + Session; Display zu ≠ Voice tot | M | Gerät |
+| 23 | Ton im Hintergrund/gesperrt — **GEBAUT 2026-10-08, Gerätetest offen.** `UIBackgroundModes: audio` stand schon; neu ist der Koordinator `platform/iosTon.ts` mit der geprüften Entscheidung in `tonModus.ts`. Vorher sprachen Sprachkanal und Stream-Ton unabhängig mit dem Plugin, `iosPlaybackModus` hatte gar keinen Aufrufer, und `setVoiceActive(false)` deaktivierte die prozessweite Session — Sprachkanal verlassen riss laufenden Stream-Ton mit. Jetzt gewinnt Voice (trägt Wiedergabe mit), und die letzte endende Wiedergabe gibt die Session frei. Angebunden: HQ-Zuschauer und Gast-Kacheln. **Rein im TS gelöst — kein nativer Neubau nötig.** Am Gerät zu prüfen: Display sperren im Sprachkanal, und Sprachkanal verlassen während ein Stream läuft | M | Gerät |
 | 24 | Bluetooth/Auto/Headset | Nur Android ([audioRoute.ts](../../web/src/lib/platform/audioRoute.ts)) → AVAudioSession-Routing (AirPlay, Auto, Headset) | M | Gerät |
 | 25 | Lockscreen-/Control-Center-Steuerung | — → MPNowPlayingInfoCenter + Remote-Commands für Watch/Stream | M | Sim+Gerät |
 | 26 | GSM-Unterbrechung | Telefonanruf killt Session → Interruption-Observer + WebRTC-Resume | S–M | Gerät |

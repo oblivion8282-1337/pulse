@@ -52,6 +52,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private func privacySchutz(_ an: Bool) {
         guard let rootView = window?.rootViewController?.view else { return }
         if an {
+            // Schon eine Scheibe drauf? Dann NICHT noch eine. `willResignActive`
+            // kann ohne dazwischenliegendes `didBecomeActive` ein zweites Mal
+            // feuern (System-Alert über der App, danach Sperrbildschirm). Ohne
+            // diesen Riegel überschriebe die zweite Scheibe die Referenz auf
+            // die erste — `privacySchutz(false)` entfernt dann nur die zweite,
+            // und die erste bleibt als matter Schleier über dem Chat liegen,
+            // für immer und durch nichts mehr erreichbar.
+            guard privacyDeck == nil else { return }
             let deck = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
             deck.frame = rootView.bounds
             deck.autoresizingMask = [.flexibleWidth, .flexibleHeight]

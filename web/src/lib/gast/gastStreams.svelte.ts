@@ -14,6 +14,7 @@
  */
 
 import { connectWhep, type WhepSession } from '$lib/stream/whep';
+import { tonWiedergabe } from '$lib/platform/iosTon';
 import { gastStreamStand, gastWhepUrl } from './api';
 
 /** Abfragetakt. Fünf Sekunden: kurz genug, dass niemand denkt, es sei kaputt,
@@ -191,6 +192,9 @@ class GastStreams {
       const { whep_url } = await gastWhepUrl(ticket, userId, slot);
       const sitzung = await connectWhep(whep_url, (stream) => {
         this.strome = { ...this.strome, [key]: stream };
+        // iOS: diese Kachel will Ton (s. `platform/iosTon.ts`). No-op
+        // ausserhalb der Huelle; idempotent bei Wiederaufbau.
+        tonWiedergabe(`gast:${key}`, true);
       });
       // Zwei Ausstiegs-Schranken: die Kachel inzwischen geschlossen (X)
       // ODER ein zweites ``ansehen`` für denselben Schlüssel hat längst
@@ -215,11 +219,17 @@ class GastStreams {
   schliessen(key: string): void {
     this.#sitzungen.get(key)?.close();
     this.#sitzungen.delete(key);
+    tonWiedergabe(`gast:${key}`, false);
     this.#entfernen(key);
   }
 
   alleSchliessen(): void {
     for (const sitzung of this.#sitzungen.values()) sitzung.close();
+    // Abmelden ueber die OFFENEN Kacheln, nicht ueber die Sitzungs-Map: eine
+    // Kachel kann angemeldet sein, bevor ihre Sitzung eingetragen ist (der
+    // Strom-Rueckruf feuert waehrend `connectWhep`). Sonst bliebe genau die
+    // Kachel haengen und die Audio-Session wuerde nie freigegeben.
+    for (const key of this.offen) tonWiedergabe(`gast:${key}`, false);
     this.#sitzungen.clear();
     this.offen = [];
     this.strome = {};

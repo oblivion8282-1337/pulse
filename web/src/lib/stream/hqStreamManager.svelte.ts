@@ -23,6 +23,7 @@ import { errText } from '$lib/utils/errText';
  * Ton vom Video-Element entkoppelt und läuft beim Wegnavigieren weiter.
  */
 import { connectWhep, WhepError, type WhepSession } from './whep';
+import { tonWiedergabe } from '$lib/platform/iosTon';
 import { DiagnoseSammler } from './diagnose-bericht';
 import { sendeDiagnoseBericht } from './diagnose-senden';
 import { WhepStatsReader, type StreamStats } from './whep-stats';
@@ -135,10 +136,16 @@ export class ManagedHqStream {
   // erst beim nächsten `hqStreams.setOutputDevice()`-Aufruf.
   #outputDeviceId = settings.audio.outputDeviceId;
 
+  /** Stabile Kennung dieser Kachel fuer den Ton-Koordinator — dieselbe Form
+   *  wie der Registry-Schluessel unten, damit zwei Kacheln sich nie
+   *  gegenseitig abmelden. */
+  readonly #tonKennung: string;
+
   constructor(channelId: string, userId: string, slot = 0) {
     this.channelId = channelId;
     this.userId = userId;
     this.slot = slot;
+    this.#tonKennung = `hq:${channelId}:${userId}:${slot}`;
     const v = getStreamVolume(userId);
     this.volume = v;
     this.#prevVolume = v > 0 ? v : 100;
@@ -343,6 +350,11 @@ export class ManagedHqStream {
     // `this.stream` zeigte auf einen Strom, den es nicht mehr gibt.
     if (this.#abgebrochen()) return;
     this.stream = stream;
+    // iOS: ab jetzt will diese Kachel Ton. Der Koordinator entscheidet, welche
+    // Audio-Betriebsart daraus folgt — ein Sprachkanal gewinnt (s.
+    // `platform/tonModus.ts`). Mehrfaches Anmelden derselben Kachel beim
+    // Wiederaufbau zaehlt einmal; No-op ausserhalb der iOS-Huelle.
+    tonWiedergabe(this.#tonKennung, true);
     // Audio bevorzugt über den Web-Audio-Graphen (boost) — läuft unabhängig vom
     // Video-Element weiter. Greift der nicht, Fallback auf ein verstecktes,
     // ungemutetes <audio>-Element (auch dauerhaft, ohne Video).
@@ -661,6 +673,9 @@ export class ManagedHqStream {
     void this.#teardown();
     this.#boost.dispose();
     this.#removeAudioEl();
+    // Abmelden, BEVOR `stream` faellt: faellt die letzte Wiedergabe weg und
+    // laeuft kein Sprachkanal, gibt der Koordinator die Audio-Session frei.
+    tonWiedergabe(this.#tonKennung, false);
     this.stream = null;
   }
 }

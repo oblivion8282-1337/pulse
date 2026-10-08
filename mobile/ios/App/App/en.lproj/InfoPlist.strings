@@ -1,6 +1,11 @@
-/* Berechtigungs-Erläuterungen (en) — das App-Grundpressum ist de; iOS zeigt
-   diese Datei, wenn die Gerätesprache Englisch ist. Keys müssen exakt den
-   Info.plist-Einträgen entsprechen. */
+/* Berechtigungs-Erläuterungen (en). CFBundleDevelopmentRegion ist `en`
+   (Info.plist) — diese Datei trägt also die Texte der BASIS-Region und greift
+   überall, wo keine passendere .lproj liegt. Keys müssen exakt den
+   Info.plist-Einträgen entsprechen.
+   (Hier stand bis 2026-10-08 „das App-Grundpressum ist de" — das Gegenteil
+   dessen, was die Info.plist sagt und was die de.lproj-Datei daneben
+   behauptet. Wer sich auf die falsche Hälfte verliess und de.lproj löschte,
+   bekam auf deutschen Geräten englische Berechtigungstexte.) */
 "NSMicrophoneUsageDescription" = "Pulse uses your microphone for voice channels and calls.";
 "NSCameraUsageDescription" = "Pulse uses the camera for video calls and camera shots in chats.";
 "NSPhotoLibraryUsageDescription" = "Pulse accesses your photo library to share pictures in chats.";

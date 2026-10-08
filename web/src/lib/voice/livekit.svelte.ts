@@ -58,7 +58,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { isMobile } from '$lib/platform/runtime';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
-import { iosVoiceAktiv } from '$lib/platform/iosAudioSession';
+import { tonVoice } from '$lib/platform/iosTon';
 import { sidecar } from '$lib/stream/sidecar';
 import { runningStreamSlots } from '$lib/stream/state.svelte';
 
@@ -452,7 +452,7 @@ class VoiceRoom {
     // mode switch a head start before any track exists. No-op off Capacitor-Android;
     // cleared again in #teardown on leave.
     await setVoiceActive(true);
-    await iosVoiceAktiv(true);
+    tonVoice(true);
 
     // Aufgelegt, waehrend der Ruf-Modus gesetzt wurde — gar nicht erst
     // verbinden. Ohne diesen Wachposten baut der Handschlag den Raum noch
@@ -670,7 +670,7 @@ class VoiceRoom {
     await raumVerwerfen(room);
     if (this.channelId === null) {
         void setVoiceActive(false);
-        void iosVoiceAktiv(false);
+        tonVoice(false);
     }
   }
 
@@ -1755,7 +1755,7 @@ class VoiceRoom {
     // Android: release MODE_IN_COMMUNICATION + the comm device so the phone
     // leaves call-mode after we hang up. No-op off Capacitor-Android.
     void setVoiceActive(false);
-    void iosVoiceAktiv(false);
+    tonVoice(false);
     // Wake-Lock freigeben, BEVOR die Referenz fällt — sonst bleibt das Display
     // für die restliche Sitzung an (der Griff ist dann nicht mehr erreichbar).
     this.#releaseWakeLock?.();

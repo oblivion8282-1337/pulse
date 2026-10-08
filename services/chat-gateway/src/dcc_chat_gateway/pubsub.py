@@ -935,7 +935,15 @@ class ConnectionManager(
                     except Exception:  # noqa: BLE001 — best effort
                         pass
             if tote:
-                log.info("stale sockets entfernt: %d", len(tote))
+                # `warning`, nicht `info`: die Cloud-Vorgabe für
+                # PULSE_LOG_LEVEL ist `warning` (s. `logging_setup.py`) — auf
+                # `info` wäre die einzige Spur dieses Reapers in Produktion
+                # unsichtbar. Dieselbe Falle hat den `owner_admin_log`
+                # 29 Tage lang stumm gestellt. Und die Spur wird gebraucht:
+                # schliesst der Reaper zu scharf, sieht man sonst nur Nutzer,
+                # die scheinbar grundlos offline gehen, und hat keine Zahl
+                # dagegen.
+                log.warning("stale_sockets_entfernt anzahl=%d", len(tote))
 
     def user_socket_count(self, user_id: int) -> int:
         """How many open sockets the given user currently has. Used by the WS
