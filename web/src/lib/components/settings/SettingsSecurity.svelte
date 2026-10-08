@@ -27,12 +27,24 @@
   import GeraeteKopplungSection from './GeraeteKopplungSection.svelte';
   import GeraeteListeSection from './GeraeteListeSection.svelte';
   import PublicComputerSafety from './PublicComputerSafety.svelte';
+  import { onMount } from 'svelte';
+  import LockIcon from '@lucide/svelte/icons/lock';
+  import Switch from '$lib/components/form/Switch.svelte';
+  import { sperreAn, sperreMoeglich, sperreSetzen } from '$lib/platform/appSperre.svelte';
 
   let enableOpen = $state(false);
   let disableOpen = $state(false);
   let regenOpen = $state(false);
 
   const totpEnabled = $derived(auth.user?.totp_enabled === true);
+
+  // App-Sperre: der Stand liegt im GERÄT, nicht im Konto (s.
+  // `platform/appSperre.svelte.ts`) — deshalb kein Einstellungs-Store.
+  let sperreVerfuegbar = $state(false);
+  let sperreAktiv = $state(sperreAn());
+  onMount(() => {
+    void sperreMoeglich().then((ja) => (sperreVerfuegbar = ja));
+  });
 </script>
 
 <div class="flex flex-col gap-5" data-testid="settings-security-panel">
@@ -40,6 +52,38 @@
     <h2 class="text-text-bright text-base font-semibold">{m.settings_security_title()}</h2>
     <p class="text-text-muted text-xs">{m.settings_security_subtitle()}</p>
   </div>
+
+  <!-- App-Sperre (iOS-Punkt 42). Erscheint NUR, wenn das Gerät prüfen kann:
+       ohne Code und ohne Biometrie wäre der Schalter ein Knopf, der einen
+       aussperrt. Steht vor der Zwei-Faktor-Sektion, weil er das Gerät
+       betrifft und nicht das Konto — und weil er mit einem Tipp erledigt ist. -->
+  {#if sperreVerfuegbar}
+    <section class="border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-start gap-3">
+          <span
+            class="flex size-9 items-center justify-center rounded-full {sperreAktiv
+              ? 'bg-success/15 text-success'
+              : 'bg-bg-input text-text-muted'}"
+          >
+            <LockIcon class="size-5" />
+          </span>
+          <div class="flex flex-col gap-0.5">
+            <span class="text-text-bright text-sm font-medium">
+              {m.appsperre_einstellung_titel()}
+            </span>
+            <span class="text-text-muted text-xs">{m.appsperre_einstellung_text()}</span>
+          </div>
+        </div>
+        <Switch
+          bind:checked={sperreAktiv}
+          onCheckedChange={sperreSetzen}
+          aria-label={m.appsperre_einstellung_titel()}
+          data-testid="settings-appsperre"
+        />
+      </div>
+    </section>
+  {/if}
 
   <section class="border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4">
     <div class="flex items-start gap-3">

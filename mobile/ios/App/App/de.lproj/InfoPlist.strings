@@ -5,4 +5,5 @@
 "NSMicrophoneUsageDescription" = "Pulse nutzt dein Mikrofon für Sprachkanäle und Anrufe.";
 "NSCameraUsageDescription" = "Pulse nutzt die Kamera für Videoanrufe und Kamerabilder im Chat.";
 "NSPhotoLibraryUsageDescription" = "Pulse greift auf deine Fotomediathek zu, um Bilder in Chats zu teilen.";
+"NSFaceIDUsageDescription" = "Pulse nutzt Face ID, um die App zu entsperren.";
 "NSLocalNetworkUsageDescription" = "Pulse verbindet sich mit deinem Pulse-Server im Heimnetzwerk (Self-Host).";

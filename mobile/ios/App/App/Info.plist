@@ -37,6 +37,11 @@
 	<!-- Self-Host im Heimnetz: iOS blockt LAN-Verbindungen still, wenn diese
 	     Erläuterung fehlt (der Dialog fragt beim ersten Aufbau). Ohne den Key
 	     wäre der eigene Server zuhause unsichtbar. -->
+	<!-- NSFaceIDUsageDescription ist PFLICHT, sobald LocalAuthentication
+	     gerufen wird: ohne den Eintrag beendet iOS die App beim ersten
+	     Face-ID-Aufruf — kein Dialog, kein Fehler, Absturz. -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>Pulse uses Face ID to unlock the app.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pulse verbindet sich mit deinem Pulse-Server im Heimnetzwerk (Self-Host).</string>
 	<!-- Hintergrund-Ton: Sprachkanäle und Watch-/Stream-Ton laufen weiter,

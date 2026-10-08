@@ -38,6 +38,7 @@
   import { schnellwahlSetzen, schnellwahlVerfolgen } from '$lib/platform/schnellwahl';
   import { schnellwahlEintraege } from '$lib/platform/schnellwahlAuswahl';
   import VerbindungsHinweis from '$lib/components/VerbindungsHinweis.svelte';
+  import AppSperre from '$lib/components/AppSperre.svelte';
   import BerechtigungVorerklaerung from '$lib/components/BerechtigungVorerklaerung.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
@@ -645,6 +646,10 @@
 
 <!-- Verbindungs-Hinweis: oben, nicht blockierend. Begründung samt der
      Abweichung von „Deckblatt" in der Komponente. -->
+<!-- App-Sperre: deckend, liegt über allem. Rendert nichts, wenn die Sperre
+     aus ist oder sie schon aufgehoben wurde. -->
+<AppSperre />
+
 <VerbindungsHinweis />
 
 <!-- Vorerklärung vor einem System-Berechtigungs-Dialog. Store-getrieben,
