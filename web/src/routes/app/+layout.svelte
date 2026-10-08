@@ -26,6 +26,7 @@
   import { mode } from 'mode-watcher';
   import { statusLeisteFolgtTheme } from '$lib/platform/statusLeiste';
   import { installiereExterneLinks } from '$lib/platform/externeLinks';
+  import { installiereUniversalLinks } from '$lib/platform/universalLinks';
   import { badgeSetzen } from '$lib/platform/badge';
   import { badgeMelden } from '$lib/platform/badgeMelden';
   import { ungeleseneNachrichten } from '$lib/navigation/abzeichen.svelte';
@@ -175,6 +176,8 @@
   let _stoppeKanalFestigung: (() => void) | null = null;
   // Externe-Links-Fang der Hülle (No-op außerhalb; s. externeLinks.ts).
   let externeLinksAbriss: () => void = () => undefined;
+  // Universal Links: Chat-Adressen öffnen die App (No-op außerhalb der Hülle).
+  let tiefenlinkAbriss: () => void = () => undefined;
 
   onMount(async () => {
     viewport.init();
@@ -182,6 +185,7 @@
     registriereZurueckTaste();
     // Externe Links (_blank) in der Hülle ins System-Browser-Blatt lenken.
     externeLinksAbriss = installiereExterneLinks();
+    tiefenlinkAbriss = installiereUniversalLinks();
     await auth.hydrate();
     if (!auth.isAuthenticated) {
       await goto('/login', { replaceState: true });
@@ -375,6 +379,7 @@
     _stoppeKanalFestigung?.();
     _stoppeKanalFestigung = null;
     externeLinksAbriss();
+    tiefenlinkAbriss();
     gateway.disconnect();
     voice.disconnect();
     if (typeof document !== 'undefined') document.title = 'Pulse';

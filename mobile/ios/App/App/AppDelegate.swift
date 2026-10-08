@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import UserNotifications
 import WebKit
 
 @UIApplicationMain
@@ -71,7 +72,42 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
     }
 
+    /// Mitteilungs-Aktionen fuer Direktnachrichten.
+    ///
+    /// **Warum nur ein Eingabefeld und kein Inhalt im Banner:** Die
+    /// Nachrichten sind Ende-zu-Ende verschluesselt, und die Schluessel
+    /// liegen in der WebView. Ein Notification-Service-Extension-Prozess
+    /// kaeme nicht an sie heran (eigener Prozess; das Geraetegeheimnis ist
+    /// zudem `extractable: false`) — er koennte also weder Text noch Bild
+    /// anzeigen. Was ohne Entschluesselung geht, ist genau das hier: ein
+    /// Antwort-Feld, dessen Text die APP verschluesselt und sendet, sobald
+    /// sie durch die Aktion in den Vordergrund kommt.
+    ///
+    /// Der Bezeichner `dm` muss dem `category`-Feld des Servers entsprechen
+    /// (`dcc_chat_gateway/fcm.py::DM_KATEGORIE`). Stimmt er nicht ueberein,
+    /// erscheint die Meldung ohne Aktionen — ohne jede Fehlermeldung.
+    private func mitteilungsAktionenRegistrieren() {
+        let antworten = UNTextInputNotificationAction(
+            identifier: "antworten",
+            title: NSLocalizedString("Antworten", comment: "Mitteilungs-Aktion"),
+            options: [.foreground],
+            textInputButtonTitle: NSLocalizedString("Senden", comment: "Mitteilungs-Aktion"),
+            textInputPlaceholder: NSLocalizedString("Nachricht", comment: "Mitteilungs-Aktion")
+        )
+        let dm = UNNotificationCategory(
+            identifier: "dm",
+            actions: [antworten],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([dm])
+    }
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Frueh und unbedingt: die Kategorien muessen stehen, BEVOR die erste
+        // Meldung eintrifft. Sie haengen nicht an der Mitteilungserlaubnis —
+        // registrieren darf man sie immer.
+        mitteilungsAktionenRegistrieren()
         return true
     }
 

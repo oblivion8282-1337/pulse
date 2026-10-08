@@ -75,3 +75,45 @@ def test_deeplink_daten_erreichen_auch_ios(payload):
     Review 08.10.) — der Tap-Handler liest `notification.data.channel_id`."""
     d = _kodiere(_build_dm_message(payload=payload, token="t", badge=None))
     assert d["data"]["channel_id"] == "100905606516318208"
+
+
+# ---------------------------------------------------------------------------
+# Anhang-Hinweis (Eigentuemer-Entscheid 2026-10-08)
+
+
+def test_body_ohne_anhang_bleibt_inhaltsfrei():
+    from dcc_chat_gateway.fcm import dm_body
+
+    assert dm_body(False) == "Neue Nachricht"
+
+
+def test_body_mit_anhang_sagt_es_ohne_den_inhalt_zu_verraten():
+    """Der Server WEISS, dass ein Anhang dranhaengt (Bezugszeilen), aber nie,
+    was drin ist. Genau diese Grenze soll der Text abbilden: kein Dateiname,
+    keine Art, keine Groesse."""
+    from dcc_chat_gateway.fcm import dm_body
+
+    text = dm_body(True)
+    assert text == "Hat dir einen Anhang geschickt"
+    assert "." not in text  # kein Dateiname durchgerutscht
+
+
+def test_anhang_hinweis_landet_im_aps_und_in_der_notification(payload):
+    """Beide Stellen muessen denselben Text tragen — iOS zeigt `aps.alert`,
+    Android die `notification`. Stuenden dort verschiedene Texte, saehe
+    dieselbe Nachricht je nach Geraet anders aus."""
+    from dcc_chat_gateway.fcm import _build_dm_message, dm_body
+
+    p = {**payload, "body": dm_body(True)}
+    d = _kodiere(_build_dm_message(payload=p, token="t", badge=1))
+    assert d["apns"]["payload"]["aps"]["alert"]["body"] == "Hat dir einen Anhang geschickt"
+    assert d["notification"]["body"] == "Hat dir einen Anhang geschickt"
+
+
+def test_kategorie_verbindet_die_meldung_mit_den_aktionen(payload):
+    """Ohne `category` zeigt iOS die Meldung ohne den Antworten-Knopf an —
+    lautlos. Der Bezeichner muss dem in AppDelegate.swift entsprechen."""
+    from dcc_chat_gateway.fcm import DM_KATEGORIE
+
+    d = _kodiere(_build_dm_message(payload=payload, token="t", badge=None))
+    assert d["apns"]["payload"]["aps"]["category"] == DM_KATEGORIE == "dm"

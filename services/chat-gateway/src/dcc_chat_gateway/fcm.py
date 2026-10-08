@@ -51,6 +51,28 @@ ANDROID_CHANNEL_ID = "messages"
 #: Kategorie.
 DM_BODY = "Neue Nachricht"
 
+#: Mitteilungs-Kategorie für DMs. Sie verbindet die Meldung mit den Aktionen,
+#: die die App registriert hat (`AppDelegate.swift` — „Antworten" mit
+#: Eingabefeld). Der Bezeichner muss dort WORTGLEICH stehen; passt er nicht,
+#: zeigt iOS die Meldung ohne Aktionen an — ohne jeden Fehler.
+DM_KATEGORIE = "dm"
+
+#: Dasselbe, wenn ein Anhang dranhängt (Eigentümer-Entscheid 2026-10-08).
+#: Der Server WEISS das — die Bezugszeilen (``dm_anhang_bezuege``) stehen in
+#: seiner Datenbank —, und nur das sagt dieser Text. Kein Dateiname, keine
+#: Art, keine Grösse: die hat er auch gar nicht entschlüsselt vorliegen.
+#: Der Preis ist bewusst in Kauf genommen und klein: Apple und der Server
+#: erfahren, DASS diese eine Nachricht einen Anhang trug.
+DM_BODY_ANHANG = "Hat dir einen Anhang geschickt"
+
+
+def dm_body(hat_anhang: bool) -> str:
+    """Der Mitteilungstext für eine DM. Eigene Funktion, weil die Entscheidung
+    an zwei Stellen gleich ausfallen muss (``aps.alert`` für iOS und
+    ``notification`` für Android) — stünden dort verschiedene Texte, sähe
+    dieselbe Nachricht je nach Gerät anders aus."""
+    return DM_BODY_ANHANG if hat_anhang else DM_BODY
+
 #: Initialisierte ``firebase_admin.App`` — Prozess-Singleton, erster Aufruf
 #: gewinnt. ``None`` heisst: nicht konfiguriert oder fehlgeschlagen (kein Push).
 _FCM_APP: Any | None = None
@@ -151,6 +173,7 @@ def _build_dm_message(
                     # Der Encoder lässt None-Felder weg — genau das ist hier
                     # die Absicht, s. Docstring.
                     badge=badge,
+                    category=DM_KATEGORIE,
                 )
             ),
         ),
@@ -194,6 +217,7 @@ async def fan_out_fcm_dm_push(
     author_name: str,
     channel_id: int,
     manager: Any | None = None,
+    hat_anhang: bool = False,
 ) -> int:
     """Inhaltsfreien FCM-Push an offline DM-Empfänger ausliefern.
 
@@ -220,7 +244,7 @@ async def fan_out_fcm_dm_push(
     payload = {
         "type": "dm",
         "title": author_name or "Pulse",
-        "body": DM_BODY,
+        "body": dm_body(hat_anhang),
         "channel_id": str(channel_id),
     }
 

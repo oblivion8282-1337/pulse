@@ -18,6 +18,7 @@
 
 import { goto } from '$app/navigation';
 import { request } from '$lib/api/client';
+import { drafts } from '$lib/stores/drafts.svelte';
 import { isCapacitorAndroid, isCapacitorIOS } from './runtime';
 
 /** Schmaler Ausschnitt der Plugin-Oberfläche (nur was wir rufen). */
@@ -33,7 +34,13 @@ interface FcmPlugin {
   }): Promise<void>;
   addListener(
     eventName: 'notificationActionPerformed',
-    listenerFunc: (event: { notification: { data?: unknown } }) => void
+    listenerFunc: (event: {
+      notification: { data?: unknown };
+      /** Bezeichner der getippten Aktion; `tap` = auf die Meldung selbst. */
+      actionId?: string;
+      /** Text aus dem Antwort-Feld der Meldung (nur bei `antworten`). */
+      inputValue?: string;
+    }) => void
   ): Promise<{ remove: () => void }>;
 }
 
@@ -73,14 +80,30 @@ async function meldeAn(fcm: FcmPlugin): Promise<void> {
   });
 }
 
-/** Push-Tap → Deep-Link in den DM-Chat (Kanal ohne Guild → `/app/@me`). */
-function zeigAn(event: { notification: { data?: unknown } }): void {
+/**
+ * Push-Tap → Deep-Link in den DM-Chat (Kanal ohne Guild → `/app/@me`).
+ *
+ * Die Aktion „Antworten" bringt den im Banner getippten Text mit. Er wird
+ * NICHT hier gesendet, sondern als Entwurf hinterlegt: Senden heisst bei
+ * einer verschlüsselten DM, eine Sitzung aufzubauen und den Umschlag zu
+ * bauen — das gehört in den Chat, der gerade aufgeht, nicht in einen
+ * Ereignis-Handler. Der Nutzer sieht seinen Text im Eingabefeld stehen und
+ * drückt Senden; was dazwischen schiefgehen kann, zeigt die Oberfläche dann
+ * an, statt still zu scheitern.
+ */
+function zeigAn(event: {
+  notification: { data?: unknown };
+  actionId?: string;
+  inputValue?: string;
+}): void {
   const data = event.notification?.data;
   const kanalId =
     typeof data === 'object' && data !== null && 'channel_id' in data
       ? String((data as Record<string, unknown>).channel_id)
       : '';
   if (!kanalId) return;
+  const text = event.actionId === 'antworten' ? (event.inputValue ?? '').trim() : '';
+  if (text) drafts.set(kanalId, text);
   void goto(`/app/@me/${kanalId}`);
 }
 

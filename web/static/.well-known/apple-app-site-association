@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["6FRUC2UST8.com.howispulse.app"],
+        "components": [
+          { "/": "/app/@me/*", "comment": "Direktnachrichten — Ziel der Push-Taps" },
+          { "/": "/app/rooms/*", "comment": "Community-Kanaele" },
+          { "/": "/app/guilds/*", "comment": "Kanal-Direktlinks der Desktop-Fassung" }
+        ]
+      }
+    ]
+  }
+}

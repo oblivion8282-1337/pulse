@@ -139,3 +139,26 @@ async def test_negative_zahl_wird_abgewiesen(app, client, _auth_signer):
 async def test_badge_melden_braucht_anmeldung(app, client):
     rr = await client.post("/fcm/badge", json={"anzahl": 1})
     assert rr.status_code == 401
+
+
+async def test_anhang_hinweis_reicht_bis_in_die_nutzlast(
+    app, client, session_factory, _fcm_sender
+):
+    """`hat_anhang` muss vom Einliefer-Weg bis in den Push durchreichen —
+    sonst sagt die Mitteilung weiter 'Neue Nachricht', obwohl der Server es
+    besser weiss."""
+    import dcc_chat_gateway.fcm as fcm_mod
+
+    async with session_factory() as s:
+        s.add(FcmToken(user_id=8201, geraet_id="g1", token="tok-8201"))
+        await s.commit()
+
+    await fcm_mod.fan_out_fcm_dm_push(
+        recipient_ids={8201},
+        author_name="Anna",
+        channel_id=42,
+        manager=_ManagerStub(app.state.redis),
+        hat_anhang=True,
+    )
+    _tok, nutzlast, _badge = _fcm_sender[0]
+    assert nutzlast["body"] == "Hat dir einen Anhang geschickt"

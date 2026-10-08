@@ -12,5 +12,17 @@
 	     Apples Zeitkritisch-Capability für das App-ID-Profil. -->
 	<key>com.apple.developer.usernotifications.time-sensitive</key>
 	<true/>
+	<!-- Universal Links: Chat-Adressen von howispulse.com oeffnen die App
+	     statt Safari. Die Gegenseite ist
+	     https://howispulse.com/.well-known/apple-app-site-association
+	     (liegt in web/static/, Inhaltstyp per nginx-Block). Beansprucht sind
+	     NUR Chat-Pfade (Eigentuemer-Entscheid 2026-10-08) — der Rest der
+	     Web-App bleibt im Browser erreichbar, etwa auf einem fremden Geraet.
+	     `applinks:` ohne Pfadangabe ist richtig: welche Pfade gelten, sagt
+	     die AASA-Datei, nicht das Entitlement. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:howispulse.com</string>
+	</array>
 </dict>
 </plist>

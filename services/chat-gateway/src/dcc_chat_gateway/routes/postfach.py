@@ -399,6 +399,10 @@ async def postfach_einliefern(
             author_name=user.username,
             channel_id=cid_int,
             manager=getattr(request.app.state, "connection_manager", None),
+            # Der Server weiss, DASS Anhänge dranhängen (die Kennungen hat der
+            # Klient oben mitgeschickt und sie sind gegen den Kanal geprüft) —
+            # nie, was drin ist. Genau diese Grenze trägt der Mitteilungstext.
+            hat_anhang=bool(anhang_ids),
         )
 
     return PostfachEinliefernResponse(
