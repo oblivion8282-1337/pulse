@@ -20,6 +20,7 @@ import { streamChat } from '$lib/stores/streamChat.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
 import { readState } from '$lib/stores/readState.svelte';
 import { lesestandAnker } from '$lib/stores/lesestandKern';
+import { badgeMeldungFreigeben } from '$lib/platform/badgeMelden';
 import { typing } from '$lib/stores/typing.svelte';
 import { userCache } from '$lib/stores/users.svelte';
 import { dispatchingUserId } from '$lib/stores/currentServerUser';
@@ -91,7 +92,13 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
   // weiter nur `E2E_DMS_ENABLED`, waere eine allein freigeschaltete Gruppe
   // bzw. ein allein freigeschalteter Ablage-Kanal stumm — verschluesselt
   // zugestellt, aber nie abgeholt.
-  if (!E2E_DMS_ENABLED && !PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) return;
+  if (!E2E_DMS_ENABLED && !PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) {
+    // Nichts abzuholen heisst trotzdem: die Lage ist geladen. Ohne diese
+    // Freigabe bliebe die Badge-Meldung einer Hülle ohne Krypto für immer
+    // stumm (s. `platform/badgeDrossel.ts`).
+    badgeMeldungFreigeben();
+    return;
+  }
   // Dynamischer Import: der Krypto-Kern (WASM) soll nicht in jedem
   // Session-Start geladen werden, wenn er nie gebraucht wird.
   void import('$lib/krypto/empfangen')
@@ -171,7 +178,16 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
       console.warn('[postfach] Abholen fehlgeschlagen', {
         fehler: err instanceof Error ? `${err.name}: ${err.message}` : String(err)
       });
-    });
+    })
+    // **Ganz am Ende der Kette, nicht früher.** Ab hier darf der Klient seine
+    // Ungelesen-Zahl an den Server melden (s. `platform/badgeDrossel.ts`) —
+    // und das gilt erst, wenn die Umschläge dieses Durchlaufs VERBUCHT sind,
+    // nicht schon, wenn sie geholt wurden. Zwischen Holen und Verbuchen liegt
+    // ein Microtask, in dem die Zähler noch leer sind; eine dort gemeldete 0
+    // hiesse „alles gelesen" und löschte den richtigen Serverstand. `finally`,
+    // weil auch ein gescheiterter Durchlauf die Meldung nicht für den Rest
+    // der Sitzung stumm stellen darf.
+    .finally(badgeMeldungFreigeben);
 }
 
 export function register(ctx: HandlerContext): void {

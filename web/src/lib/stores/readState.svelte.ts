@@ -13,14 +13,20 @@
  * sowohl an der Stellen-Grenze (17→18 Ziffern, ~Okt 2026) als auch bei den
  * lokalen 20-stelligen IDs verschlüsselter Nachrichten.
  *
- * Limitation (v1): unread state seeds from activity DURING the session. If a
+ * Limitation: `latestByChannel` seeds from activity DURING the session. If a
  * message was posted while the client was offline and never sync-loaded, the
- * channel will not show as unread on next launch. Proper offline catch-up
- * would need a server-side read-state sync — out of scope for now.
+ * channel will not show as unread on next launch. Der serverseitige Lesestand
+ * (P0.2, `seedOwnLesestand`) behebt das NICHT: er trägt die eigene Lesemarke,
+ * nicht die neueste Nachricht je Kanal — und ohne die fehlt die Seite, gegen
+ * die `isUnread` vergleicht.
  */
 
 import { compareSnowflakeId } from '$lib/utils/snowflake';
-import { istGelesenBis, vorwaertsMerge } from '$lib/stores/lesestandKern';
+import {
+  istGelesenBis,
+  serverStandUeberholt,
+  vorwaertsMerge
+} from '$lib/stores/lesestandKern';
 
 const STORAGE_PREFIX = 'pulse.readState.';
 const MENTIONS_PREFIX = 'pulse.mentions.';
@@ -164,9 +170,9 @@ class ReadState {
     }
   }
 
-  /** Kopie der Karte ohne den Kanal-Eintrag — für die Forget-Blöcke in
-   *  `forgetChannel` (die Wächter dort bleiben stehen, damit ohne Treffer
-   *  keine Zuweisung und damit keine Reaktivität feuert). */
+  /** Kopie der Karte ohne den Kanal-Eintrag. Die `if`-Wächter der Aufrufer
+   *  bleiben stehen, damit ohne Treffer keine Zuweisung und damit keine
+   *  Reaktivität feuert. */
   private ohneKanal<T>(karte: Record<string, T>, channelId: string): Record<string, T> {
     const next = { ...karte };
     delete next[channelId];
@@ -240,10 +246,24 @@ class ReadState {
    *  frisch geladener Tab (oder das zweite Gerät) übernimmt den größeren
    *  Stand, ohne jemals einen neueren lokalen zu verlieren. */
   seedOwnLesestand(channelId: string, messageId: string): void {
-    this.lastReadByChannel = {
-      ...this.lastReadByChannel,
-      [channelId]: vorwaertsMerge(this.lastReadByChannel[channelId], messageId)
-    };
+    // Hat ein anderes Gerät weiter gelesen, ist der lokale Ungelesen-Zähler
+    // überholt und muss WEG — er korrigiert sich sonst nie (Begründung in
+    // `lesestandKern.ts::serverStandUeberholt`). Vor dem Merge prüfen: der
+    // Merge zieht den eigenen Stand gerade nach und würde den Vergleich
+    // selbst auflösen. Die Erwähnungs-Zähler bleiben absichtlich stehen —
+    // sie tragen ein anderes Abzeichen und haben ihren eigenen Lesepunkt.
+    if (serverStandUeberholt(messageId, this.lastReadByChannel[channelId])) {
+      this.clearUnread(channelId);
+    }
+    const gemergt = vorwaertsMerge(this.lastReadByChannel[channelId], messageId);
+    if (gemergt === this.lastReadByChannel[channelId]) return;
+    this.lastReadByChannel = { ...this.lastReadByChannel, [channelId]: gemergt };
+    // Mitschreiben, nicht nur merken: ohne das ist der Vergleich oben nach
+    // jedem Neuladen blind (kein eigener Stand → kein Fremdlesen erkennbar),
+    // und `isUnread` fiele beim Start auf den Stand der letzten Sitzung
+    // zurück. KEIN `serverSync` — der Stand KOMMT vom Server, ihn
+    // zurückzumelden wäre ein Echo.
+    this.persistLetztenStand();
   }
 
   /** Mergt den Lesestand der Gegenstelle — Quelle ist der ready-Rahmen bzw.
@@ -283,9 +303,7 @@ class ReadState {
    *  explicit "I've read this" actions. */
   clearMentions(channelId: string): void {
     if (!this.mentionCountByChannel[channelId]) return;
-    const next = { ...this.mentionCountByChannel };
-    delete next[channelId];
-    this.mentionCountByChannel = next;
+    this.mentionCountByChannel = this.ohneKanal(this.mentionCountByChannel, channelId);
     this.persistMentions();
   }
 
@@ -302,9 +320,7 @@ class ReadState {
   /** Zero the unread-message counter for a channel — called from `markRead`. */
   clearUnread(channelId: string): void {
     if (!this.unreadCountByChannel[channelId]) return;
-    const next = { ...this.unreadCountByChannel };
-    delete next[channelId];
-    this.unreadCountByChannel = next;
+    this.unreadCountByChannel = this.ohneKanal(this.unreadCountByChannel, channelId);
     this.persistUnread();
   }
 
@@ -357,6 +373,7 @@ class ReadState {
   private persistUnread(): void {
     this.persist(this.unreadKey, () => this.unreadCountByChannel);
   }
+
   /** Quittung eines Empfangskontos verbuchen (aus `zustellung_bestaetigt`). */
   angekommenMelden(channelId: string, userId: string, ms: number): void {
     const jeKanal = this.zustellungAngekommen[channelId] ?? {};
@@ -398,7 +415,6 @@ class ReadState {
     }
     return true;
   }
-
 }
 
 export const readState = new ReadState();

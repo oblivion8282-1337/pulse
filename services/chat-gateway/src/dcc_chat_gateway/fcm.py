@@ -24,13 +24,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import delete, select
 
+from dcc_chat_gateway import badgezaehler
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionLocal
 from dcc_chat_gateway.models import FcmToken
+
+# Nur für die Typangabe von ``_build_dm_message``: zur Laufzeit lädt diese
+# Zeile nichts — ``firebase_admin`` wird erst beim ersten Senden importiert
+# (s. Modulkopf).
+if TYPE_CHECKING:
+    from firebase_admin import messaging
 
 log = logging.getLogger(__name__)
 
@@ -96,19 +103,37 @@ def reset_fcm_cache_for_tests() -> None:
     _FCM_APP = None
 
 
-
-def _build_dm_message(*, token: str, payload: dict) -> "messaging.Message":
+def _build_dm_message(
+    *, token: str, payload: dict, badge: int | None = None
+) -> messaging.Message:
     """Baut die FCM-Message für eine DM (Alert + iOS-Sound + Zeitkritisch +
-    Android-Kanal + Deep-Link-Daten). Eigenständige Funktion, damit der Test
-    den echten Bau durch den firebase-Encoder schicken kann (Befund
-    2026-10-06: messaging.ApsSound existierte nicht — nur ein echter
-    Konstruktions-Test fängt so etwas)."""
+    Icon-Badge + Android-Kanal + Deep-Link-Daten). Eigenständige Funktion,
+    damit der Test den echten Bau durch den firebase-Encoder schicken kann
+    (Befund 2026-10-06: messaging.ApsSound existierte nicht — nur ein echter
+    Konstruktions-Test fängt so etwas).
+
+    ``badge`` ist der Ungelesen-Stand des EMPFÄNGERS (s. ``badgezaehler``).
+    ``None`` heisst *schweigen*: das Feld entfällt und die Zahl am Gerät
+    bleibt stehen. Eine ``0`` dagegen räumt die Plakette ab — deshalb darf
+    ein unbekannter Stand niemals als 0 durchgehen.
+    """
     from firebase_admin import messaging
+
+    # Der FCM-``data``-Block ist String→String. ``payload`` trägt heute nur
+    # Strings; der Filter ist der Riegel dagegen, dass ein künftiges Feld
+    # anderen Typs hineingerät. Einmal gebaut, zweimal verwendet (top-level
+    # und im Android-Block) — die beiden müssen denselben Inhalt tragen.
+    daten = {k: v for k, v in payload.items() if isinstance(v, str)}
     return messaging.Message(
         notification=messaging.Notification(
             title=payload["title"], body=payload["body"]
         ),
         token=token,
+        # Deep-Link-Daten TOP-LEVEL, nicht nur im Android-Block: nur so
+        # erreichen sie auch die iOS-Hülle, deren Tap-Handler
+        # `notification.data.channel_id` liest (Befund Review 2026-10-08 —
+        # vorher öffnete ein Push-Tap am iPhone nur die App, nicht den Chat).
+        data=daten,
         # iOS: eigener Sound (pulse-push.caf im Bundle) + zeitkritisch —
         # durchbricht Fokus-Modi; das Zeitkritisch-Privileg vergibt der
         # Nutzer einmalig im Systemdialog.
@@ -123,6 +148,9 @@ def _build_dm_message(*, token: str, payload: dict) -> "messaging.Message":
                         title=payload["title"], body=payload["body"]
                     ),
                     sound="pulse-push.caf",
+                    # Der Encoder lässt None-Felder weg — genau das ist hier
+                    # die Absicht, s. Docstring.
+                    badge=badge,
                 )
             ),
         ),
@@ -130,12 +158,12 @@ def _build_dm_message(*, token: str, payload: dict) -> "messaging.Message":
         # Deep-Link des Klienten, nicht der Android-Kanal.
         android=messaging.AndroidConfig(
             notification=messaging.AndroidNotification(channel_id=ANDROID_CHANNEL_ID),
-            data={k: v for k, v in payload.items() if isinstance(v, str)},
+            data=daten,
         ),
     )
 
 
-def _send_one(*, token: str, payload: dict) -> str:
+def _send_one(*, token: str, payload: dict, badge: int | None = None) -> str:
     """Ein Sendeversuch. Liefert ``"ok"``, ``"dead"`` oder ``"warn"``.
 
     ``dead`` = Token weg (App deinstalliert, rotiert) → Zeile löschen,
@@ -148,7 +176,7 @@ def _send_one(*, token: str, payload: dict) -> str:
         log.error("firebase_admin nicht installiert; FCM-Push deaktiviert")
         return "warn"
     try:
-        messaging.send(_build_dm_message(token=token, payload=payload))
+        messaging.send(_build_dm_message(token=token, payload=payload, badge=badge))
         return "ok"
     except messaging.UnregisteredError:
         return "dead"
@@ -198,22 +226,29 @@ async def fan_out_fcm_dm_push(
 
     try:
         async with SessionLocal() as session:
-            rows = (
-                (
-                    await session.execute(
-                        select(FcmToken).where(
-                            FcmToken.user_id.in_(list(recipient_ids))
-                        )
-                    )
-                )
-                .scalars()
-                .all()
+            ergebnis = await session.execute(
+                select(FcmToken).where(FcmToken.user_id.in_(list(recipient_ids)))
             )
+            rows = ergebnis.scalars().all()
             if not rows:
                 return 0
+            # Icon-Badge: EINMAL je Konto hochzählen, nicht je Gerätezeile —
+            # ein Konto hat einen Ungelesen-Stand, auch wenn Handy und Tablet
+            # beide einen Push bekommen. Ohne Redis (pfadlose Aufrufe, Tests)
+            # bleibt der Stand unbekannt und das Feld entfällt im Push.
+            redis = getattr(manager, "redis", None)
+            badges: dict[int, int | None] = {}
+            if redis is not None:
+                for uid in {r.user_id for r in rows}:
+                    badges[uid] = await badgezaehler.erhoehen(redis, uid)
             results = await asyncio.gather(
                 *(
-                    asyncio.to_thread(_send_one, token=r.token, payload=payload)
+                    asyncio.to_thread(
+                        _send_one,
+                        token=r.token,
+                        payload=payload,
+                        badge=badges.get(r.user_id),
+                    )
                     for r in rows
                 ),
                 return_exceptions=True,

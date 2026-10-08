@@ -887,6 +887,14 @@ class ConnectionManager(
         active party are omitted. See ``watchkeys.py`` for the state shape."""
         return await read_states_for(self._redis, channel_ids)
 
+    @property
+    def redis(self) -> Redis:
+        """Der Redis-Griff des Managers. Öffentlich, weil der Push-Weg
+        (``fcm.fan_out_fcm_dm_push``) den Badge-Zähler braucht und als
+        einzigen Zugang zum Prozess-Zustand den Manager durchgereicht
+        bekommt — ein zweiter Klient dort wäre eine zweite Verbindung."""
+        return self._redis
+
     def mark_seen(self, ws: WebSocket) -> None:
         """Letzten eingehenden Frame stempeln (jeder Frame zählt — auch der
         25-s-Ping des Clients). Sync, weil nur eine Dict-Zuweisung; wird aus

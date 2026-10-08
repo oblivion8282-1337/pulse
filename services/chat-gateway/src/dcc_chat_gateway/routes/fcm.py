@@ -9,6 +9,7 @@ Endpunkte
 ---------
 * ``POST   /fcm/token`` — Token speichern/aktualisieren (idempotent).
 * ``DELETE /fcm/token`` — Token entfernen (Logout, App-Daten löschen).
+* ``POST   /fcm/badge`` — Ungelesen-Stand des wachen Klienten melden.
 
 Der Versand braucht zusätzlich ``FIREBASE_SERVICE_ACCOUNT_KEY`` — ohne ihn
 bleibt die Anmeldung trotzdem bestehen, es geht nur nichts raus (graceful
@@ -17,11 +18,12 @@ degradation, s. ``fcm.ensure_fcm``).
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
+from dcc_chat_gateway import badgezaehler
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import FcmToken
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
@@ -39,6 +41,13 @@ class FcmTokenIn(BaseModel):
 
 class FcmTokenEntfernen(BaseModel):
     token: str = Field(min_length=1, max_length=4096)
+
+
+class BadgeStand(BaseModel):
+    #: Ungelesene Nachrichten über alle Gespräche. ``ge=0``: negative Werte
+    #: sind keine Anzahl und sollen hart abgewiesen werden, nicht stillschweigend
+    #: auf 0 gezogen — ein Klient, der das sendet, hat einen Fehler.
+    anzahl: int = Field(ge=0, le=badgezaehler.OBERGRENZE)
 
 
 @router.post("/token", status_code=status.HTTP_204_NO_CONTENT)
@@ -129,6 +138,32 @@ async def token_entfernen(
         )
     )
     await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/badge", status_code=status.HTTP_204_NO_CONTENT)
+async def badge_melden(
+    payload: BadgeStand,
+    request: Request,
+    current: CurrentUser,
+) -> Response:
+    """Den exakten Ungelesen-Stand dieses Kontos übernehmen.
+
+    **Warum der Klient das meldet und nicht der Server rechnet:** Für
+    verschlüsselte DMs — den Normalweg — kann der Server die Zahl nicht
+    kennen (``badgezaehler``-Modulkopf nennt die beiden Gründe). Der Klient
+    hat den Klartext; solange die App wach ist, ist er die Wahrheit und
+    überschreibt damit die Fortschreibung, die der Push-Weg betreibt.
+
+    Jedes Gerät desselben Kontos darf melden — der Stand gehört dem Konto.
+    Dass zwei Geräte verschiedene Zahlen melden könnten, ist kein Fehlerfall,
+    sondern der Normalfall eines ungleichen Lesestands; es gewinnt die
+    jüngste Meldung, und das ist richtig: sie kommt vom Gerät, an dem gerade
+    jemand sitzt.
+    """
+    if not ratelimit_check("fcm_badge", current.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate_limited")
+    await badgezaehler.setzen(request.app.state.redis, current.id, payload.anzahl)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

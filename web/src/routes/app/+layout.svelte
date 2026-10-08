@@ -27,6 +27,8 @@
   import { statusLeisteFolgtTheme } from '$lib/platform/statusLeiste';
   import { installiereExterneLinks } from '$lib/platform/externeLinks';
   import { badgeSetzen } from '$lib/platform/badge';
+  import { badgeMelden } from '$lib/platform/badgeMelden';
+  import { ungeleseneNachrichten } from '$lib/navigation/abzeichen.svelte';
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
@@ -392,18 +394,29 @@
   // need notification permission. Reactive: flips back when read.
   $effect(() => {
     if (typeof document === 'undefined') return;
-    const ungeleseneGespraeche =
-      directMessages.list.filter((dm) => readState.isUnread(dm.id)).length +
+    // Titel-Punkt: „irgendwo wartet etwas" — hier zaehlen Community-Kanaele
+    // bewusst MIT, es ist eine Ja/Nein-Aussage ohne Zahl.
+    const irgendwasUngelesen =
+      directMessages.list.some((dm) => readState.isUnread(dm.id)) ||
       Object.values(guilds.channelsByGuild)
         .flat()
-        .filter((c) => c.type === 0 && readState.isUnread(c.id)).length;
-    document.title = ungeleseneGespraeche > 0 ? '● Pulse' : 'Pulse';
-    badgeSetzen(ungeleseneGespraeche);
+        .some((c) => c.type === 0 && readState.isUnread(c.id));
+    document.title = irgendwasUngelesen ? '● Pulse' : 'Pulse';
+
+    // Icon-Badge: eine ZAHL, und zwar ungelesene NACHRICHTEN der privaten
+    // Gespraeche — dasselbe, was der Server im Push fortschreibt (Begruendung
+    // in `navigation/abzeichen.svelte.ts::ungeleseneNachrichten`). Zwei
+    // Empfaenger: das Geraet selbst (nur in der iOS-Huelle wirksam) und der
+    // Server, der die Zahl in den naechsten Push legt — ohne ihn stuende sie
+    // still, solange die App zu ist (eingefrorene JS-Engine).
+    const zahl = ungeleseneNachrichten();
+    badgeSetzen(zahl);
+    badgeMelden(zahl);
     // Bei Resume auffrischen: die Mitteilungserlaubnis kann nachtraeglich
     // erteilt worden sein (Simulator-Befund 2026-10-06 — setBadgeCount
     // scheitert stumm ohne Erlaubnis).
     const badgeBeiSichtbar = () => {
-      if (document.visibilityState === 'visible') badgeSetzen(ungeleseneGespraeche);
+      if (document.visibilityState === 'visible') badgeSetzen(zahl);
     };
     document.addEventListener('visibilitychange', badgeBeiSichtbar);
     return () => document.removeEventListener('visibilitychange', badgeBeiSichtbar);

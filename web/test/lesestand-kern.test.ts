@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   istGelesenBis,
   vorwaertsMerge,
-  lesestandAnker
+  lesestandAnker,
+  serverStandUeberholt
 } from '../src/lib/stores/lesestandKern.ts';
 
 test('vorwaertsMerge nimmt den zeitlich größeren Stand', () => {
@@ -44,4 +45,37 @@ test('Anker auf der kanonischen ID schließt den B3-Kreis', () => {
   assert.equal(istGelesenBis(zustellungsId, lokaleId), false);
   // neu: beide Seiten führen dieselbe Kennung → Häkchen kommt zustande
   assert.equal(istGelesenBis(partnerStand, lokaleId), true);
+});
+
+test('serverStandUeberholt: kein Serverstand → nichts zu raeumen', () => {
+	assert.equal(serverStandUeberholt(undefined, '100'), false);
+	assert.equal(serverStandUeberholt(null, '100'), false);
+});
+
+test('serverStandUeberholt: ohne eigenen Stand ist nichts belegt', () => {
+	// Sieht nach Fremdlesen aus, ist aber der Normalfall nach einem Neuladen:
+	// der Serverstand kann ALT sein und unter den lokal gezaehlten Nachrichten
+	// liegen. Haette die Regel hier true gesagt, waeren echte Ungelesene beim
+	// Oeffnen der App weg — und nichts haette sie wieder hochgezaehlt.
+	assert.equal(serverStandUeberholt('100', undefined), false);
+	assert.equal(serverStandUeberholt('100', null), false);
+});
+
+test('serverStandUeberholt: gleicher Stand ist kein Fremdlesen', () => {
+	assert.equal(serverStandUeberholt('100', '100'), false);
+});
+
+test('serverStandUeberholt: hoeherer Serverstand ueberholt', () => {
+	assert.equal(serverStandUeberholt('101', '100'), true);
+});
+
+test('serverStandUeberholt: niedrigerer Serverstand ueberholt nicht', () => {
+	// Ein alter Rahmen darf den lokalen Stand nicht nach hinten ziehen.
+	assert.equal(serverStandUeberholt('99', '100'), false);
+});
+
+test('serverStandUeberholt vergleicht ueber die Stellen-Grenze', () => {
+	// 18-stellig > 17-stellig: ein lexikografischer Vergleich sagte hier das
+	// Gegenteil (dieselbe Falle wie bei compareSnowflakeId selbst).
+	assert.equal(serverStandUeberholt('100000000000000000', '99999999999999999'), true);
 });

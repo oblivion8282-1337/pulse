@@ -12,8 +12,8 @@ import { isCapacitorIOS } from './runtime';
  * bei geschlossener App ankommt, bewegt die Zahl hier nicht. Dafür trägt der
  * Server die Zahl im Push selbst (`aps.badge`, s. `fcm.py::_build_dm_message`
  * und `badgezaehler.py`); dieser Aufruf ist die Korrektur, sobald die App
- * wieder wach ist, und zugleich der Weg, mit dem der Klient dem Server seinen
- * exakten Stand meldet (`badgeMelden` in `badgeSync.ts`).
+ * wieder wach ist. Der Weg, auf dem der Klient dem Server seinen exakten Stand
+ * meldet, liegt daneben in `badgeMelden.ts`.
  *
  * Browser und Electron: No-op (der Titel-Punkt bleibt dort die Oberfläche).
  */

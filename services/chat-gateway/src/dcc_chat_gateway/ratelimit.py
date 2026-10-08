@@ -104,6 +104,11 @@ _RULES: dict[str, tuple[int, float]] = {
     # upsertet einmal je Gerät — ein Mensch braucht dafür keine zehn Anläufe
     # je Minute; das Band fängt nur durchgedrehte Clients.
     "fcm_token": (10, 60.0),
+    # Ungelesen-Stand fürs Icon-Badge (POST /fcm/badge). Der Klient drosselt
+    # selbst, meldet aber bei jeder Änderung des Stands — in einem lebhaften
+    # Gespräch sind das mehrere Meldungen je Minute. 30/Minute: reichlich für
+    # einen Menschen, eng für ein Skript. Ein Aufruf ist ein Redis-SET.
+    "fcm_badge": (30, 60.0),
     # Anrufe anstoßen (Befund 03.10.): je Aufruf klingelt es an ALLE Geräte
     # aller Gruppenmitglieder — ohne Bremse hammerbar als Klingel-Spam an
     # ganze Gruppen. 5/Minute: ein Mensch ruft nicht im Minutentakt an.
