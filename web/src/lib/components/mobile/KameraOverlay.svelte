@@ -37,6 +37,12 @@
   import { m } from '$lib/paraglide/messages.js';
   import { Portal } from 'bits-ui';
   import { untrack } from 'svelte';
+  import {
+    berechtigungsblatt,
+    istAblehnung,
+    standLesen,
+    standMerken
+  } from '$lib/platform/berechtigung.svelte';
 
   let {
     open,
@@ -350,6 +356,20 @@
     ladeMindestens = true;
     clearTimeout(ladeTimer);
     ladeTimer = setTimeout(() => (ladeMindestens = false), 1400);
+    // Vorerklärung vor dem System-Dialog (iOS-Punkt 36). Erscheint nur beim
+    // ERSTEN Mal und nur in einer Hülle — die Regel steht in
+    // `platform/berechtigungRegel.ts`. „Später" bricht hier ab, ohne den
+    // System-Dialog zu öffnen: eine einmal verweigerte Kamera-Erlaubnis wäre
+    // auf iOS dauerhaft weg.
+    if (!(await berechtigungsblatt.fragen('kamera', standLesen('kamera')))) {
+      // „Später" heisst hier: die Kamera gar nicht öffnen. Also SCHLIESSEN —
+      // ein blosses `return` liess die Lade-Fläche stehen („Kamera startet …"),
+      // weil sie an `!liveLaeuft && !fehler` hängt und beides falsch blieb.
+      // Ein Endlos-Spinner ohne Ausweg, gefunden im Vereinfachungs-Lauf.
+      clearTimeout(ladeTimer);
+      schliessen();
+      return;
+    }
     try {
       stream?.getTracks().forEach((t) => t.stop());
       stream = await navigator.mediaDevices.getUserMedia({
@@ -357,13 +377,31 @@
         video: { facingMode: nutzeFront ? 'user' : 'environment' },
         audio: true
       });
+      // Der Zugriff hat geklappt — also liegt die Erlaubnis vor, und zwar für
+      // beides: der Aufruf oben verlangt Bild UND Ton. Gemerkt, damit die
+      // Vorerklärung nicht bei jedem Öffnen wiederkommt (es gibt in einer
+      // WKWebView keine Auskunft darüber, s. `berechtigung.svelte.ts`).
+      standMerken('kamera', 'erteilt');
+      standMerken('mikrofon', 'erteilt');
       videoTrack = stream.getVideoTracks()[0];
       untrack(() => anzeigeBinden());
       // Notfall: kein Ereignis → Spinner löst sich nach 4 s von selbst.
       setTimeout(() => {
         if (stream) liveLaeuft = true;
       }, 4000);
-    } catch {
+    } catch (e) {
+      // Nur eine echte ABLEHNUNG wird gemerkt. Ein belegtes oder fehlendes
+      // Gerät sagt über die Erlaubnis nichts — den Stand dort anzufassen
+      // hiesse, aus einem Zufall eine Entscheidung zu machen.
+      //
+      // Welche der beiden abgelehnt wurde, sagt der Fehler nicht — beide zu
+      // merken kann also eine zu viel treffen. Die Folge wäre eine
+      // ausgelassene VORERKLÄRUNG, nie eine ausgelassene Erlaubnis: die
+      // harmlose Richtung.
+      if (istAblehnung(e)) {
+        standMerken('kamera', 'verweigert');
+        standMerken('mikrofon', 'verweigert');
+      }
       fehler = true;
     }
   }

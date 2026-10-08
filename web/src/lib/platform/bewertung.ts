@@ -1,5 +1,6 @@
 import { isCapacitorIOS } from './runtime';
-import { sollFragen, type Bewertungsstand } from './bewertungRegel';
+import { sollFragen } from './bewertungRegel';
+import { sendungZaehlen } from './eigeneSendungen';
 
 /**
  * Die System-Bewertungsfrage, gestellt im richtigen Moment.
@@ -8,6 +9,15 @@ import { sollFragen, type Bewertungsstand } from './bewertungRegel';
  * liegt im `localStorage` dieses Geräts; er muss weder genau noch
  * geräteübergreifend sein: er soll nur verhindern, dass ein frischer Nutzer
  * gefragt wird (Begründung in `bewertungRegel.ts`).
+ *
+ * **Der Zähler selbst liegt seit 2026-10-08 nebenan** (`eigeneSendungen.ts`),
+ * weil die Vorerklärung zu Mitteilungen dieselbe Zahl braucht. Im eigenen
+ * Schlüssel steht seither NUR `bereitsGefragt` — das ist die einzige
+ * Eigenschaft, die zu DIESER Frage gehört; die Zahl daneben mitzuschreiben
+ * wäre eine zweite Kopie, die niemand mehr liest. Folge beim Update: ein
+ * vorhandener Zählstand im alten Schlüssel wird nicht übernommen, die
+ * Bewertungsfrage kommt also einmalig später. Bewusst kein Umzug für eine
+ * Zahl, deren Verlust nur die harmlose Richtung kennt.
  *
  * **Die Antwort ist nicht auslesbar.** `requestReview` sagt nie, ob die Frage
  * erschienen ist oder was der Nutzer getan hat. Deshalb wird „bereits
@@ -28,26 +38,20 @@ function plugin(): ReviewPlugin | null {
   return (cap?.Plugins?.ReviewPlugin as ReviewPlugin | undefined) ?? null;
 }
 
-function lies(): Bewertungsstand {
+function bereitsGefragt(): boolean {
   try {
     const roh = window.localStorage.getItem(SCHLUESSEL);
-    if (roh) {
-      const d = JSON.parse(roh) as Partial<Bewertungsstand>;
-      return {
-        gesendet: typeof d.gesendet === 'number' ? d.gesendet : 0,
-        bereitsGefragt: d.bereitsGefragt === true
-      };
-    }
+    if (roh) return (JSON.parse(roh) as { bereitsGefragt?: unknown }).bereitsGefragt === true;
   } catch {
-    // Kein oder kaputter Speicher — von vorn zählen. Der Schaden ist, dass
-    // später gefragt wird; das ist die harmlose Richtung.
+    // Kein oder kaputter Speicher — dann gilt „noch nicht gefragt". Der
+    // Schaden wäre eine zweite Frage, nicht eine verlorene.
   }
-  return { gesendet: 0, bereitsGefragt: false };
+  return false;
 }
 
-function schreib(stand: Bewertungsstand): void {
+function merkeGefragt(): void {
   try {
-    window.localStorage.setItem(SCHLUESSEL, JSON.stringify(stand));
+    window.localStorage.setItem(SCHLUESSEL, JSON.stringify({ bereitsGefragt: true }));
   } catch {
     /* Speicher voll oder abgeschaltet — dann eben nicht. */
   }
@@ -59,16 +63,14 @@ function schreib(stand: Bewertungsstand): void {
  * und der Zähler soll gar nicht erst mitlaufen.
  */
 export function sendungGezaehlt(): void {
+  // Der Zähler läuft IMMER mit, auch ausserhalb der iOS-Hülle: die
+  // Vorerklärung zu Mitteilungen liest ihn ebenfalls, und sie gilt auch für
+  // Android. Die Bewertungsfrage selbst bleibt iOS-eigen.
+  const gesendet = sendungZaehlen();
   if (!isCapacitorIOS()) return;
-  const stand = lies();
-  if (stand.bereitsGefragt) return;
-  const neu: Bewertungsstand = { ...stand, gesendet: stand.gesendet + 1 };
-  if (!sollFragen(neu)) {
-    schreib(neu);
-    return;
-  }
+  if (!sollFragen({ gesendet, bereitsGefragt: bereitsGefragt() })) return;
   // Erst merken, dann fragen: bricht der Aufruf ab, soll er trotzdem nicht
   // bei der nächsten Nachricht wieder kommen.
-  schreib({ ...neu, bereitsGefragt: true });
+  merkeGefragt();
   void plugin()?.anfragen().catch(() => undefined);
 }

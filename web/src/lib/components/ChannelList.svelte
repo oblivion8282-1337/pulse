@@ -141,6 +141,15 @@ import { errText } from '$lib/utils/errText';
   // this user gesture so the browser allows the AudioContext to start.
   // Clicking a dropbox channel is a normal navigate — DropboxView mounts
   // on the channel route like ChatView, no side effects to schedule.
+  //
+  // **Deshalb steht hier KEINE Vorerklärung vor dem Mikrofon-Dialog**
+  // (iOS-Punkt 36), obwohl es der naheliegende Ort wäre: ein `await` auf das
+  // Blatt bricht die Gesten-Kette, und danach darf der AudioContext nicht
+  // mehr starten. Am 2026-10-08 zuerst mit `await` gebaut und am Satz oben
+  // wieder erkannt. Die Kamera hat das Problem nicht (an ihrer Geste hängt
+  // kein AudioContext) und ist dort verdrahtet; das Mikrofon bekommt seine
+  // Erklärung weiterhin vom System, mit unserem Text aus der Info.plist
+  // (`NSMicrophoneUsageDescription`).
   function selectChannel(c: Channel) {
     if (c.type === 1 && voice.channelId !== c.id) {
       voice.connect(c.id, c.name).catch((e) => {

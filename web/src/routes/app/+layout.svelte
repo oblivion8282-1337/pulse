@@ -33,6 +33,7 @@
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import { netzwacheStarten } from '$lib/ws/netzwache';
   import VerbindungsHinweis from '$lib/components/VerbindungsHinweis.svelte';
+  import BerechtigungVorerklaerung from '$lib/components/BerechtigungVorerklaerung.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
   import WatchPartyPickerDialog from '$lib/components/WatchPartyPickerDialog.svelte';
@@ -619,6 +620,10 @@
 <!-- Verbindungs-Hinweis: oben, nicht blockierend. Begründung samt der
      Abweichung von „Deckblatt" in der Komponente. -->
 <VerbindungsHinweis />
+
+<!-- Vorerklärung vor einem System-Berechtigungs-Dialog. Store-getrieben,
+     rendert nichts, solange kein Blatt offen ist. -->
+<BerechtigungVorerklaerung />
 
 <!-- Globaler Watch-Party-Auswahl-Dialog (wenn ein User mehrere Partys hostet) -->
 <WatchPartyPickerDialog />

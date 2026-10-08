@@ -20,6 +20,8 @@ import { goto } from '$app/navigation';
 import { request } from '$lib/api/client';
 import { drafts } from '$lib/stores/drafts.svelte';
 import { isCapacitorAndroid, isCapacitorIOS } from './runtime';
+import { berechtigungsblatt } from './berechtigung.svelte';
+import type { Stand } from './berechtigungRegel';
 
 /** Schmaler Ausschnitt der Plugin-Oberfläche (nur was wir rufen). */
 interface FcmPlugin {
@@ -137,10 +139,14 @@ export function installiereFcmPush(): void {
             visibility: 1 // PUBLIC — auf dem Sperrbildschirm lesbar
           });
         }
-        let perms = await fcm.checkPermissions();
-        if (perms.receive !== 'granted') {
-          perms = await fcm.requestPermissions();
-        }
+        // **Hier wird NICHT mehr nach der Erlaubnis gefragt** (2026-10-08,
+        // iOS-Punkt 36). Diese Stelle läuft beim Start, also bevor der Nutzer
+        // die App gesehen hat — und der iOS-Dialog erscheint genau EINMAL.
+        // Ein „nein" aus Reflex war damit dauerhaft. Gefragt wird jetzt mit
+        // Vorerklärung und erst nach einem Anlass, s. `mitteilungenAnfragen`.
+        // Was hier bleibt, ist der Fall „Erlaubnis liegt vor": dann muss das
+        // Token bei jedem Start neu gemeldet werden (es kann sich ändern).
+        const perms = await fcm.checkPermissions();
         if (perms.receive !== 'granted') return;
         await meldeAn(fcm);
         if (!listenerBereit) {
@@ -160,6 +166,50 @@ export function installiereFcmPush(): void {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') meldeBestEffort();
   });
+}
+
+/** Plugin-Auskunft in unseren Stand übersetzt (`berechtigungRegel.ts`).
+ *  `prompt` heisst „noch offen" — nur dort kann ein Dialog noch etwas
+ *  ändern. */
+function alsStand(receive: 'granted' | 'denied' | 'prompt'): Stand {
+  switch (receive) {
+    case 'granted':
+      return 'erteilt';
+    case 'denied':
+      return 'verweigert';
+    default:
+      return 'offen';
+  }
+}
+
+/**
+ * Nach der Mitteilungs-Erlaubnis fragen — mit Vorerklärung und erst nach einem
+ * Anlass (iOS-Liste Punkt 36).
+ *
+ * Gerufen wird das nach einer gesendeten Nachricht, nicht beim Start. Grund:
+ * der iOS-Dialog erscheint GENAU EINMAL, und beim Start hat der Nutzer keinen
+ * Grund, ja zu sagen. Die Regel (wie viele Nachrichten, einmal abgelehnt =
+ * nicht wieder) steht in `berechtigungRegel.ts`.
+ *
+ * Mehrfache Aufrufe sind billig: liegt die Erlaubnis vor oder ist sie
+ * verweigert, sagt die Regel schon „keine Erklärung" und `requestPermissions`
+ * wird gar nicht erreicht. Still bei jedem Fehler — eine Mitteilungs-Erlaubnis
+ * ist nichts, wofür man eine Fehlermeldung zeigt.
+ */
+export async function mitteilungenAnfragen(): Promise<void> {
+  const fcm = plugin();
+  if (!fcm) return;
+  try {
+    const { receive } = await fcm.checkPermissions();
+    const stand = alsStand(receive);
+    if (stand !== 'offen') return;
+    if (!(await berechtigungsblatt.fragen('mitteilungen', stand))) return;
+    const neu = await fcm.requestPermissions();
+    if (neu.receive !== 'granted') return;
+    await meldeAn(fcm);
+  } catch {
+    /* Kein Firebase-Setup / keine Session / offline — bewusst still. */
+  }
 }
 
 /**

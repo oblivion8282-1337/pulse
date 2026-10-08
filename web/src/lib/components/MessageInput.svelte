@@ -41,6 +41,7 @@
   import { isElectron } from '$lib/platform/runtime';
   import { haptikTicken } from '$lib/platform/haptik';
   import { sendungGezaehlt } from '$lib/platform/bewertung';
+  import { mitteilungenAnfragen } from '$lib/platform/fcm';
   import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
   import { drafts } from '$lib/stores/drafts.svelte';
   import { untrack } from 'svelte';
@@ -405,7 +406,7 @@
       const melden = (ok: boolean): void => {
         if (ok) {
           haptikTicken(); // Erst der gemeldete Erfolg tickt — kein Tick bei Fehlversuch
-          sendungGezaehlt(); // Bewertungsfrage im richtigen Moment (s. bewertungRegel.ts)
+          nachErfolgreichemSenden();
           text = '';
           anhaenge.nachDemSenden();
           mentionOverlay?.clear();
@@ -420,10 +421,28 @@
     }
     onSend(markupValue, ids, anhaenge.anhaenge);
     haptikTicken(); // Optimistischer Weg: der Abgang zählt als Erfolg
-    sendungGezaehlt();
+    nachErfolgreichemSenden();
     text = '';
     anhaenge.nachDemSenden();
     mentionOverlay?.clear();
+  }
+
+  /** Zwei Dinge hängen am erfolgreichen Senden, und beide entscheiden selbst,
+   *  ob sie dran sind: der Zähler für die Bewertungsfrage (ab 20 Nachrichten,
+   *  `bewertungRegel.ts`) und die Frage nach der Mitteilungs-Erlaubnis (ab 3,
+   *  mit Vorerklärung — `berechtigungRegel.ts`).
+   *
+   *  **Warum ausgerechnet hier.** Die Mitteilungs-Erlaubnis wurde vorher beim
+   *  START abgefragt, und der iOS-Dialog erscheint genau EINMAL: ein „nein"
+   *  aus Reflex war dauerhaft. Nach einer gesendeten Nachricht ist der Nutzen
+   *  dagegen offensichtlich — man will wissen, wenn geantwortet wird.
+   *
+   *  Als gemeinsame Funktion, weil es ZWEI Erfolgswege gibt (gemeldet und
+   *  optimistisch) und ein zweiter Aufruf an nur einem von beiden ein stiller
+   *  Teilausfall wäre. */
+  function nachErfolgreichemSenden(): void {
+    sendungGezaehlt();
+    void mitteilungenAnfragen();
   }
 
   function onKeydown(e: KeyboardEvent) {
