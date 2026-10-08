@@ -128,6 +128,20 @@ und Queries daraus ableiten, nie Koordinaten.
 Verifikations-Legende: **Sim** = Simulator genügt (ich selbstständig) · **Gerät** = Abnahme
 am iPhone nötig (ich baue vor) · **Portal** = braucht Michaels Zugänge (Apple/Firebase/Server).
 
+**Was am angeschlossenen iPhone OHNE Mithilfe geht** (geprüft 2026-10-08, iPhone 16 Pro
+am Kabel): installieren, starten **mit Konsole** — `xcrun devicectl device process launch
+--console --terminate-existing --device <id> com.howispulse.app` —, Darwin-Mitteilungen
+senden, Dateien kopieren, neu starten, sysdiagnose. Die Konsole zeigt den
+Capacitor-Brückenverkehr (`To Native -> …` / `TO JS …`) und damit, OB ein Plugin gerufen
+wird und was es antwortet; damit lässt sich „ist der Code überhaupt angeschlossen?"
+beantworten, ohne jemanden zu fragen. **Achtung: sie zeigt auch den FCM-Token im Klartext**
+— Mitschnitte nicht aufbewahren.
+
+**Was NICHT geht:** den Bildschirm sehen, tippen oder wischen, und **drehen**:
+`devicectl device orientation` existiert, antwortet auf diesem Gerät aber „capability not
+supported" (am 2026-10-08 aus der Hilfe geschlossen und am Fehlschlag korrigiert). Alles,
+was Aussehen oder Gefühl betrifft, bleibt echte Abnahme.
+
 ---
 
 ## Etappe 1 — Kerngefühl (100 % Sim ⇒ selbstständig)
