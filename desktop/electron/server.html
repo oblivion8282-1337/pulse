@@ -90,6 +90,18 @@
          z.B. vor der Erst-Etablierung des durablen Logins). -->
     <div class="status"><span id="dot" class="dot"></span><span id="statustext">Initialisiere …</span></div>
 
+    <!-- Server-Name (2026-10-08): erscheint bei allen Mitgliedern in der
+         Server-Leiste statt der Relay-Adresse. Nur bei laufendem Server —
+         gespeichert wird er im Server selbst. -->
+    <div id="nameRow" class="row hidden">
+      <label for="serverName">Server-Name</label>
+      <div style="display: flex; gap: 8px">
+        <input id="serverName" type="text" maxlength="60" placeholder="z. B. Michaels Server" autocomplete="off" style="flex: 1" />
+        <button id="btnServerName" class="secondary">Speichern</button>
+      </div>
+      <div id="serverNameHint" class="hint">So heißt dein Server bei allen, die beigetreten sind. Leer lassen zeigt die Adresse.</div>
+    </div>
+
     <div id="setupRow" class="row hidden">
       <button id="btnSetup">Server einrichten</button>
       <div class="hint">Du bist eingeloggt. Die Einrichtung findet deine freigegebene Instanz und verbindet dieses Gerät automatisch.</div>

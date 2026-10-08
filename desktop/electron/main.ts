@@ -78,6 +78,7 @@ import {
 import { runGiveUp } from './serverGiveUp';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts, loescheMappings } from './localBackend/portMapper';
+import { SERVERNAME_MAX } from './localBackend/serverName';
 import { diagnostiziere } from './localBackend/netdiag';
 import { checkCredsSupersede, checkInstanceDeleted } from './serverSupersede';
 
@@ -930,6 +931,28 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // Eintrag „Beenden". Nötig, weil GNOME ohne AppIndicator-Erweiterung kein
   // Tray-Symbol zeigt: das Fenster-X versteckt nur, die App war dort sonst
   // gar nicht zu beenden (Linux-Scan 2026-10-08).
+  // Server-Name (2026-10-08): der Betreiber benennt seinen Server hier statt
+  // nur unter /app/admin — der chat-gateway meldet ihn der Cloud, und die
+  // Server-Leiste aller Mitglieder zeigt ihn statt der Relay-Adresse.
+  ipcMain.handle('host:serverName', async (e) => {
+    if (!localSenderOnly(e)) return { ok: false, error: 'forbidden' };
+    try {
+      return { ok: true, name: await manager.serverName() };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
+  ipcMain.handle('host:setServerName', async (e, name: unknown) => {
+    if (!localSenderOnly(e)) return { ok: false, error: 'forbidden' };
+    if (typeof name !== 'string' || name.trim().length > SERVERNAME_MAX) {
+      return { ok: false, error: `Höchstens ${SERVERNAME_MAX} Zeichen.` };
+    }
+    try {
+      return { ok: true, name: await manager.serverName(name.trim()) };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
   ipcMain.handle('host:quit', (e) => {
     if (!localSenderOnly(e)) return;
     quitApp();

@@ -33,6 +33,7 @@ import {
 } from './paths.ts';
 import { ensureNativeSecrets } from './secrets.ts';
 import { NativeLivekitIp, oeffentlicheIpFuerStart } from './livekitIp.ts';
+import { serverNameNativ } from '../serverName.ts';
 import { renderNativeEnv } from './envContract.ts';
 import {
   renderLivekitYaml,
@@ -300,6 +301,13 @@ export class NativeBackendManager {
     // nächste Start (womöglich nach einem Neustart mit recycelten PIDs) auf
     // fremde Prozesse.
     if (this.runDir) loeschePidDateien(this.runDir);
+  }
+
+  /** Server-Name lesen / setzen (../serverName.ts). */
+  async serverName(name?: string): Promise<string | null> {
+    const userData = userDataPfad();
+    if (!userData) throw new Error('userData unbekannt');
+    return serverNameNativ(datenDirs(datenRoot(userData)).secrets, NATIVE_PORTS.chat, name);
   }
 
   /** Öffentliche IP ↔ LiveKit nachziehen (livekitIp.ts). */

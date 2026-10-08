@@ -44,6 +44,7 @@ import { RelaySteuerung, type RelayZiel, type RelayZustand } from './relaySteuer
 import { pullMitWegwerfLogin } from './registryAuth.ts';
 import { meldeDirektOffline, renderContainerEnv, resolveImage, udpGatewayAusFuer } from './containerEnv.ts';
 import { gleicheContainerIpAb, oeffentlicheIpFuerStart } from './containerIpAbgleich.ts';
+import { serverNameContainer, setzeServerNameContainer } from './serverName.ts';
 
 // Bestands-Exporte (Tests, Aufrufer) — die Quellen liegen in hostNetz.ts,
 // medienPorts.ts, containerEnv.ts und containerWelt.ts.
@@ -318,6 +319,13 @@ export class ContainerBackendManager {
    *  App-Instanz ihn selbst gestartet hat — `--restart unless-stopped`
    *  überlebt App-/Host-Neustarts)? argv-Array, keine Shell-Interpolation.
    *  `inspect` auf einen fehlenden Container liefert exit != 0 → false. */
+  /** Server-Name lesen / setzen (serverName.ts). */
+  async serverName(name?: string): Promise<string | null> {
+    const rt = await this.ensureRuntime();
+    if (!rt) throw new Error('Keine Container-Runtime gefunden.');
+    return name === undefined ? serverNameContainer(rt) : setzeServerNameContainer(rt, name);
+  }
+
   /** Öffentliche IP ↔ LiveKit nachziehen (containerIpAbgleich.ts). */
   async abgleichOeffentlicheIp(): Promise<string> {
     const rt = await this.ensureRuntime();
