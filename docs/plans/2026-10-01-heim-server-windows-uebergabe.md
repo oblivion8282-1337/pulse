@@ -1,5 +1,12 @@
 # Heim-Server — Windows-Übergabe (2026-10-01)
 
+> **Stand 2026-10-08:** Seit 0.1.92 fährt Windows standardmäßig das **native
+> Backend** (Prozessbaum, `main.ts` `NATIVE_BACKEND`) — Podman/WSL2 nur noch
+> mit `PULSE_HOST_BACKEND=container`. Was unten über VM, Relays und WSL2 steht,
+> gilt nur für diesen Opt-in-Weg. Die `netsh`-Regeln sind seit dem Scan vom
+> 2026-10-08 auf `profile=private remoteip=localsubnet` begrenzt (vorher galten
+> sie auch im öffentlichen WLAN, für jede Quelle).
+
 *Zweck: Weiter geht es mit **Windows** — dem letzten großen ungetesteten Feld.
 Linux ist abgeschlossen (siehe `2026-09-29-heim-server-linux-e2e.md`, Abschnitte
 „Zweiter Testtag" und „Benutzer-Welten"). Dieser Text fasst den Stand zusammen
@@ -161,9 +168,9 @@ den Chat-Port 7900, und LiveKit/MediaMTX in der VM kündigten nur VM-interne
 3. **Firewall:** beim ersten UDP-Bind fragt Windows („Zulassen?" — private
    Netzwerke → Ja). Kommt die Frage nicht, in einer Admin-Powershell:
    ```powershell
-   netsh advfirewall firewall add rule name="Pulse Voice-ICE" dir=in action=allow protocol=UDP localport=7882-7892
-   netsh advfirewall firewall add rule name="Pulse Chat-ICE"  dir=in action=allow protocol=UDP localport=7900
-   netsh advfirewall firewall add rule name="Pulse WHEP-ICE"  dir=in action=allow protocol=UDP localport=8189
+   netsh advfirewall firewall add rule name="Pulse Voice-ICE" dir=in action=allow protocol=UDP localport=7882-7892 profile=private remoteip=localsubnet
+   netsh advfirewall firewall add rule name="Pulse Chat-ICE"  dir=in action=allow protocol=UDP localport=7900 profile=private remoteip=localsubnet
+   netsh advfirewall firewall add rule name="Pulse WHEP-ICE"  dir=in action=allow protocol=UDP localport=8189 profile=private remoteip=localsubnet
    ```
 4. **Verifikation Cross-Gerät** (der eigentliche Beweis, den das Windows-E2E
    noch nicht hatte): vom **Linux-Rechner** den Voice-E2E gegen die Win-Instanz

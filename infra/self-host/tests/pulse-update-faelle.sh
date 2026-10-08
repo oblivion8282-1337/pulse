@@ -66,7 +66,10 @@ pruefe() {  # pruefe <name> <erwartet-up: ja|nein> <muster> <env…>
   echo "✓ $name"
 }
 
-pruefe "kein Container → anlegen"                 ja   "updating" \
+# Kein Container = Deinstallation (Nutzer-Entscheid 2026-10-06, ccf299f9):
+# der Updater legt nichts an. Bis 2026-10-08 erwartete dieser Fall noch das
+# alte „anlegen" — der Commit änderte das Skript, nicht den Test.
+pruefe "kein Container → nichts anlegen"          nein "keinen Container" \
   CONTAINER_STATUS= REV_NEU=aaa REV_LAUFEND=
 pruefe "läuft, gleiches Image → still"           nein "bereits aktuell" \
   CONTAINER_STATUS=running REV_NEU=aaa REV_LAUFEND=aaa
@@ -84,7 +87,9 @@ pruefe "restarting, neues Image → ausliefern"    ja   "updating" \
 
 # Hinter einem Proxy liegt nur docker-compose.behind-proxy.yml im Verzeichnis.
 mv "$arbeit/proj/docker-compose.yml" "$arbeit/proj/docker-compose.behind-proxy.yml"
+# Mit laufendem Container und neuem Image — ohne Container legte der Updater
+# seit ccf299f9 ohnehin nichts an, die Weiche bliebe ungeprüft.
 pruefe "nur behind-proxy-Datei → Weiche greift" ja "updating" \
-  CONTAINER_STATUS= REV_NEU=aaa REV_LAUFEND=
+  CONTAINER_STATUS=running REV_NEU=bbb REV_LAUFEND=aaa
 
 [ "$fehler" = 0 ] && echo "✓ self-host pulse-update: alle Fälle wie erwartet" || exit 1
