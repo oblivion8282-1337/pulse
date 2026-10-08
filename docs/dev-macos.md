@@ -55,7 +55,7 @@ genau drei Punkten, jeder am Ort begründet:
 MediaMTX läuft als Pulse-Fork (sieben Patches). GHCR verlangt eine Anmeldung;
 ohne sie endet der Pull mit **403**. Selbst bauen:
 
-    docker build -t ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7 \
+    docker build -t ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse8 \
       infra/mediamtx-fork
 
 Dauert ein paar Minuten — die Patches und die Go-Tests des Forks laufen mit;

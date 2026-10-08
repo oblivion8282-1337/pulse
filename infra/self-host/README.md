@@ -110,7 +110,7 @@ in `/data/jwt_keys/` and persisted across container restarts.
 | s6-overlay | v3.2.0.2 | github.com/just-containers/s6-overlay | SHA-256 pinned per artifact |
 | Caddy | v2.8.4 | github.com/caddyserver/caddy | SHA-256 pinned per artifact |
 | LiveKit | v1.13.3 | github.com/livekit/livekit | SHA-256 pinned per artifact |
-| MediaMTX | 1.19.1-pulse7 (Pulse-Fork) | ghcr.io/oblivion8282-1337/pulse-mediamtx | Registry-Digest |
+| MediaMTX | 1.19.1-pulse8 (Pulse-Fork) | ghcr.io/oblivion8282-1337/pulse-mediamtx | Registry-Digest |
 | Garage | v1.1.0 | dxflrs/garage (Docker Hub) | pinned image tag — the binary is copied into our image (`garage-upstream` stage) |
 | frp (frpc) | 0.69.1 | github.com/fatedier/frp | SHA-256 pinned per artifact |
 | Postgres | 15 (Debian Bookworm) | apt | — (Debian-signed package) |

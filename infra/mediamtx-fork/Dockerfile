@@ -85,7 +85,24 @@ ARG MEDIAMTX_VERSION=1.19.1
 # `PULSE_KEYFRAME_ON_DISCARD` / `PULSE_VIDEO_REORDER_BUFFER`. Der Workflow
 # hat `1.19.1-pulse7` am 2026-09-03 gebaut, die drei Compose-Dateien zeigen
 # seitdem darauf (Reihenfolge s. oben, so eingehalten).
-ARG PULSE_REVISION=7
+#
+# 8 (2026-10-08): Patch `0008-vollbild-beim-beitritt` — MediaMTX fordert beim
+# Sender ein Vollbild an, sobald ein Zuschauer BEITRITT, nicht erst wenn einer
+# den Faden verliert. Hinter `PULSE_KEYFRAME_ON_JOIN`.
+#
+# Warum das trotz 0002 noetig ist: jener Weg ist rein reaktiv — er traegt eine
+# Anforderung nur, wenn ein Zuschauer eine SCHICKT. Chromium schickt beim
+# Beitritt eine, WebKit (Safari, alles unter iOS) nicht; es wartet stumm. Bei
+# 60 s Vollbild-Abstand sitzt ein iOS-Zuschauer deshalb bis zu eine Minute vor
+# Schwarz, ohne dass irgendwo ein Fehler steht. Am 2026-10-08 im minimalen
+# Aufbau nachgemessen (dieses Image, ein schlichter HEVC-Strom, MediaMTXs
+# eigene Zuschauerseite, kein Pulse-Klient): Chromium hatte nach unter 10 s
+# ein Bild, ein iPhone brauchte die vollen 60 s.
+#
+# Dass es so lange unbemerkt blieb, hat denselben Grund wie die Behebung: ein
+# Vollbild bedient den GANZEN Strom. Ein einziger Chromium-Zuschauer im Raum
+# deckt alle anderen mit ab.
+ARG PULSE_REVISION=8
 ARG GO_VERSION=1.26
 
 # ── Stage 1: build the patched binary ──────────────────────────────────────

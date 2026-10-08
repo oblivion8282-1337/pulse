@@ -287,7 +287,7 @@ services:
   # weiterhin CI und einen neuen Tag — Quellcode-Sync hilft dabei nicht.
   mediamtx:
     <<: *base
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse8
     container_name: pulsetest_mediamtx
     environment:
       PULSE_KEYFRAME_INTERVAL: "0"
@@ -302,6 +302,11 @@ services:
       # 1:1 mit infra/prod/docker-compose.yml uebereinstimmen; Begruendung dort
       # und im Kopf des Patches.
       PULSE_KEYFRAME_ON_DISCARD: "1"
+      # Vollbild, sobald ein Zuschauer BEITRITT (Patch 0008). Ohne das
+      # fragt nur, wer von sich aus fragt — Chromium tut es, WebKit nicht,
+      # und ein iOS-Zuschauer sitzt bis zu 60 s vor Schwarz. Begruendung
+      # samt Messung im Dockerfile-Kopf des Forks.
+      PULSE_KEYFRAME_ON_JOIN: "1"
       PULSE_VIDEO_REORDER_BUFFER: "128"
       # Muss 1:1 mit infra/prod/docker-compose.yml übereinstimmen — sonst
       # testet man gegen einen Stand, den es in Produktion nicht gibt. Volle

@@ -1,0 +1,54 @@
+diff --git a/internal/stream/stream.go b/internal/stream/stream.go
+index fe5c227..4e70893 100644
+--- a/internal/stream/stream.go
++++ b/internal/stream/stream.go
+@@ -318,6 +318,33 @@ func pulseKeyFrameOnDiscard() bool {
+ 	return os.Getenv("PULSE_KEYFRAME_ON_DISCARD") == "1"
+ }
+ 
++// Pulse: ask the publisher for a key frame as soon as a reader ATTACHES.
++//
++// Why this is needed even though patch 0002 already forwards reader requests:
++// that path is purely reactive — it carries a request only once a reader
++// *sends* one. Chromium does send one on join (it has a video track and
++// nothing to decode, so it asks immediately), which is why desktop viewers
++// get a picture at once. WebKit — Safari and everything on iOS — does not: it
++// attaches and waits silently.
++//
++// With key frames 60 s apart (the Pulse default) that means an iOS viewer
++// stares at black for up to a minute, with no error anywhere. Measured
++// 2026-10-08 in a minimal setup (this image, a plain HEVC stream, MediaMTX's
++// own reader page, no Pulse client code): Chromium had a picture in under
++// 10 s, an iPhone needed the full 60 s. Dropping the key frame interval would
++// "fix" it at the cost of a measured decision (burst window 2.16 % at 60 s vs
++// 4.06 % at 30 s) — asking on join costs one extra key frame per viewer
++// instead, and InboundTrack throttles even that (keyFrameRequestMinInterval).
++//
++// It also helps every other reader: a key frame serves the whole stream, not
++// just the one who asked. That is exactly why the gap stayed hidden for so
++// long — one Chromium viewer in the room covers for all the others.
++//
++// Off unless set, like every other Pulse switch in this fork.
++func pulseKeyFrameOnJoin() bool {
++	return os.Getenv("PULSE_KEYFRAME_ON_JOIN") == "1"
++}
++
+ // SetOnKeyFrameRequest registers the publisher's key frame handler (Pulse).
+ // Passing nil clears it, which readers then treat as "nobody can help".
+ func (s *Stream) SetOnKeyFrameRequest(cb func()) {
+@@ -560,6 +587,15 @@ func (s *Stream) AddReader(r *Reader) {
+ 	default:
+ 		close(s.hasReaders)
+ 	}
++
++	// Pulse: a fresh reader needs a key frame to start decoding, and not every
++	// browser asks for one (see pulseKeyFrameOnJoin). In a goroutine on
++	// purpose: s.mutex is held here, and the request ends in an RTCP write on
++	// the publisher's connection — that must not run under a lock every other
++	// reader needs.
++	if pulseKeyFrameOnJoin() {
++		go s.RequestKeyFrame()
++	}
+ }
+ 
+ // RemoveReader removes a reader.

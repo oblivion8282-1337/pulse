@@ -42,7 +42,7 @@ services:
     # beide Tags auf denselben Digest eines 1.17.1-Images zeigten — der
     # Container meldete `v1.17.1-dirty`. Nach einem Bump also
     # `docker logs streaming-mediamtx | head -1` pruefen, nicht den Tag glauben.
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse8
     container_name: streaming-mediamtx
     restart: unless-stopped
     network_mode: host
@@ -72,6 +72,11 @@ services:
       # 1:1 mit infra/prod/docker-compose.yml uebereinstimmen; Begruendung dort
       # und im Kopf des Patches.
       PULSE_KEYFRAME_ON_DISCARD: "1"
+      # Vollbild, sobald ein Zuschauer BEITRITT (Patch 0008). Ohne das
+      # fragt nur, wer von sich aus fragt — Chromium tut es, WebKit nicht,
+      # und ein iOS-Zuschauer sitzt bis zu 60 s vor Schwarz. Begruendung
+      # samt Messung im Dockerfile-Kopf des Forks.
+      PULSE_KEYFRAME_ON_JOIN: "1"
       PULSE_VIDEO_REORDER_BUFFER: "128"
       # FlexFEC bleibt im lokalen Dev-Stack AUS. Sie kostet jeden Zuschauer
       # Datenrate, und das gehört nicht in denselben Testlauf wie eine andere

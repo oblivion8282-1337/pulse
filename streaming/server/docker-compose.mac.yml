@@ -10,7 +10,7 @@
 # sie endet der Pull mit 403. Selbst bauen (dauert ein paar Minuten, die
 # Patches und die Go-Tests des Forks laufen dabei mit):
 #
-#     docker build -t ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7 \
+#     docker build -t ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse8 \
 #       infra/mediamtx-fork
 #
 # Danach prüfen, was WIRKLICH läuft — der Tag sagt das nicht (s. Kommentar in
@@ -40,6 +40,7 @@ services:
       PULSE_KEYFRAME_INTERVAL: "0"
       PULSE_DEPENDENCY_DESCRIPTOR: "1"
       PULSE_KEYFRAME_ON_DISCARD: "1"
+      PULSE_KEYFRAME_ON_JOIN: "1"
       PULSE_VIDEO_REORDER_BUFFER: "128"
       PULSE_FLEXFEC: "1"
       PULSE_FLEXFEC_MEDIA: "10"

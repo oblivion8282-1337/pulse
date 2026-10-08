@@ -10,7 +10,7 @@
 # Output: two tags pushed to GHCR (Version und Patch-Stand liest der Lauf aus
 # dem Dockerfile, das die Quelle der Wahrheit bleibt — der Tag unten ist der
 # Stand vom 2026-09-03 und altert hier, nicht dort)
-#   ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7  ← what compose pins
+#   ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse8  ← what compose pins
 #   ghcr.io/oblivion8282-1337/pulse-mediamtx:latest        ← rolling, unused
 #
 # Build time: ~3 min cold, ~30 s with the gha cache warm.
