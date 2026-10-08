@@ -25,6 +25,20 @@
 #
 # Concurrency: at most one publish runs at a time per branch, so back-to-back
 # pushes don't race on the rsync target.
+#
+# Zwei Jobs, und das ist Absicht (seit 2026-10-08): `build` führt fremden Code
+# aus — pnpm-Install-Skripte, esbuild, und im Client-Manifest FFmpeg-configure
+# und die build.rs aller Rust-Kisten — und sieht KEIN Geheimnis. `publish`
+# checkt den Quellcode gar nicht erst aus, bekommt nur das fertige OSTree-Repo
+# als Artefakt, signiert es und schiebt es auf den VPS. Vorher lag der private
+# Signaturschlüssel schon während des Baus unter packaging/.gpg — also auch in
+# dem Verzeichnis, das beide Manifeste per `type: dir ../packaging` in den
+# Bauordner kopierten. Die Reihenfolge innerhalb EINES Jobs zu tauschen hätte
+# nicht gereicht: ein Prozess, den ein Install-Skript in den Hintergrund
+# schickt, überlebt auf dem Runner bis zum Jobende und hätte den Schlüssel
+# beim späteren Import abgreifen können. Was die Trennung NICHT leistet: sie
+# schützt den Schlüssel, nicht den Inhalt — was `build` erzeugt, wird
+# signiert, wie es ist.
 
 name: flatpak
 
@@ -64,11 +78,16 @@ on:
       - 'packaging/com.howispulse.Pulse.desktop'
       - 'packaging/com.howispulse.Pulse.metainfo.xml'
       - 'packaging/com.howispulse.Pulse.svg'
+      - 'packaging/pulse-app.package.json'
       # Server-App teilt sich Repo + Signaturschlüssel mit dem Client.
       - 'packaging/com.howispulse.PulseServer.yml'
       - 'packaging/launcher-server.sh'
       - 'packaging/com.howispulse.PulseServer.desktop'
       - 'packaging/com.howispulse.PulseServer.metainfo.xml'
+      - 'packaging/com.howispulse.PulseServer.svg'
+      # Tray-Symbole der Server-App (Manifest-Quelle `type: dir` → tray/).
+      # icon-server.png liegt unter desktop/electron/** und ist oben gedeckt.
+      - 'desktop/build-resources/tray/**'
       # landet als /app/pulse-server/package.json im Flatpak (desktopName →
       # Wayland-app_id) — ohne diesen Eintrag würde eine Änderung dort keinen
       # Neubau auslösen und der ausgelieferte app_id wäre still veraltet.
@@ -76,12 +95,17 @@ on:
       - '.github/workflows/flatpak.yml'
   workflow_dispatch:    # also allow manual republish from the Actions tab
 
+# Kein Job braucht mehr als Lesen; Artefakte und Caches laufen über das
+# Runner-Token, nicht über GITHUB_TOKEN-Rechte.
+permissions:
+  contents: read
+
 concurrency:
   group: flatpak-publish
   cancel-in-progress: false   # let an in-flight rsync finish
 
 jobs:
-  build-publish:
+  build:
     runs-on: ubuntu-24.04
     timeout-minutes: 60        # first run ~30min; cached runs ~5min
     steps:
@@ -143,33 +167,16 @@ jobs:
           restore-keys: |
             flatpak-builder-${{ runner.os }}-
 
-      # ── GPG signing key ──
-      - name: Import GPG signing key
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
-        run: |
-          mkdir -p packaging/.gpg
-          chmod 700 packaging/.gpg
-          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --homedir packaging/.gpg --batch --import
-          KEYID=$(gpg --homedir packaging/.gpg --list-keys --with-colons \
-                  | awk -F: '/^fpr:/ {print $10; exit}')
-          if [ -z "$KEYID" ]; then
-            echo "::error::no GPG key fingerprint after import — check FLATPAK_GPG_PRIVATE_KEY secret"
-            exit 1
-          fi
-          echo "FLATPAK_KEYID=$KEYID" >> "$GITHUB_ENV"
-          echo "→ signing with $KEYID"
-
-      # ── Build + sign + delta + prune ──
-      # Same commands publish.fish runs. The `--user` + `--install-deps-from`
-      # makes flatpak-builder pull the runtimes itself if cache missed.
-      - name: Build & sign Flatpak
+      # ── Build (UNSIGNIERT — signiert wird im publish-Job) ──
+      # Same commands publish.fish runs, minus --gpg-sign. The `--user` +
+      # `--install-deps-from` makes flatpak-builder pull the runtimes itself if
+      # cache missed.
+      - name: Build Flatpak
         run: |
           mkdir -p build/repo
           flatpak-builder --force-clean \
             --user --install-deps-from=flathub \
             --repo=build/repo \
-            --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
             build/flatpak packaging/com.howispulse.Pulse.yml
 
       # ── Server-App in dasselbe Repo ──
@@ -180,24 +187,118 @@ jobs:
       - name: build:electron:server
         run: pnpm --filter @dcc/desktop build:electron:server
 
-      - name: Build & sign Flatpak (Server-App)
+      - name: Build Flatpak (Server-App)
         run: |
           flatpak-builder --force-clean \
             --user --install-deps-from=flathub \
             --repo=build/repo \
-            --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
             build/flatpak-server packaging/com.howispulse.PulseServer.yml
+
+      # ── Save caches (always, even on later failure) ──
+      # The save happens BEFORE the rsync/publish steps so a network failure
+      # later doesn't prevent us from keeping the expensive FFmpeg build.
+      # `if: always()` makes save run even if Build Flatpak partially
+      # populated .flatpak-builder/ccache before crashing.
+      - name: Save flatpak runtimes cache
+        if: always() && steps.cache-runtimes.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: ${{ steps.cache-runtimes.outputs.cache-primary-key }}
+      - name: Save flatpak-builder cache
+        if: always() && steps.cache-builder.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .flatpak-builder
+          key: ${{ steps.cache-builder.outputs.cache-primary-key }}
+
+      # ── Übergabe an den publish-Job ──
+      # Als EIN tar statt als Verzeichnis: upload-artifact zippt Datei für
+      # Datei und verliert dabei Modus-Bits und Symlinks — ein OSTree-Repo
+      # soll unverändert ankommen. Die Objekte sind bereits zlib-gepackt
+      # (archive-Modus), deshalb ohne zweite Kompression.
+      - name: Pack OSTree repo
+        run: tar -cf flatpak-repo.tar -C build repo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-repo
+          path: flatpak-repo.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Bewusst KEIN actions/checkout: hier läuft kein Code aus dem Repo und
+    # keiner aus einer Paketquelle ausser Ubuntus eigener — nur die Werkzeuge,
+    # die signieren und hochladen.
+    steps:
+      - name: Install flatpak + ostree
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak ostree rsync
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: flatpak-repo
+      - name: Unpack OSTree repo
+        run: |
+          mkdir -p build
+          tar -xf flatpak-repo.tar -C build
+          rm -f flatpak-repo.tar
+
+      # ── GPG signing key ──
+      # Ausserhalb des Arbeitsverzeichnisses ($RUNNER_TEMP), nicht mehr unter
+      # packaging/.gpg — dort lag er früher im Quellbaum.
+      - name: Import GPG signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          GNUPGHOME="$RUNNER_TEMP/flatpak-gpg"
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --homedir "$GNUPGHOME" --batch --import
+          KEYID=$(gpg --homedir "$GNUPGHOME" --list-keys --with-colons \
+                  | awk -F: '/^fpr:/ {print $10; exit}')
+          if [ -z "$KEYID" ]; then
+            echo "::error::no GPG key fingerprint after import — check FLATPAK_GPG_PRIVATE_KEY secret"
+            exit 1
+          fi
+          echo "FLATPAK_GPG_HOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          echo "FLATPAK_KEYID=$KEYID" >> "$GITHUB_ENV"
+          echo "→ signing with $KEYID"
+
+      # ── Sign + delta + prune ──
+      # Jede Ref im Repo, nicht nur die beiden App-Refs: flatpak-builder legt
+      # daneben `…Debug`-Erweiterungen ab, und ein Klient mit gpg-verify
+      # verweigert jede unsignierte Ref, die er zieht. `ostree gpg-sign` ist
+      # dasselbe, was `flatpak build-sign` intern tut, nur ohne dass man die
+      # Ref-Arten (app/runtime) einzeln aufzählen muss. Das Repo ist bei jedem
+      # Lauf frisch, es gibt also keine schon signierten Alt-Commits.
+      - name: Sign all refs
+        run: |
+          REFS=$(ostree --repo=build/repo refs)
+          if [ -z "$REFS" ]; then
+            echo "::error::OSTree-Repo ohne Refs — Übergabe aus dem build-Job kaputt?"
+            exit 1
+          fi
+          for ref in $REFS; do
+            echo "→ sign $ref"
+            ostree --repo=build/repo gpg-sign --gpg-homedir="$FLATPAK_GPG_HOME" "$ref" "$FLATPAK_KEYID"
+          done
 
       - name: Generate static deltas + prune old commits
         run: |
           flatpak build-update-repo \
             --generate-static-deltas --prune --prune-depth=3 \
-            --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
+            --gpg-sign="$FLATPAK_KEYID" --gpg-homedir="$FLATPAK_GPG_HOME" \
             build/repo
 
       - name: Write .flatpakref + .flatpakrepo
         run: |
-          PUBKEY_B64=$(gpg --homedir packaging/.gpg --export "$FLATPAK_KEYID" | base64 -w0)
+          PUBKEY_B64=$(gpg --homedir "$FLATPAK_GPG_HOME" --export "$FLATPAK_KEYID" | base64 -w0)
           cat > build/repo/com.howispulse.Pulse.flatpakref <<EOF
           [Flatpak Ref]
           Title=Pulse
@@ -229,23 +330,12 @@ jobs:
           GPGKey=$PUBKEY_B64
           EOF
 
-      # ── Save caches (always, even on later failure) ──
-      # The save happens BEFORE the rsync/publish steps so a network failure
-      # later doesn't prevent us from keeping the expensive FFmpeg build.
-      # `if: always()` makes save run even if Build & sign Flatpak partially
-      # populated .flatpak-builder/ccache before crashing.
-      - name: Save flatpak runtimes cache
-        if: always() && steps.cache-runtimes.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.local/share/flatpak
-          key: ${{ steps.cache-runtimes.outputs.cache-primary-key }}
-      - name: Save flatpak-builder cache
-        if: always() && steps.cache-builder.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .flatpak-builder
-          key: ${{ steps.cache-builder.outputs.cache-primary-key }}
+      # Schlüssel weg, sobald er nicht mehr gebraucht wird — vor SSH und
+      # rsync, nicht erst am Jobende. (Gehostete Runner sind Wegwerf-VMs; das
+      # zählt, sobald jemand auf einen selbst gehosteten Runner umzieht.)
+      - name: Wipe imported GPG key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/flatpak-gpg"
 
       # ── Publish ──
       - name: Set up SSH for rsync
@@ -272,11 +362,11 @@ jobs:
           echo "  Server:  \`flatpak install --user https://howispulse.com/flatpak/com.howispulse.PulseServer.flatpakref\`" >> "$GITHUB_STEP_SUMMARY"
           echo "  Update:   \`flatpak update\`" >> "$GITHUB_STEP_SUMMARY"
 
-      # ── Tear down the imported signing key ──────────────────────────────
+      # ── Tear down the SSH key ──────────────────────────────────────────
       # GitHub-hosted runners are ephemeral, so the key would die with the VM
       # anyway. This cleanup matters when someone moves to a self-hosted
-      # runner: otherwise the decrypted private key would linger on the host
-      # filesystem after the job ends.
-      - name: Wipe imported GPG key
+      # runner: otherwise the private key would linger on the host filesystem
+      # after the job ends.
+      - name: Wipe SSH key
         if: always()
-        run: rm -rf packaging/.gpg ~/.ssh/id_ed25519
+        run: rm -f ~/.ssh/id_ed25519

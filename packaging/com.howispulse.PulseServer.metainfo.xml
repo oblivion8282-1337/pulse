@@ -15,6 +15,11 @@
       server, and share the address. Voice and streams connect directly via
       WebRTC hole-punching — no port forwarding required on standard routers.
     </p>
+    <p>
+      The server itself runs in a Podman or Docker container on this device.
+      Uninstalling the app does not stop or remove it — choose “Shut down server”
+      in the app first if you want the server and its data gone.
+    </p>
   </description>
   <launchable type="desktop-id">com.howispulse.PulseServer.desktop</launchable>
   <categories>
