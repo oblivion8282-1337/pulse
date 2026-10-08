@@ -125,21 +125,27 @@ am iPhone nötig (ich baue vor) · **Portal** = braucht Michaels Zugänge (Apple
 
 ## Etappe 1 — Kerngefühl (100 % Sim ⇒ selbstständig)
 
+**Offen sind hier nur noch 8 und 14.** Die anderen zwölf waren am 2026-10-08
+gebaut, die Tabelle sagte aber weiter „fehlt" — nachgezogen nach einer Prüfung
+gegen den Code, Beleg steht je Zeile. Dieselbe Fehlerklasse wie der
+„noch an nichts angeschlossen"-Absatz in `CLAUDE.md`: eine Statusangabe, die
+beim Bauen nicht mitgezogen wird, kostet später eine Doppelprüfung.
+
 | # | Punkt | Ist → Ziel | Aufw. | Verifikation |
 |---|---|---|---|---|
-| 1 | Anhänge speichern/teilen | `<a download>`-Trick (4 Stellen: Anhang-Karte, Medienübersicht, Medienarchiv, Lightbox) → gemeinsame Funktion: `navigator.share` mit Datei wo verfügbar, sonst Anker | S | Sim |
-| 2 | Tastatur | `@capacitor/keyboard` fehlt; Composer läuft hinter der Tastatur → Plugin + `resize: native` | M | Sim (Software-Tastatur, Hardware-KB abschaltbar) + Gerät |
-| 3 | Zoom-Falle | Chats-Suche (14 px gemessen), Gruppenname, Kamera-Beizeile sind `text-sm` → 16 px auf Touch (Muster wie Composer) | S | Sim/Playwright messbar |
-| 4 | StatusBar-Theme | Kein Style-Wechsel; dunkle Uhr auf dunklem Glas → StatusBar-Style folgt App-Theme (Web ruft nativ beim Theme-Wechsel) | S | Sim (appearance dark) |
-| 5 | Haptik | Keine → Capacitor-Haptics: Tab-Wechsel, Senden, Long-Press | S–M | Code+Build; Gefühl: Gerät |
-| 6 | Externe Links | `target="_blank"` tut nichts Sinnvolles → `@capacitor/browser`-Blatt (extern falls gewollt) | S | Sim |
-| 7 | Privacy-Screen (App-Umschalter) | Chat-Vorschau im Multitasking sichtbar → Blur/Deckblatt bei `scenePhase` inaktiv | S | Sim |
+| 1 | Anhänge speichern/teilen — **FERTIG, am 2026-10-08 am Code nachgeprüft:** `navigator.share` ist in `web/src/lib` im Einsatz. Die Zeile stand hier noch auf dem Ausgangszustand | `<a download>`-Trick (4 Stellen: Anhang-Karte, Medienübersicht, Medienarchiv, Lightbox) → gemeinsame Funktion: `navigator.share` mit Datei wo verfügbar, sonst Anker | S | Sim |
+| 2 | Tastatur — **FERTIG, am 2026-10-08 am Code nachgeprüft:** `@capacitor/keyboard` + `resize: native` in der Capacitor-Konfiguration. Die Zeile stand hier noch auf dem Ausgangszustand | `@capacitor/keyboard` fehlt; Composer läuft hinter der Tastatur → Plugin + `resize: native` | M | Sim (Software-Tastatur, Hardware-KB abschaltbar) + Gerät |
+| 3 | Zoom-Falle — **FERTIG, am 2026-10-08 am Code nachgeprüft:** die Eingabefelder am Handy stehen auf `text-base` (16 px). Die Zeile stand hier noch auf dem Ausgangszustand | Chats-Suche (14 px gemessen), Gruppenname, Kamera-Beizeile sind `text-sm` → 16 px auf Touch (Muster wie Composer) | S | Sim/Playwright messbar |
+| 4 | StatusBar-Theme — **FERTIG, am 2026-10-08 am Code nachgeprüft:** StatusBar-Anbindung liegt in `web/src/lib/platform`. Die Zeile stand hier noch auf dem Ausgangszustand | Kein Style-Wechsel; dunkle Uhr auf dunklem Glas → StatusBar-Style folgt App-Theme (Web ruft nativ beim Theme-Wechsel) | S | Sim (appearance dark) |
+| 5 | Haptik — **FERTIG, am 2026-10-08 am Code nachgeprüft:** Haptics ist in `web/src/lib` eingebunden. Die Zeile stand hier noch auf dem Ausgangszustand | Keine → Capacitor-Haptics: Tab-Wechsel, Senden, Long-Press | S–M | Code+Build; Gefühl: Gerät |
+| 6 | Externe Links — **FERTIG, am 2026-10-08 am Code nachgeprüft:** `@capacitor/browser` ist in `web/src/lib` eingebunden. Die Zeile stand hier noch auf dem Ausgangszustand | `target="_blank"` tut nichts Sinnvolles → `@capacitor/browser`-Blatt (extern falls gewollt) | S | Sim |
+| 7 | Privacy-Screen (App-Umschalter) — **FERTIG, am 2026-10-08 am Code nachgeprüft:** `privacySchutz` im `AppDelegate` (nativ, nicht per CSS — s. Begründung dort). Die Zeile stand hier noch auf dem Ausgangszustand | Chat-Vorschau im Multitasking sichtbar → Blur/Deckblatt bei `scenePhase` inaktiv | S | Sim |
 | 8 | App-Icon + Splash | Basis vorhanden → Dark-/Tinted-Icon-Varianten (iOS 18), Splash-Retina-Politur | S | Sim |
-| 9 | **Privacy Manifest** (`PrivacyInfo.xcprivacy`) | fehlt — App-Store-Pflicht | S | Build |
-| 10 | **`NSLocalNetworkUsageDescription`** | fehlt — Self-Host im Heimnetz wird still blockiert | S | Build |
-| 11 | Deployment-Target | iOS 15.0 → 16.1 min. (Live Activities), Feature-Gating für 17+ | S | Build+Sim |
-| 12 | `InfoPlist.strings` (en) | Berechtigungstexte nur deutsch, App liefert de+en → en.lproj | S | Sim |
-| 13 | `archiv_schrank_secret` im Dev-Env | fehlt (PUT archiv-schluessel → 503) → dev-up setzt lokales Secret; Prod-Config-Check eintragen | S | Sim/Log |
+| 9 | **Privacy Manifest** (`PrivacyInfo.xcprivacy`) — **FERTIG, am 2026-10-08 am Code nachgeprüft:** `mobile/ios/App/App/PrivacyInfo.xcprivacy` liegt vor. Die Zeile stand hier noch auf dem Ausgangszustand | fehlt — App-Store-Pflicht | S | Build |
+| 10 | **`NSLocalNetworkUsageDescription`** — **FERTIG, am 2026-10-08 am Code nachgeprüft:** `NSLocalNetworkUsageDescription` steht in der `Info.plist`. Die Zeile stand hier noch auf dem Ausgangszustand | fehlt — Self-Host im Heimnetz wird still blockiert | S | Build |
+| 11 | Deployment-Target — **FERTIG, am 2026-10-08 am Code nachgeprüft:** `IPHONEOS_DEPLOYMENT_TARGET = 16.1` im Xcode-Projekt. Die Zeile stand hier noch auf dem Ausgangszustand | iOS 15.0 → 16.1 min. (Live Activities), Feature-Gating für 17+ | S | Build+Sim |
+| 12 | `InfoPlist.strings` (en) — **FERTIG, am 2026-10-08 am Code nachgeprüft:** `en.lproj/InfoPlist.strings` liegt vor. Die Zeile stand hier noch auf dem Ausgangszustand | Berechtigungstexte nur deutsch, App liefert de+en → en.lproj | S | Sim |
+| 13 | `archiv_schrank_secret` im Dev-Env — **FERTIG, am 2026-10-08 am Code nachgeprüft:** das Secret wird in `scripts/` gesetzt. Die Zeile stand hier noch auf dem Ausgangszustand | fehlt (PUT archiv-schluessel → 503) → dev-up setzt lokales Secret; Prod-Config-Check eintragen | S | Sim/Log |
 | 14 | Release-Checkliste | Festlegung 4 als Datei/CI-Gate | S | Prozess |
 
 ## Etappe 2 — Erreichbarkeit
