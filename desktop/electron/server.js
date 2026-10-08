@@ -24,6 +24,8 @@ const UI_EN = {
   'Bereit.': 'Ready.',
   'Server läuft.': 'Server is running.',
   'Server wird gestoppt …': 'Server is stopping …',
+  'Pause: ': 'Paused: ',
+  'Update gescheitert — alte Fassung wird wiederhergestellt …': 'Update failed — restoring the previous version …',
   'Server wird gestartet …': 'Server is starting …',
   'Einrichten …': 'Setting up …',
   'Bereit zum Einrichten.': 'Ready to set up.',
@@ -102,7 +104,15 @@ function setStatus(phase, detail) {
   if (phase === 'preparing' && detail && detail.step) {
     // 'update' kommt vom 24h-Update-Check des Main-Prozesses — eigener Text
     // statt eines generischen Neustarts.
-    text = detail.step === 'update' ? ui('Update wird installiert …') : text + ' (' + detail.step + ')';
+    text = detail.step === 'update' ? ui('Update wird installiert …')
+      : detail.step === 'rollback' ? ui('Update gescheitert — alte Fassung wird wiederhergestellt …')
+        : text + ' (' + detail.step + ')';
+  }
+  // Klartext-Grund aus dem Backend (belegter Port, fehlendes Docker-Recht …)
+  // — vorher stand hier nur „Pause — bitte erneut versuchen.", und der Grund
+  // lag allein im Log. Kommt aus dem Main-Prozess, textContent = kein HTML.
+  if (phase === 'something-paused' && detail && detail.fehler) {
+    text = ui('Pause: ') + detail.fehler;
   }
   $('statustext').textContent = text;
   // Live zeigt immer den Einladungs-Wegweiser + Cloud-Status; die kopierbare
@@ -478,6 +488,11 @@ function bind() {
   // "Abmelden": Session-Cookie löschen + zurück zum Login (Main-Prozess
   // navigiert das Fenster). Danach kann sich ein anderer Account anmelden;
   // diese server.html wird dabei verlassen, daher kein Button-Reset im Erfolg.
+  $('btnQuit').onclick = async () => {
+    $('btnQuit').disabled = true;
+    $('statustext').textContent = ui('Server wird gestoppt …');
+    await host.quit().catch(() => { $('btnQuit').disabled = false; });
+  };
   $('btnLogout').onclick = async () => {
     $('btnLogout').disabled = true;
     await host.logout().catch(() => { $('btnLogout').disabled = false; });
@@ -588,6 +603,8 @@ if (SPRACHE !== 'de') {
     'Verbindungen': 'Connections',
     'Verbindung prüfen': 'Check connection',
     'Abmelden': 'Sign out',
+    'Server-App beenden': 'Quit server app',
+    'Stoppt auch den Server. Das Fenster zu schließen lässt ihn weiterlaufen.': 'Also stops the server. Closing the window keeps it running.',
     'Anmelden': 'Sign in',
     'Server aufgeben …': 'Shut down server …',
     'Server übernehmen?': 'Take over server?',

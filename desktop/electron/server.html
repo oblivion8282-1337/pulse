@@ -177,6 +177,14 @@
       <button id="btnGiveUp" class="danger">Server aufgeben …</button>
     </div>
     <div id="giveupHint" class="hint warn hidden"></div>
+
+    <!-- Beenden (Linux-Scan 2026-10-08): das Fenster-X versteckt nur — unter
+         GNOME ohne AppIndicator gibt es kein Tray-Symbol, über das man sonst
+         beendet. Immer sichtbar, auch vor der Anmeldung. -->
+    <div class="section">
+      <button id="btnQuit" class="secondary" style="width: 100%">Server-App beenden</button>
+      <div class="hint">Stoppt auch den Server. Das Fenster zu schließen lässt ihn weiterlaufen.</div>
+    </div>
   </div>
 
   <!-- Übernahme-Dialog: erscheint, wenn die Provisionierung meldet, dass für
