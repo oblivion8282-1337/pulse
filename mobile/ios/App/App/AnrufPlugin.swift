@@ -99,9 +99,18 @@ public final class Anrufverwaltung: NSObject {
         stand.supportsGrouping = false
         stand.supportsUngrouping = false
         anbieter.reportNewIncomingCall(with: uuid, update: stand) { fehler in
-            if fehler != nil {
-                // Häufigster Grund: „Nicht stören" oder eine Sperre durch den
-                // Nutzer. Der Anruf ist damit erledigt, nicht verschoben.
+            if let fehler {
+                // **Diese Meldung ist nachträglich dazugekommen, und sie hat
+                // einen Anlass** (2026-10-08): bei eingeschaltetem „Nicht
+                // stören" klingelte nichts, und nichts sagte warum — der Push
+                // kam an, CallKit wies ihn ab, der Fehler wurde hier still
+                // verworfen. Dieselbe Fehlerklasse wie ein `catch`, das `null`
+                // zurückgibt: der Befund, den man braucht, ist genau der, der
+                // verschwindet. Häufige Gründe: `filteredByDoNotDisturb`,
+                // `filteredByBlockList`, `maximumCallGroupsReached`.
+                // Der Anruf ist damit ERLEDIGT, nicht verschoben.
+                NSLog("[Anruf] CallKit hat den Anruf abgewiesen: %@",
+                      (fehler as NSError).localizedDescription)
                 self.vergessen(uuid)
             } else {
                 self.callkitAktiv = true
