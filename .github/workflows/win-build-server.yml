@@ -27,6 +27,11 @@ on:
       - 'services/**'
       - 'shared/**'
       - 'infra/self-host/direct-adapter/**'
+      # fetch-win-native.ps1 bündelt beides mit: das Caddyfile-Template als
+      # Konfiguration des nativen Caddy und uv.lock als Quelle des Python-venv.
+      # Ohne Eintrag erreichte eine Änderung daran keinen Windows-Heimserver.
+      - 'infra/self-host/s6/etc/caddy/Caddyfile.template'
+      - 'uv.lock'
       - '.github/workflows/win-build-server.yml'
   workflow_dispatch: {}
 
