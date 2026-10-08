@@ -96,8 +96,10 @@
     <div id="nameRow" class="row hidden">
       <label for="serverName">Server-Name</label>
       <div style="display: flex; gap: 8px">
-        <input id="serverName" type="text" maxlength="60" placeholder="z. B. Michaels Server" autocomplete="off" style="flex: 1" />
-        <button id="btnServerName" class="secondary">Speichern</button>
+        <!-- Knöpfe sind global width:100% — neben dem Feld nähme „Speichern"
+             sonst die ganze Zeile und drückte das Feld zum Streifen. -->
+        <input id="serverName" type="text" maxlength="60" placeholder="z. B. Michaels Server" autocomplete="off" style="flex: 1; min-width: 0" />
+        <button id="btnServerName" class="secondary" style="width: auto; flex-shrink: 0; padding: 11px 16px">Speichern</button>
       </div>
       <div id="serverNameHint" class="hint">So heißt dein Server bei allen, die beigetreten sind. Leer lassen zeigt die Adresse.</div>
     </div>

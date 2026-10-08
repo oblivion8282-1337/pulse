@@ -20,15 +20,17 @@ export const SERVERNAME_MAX = 60;
 
 const WERKZEUG = '/usr/local/bin/pulse-servername';
 
-export async function serverNameContainer(rt: ContainerRuntime): Promise<string | null> {
-  const r = await rtExec(rt, ['exec', containerName(), WERKZEUG, '--zeige'], { timeoutMs: 15_000 });
-  if (r.code !== 0) throw new Error(fehlerText(r.code, r.stderr));
-  return r.stdout.trim() || null;
+export function serverNameContainer(rt: ContainerRuntime): Promise<string | null> {
+  return werkzeug(rt, '--zeige');
 }
 
-export async function setzeServerNameContainer(rt: ContainerRuntime, name: string): Promise<string | null> {
+export function setzeServerNameContainer(rt: ContainerRuntime, name: string): Promise<string | null> {
+  return werkzeug(rt, name);
+}
+
+async function werkzeug(rt: ContainerRuntime, arg: string): Promise<string | null> {
   // argv statt Shell: der Name geht unverändert als ein Argument durch.
-  const r = await rtExec(rt, ['exec', containerName(), WERKZEUG, name], { timeoutMs: 15_000 });
+  const r = await rtExec(rt, ['exec', containerName(), WERKZEUG, arg], { timeoutMs: 15_000 });
   if (r.code !== 0) throw new Error(fehlerText(r.code, r.stderr));
   return r.stdout.trim() || null;
 }

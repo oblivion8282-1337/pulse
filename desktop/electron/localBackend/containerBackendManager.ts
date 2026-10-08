@@ -315,10 +315,6 @@ export class ContainerBackendManager {
     return pruefeImageUpdate(rt, image, this.creds, join(basis, weltVerzeichnis()));
   }
 
-  /** Läuft der `pulse-host`-Container gerade (unabhängig davon, ob diese
-   *  App-Instanz ihn selbst gestartet hat — `--restart unless-stopped`
-   *  überlebt App-/Host-Neustarts)? argv-Array, keine Shell-Interpolation.
-   *  `inspect` auf einen fehlenden Container liefert exit != 0 → false. */
   /** Server-Name lesen / setzen (serverName.ts). */
   async serverName(name?: string): Promise<string | null> {
     const rt = await this.ensureRuntime();
@@ -332,6 +328,10 @@ export class ContainerBackendManager {
     return rt ? gleicheContainerIpAb(rt) : 'nicht-zustaendig';
   }
 
+  /** Läuft der `pulse-host`-Container gerade (unabhängig davon, ob diese
+   *  App-Instanz ihn selbst gestartet hat — `--restart unless-stopped`
+   *  überlebt App-/Host-Neustarts)? argv-Array, keine Shell-Interpolation.
+   *  `inspect` auf einen fehlenden Container liefert exit != 0 → false. */
   async isContainerRunning(): Promise<boolean> {
     const rt = await this.ensureRuntime();
     if (!rt) return false;

@@ -66,9 +66,16 @@ async def melde_an_cloud(name: str | None) -> bool:
     return True
 
 
+#: Laufende Meldungen. asyncio hält Tasks nur schwach — ohne eigene Referenz
+#: könnte eine Meldung vor ihrem Ende eingesammelt werden und still ausfallen.
+_laufend: set[asyncio.Task] = set()
+
+
 def melde_im_hintergrund(name: str | None) -> None:
     """Meldung anstoßen, ohne die Antwort an den Nutzer aufzuhalten."""
-    asyncio.get_running_loop().create_task(melde_an_cloud(name), name="dcc-anzeigename-melden")
+    task = asyncio.get_running_loop().create_task(melde_an_cloud(name), name="dcc-anzeigename-melden")
+    _laufend.add(task)
+    task.add_done_callback(_laufend.discard)
 
 
 def permissions_event(row: ChatSettings, name_geaendert: bool):

@@ -25,8 +25,9 @@
  *  erreichbar). */
 export function taugtAlsOeffentlicheIp(ip: string | null | undefined): ip is string {
   if (!ip || !/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) return false;
-  const [a, b] = ip.split('.').map(Number);
-  if (ip.split('.').some((t) => Number(t) > 255)) return false;
+  const teile = ip.split('.').map(Number);
+  if (teile.some((t) => t > 255)) return false;
+  const [a, b] = teile;
   if (a === 10 || a === 127 || a === 0 || a >= 224) return false;
   if (a === 172 && b >= 16 && b <= 31) return false;
   if (a === 192 && b === 168) return false;

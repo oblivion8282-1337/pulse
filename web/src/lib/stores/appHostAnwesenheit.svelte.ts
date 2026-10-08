@@ -122,10 +122,7 @@ class AppHostAnwesenheit {
       const deutung = deuteTelefonbuch(r.status, online);
       if (deutung === 'unbekannt') return false;
       const offline = deutung === 'offline';
-      this.eintraege = {
-        ...this.eintraege,
-        [instanceId]: { offline, gemessen: Date.now() },
-      };
+      this.vermerke(instanceId, offline);
       // Belastbare Messung → auch die Leiste (lib/servers/anzeige.ts). Fängt
       // ein verlorenes `instance_status` ab (WS-Neuaufbau, Cloud-Deploy).
       serversStore.setzeInstanzStatus(instanceId, { online: !offline });
