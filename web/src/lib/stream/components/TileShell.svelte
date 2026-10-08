@@ -21,7 +21,7 @@
   import VideoIcon from '@lucide/svelte/icons/video';
   import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
   import { m } from '$lib/paraglide/messages.js';
-  import { toggleFullscreen } from '../fullscreen';
+  import { eigenesVollbildNoetig, toggleFullscreen } from '../fullscreen';
   import { statsVisible } from '../statsVisible.svelte';
   import TileDock from './TileDock.svelte';
   import TileMobilSteuerung from '$lib/components/mobile/TileMobilSteuerung.svelte';
@@ -91,7 +91,15 @@
     onVolumeChange(Math.round(volume / 5) * 5);
   });
   let leftColEl = $state<HTMLDivElement | null>(null);
-  let isFullscreen = $state(false);
+  // Vollbild hat ZWEI Quellen, und am Telefon ist nur die zweite erreichbar.
+  // `docVollbild` = echtes Element-Vollbild über die Fullscreen-API (alles
+  // außer iPhone). `eigenesVollbild` = selbst gebaut, weil es dort keine
+  // Fullscreen-API für <div> gibt; der frühere Weg (Apples Systemplayer über
+  // `webkitEnterFullscreen`) nahm dem Nutzer den getrennten Lautstärkeregler
+  // weg — Begründung im Kopf von `stream/fullscreen.ts`.
+  let docVollbild = $state(false);
+  let eigenesVollbild = $state(false);
+  const isFullscreen = $derived(docVollbild || eigenesVollbild);
   // Nur im Vollbild relevant: die Overlay-Leiste fadet nach Inaktivität.
   let hudVisible = $state(true);
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -120,6 +128,15 @@
     }, HUD_HIDE_AFTER_MS);
   }
 
+  // Beim Betreten des Vollbilds — echtes wie selbst gebautes — zwei Handgriffe:
+  // Vollbild = große Kachel → sofort `wide`, sonst blitzt für einen Frame das
+  // ⋯-Menü auf, bevor der ResizeObserver nachzieht; und der Ausblend-Timer der
+  // schwebenden Steuerung startet.
+  function vollbildBetreten(): void {
+    dockWide = true;
+    pokeHud();
+  }
+
   function handleCatcherClick(): void {
     // Im Vollbild auf Touch: Tap blendet die schwebende Steuerung ein und
     // startet den Ausblend-Timer neu (kein Toggle mehr — Nutzerwunsch: nach
@@ -131,6 +148,15 @@
   }
 
   function toggleFs(): void {
+    if (eigenesVollbild) {
+      eigenesVollbild = false;
+      return;
+    }
+    if (eigenesVollbildNoetig(containerEl)) {
+      eigenesVollbild = true;
+      vollbildBetreten();
+      return;
+    }
     toggleFullscreen(containerEl, video);
   }
 
@@ -167,6 +193,32 @@
       document.exitFullscreen?.().catch(() => {});
     }
   });
+  // **Dieser Effekt kann heute nicht laufen** — `quer` ist seit dem 2026-09-04
+  // die Konstante `false` (Begründung an der Zeile selbst), `warQuer` bekommt
+  // nur `quer` zugewiesen. Hier steht deshalb bewusst KEIN
+  // `eigenesVollbild = false`: es sähe nach einem automatischen Verlassen des
+  // selbst gebauten Vollbilds beim Zurückdrehen aus, das es nicht gibt.
+  // Verlassen wird es über `toggleFs` — am Telefon der Pfeil oben links, den
+  // `TileMobilSteuerung` im Vollbild immer zeigt (`zeigeVollbildAus`).
+
+  // Rahmen fällt im Vollbild weg; das selbst gebaute Vollbild muss sich die
+  // Fläche zusätzlich selbst nehmen (`fixed inset-0`) — s. `eigenesVollbild`.
+  //
+  // `data-eigenes-vollbild` ist der Haken für das Eckfenster: navigiert der
+  // Nutzer aus dem Kanal, während das selbst gebaute Vollbild an ist, wird die
+  // Kachel vom Hintergrund-Host zum PiP-Fenster — das `fixed inset-0` bliebe
+  // aber stehen und deckte den ganzen Bildschirm zu. `app.css` nimmt es im
+  // Eckfenster zurück, über denselben Weg wie `data-pip-hide` (die Kachel
+  // selbst erfährt nie, ob sie angedockt ist).
+  const containerClass = $derived(
+    [
+      'bg-bg-chat flex h-full overflow-hidden',
+      isFullscreen
+        ? 'rounded-none border-0'
+        : 'rounded-2xl border border-border handy:rounded-none handy:border-0',
+      eigenesVollbild ? 'fixed inset-0 z-40' : ''
+    ].join(' ')
+  );
 
   const dockProps = $derived({
     kindIcon: KindIcon,
@@ -199,12 +251,9 @@
 
   onMount(() => {
     function onFsChange() {
-      isFullscreen = !!document.fullscreenElement;
+      docVollbild = !!document.fullscreenElement;
       if (isFullscreen) {
-        // Vollbild = große Kachel → sofort wide, sonst blitzt für einen Frame
-        // das ⋯-Menü auf, bevor der ResizeObserver nachzieht.
-        dockWide = true;
-        pokeHud();
+        vollbildBetreten();
       } else {
         hudVisible = true;
         if (hideTimer) clearTimeout(hideTimer);
@@ -231,11 +280,10 @@
 
 <div
   bind:this={containerEl}
-  class="bg-bg-chat flex h-full overflow-hidden {isFullscreen
-    ? 'rounded-none border-0'
-    : 'rounded-2xl border border-border handy:rounded-none handy:border-0'}"
+  class={containerClass}
   data-testid={containerTestid}
   data-identity={identity}
+  data-eigenes-vollbild={eigenesVollbild ? '' : undefined}
 >
   <div bind:this={leftColEl} class="flex min-w-0 flex-1 flex-col">
     <div class="relative flex min-h-0 flex-1 flex-col" onmousemove={pokeHud} role="presentation">

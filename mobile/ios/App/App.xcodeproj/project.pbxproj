@@ -22,6 +22,7 @@
 		A1B2C3D4E5F60718000000C5 /* pulse-push.caf in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000C6 /* pulse-push.caf */; };
 		A1B2C3D4E5F60718000000C7 /* AudioSessionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000C8 /* AudioSessionPlugin.swift */; };
 		A1B2C3D4E5F60718000000D1 /* ReviewPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000D2 /* ReviewPlugin.swift */; };
+		A1B2C3D4E5F60718000000E1 /* OrientationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000E2 /* OrientationPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -46,6 +47,7 @@
 		A1B2C3D4E5F60718000000C6 /* pulse-push.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = pulse-push.caf; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718000000C8 /* AudioSessionPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718000000D2 /* ReviewPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewPlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718000000E2 /* OrientationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrientationPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -102,6 +104,7 @@
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				A1B2C3D4E5F60718000000C8 /* AudioSessionPlugin.swift */,
 				A1B2C3D4E5F60718000000D2 /* ReviewPlugin.swift */,
+				A1B2C3D4E5F60718000000E2 /* OrientationPlugin.swift */,
 				A1B2C3D4E5F60718293A4B5D /* PrivacyInfo.xcprivacy */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -246,6 +249,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A1B2C3D4E5F60718000000C7 /* AudioSessionPlugin.swift in Sources */,
 				A1B2C3D4E5F60718000000D1 /* ReviewPlugin.swift in Sources */,
+				A1B2C3D4E5F60718000000E1 /* OrientationPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -54,12 +54,23 @@
 	<array>
 		<string>armv7</string>
 	</array>
-	<!-- Portrait-Lock wie der Android-Ruhezustand (OrientationLockPlugin dort):
-	     Der Messenger bleibt hochkant; Querformat während Streams kommt mit dem
-	     Swift-Pendant des Plugins (iOS Phase 3, docs/UEBERGABE-MOBILE.md). -->
+	<!-- ALLE DREI LAGEN SIND ABSICHT, und sie bedeuten NICHT, dass die App
+	     dreht. Der Riegel sitzt zur Laufzeit im AppDelegate
+	     (supportedInterfaceOrientationsFor) und gibt quer nur frei, solange das
+	     Web es fürs Stream-Vollbild anfordert — OrientationLockPlugin.swift,
+	     JS-Seite web/src/lib/platform/orientation.ts. Der Messenger bleibt also
+	     hochkant wie zuvor.
+	     Hier stand bis zum 2026-10-08 nur Portrait, und das war der Grund, warum
+	     das Video-Vollbild am iPhone nicht mitdrehte: iOS stellt das Vollbild
+	     eines <video> ausschliesslich in Lagen dar, die die App DEKLARIERT —
+	     eine nicht deklarierte Lage kann kein Plugin und kein Webcode
+	     nachträglich freigeben.
+	     Kopfüber fehlt bewusst: ein Telefon zeigt Video nicht auf dem Kopf. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>

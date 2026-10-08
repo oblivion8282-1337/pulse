@@ -534,7 +534,7 @@
     voiceWarVerbunden = verbunden;
   });
 
-  // Android-Hülle: Querformat nur mit ANGEDOCKTEM Stream. Ein Stream im
+  // Mobil-Hüllen (Android und iOS): Querformat nur mit ANGEDOCKTEM Stream. Ein Stream im
   // Popup-Eckfenster (Corner-Mode: man hat den Kanal verlassen) lockt
   // trotzdem auf Hochformat — quer ist nur fürs Stream-Vollbild auf dem
   // Kanal-Bildschirm gedacht. Bedingung = kanalQuerStream OHNE die

@@ -8,27 +8,35 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
 
+    /// Wurde das Nutzerskript für künftige Ladevorgänge schon angehängt? Es
+    /// wird nur EINMAL angehängt — sonst sammelte jede Drehung ein weiteres an.
+    private var safeAreaSkriptGesetzt = false
+
     /// Safe-Area-Insets als CSS-Variablen in die WebView injizieren — dasselbe
     /// Rezept wie das Android-Gegenstück (SystemBars-Plugin): Die Web-App liest
     /// bereits `var(--safe-area-inset-*, env(...))` (Kette in app.css), dort
     /// landen die Werte zuverlässig. Grund: In der WKWebView liefert env()
     /// 0 (am Gerät gemessen 2026-10-06), deshalb contentInset "never" +
     /// randfüllende Seite + Injektion auf diesem Weg.
-    /// ponytail: Insets werden EINMAL gelesen — die Hülle ist auf Portrait
-    /// gelockt, die Werte ändern sich im Betrieb nicht. Rotation/iPad-
-    /// Multitasking bräuchten einen traitCollection-Observer (Ausbaustufe).
-    private var safeAreaInjected = false
-
+    ///
+    /// **Seit dem 2026-10-08 wird NACHGELESEN.** Hier stand vorher, die Werte
+    /// änderten sich im Betrieb nicht, weil die Hülle auf Hochformat gelockt
+    /// sei — das galt genau so lange, wie die Hülle nicht drehen konnte. Mit
+    /// dem Querformat fürs Stream-Vollbild (`OrientationLockPlugin`) wandern
+    /// die Einzüge: im Querformat sitzt die Aussparung links oder rechts, der
+    /// Streifen unten wird flacher. Eingefrorene Startwerte legten die
+    /// schwebenden Vollbild-Knöpfe unter die Aussparung.
     private func injectSafeAreaInsets() {
-        if safeAreaInjected { return }
         guard let webView = window?.rootViewController?.view as? WKWebView else { return }
         // Vom Fenster lesen, nicht von der WebView: UIWindow.safeAreaInsets
         // steht früher verlässlich (Bughunt 2026-10-06 — der WebView-Layout-
         // Pass kann beim ersten Active noch 0 liefern).
         let insets = window?.safeAreaInsets ?? webView.safeAreaInsets
-        // Noch kein Layout passiert → beim nächsten applicationDidBecomeActive erneut versuchen.
-        if insets.top == 0, insets.bottom == 0 { return }
-        safeAreaInjected = true
+        // Noch kein Layout passiert → beim nächsten applicationDidBecomeActive
+        // beziehungsweise bei der nächsten Drehung erneut versuchen. Als „noch
+        // nicht vermessen" gilt nur, wenn ALLE VIER Seiten 0 sind: im
+        // Querformat sind oben und unten beide klein, links/rechts aber nicht.
+        if insets == .zero { return }
         let css = """
         document.documentElement.style.setProperty('--safe-area-inset-top', '\(insets.top)px');
         document.documentElement.style.setProperty('--safe-area-inset-bottom', '\(insets.bottom)px');
@@ -37,8 +45,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         """
         // Künftige Ladevorgänge: Document-Start (vor jedem Paint). Aktuelles
         // Dokument (lädt evtl. schon): sofort nachreichen.
-        webView.configuration.userContentController.addUserScript(
-            WKUserScript(source: css, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if !safeAreaSkriptGesetzt {
+            safeAreaSkriptGesetzt = true
+            webView.configuration.userContentController.addUserScript(
+                WKUserScript(source: css, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         webView.evaluateJavaScript(css, completionHandler: nil)
     }
 
@@ -108,7 +119,43 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Meldung eintrifft. Sie haengen nicht an der Mitteilungserlaubnis —
         // registrieren darf man sie immer.
         mitteilungsAktionenRegistrieren()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(lageGewechselt),
+            name: UIDevice.orientationDidChangeNotification, object: nil)
         return true
+    }
+
+    /// Lagen-Riegel. Die `Info.plist` erlaubt dem iPhone alle drei Lagen —
+    /// das ist die Erlaubnis zu drehen, nicht die Entscheidung. Entschieden
+    /// wird hier: quer nur, solange das Web es fürs Stream-Vollbild
+    /// angefordert hat (`OrientationLockPlugin`, JS-Seite
+    /// `platform/orientation.ts`). Ohne diesen Riegel drehten Chat, Listen und
+    /// Einstellungen mit.
+    ///
+    /// Das iPad bleibt frei — es war schon vor dem 2026-10-08 in allen vier
+    /// Lagen erlaubt (`UISupportedInterfaceOrientations~ipad`), und die Regel
+    /// „nur fürs Stream-Vollbild" ist eine Telefon-Regel.
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        if UIDevice.current.userInterfaceIdiom == .pad { return .all }
+        return Lagen.querErlaubt ? [.portrait, .landscapeLeft, .landscapeRight] : .portrait
+    }
+
+    /// Nach einer Drehung stehen die Safe-Area-Einzüge erst, wenn der
+    /// Layout-Durchgang durch ist. Deshalb zweimal nachlesen: sofort (greift,
+    /// wenn das Fenster schon neu vermessen ist) und noch einmal nach der
+    /// System-Dreh-Animation. Die 0,4 s sind NICHT gemessen, sondern grosszügig
+    /// hinter die Animation gelegt; liest der zweite Versuch trotzdem alte
+    /// Werte, korrigiert sie das nächste `applicationDidBecomeActive`.
+    /// Die Injektion ist idempotent — mehrfaches Setzen derselben Werte kostet
+    /// nichts.
+    @objc private func lageGewechselt() {
+        injectSafeAreaInsets()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.injectSafeAreaInsets()
+        }
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

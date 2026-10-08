@@ -52,6 +52,19 @@
   display: none;
 }
 
+/* Dasselbe Spiel für das selbst gebaute Vollbild (iPhone, s. `TileShell`):
+   war es beim Weg-Navigieren an, trägt die Kachel noch `fixed inset-0` und
+   deckte als Eckfenster den ganzen Bildschirm zu. Höhere Spezifität als die
+   Tailwind-Klasse (Klasse + Attribut gegen Klasse), deshalb ohne `!important`.
+   `inset`/`z-index` fallen mit `position: static` von selbst weg; sie stehen
+   hier nur, damit nichts hängen bleibt, wenn die Kachel später eine andere
+   Positionierung bekommt. */
+.pip-eckfenster [data-eigenes-vollbild] {
+  position: static;
+  inset: auto;
+  z-index: auto;
+}
+
 /* "Glasshouse / Graphite" — heller, luftiger Glas-Look mit Electric-Blue-
    Ton-in-Ton-Akzent. Light ist der Default; .dark trägt die dunkle Variante.
    Die Semantik-Tokens unten mappen auf die Glas-Palette, damit die
