@@ -59,7 +59,8 @@ import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { istAblehnung, standMerken } from '$lib/platform/berechtigung.svelte';
 import { isMobile } from '$lib/platform/runtime';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
-import { tonVoice } from '$lib/platform/iosTon';
+import { tonSystemFilterBeobachten, tonSystemFiltert, tonVoice } from '$lib/platform/iosTon';
+import { filterziel } from './filterwahl';
 import { sidecar } from '$lib/stream/sidecar';
 import { runningStreamSlots } from '$lib/stream/state.svelte';
 
@@ -1214,14 +1215,18 @@ class VoiceRoom {
     const room = this.#room;
     if (!room) return;
     const gen = ++this.#filterGen;
-    const ns = settings.audio.noiseSuppression;
     const gain = settings.audio.inputMakeupGain;
-    const target: 'off' | SendProcessorMode =
-      ns === 'rnnoise_gated'
-        ? ns
-        : gain !== 1
-          ? 'gain_only'
-          : 'off';
+    // **Nicht mehr allein die Einstellung, sondern auch: filtert das System
+    // schon?** Auf iOS im `voiceChat`-Modus filtert Apple (Echo, Rauschen,
+    // Pegel) und ist dort nicht abschaltbar; RNNoise darüber wäre das zweite
+    // Mal, und zwei Rauschunterdrückungen in Reihe schneiden Wortanfänge ab.
+    // Rechnung geprüft in `voice/filterwahl.ts`.
+    const ziel = filterziel({
+      wunsch: settings.audio.noiseSuppression,
+      makeup: gain,
+      systemFiltert: tonSystemFiltert()
+    });
+    const target: 'off' | SendProcessorMode = ziel === 'keiner' ? 'off' : ziel;
     const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
     const audioTrack = pub?.audioTrack;
     if (!audioTrack) return;
@@ -1862,6 +1867,18 @@ class VoiceRoom {
 }
 
 export const voice = new VoiceRoom();
+
+// **Wegwechsel ändern, WER filtert** — und das kommt von keiner Nutzeraktion:
+// es genügt, die AirPods einzusetzen. Die Hülle richtet die Session dann neu
+// ein (am Lautsprecher mit Apples Sprachverarbeitung, mit Kopfhörern im Ohr
+// auf der Hochqualitäts-Route), und der eigene Sendefilter muss neu
+// entscheiden. Ohne diesen Haken liefe danach zweimal gefiltert oder gar
+// nicht.
+//
+// Einmal je Fenster, ohne Abriss: der Rückruf prüft selbst, ob ein Raum offen
+// ist (`applyNoiseFilter` kehrt ohne Raum sofort zurück), und ausserhalb der
+// iOS-Hülle feuert er nie.
+tonSystemFilterBeobachten(() => void voice.applyNoiseFilter());
 
 // ShortcutHost feuert die globalen Voice-Shortcuts über die schlanke Registry
 // in state.svelte.ts, damit das Root-Layout dieses Modul (und mit ihm

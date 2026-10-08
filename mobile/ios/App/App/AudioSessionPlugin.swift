@@ -47,8 +47,52 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - Betriebsarten
 
-    /// Voice-Modus an/aus: `aktiv` = playAndRecord + voiceChat (Mikro, Echo-
-    /// Auslösen, Bluetooth), sonst Session deaktivieren mit
+    /// Welcher Ausgabeweg gerade gilt — die Session wird danach eingerichtet.
+    ///
+    /// **Warum routenabhängig und nicht ein Satz für alles.** Bis zum
+    /// 2026-10-08 stand hier eine feste Konfiguration, und die musste einen
+    /// Kompromiss sein. Sie ist keiner mehr, sobald man hinsieht: Echo
+    /// entsteht, wenn ein Lautsprecher in einem Raum ins Mikrofon
+    /// zurückstrahlt — mit Kopfhörern im Ohr gibt es diesen Weg praktisch
+    /// nicht. Und umgekehrt kostet Bluetooth Qualität, der Telefonlautsprecher
+    /// nicht. **Die beiden Nöte treten also nie gleichzeitig auf**, und ein
+    /// gemeinsamer Satz Einstellungen verschenkt in jedem Einzelfall etwas.
+    private enum Tonweg {
+        /// Eingebauter Lautsprecher oder Hörmuschel: Echo-Unterdrückung ist
+        /// hier unverzichtbar, Bluetooth-Qualität steht nicht zur Debatte.
+        case eingebaut
+        /// Kabel (Klinke, USB, Auto): voller Klang OHNE Bluetooth-Einschränkung,
+        /// Echo-Weg praktisch null. Hier kostet `voiceChat` nichts.
+        case kabel
+        /// Bluetooth: der EINZIGE Fall, in dem es eng ist — mit offenem
+        /// Mikrofon verlässt der Kopfhörer A2DP und beide Richtungen werden
+        /// schmalbandig und mono.
+        case funk
+    }
+
+    private func wegJetzt() -> Tonweg {
+        let ausgaenge = AVAudioSession.sharedInstance().currentRoute.outputs
+        let funk: Set<AVAudioSession.Port> = [.bluetoothA2DP, .bluetoothHFP, .bluetoothLE]
+        if ausgaenge.contains(where: { funk.contains($0.portType) }) { return .funk }
+        let kabel: Set<AVAudioSession.Port> = [
+            .headphones, .usbAudio, .carAudio, .lineOut, .HDMI, .airPlay
+        ]
+        if ausgaenge.contains(where: { kabel.contains($0.portType) }) { return .kabel }
+        return .eingebaut
+    }
+
+    /// Apples eigene Empfehlungen für Sprach-Sitzungen, die hier fehlten.
+    ///
+    /// **Vor dem Aktivieren setzen** (Apple, QA1631): an einer AKTIVEN Session
+    /// sind das nur Wünsche, die oft verpuffen. Beides sind ohnehin Wünsche —
+    /// was die Hardware wirklich liefert, entscheidet sie.
+    private func wuenscheSetzen(_ session: AVAudioSession) {
+        try? session.setPreferredSampleRate(48_000)
+        try? session.setPreferredIOBufferDuration(0.02)
+    }
+
+    /// Voice-Modus an/aus: `aktiv` = playAndRecord mit der Konfiguration, die
+    /// zum aktuellen Weg passt, sonst Session deaktivieren mit
     /// notifyOthersOnDeactivation (pausiert höflich fremde Musik-Apps).
     ///
     /// **Während CallKit einen Anruf führt, wird die Session NICHT selbst
@@ -61,23 +105,61 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     /// System, WAS für eine Sitzung das ist.
     @objc func setVoiceActive(_ call: CAPPluginCall) {
         let aktiv = call.getBool("aktiv") ?? false
+        // Opt-in für die Hochqualitäts-Route über Bluetooth. **Vorgabe aus**,
+        // bis sie an einem Gerät gemessen ist: es gibt einen Bericht, dass
+        // WebRTC-Engines auf dieser Route VERSTUMMEN, und Stille ist für eine
+        // Sprach-App der schlimmste Fehlschlag. Siehe `modus` in der Antwort.
+        let hqFunk = call.getBool("hqFunk") ?? false
         let session = AVAudioSession.sharedInstance()
         let callkit = Anrufverwaltung.geteilt.callkitAktiv
         do {
             if aktiv {
-                try session.setCategory(
-                    .playAndRecord,
-                    mode: .voiceChat,
-                    options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
-                )
+                let modus = try voiceEinrichten(session, hqFunk: hqFunk)
                 if !callkit { try session.setActive(true) }
-            } else if !callkit {
+                // Der Modus geht ZURÜCK ans Web, weil daran die eigene
+                // Rauschunterdrückung hängt: bei `voiceChat` filtert Apple
+                // schon, bei `default` nicht. Zweimal filtern verdirbt die
+                // Stimme (abgeschnittene Wortanfänge) — es soll in jeder
+                // Konfiguration genau EINER filtern.
+                call.resolve(["modus": modus])
+                return
+            }
+            if !callkit {
                 try session.setActive(false, options: [.notifyOthersOnDeactivation])
             }
-            call.resolve()
+            call.resolve(["modus": "aus"])
         } catch {
             call.reject("audio_session_error", nil, error)
         }
+    }
+
+    /// Richtet die Sprach-Session für den aktuellen Weg ein und liefert den
+    /// gewählten Modus (`voiceChat` oder `default`).
+    private func voiceEinrichten(_ session: AVAudioSession, hqFunk: Bool) throws -> String {
+        // `.allowBluetoothHFP` (früher `.allowBluetooth`) — der neue Name sagt,
+        // was die Option wirklich tut: sie ERLAUBT das Hands-Free-Profil, und
+        // genau das zieht einen Kopfhörer bei offenem Mikrofon aus A2DP heraus
+        // ins Schmalband. Sie bleibt trotzdem drin: ohne sie gibt es mit einem
+        // Bluetooth-Kopfhörer gar kein Mikrofon.
+        var optionen: AVAudioSession.CategoryOptions = [
+            .allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker
+        ]
+        wuenscheSetzen(session)
+
+        // Hochqualitäts-Bluetooth gibt es erst ab iOS 26, nur für Kopfhörer,
+        // die es tragen (sonst fällt iOS auf HFP zurück) — und **nur mit
+        // `mode: .default`**: die Option verlangt es, und damit entfällt
+        // Apples Sprachverarbeitung. Für Kopfhörer im Ohr ist das der richtige
+        // Tausch, weil es dort kaum einen akustischen Echo-Weg gibt.
+        if hqFunk, wegJetzt() == .funk {
+            if #available(iOS 26.0, *) {
+                optionen.insert(.bluetoothHighQualityRecording)
+                try session.setCategory(.playAndRecord, mode: .default, options: optionen)
+                return "default"
+            }
+        }
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: optionen)
+        return "voiceChat"
     }
 
     /// Playback-Modus für Watch-/Stream-Ton (ohne Mikro, category playback
@@ -85,6 +167,12 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func setPlaybackMode(_ call: CAPPluginCall) {
         let session = AVAudioSession.sharedInstance()
         do {
+            wuenscheSetzen(session)
+            // `.playback` + `.default` ist für Wiedergabe schon das Beste, was
+            // die Plattform hat: keine Sprachverarbeitung, kein HFP-Zwang
+            // (ohne offenes Mikrofon bleibt Bluetooth in A2DP, also stereo).
+            // `.allowBluetoothA2DP` wird hier NICHT gesetzt — die Kategorie
+            // nimmt A2DP von sich aus; die Option gehört zu `playAndRecord`.
             try session.setCategory(.playback, mode: .default)
             try session.setActive(true)
             call.resolve()

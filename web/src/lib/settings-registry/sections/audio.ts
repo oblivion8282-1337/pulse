@@ -26,6 +26,24 @@ export type AudioSettings = {
   outputDeviceLabel: string;
   echoCancellation: boolean;
   noiseSuppression: NoiseSuppressionMode;
+  /**
+   * Hochqualitäts-Route über Bluetooth (iOS 26, nur die iOS-Hülle).
+   *
+   * Sobald ein Mikrofon offen ist, verlässt ein Bluetooth-Kopfhörer A2DP und
+   * beide Richtungen werden schmalbandig und mono — klassisches Bluetooth hat
+   * nicht die Bandbreite für Stereo hin und Mikrofon zurück. iOS 26 bietet
+   * dafür eine asymmetrische Route: Eingang bleibt HFP, **Ausgabe wird 48 kHz
+   * stereo**. Der Preis: die Option verlangt `mode: .default`, und damit
+   * entfällt Apples Sprachverarbeitung (Echo, Rauschen, Pegel). Für Kopfhörer
+   * IM OHR ist das der richtige Tausch — dort gibt es kaum einen akustischen
+   * Echo-Weg, und RNNoise wird dann der einzige Rauschfilter.
+   *
+   * **Vorgabe false, und das ist kein Zögern, sondern Disziplin:** es gibt
+   * einen Bericht, dass WebRTC-Engines auf dieser Route verstummen. Stille
+   * ist für eine Sprach-App der schlimmste Fehlschlag; die Vorgabe wechselt,
+   * wenn sie an einem Gerät gemessen ist.
+   */
+  bluetoothHq: boolean;
   noiseGateThresholdDb: number;
   stereo: boolean;
   inputMakeupGain: number;
@@ -51,6 +69,7 @@ const DEFAULTS_AUDIO: AudioSettings = {
   outputDeviceLabel: '',
   echoCancellation: true,
   noiseSuppression: 'rnnoise_gated',
+  bluetoothHq: false,
   noiseGateThresholdDb: NOISE_GATE_DB_DEFAULT,
   stereo: false,
   inputMakeupGain: INPUT_MAKEUP_DEFAULT,
@@ -93,6 +112,7 @@ export const AUDIO_SECTION: SectionConfig<AudioSettings> = {
       // Migration: pre-binary configs may carry 'browser'/'rnnoise'/'deepfilternet'
       // (DFN3 was removed 2026-05-16). Any non-'off', non-current legacy value
       // indicates the user wanted *some* filter on — map to the gated mode.
+      bluetoothHq: a.bluetoothHq === true,
       noiseSuppression:
         a.noiseSuppression === 'off' || a.noiseSuppression === 'rnnoise_gated'
           ? a.noiseSuppression

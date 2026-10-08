@@ -36,6 +36,8 @@
   import { schriftGroesseVerfolgen } from '$lib/platform/schriftGroesse';
   import { voipTokenVerfolgen } from '$lib/platform/voipToken';
   import { schnellwahlSetzen, schnellwahlVerfolgen } from '$lib/platform/schnellwahl';
+  import { tonHqFunkSetzen } from '$lib/platform/iosTon';
+  import { settings } from '$lib/stores/settings.svelte';
   import { schnellwahlEintraege } from '$lib/platform/schnellwahlAuswahl';
   import VerbindungsHinweis from '$lib/components/VerbindungsHinweis.svelte';
   import AppSperre from '$lib/components/AppSperre.svelte';
@@ -306,6 +308,10 @@
     // Schnellwahl am App-Symbol: auf einen Tipp aus dem Symbol reagieren
     // (Punkt 44). Die EINTRÄGE setzt der Effekt weiter oben.
     schnellwahlVerfolgen();
+    // Hochqualitäts-Route über Bluetooth aus der Einstellung übernehmen —
+    // nicht erst beim Umlegen des Schalters, sonst gilt sie nach einem
+    // Neustart nicht (die Session wird beim Beitritt eingerichtet).
+    tonHqFunkSetzen(settings.audio.bluetoothHq);
 
     // Vom Betreiber gelöschte Self-Host-Server aus der lokalen Liste räumen
     // (öffentliche Suspend-Liste der Cloud, anonymer Abgleich). Fire-and-forget.

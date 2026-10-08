@@ -4,6 +4,7 @@ import {
   iosJetztLaeuftAus,
   iosPlaybackModus,
   iosUnterbrechungen,
+  iosWegWechsel,
   iosVoiceAktiv
 } from './iosAudioSession';
 import { zielModus, type TonModus } from './tonModus';
@@ -52,14 +53,67 @@ const voiceQuellen = new Set<string>();
 const wiedergaben = new Set<string>();
 let angewandt: TonModus = 'aus';
 
+/**
+ * Filtert das Betriebssystem gerade im Sendeweg?
+ *
+ * Das ist nicht dasselbe wie „Voice-Modus läuft": die Hülle richtet die
+ * Session nach dem AUSGABEWEG ein, und auf der Hochqualitäts-Route über
+ * Bluetooth (`mode: .default`) filtert Apple NICHT. Nur die Hülle weiss das,
+ * deshalb kommt der Wert von dort zurück.
+ */
+let systemFiltert = false;
+/** Wer auf einen Wechsel reagieren muss — heute der Sendefilter. */
+const filterHoerer = new Set<() => void>();
+
+/** Will der Nutzer die Hochqualitäts-Route über Bluetooth? Wird von aussen
+ *  gesetzt (Einstellung), damit dieses Modul nichts über Einstellungen
+ *  wissen muss. */
+let hqFunk = false;
+
+export function tonHqFunkSetzen(an: boolean): void {
+  if (hqFunk === an) return;
+  hqFunk = an;
+  // Die Route wird beim nächsten Einrichten gewählt — also jetzt neu
+  // einrichten, sonst wirkt die Einstellung erst beim nächsten Beitritt.
+  angewandt = 'aus';
+  void anwenden();
+}
+
+/**
+ * Auf Wechsel des System-Filters hören. Rückgabe meldet ab.
+ *
+ * Gebraucht, weil der Wechsel NICHT von einer Nutzeraktion kommt: es genügt,
+ * die AirPods einzusetzen. Ohne diesen Weg liefe danach entweder zweimal
+ * gefiltert oder gar nicht.
+ */
+export function tonSystemFilterBeobachten(cb: () => void): () => void {
+  filterHoerer.add(cb);
+  return () => filterHoerer.delete(cb);
+}
+
+export function tonSystemFiltert(): boolean {
+  return systemFiltert;
+}
+
 async function anwenden(): Promise<void> {
   if (!isCapacitorIOS()) return;
   const ziel = zielModus(voiceQuellen.size > 0, wiedergaben.size);
   if (ziel === angewandt) return;
   angewandt = ziel;
-  if (ziel === 'voice') await iosVoiceAktiv(true);
-  else if (ziel === 'wiedergabe') await iosPlaybackModus();
-  else await iosVoiceAktiv(false);
+  const vorher = systemFiltert;
+  if (ziel === 'voice') {
+    systemFiltert = (await iosVoiceAktiv(true, hqFunk)) === 'voiceChat';
+  } else if (ziel === 'wiedergabe') {
+    await iosPlaybackModus();
+    systemFiltert = false;
+  } else {
+    await iosVoiceAktiv(false);
+    systemFiltert = false;
+  }
+  if (systemFiltert !== vorher) {
+    // Kopie, weil ein Hörer sich im Ruf abmelden darf.
+    for (const h of [...filterHoerer]) h();
+  }
 }
 
 /**
@@ -94,6 +148,22 @@ function unterbrechungenBeobachten(): void {
     // zuverlässig, und ein Sprachkanal, in dem jemand sitzt, soll zurück-
     // kommen. Scheitert das Aktivieren, bleibt es beim stillen No-op — wie
     // vorher, nur mit Versuch.
+    angewandt = 'aus';
+    void anwenden();
+  });
+
+  // **Wegwechsel richten die Session neu ein** (seit 2026-10-09). Die Hülle
+  // wählt Kategorie und Modus nach dem AUSGABEWEG: am Lautsprecher mit
+  // Apples Sprachverarbeitung, mit Kopfhörern im Ohr auf der
+  // Hochqualitäts-Route. Dieser Wechsel kommt von KEINER Nutzeraktion — es
+  // genügt, die AirPods einzusetzen. Ohne diesen Haken behielte die Session
+  // die Konfiguration des alten Wegs, und mit ihr liefe entweder zweimal
+  // gefiltert oder gar nicht.
+  //
+  // Auch hier muss der Merker fallen: gewollt ist weiter `voice`, nur die
+  // Einrichtung dahinter ist eine andere (dieselbe Falle wie oben).
+  iosWegWechsel(() => {
+    if (voiceQuellen.size === 0) return; // ohne Mikrofon ist der Weg einerlei
     angewandt = 'aus';
     void anwenden();
   });

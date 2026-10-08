@@ -13,6 +13,8 @@
   import { onDestroy, onMount, untrack } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { isCapacitorIOS } from '$lib/platform/runtime';
+  import { tonHqFunkSetzen } from '$lib/platform/iosTon';
 
   // Android: die WebView kann Audioausgänge weder auflisten noch umschalten
   // (setSinkId/`audiooutput`-Enumeration fehlen). Die Ausgabe läuft daher über
@@ -347,6 +349,33 @@
         onCheckedChange={(v) => onMonitorChange(v)}
       />
     </label>
+
+    <!-- Hochqualitäts-Route über Bluetooth. Nur in der iOS-Hülle: Android und
+         der Browser haben diese Wahl nicht, und ein Schalter, der nichts tut,
+         ist schlechter als keiner. Begründung samt Abwägung an der Einstellung
+         `bluetoothHq` (settings-registry/sections/audio.ts). -->
+    {#if isCapacitorIOS()}
+      <label
+        class="flex cursor-pointer flex-col gap-1"
+        data-testid="settings-bluetooth-hq"
+      >
+        <span class="flex items-center justify-between gap-3">
+          <span class="text-text-base text-sm">
+            {m.settings_audio_bluetooth_hq_label()}
+          </span>
+          <Switch
+            checked={settings.audio.bluetoothHq}
+            onCheckedChange={(v) => {
+              settings.audio.bluetoothHq = v;
+              tonHqFunkSetzen(v);
+            }}
+          />
+        </span>
+        <span class="text-text-muted text-xs">
+          {m.settings_audio_bluetooth_hq_hint()}
+        </span>
+      </label>
+    {/if}
   </div>
 
   <!-- ===== Feld: Ausgabe ===== -->

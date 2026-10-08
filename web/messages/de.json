@@ -3032,6 +3032,8 @@
   "appsperre_laeuft": "Wird geprüft …",
   "appsperre_einstellung_titel": "App mit Face ID sperren",
   "appsperre_einstellung_text": "Beim Start der App wird Face ID oder dein Geräte-Code verlangt. Läuft Pulse im Hintergrund weiter, wird nicht erneut gefragt.",
+  "settings_audio_bluetooth_hq_label": "Beste Tonqualität über Bluetooth",
+  "settings_audio_bluetooth_hq_hint": "Braucht iOS 26 und passende AirPods. Die Wiedergabe wird stereo in 48 kHz statt Telefonqualität. Dafür übernimmt nicht mehr Apple die Echo-Unterdrückung, sondern Pulse — mit Kopfhörern im Ohr ist das der bessere Tausch, am Lautsprecher nicht (dort bleibt alles wie bisher).",
   "voice_bar_undeafen": "Ton aktivieren",
   "voice_uebernommen_toast": "Sprachkanal wurde von deinem anderen Gerät übernommen — dort läuft die Verbindung jetzt weiter.",
   "voice_channel_full": "Dieser Sprachkanal ist voll.",

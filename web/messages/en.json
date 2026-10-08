@@ -3032,6 +3032,8 @@
   "appsperre_laeuft": "Checking …",
   "appsperre_einstellung_titel": "Lock the app with Face ID",
   "appsperre_einstellung_text": "Face ID or your device passcode is required when the app starts. While Pulse keeps running in the background, it will not ask again.",
+  "settings_audio_bluetooth_hq_label": "Best audio quality over Bluetooth",
+  "settings_audio_bluetooth_hq_hint": "Requires iOS 26 and supported AirPods. Playback becomes 48 kHz stereo instead of phone quality. In exchange, echo cancellation comes from Pulse rather than Apple — with earbuds that is the better trade, with the speaker it is not (there nothing changes).",
   "voice_bar_undeafen": "Undeafen",
   "voice_uebernommen_toast": "Voice channel taken over by your other device — the connection continues there.",
   "voice_channel_full": "This voice channel is full.",

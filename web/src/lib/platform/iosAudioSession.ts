@@ -37,7 +37,7 @@ export interface Unterbrechung {
 }
 
 interface AudioSessionPlugin {
-  setVoiceActive(options: { aktiv: boolean }): Promise<void>;
+  setVoiceActive(options: { aktiv: boolean; hqFunk: boolean }): Promise<{ modus: string }>;
   setPlaybackMode(): Promise<void>;
   routen(): Promise<TonWege>;
   routeSetzen(options: { id: string }): Promise<void>;
@@ -65,12 +65,27 @@ function plugin(): AudioSessionPlugin | null {
   return (cap?.Plugins?.AudioSessionPlugin as AudioSessionPlugin | undefined) ?? null;
 }
 
-/** Voice-Modus (Mikro + Echo-Auslösen + Bluetooth) an/aus. */
-export async function iosVoiceAktiv(aktiv: boolean): Promise<void> {
-  if (!isCapacitorIOS()) return;
+/**
+ * Voice-Modus an/aus. Liefert den Modus, den die Hülle gewählt hat.
+ *
+ * **Der Rückgabewert trägt die halbe Entscheidung über die Tonqualität.**
+ * `voiceChat` heisst: Apple filtert schon (Echo, Rauschen, Pegel) — dann darf
+ * RNNoise NICHT zusätzlich laufen. `default` heisst: Apple filtert nicht
+ * (Hochqualitäts-Route über Bluetooth) — dann ist RNNoise der einzige Filter.
+ * Die Rechnung dazu steht geprüft in `voice/filterwahl.ts`.
+ *
+ * `unbekannt`, wenn die Hülle nicht antwortet (älterer Bau ohne das Feld):
+ * dann bleibt es beim Wunsch des Nutzers, also beim bisherigen Verhalten.
+ */
+export async function iosVoiceAktiv(
+  aktiv: boolean,
+  hqFunk = false
+): Promise<string> {
+  if (!isCapacitorIOS()) return 'unbekannt';
   const p = plugin();
-  if (!p) return;
-  await p.setVoiceActive({ aktiv }).catch(() => undefined);
+  if (!p) return 'unbekannt';
+  const antwort = await p.setVoiceActive({ aktiv, hqFunk }).catch(() => undefined);
+  return antwort?.modus ?? 'unbekannt';
 }
 
 /** Playback-Modus (Watch-/Stream-Ton ohne Mikro). */
