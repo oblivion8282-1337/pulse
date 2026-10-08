@@ -3024,6 +3024,8 @@
   "berechtigung_kamera_titel": "Camera for photos and video",
   "berechtigung_kamera_text": "For photos, videos and your camera in a voice channel, Pulse needs access to the camera. Your device will ask for permission next — it only asks once.",
   "kopplung_scannen_knopf": "Scan code",
+  "kamera_aufnahme_stoppen": "Stop recording",
+  "kamera_senden": "Send",
   "voice_bar_undeafen": "Undeafen",
   "voice_uebernommen_toast": "Voice channel taken over by your other device — the connection continues there.",
   "voice_channel_full": "This voice channel is full.",

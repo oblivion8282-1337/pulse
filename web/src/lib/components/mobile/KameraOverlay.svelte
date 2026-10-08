@@ -879,6 +879,7 @@
               class="bg-error flex size-20 items-center justify-center rounded-full border-4 border-white/90 shadow-[0_0_36px_rgba(37,99,235,0.7)] transition-transform active:scale-95"
               onclick={() => rekorder?.stop()}
               data-testid="camera-stop"
+              aria-label={m.kamera_aufnahme_stoppen()}
             >
               <SquareIcon class="size-8 text-white" />
             </button>
@@ -917,6 +918,7 @@
               onclick={() => void entwurfSenden()}
               disabled={sendeLaeuft || schneideLaeuft}
               data-testid="camera-send"
+              aria-label={m.kamera_senden()}
             >
               {#if sendeLaeuft || schneideLaeuft}
                 <LoaderCircleIcon class="size-7 animate-spin text-white" />

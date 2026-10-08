@@ -75,6 +75,7 @@
       variant="ghost"
       size="icon-sm"
       onclick={() => goto(`/app/guilds/${guildId}/channels/${channelId}`)}
+      aria-label={m.chat_view_back()}
     >
       <ArrowLeftIcon />
     </Button>

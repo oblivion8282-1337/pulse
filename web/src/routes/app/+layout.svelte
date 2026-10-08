@@ -32,6 +32,7 @@
   import { ungeleseneNachrichten } from '$lib/navigation/abzeichen.svelte';
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import { netzwacheStarten } from '$lib/ws/netzwache';
+  import { schriftGroesseVerfolgen } from '$lib/platform/schriftGroesse';
   import VerbindungsHinweis from '$lib/components/VerbindungsHinweis.svelte';
   import BerechtigungVorerklaerung from '$lib/components/BerechtigungVorerklaerung.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
@@ -279,6 +280,8 @@
     // die nächste Backoff-Stufe zu warten (bis 300 s). Begründung und die
     // drei Anlässe: `ws/netzwache.ts`.
     netzwacheStarten();
+    // Systemschriftgröße anwenden, falls die Hülle sie meldet (Punkt 38).
+    schriftGroesseVerfolgen();
 
     // Vom Betreiber gelöschte Self-Host-Server aus der lokalen Liste räumen
     // (öffentliche Suspend-Liste der Cloud, anonymer Abgleich). Fire-and-forget.

@@ -293,6 +293,12 @@ if [ "${web_grund#ja}" != "$web_grund" ]; then
   echo "  Geräte-Trennung (viewport/Breakpoints)…"
   bash "$(dirname "${BASH_SOURCE[0]}")/geraete-trennung.sh" \
     || { echo "✗ Geräte-Trennung ROT — abgebrochen." >&2; exit 1; }
+  # VoiceOver-Basis: jede tippbare Fläche braucht einen Namen. Hier und nicht
+  # als Playwright-Test, weil Playwright in KEINEM Gate hängt — eine Prüfung,
+  # die nie läuft, sieht in der Ausgabe genauso aus wie eine grüne.
+  echo "  VoiceOver-Basis (Namen tippbarer Flächen)…"
+  bash "$(dirname "${BASH_SOURCE[0]}")/voiceover-namen.sh" \
+    || { echo "✗ VoiceOver-Basis ROT — abgebrochen." >&2; exit 1; }
   # shellcheck disable=SC2086
   stempeln web $BEREICH_web
 fi

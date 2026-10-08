@@ -53,6 +53,41 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         webView.evaluateJavaScript(css, completionHandler: nil)
     }
 
+    /// Systemschriftgröße in die WebView melden (Punkt 38).
+    ///
+    /// **Warum über ein Attribut und nicht über ein Plugin.** Es ist ein
+    /// EINWEG-Signal: nativ weiss es, das Web will es wissen, und es gibt
+    /// nichts zu fragen. Ein Plugin bräuchte einen Aufruf vom Web aus und
+    /// zusätzlich einen Melder für den Wechsel; das Attribut ist beides in
+    /// einem — dasselbe Rezept wie bei den Safe-Area-Einzügen darüber.
+    ///
+    /// **Die ROHE Kategorie wird gemeldet, nicht ein Faktor.** Die Umrechnung
+    /// samt Obergrenze liegt im Web (`platform/schriftskala.ts`) und ist dort
+    /// geprüft; hier wäre sie von Nodes Testläufer nicht erreichbar.
+    private func schriftKategorieMelden() {
+        guard let webView = window?.rootViewController?.view as? WKWebView else { return }
+        let kategorie = UIApplication.shared.preferredContentSizeCategory.rawValue
+        let js = """
+        document.documentElement.setAttribute('data-schriftkategorie', '\(kategorie)');
+        """
+        if !schriftSkriptGesetzt {
+            schriftSkriptGesetzt = true
+            webView.configuration.userContentController.addUserScript(
+                WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    /// Wie beim Safe-Area-Skript: das Nutzerskript für künftige Ladevorgänge
+    /// wird nur EINMAL angehängt, der aktuelle Stand jedes Mal nachgereicht.
+    /// Der Startwert im Skript veraltet dabei nicht gefährlich — bei einem
+    /// Wechsel läuft diese Methode erneut und reicht den neuen nach.
+    private var schriftSkriptGesetzt = false
+
+    @objc private func schriftGroesseGewechselt() {
+        schriftKategorieMelden()
+    }
+
     /// Privacy-Screen: Beim Verlassen in den App-Umschalter/Sperrbildschirm
     /// wird eine matte Glasscheibe NATIV über den Inhalt gelegt, damit die
     /// Chat-Vorschau im Multitasking-Snapshot nicht lesbar ist. Synchron auf
@@ -122,6 +157,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         NotificationCenter.default.addObserver(
             self, selector: #selector(lageGewechselt),
             name: UIDevice.orientationDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(schriftGroesseGewechselt),
+            name: UIContentSizeCategory.didChangeNotification, object: nil)
         return true
     }
 
@@ -174,6 +212,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
         injectSafeAreaInsets()
+        schriftKategorieMelden()
         privacySchutz(false)
     }
 
