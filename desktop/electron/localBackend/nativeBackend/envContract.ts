@@ -42,12 +42,15 @@ export function renderNativeEnv(
     POSTGRES_PORT: String(p.postgres),
     DATABASE_URL: `postgresql+asyncpg://pulse:${secrets.postgresPassword}@127.0.0.1:${p.postgres}/dcc`,
 
-    // Redis/Garnet (local-only bind, no auth — single-machine threat model).
+    // Redis/Garnet: bindet nur 127.0.0.1, verlangt aber trotzdem ein Passwort —
+    // ohne es könnte jeder lokale Prozess (auch ein fremdes Benutzerkonto auf
+    // demselben Rechner) Sitzungs- und Stream-Token aus dem Cache lesen.
+    // Hex-Passwort → keine URL-Kodierung nötig.
     // protocol=2 ZWINGEND: redis-py 8.x verhandelt sonst RESP3, und Garnet
     // 2.2.0 desynced bei MGET unter RESP3 (Timeout → Ready-Frame des
     // Chat-Gateways stirbt → Rail/Channels leer). Echter Redis im Container
     // hätte beides verkraftet — nativ ist RESP2 der gemeinsame Nenner.
-    REDIS_URL: `redis://127.0.0.1:${p.garnet}/0?protocol=2`,
+    REDIS_URL: `redis://:${secrets.garnetPassword}@127.0.0.1:${p.garnet}/0?protocol=2`,
 
     // JWT (RS256 chat-gateway issuer)
     JWT_PRIVATE_KEY_FILE: join(keys, 'jwt_private.pem'),
@@ -120,6 +123,11 @@ export function renderNativeEnv(
     // MediaMTX — API intern, Ingest über Loopback (App-Host: RTMPS ist nicht
     // durch NAT zu lochen, Owner pusht lokal — wie im Container mit hostNet).
     MEDIAMTX_API_URL: `http://127.0.0.1:9997/v3/paths/list`,
+    // API-Zugang wie im Container (07-render-env.sh): media-svc schickt ihn als
+    // Basic-Auth, der auth-hook prüft ihn (api_zugang.py) — renderMediamtxYml
+    // reicht `action: api` deshalb an den Hook durch statt vorbei.
+    MEDIAMTX_API_USER: 'pulse-media-svc',
+    MEDIAMTX_API_PASSWORD: secrets.mediamtxApiPassword,
     MEDIAMTX_INGEST_HOST: '127.0.0.1',
     MEDIAMTX_PUBLIC_BASE: `https://${hostname}/whep`,
     MEDIAMTX_PUSH_PROTOCOL: 'whip',

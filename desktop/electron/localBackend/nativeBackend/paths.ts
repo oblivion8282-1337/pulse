@@ -10,6 +10,11 @@
  *
  * Dev: PULSE_NATIVE_ROOT zeigt auf ein vorbereitetes Verzeichnis
  * (desktop/scripts/fetch-win-native.ps1 baut desktop/resources-native/).
+ *
+ * Gepackt gelten weder PULSE_NATIVE_ROOT noch der PATH-Rückfall: beide
+ * würden sonst Binaries von außerhalb der Installation starten (eine
+ * Umgebungsvariable oder ein `postgres.exe` irgendwo im PATH genügte), und
+ * der Server liefe mit fremden Programmen unter Pulses Namen.
  */
 
 import { existsSync } from 'node:fs';
@@ -19,11 +24,25 @@ import * as electron from 'electron';
 
 import type { NativeDataDirs } from './types.ts';
 
-type ElectronWithResources = { resourcesPath?: string };
+type ElectronWithResources = { resourcesPath?: string; app?: { isPackaged?: boolean } };
+
+/** Gepackter Build? Unter bare Node (Unit-Tests) liefert der electron-Import
+ *  keinen app-Export → false. Namespace-Zugriff aus demselben Grund wie in
+ *  nativeRoot (kein .default im esbuild-Interop). */
+export function istGepackt(): boolean {
+  try {
+    return (electron as unknown as ElectronWithResources).app?.isPackaged === true;
+  } catch {
+    return false;
+  }
+}
 
 /** Root des nativen Ressourcen-Baums (native-bin/python/services/templates). */
-export function nativeRoot(env: Record<string, string | undefined> = process.env): string {
-  if (env.PULSE_NATIVE_ROOT) return env.PULSE_NATIVE_ROOT;
+export function nativeRoot(
+  env: Record<string, string | undefined> = process.env,
+  gepackt: boolean = istGepackt(),
+): string {
+  if (env.PULSE_NATIVE_ROOT && !gepackt) return env.PULSE_NATIVE_ROOT;
   // KEIN Default-Import: electron exportiert __esModule:true (seit 28), der
   // esbuild-Interop baut dann KEIN .default — `import electron from` +
   // `.resourcesPath` war im gepackten Build undefined → TypeError →
@@ -39,6 +58,9 @@ export function nativeRoot(env: Record<string, string | undefined> = process.env
   if (resourcesPath && existsSync(join(resourcesPath, 'native'))) {
     return join(resourcesPath, 'native');
   }
+  // Gepackt NIE relativ zum Arbeitsverzeichnis (das kann irgendwo liegen) —
+  // fehlt der Baum, scheitert die Binary-Suche danach mit klarer Meldung.
+  if (gepackt) return join(resourcesPath ?? '', 'native');
   // Ungepackte Dev-Läufe: fetch-win-native.ps1 legt das hier an.
   return join(process.cwd(), 'resources-native');
 }
@@ -61,11 +83,18 @@ export function datenDirs(dataRoot: string): NativeDataDirs {
   };
 }
 
-/** Native Binary suchen: native-bin/ → PATH. name OHNE .exe angeben. */
-export function resolveNativeBin(name: string, env: Record<string, string | undefined> = process.env): string {
+/** Native Binary suchen: native-bin/ → (nur ungepackt) PATH. name OHNE .exe angeben. */
+export function resolveNativeBin(
+  name: string,
+  env: Record<string, string | undefined> = process.env,
+  gepackt: boolean = istGepackt(),
+): string {
   const exe = name.endsWith('.exe') ? name : `${name}.exe`;
-  const candidate = join(nativeRoot(env), 'native-bin', exe);
+  const candidate = join(nativeRoot(env, gepackt), 'native-bin', exe);
   if (existsSync(candidate)) return candidate;
+  if (gepackt) {
+    throw new Error(`[native] Binary fehlt in der Installation: ${candidate}`);
+  }
   try {
     const result = execFileSync('where', [exe], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env });
     const resolved = result.trim().split('\n')[0].trim();
@@ -73,7 +102,7 @@ export function resolveNativeBin(name: string, env: Record<string, string | unde
   } catch {
     // nicht auf PATH
   }
-  throw new Error(`[native] Binary nicht gefunden: ${exe} (unter ${join(nativeRoot(env), 'native-bin')} oder PATH)`);
+  throw new Error(`[native] Binary nicht gefunden: ${exe} (unter ${join(nativeRoot(env, gepackt), 'native-bin')} oder PATH)`);
 }
 
 /** pg_ctl/initdb/psql/pg_isready aus dem gebündelten Postgres. */
@@ -81,7 +110,8 @@ export function pgBin(name: string, env: Record<string, string | undefined> = pr
   const exe = `${name}.exe`;
   const candidate = join(nativeRoot(env), 'native-bin', 'pg', 'bin', exe);
   if (existsSync(candidate)) return candidate;
-  // System-Postgres als Fallback (wenn auf PATH)
+  // System-Postgres als Fallback (wenn auf PATH) — gepackt wirft
+  // resolveNativeBin stattdessen, siehe Dateikopf.
   return resolveNativeBin(name, env);
 }
 

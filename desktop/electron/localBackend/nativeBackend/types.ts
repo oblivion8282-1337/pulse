@@ -57,6 +57,11 @@ export const NATIVE_MEDIA_PORTS = {
 
 export interface NativeSecrets {
   postgresPassword: string;
+  /** Passwort für Garnet (Redis-Ersatz) — steht in run/garnet.conf und in
+   *  REDIS_URL, nie in argv. */
+  garnetPassword: string;
+  /** Zugang zu MediaMTX' Steuer-API (:9997), geprüft vom auth-hook. */
+  mediamtxApiPassword: string;
   internalServiceToken: string;
   certChallengeSecret: string;
   minioUser: string;

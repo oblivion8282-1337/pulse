@@ -59,6 +59,7 @@ export interface NativeComponentsInput {
   mediamtxYmlPath: string;
   caddyfilePath: string;
   weedS3JsonPath: string;
+  garnetConfPath: string;
   /** frpc.toml — null ohne Relay-Creds (VPS/o.ä.): Prozess bleibt dann aus. */
   frpcTomlPath: string | null;
 }
@@ -86,6 +87,9 @@ export function nativeComponents(
     name: 'garnet',
     command: resolveNativeBin('garnet/GarnetServer'),
     args: ['--bind', '127.0.0.1', '--port', String(p.garnet), '--logger-level', 'Warning',
+      // Passwort-Anmeldung aus der Datei (renderGarnetConf) — nicht --password,
+      // sonst stünde es in der Prozessliste.
+      '--config-import-path', input.garnetConfPath,
       // Container-Redis hat Lua immer an — die Services nutzen EVAL breit
       // (auth-hook Consume-once, watch-keys, media-svc, voice-webhook).
       // transaction-mode schließt die Keys während der Ausführung ≙

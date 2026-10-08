@@ -28,7 +28,8 @@ test('renderNativeEnv: Container-Port-Vertrag + Pflicht-Variablen', () => {
   const env = renderNativeEnv(dirs, SECRETS, IDENTITY);
   // Ports spiegeln den allinone-Internraum (Caddyfile-Template hardcodet sie)
   assert.equal(env.DATABASE_URL, `postgresql+asyncpg://pulse:${SECRETS.postgresPassword}@127.0.0.1:${NATIVE_PORTS.postgres}/dcc`);
-  assert.equal(env.REDIS_URL, `redis://127.0.0.1:${NATIVE_PORTS.garnet}/0?protocol=2`);
+  assert.equal(env.REDIS_URL, `redis://:${SECRETS.garnetPassword}@127.0.0.1:${NATIVE_PORTS.garnet}/0?protocol=2`);
+  assert.match(SECRETS.garnetPassword, /^[0-9a-f]{64}$/);
   assert.equal(env.CHAT_GATEWAY_URL, `http://127.0.0.1:${NATIVE_PORTS.chat}`);
   assert.equal(env.LIVEKIT_API_URL, `http://127.0.0.1:${NATIVE_PORTS.livekitApi}`);
   // App-Host-Semantik wie im Container (renderContainerEnv)
@@ -38,6 +39,9 @@ test('renderNativeEnv: Container-Port-Vertrag + Pflicht-Variablen', () => {
   assert.equal(env.MEDIAMTX_INGEST_HOST, '127.0.0.1');
   assert.equal(env.PULSE_RELAY_TUNNEL_TOKEN, '');
   assert.equal(env.S3_ACCESS_KEY, SECRETS.minioUser);
+  assert.equal(env.MEDIAMTX_API_USER, 'pulse-media-svc');
+  assert.equal(env.MEDIAMTX_API_PASSWORD, SECRETS.mediamtxApiPassword);
+  assert.ok(SECRETS.mediamtxApiPassword.length >= 40);
   assert.match(SECRETS.minioUser, /^GK[0-9a-f]{24}$/);
 });
 
@@ -59,6 +63,9 @@ test('renderLivekitYaml: STUN-Weg + UDP-Bereich wie die Medien-Ports', () => {
   assert.match(yaml, new RegExp(`${SECRETS.livekitApiKey}: "${SECRETS.livekitApiSecret}"`));
   assert.match(yaml, /http:\/\/127\.0\.0\.1:8003\/webhook/);
   assert.match(yaml, /- "::\/0"/); // IPv6-Kandidaten unterdrückt
+  // Signal-API nur Loopback; RTC-Ports sind davon unberührt (siehe configs.ts)
+  assert.match(yaml, /bind_addresses:\n  - 127\.0\.0\.1\n/);
+  assert.doesNotMatch(yaml, /0\.0\.0\.0/);
 });
 
 test('renderMediamtxYml: echte Interfaces (kein VM-Sonderweg) + Auth-Hook', () => {
@@ -67,6 +74,9 @@ test('renderMediamtxYml: echte Interfaces (kein VM-Sonderweg) + Auth-Hook', () =
   assert.match(yml, /authHTTPAddress: http:\/\/127\.0\.0\.1:8005/);
   assert.match(yml, /rtmpsAddress: :1936/);
   assert.match(yml, /hls: no/);
+  // Steuer-API läuft durch den Hook (Passwort), nur metrics/pprof vorbei
+  assert.doesNotMatch(yml, /action: api/);
+  assert.match(yml, /- action: metrics/);
   assert.match(yml, /moq: no/);
   assert.match(yml, /mediamtx\.crt/);
   // App-Host-Parität (08-init-mediamtx.sh): IPv4-only-Bind gegen die IPv6-
@@ -89,7 +99,9 @@ test('renderCaddyfile: behind-proxy-Patch + Desktop-Listener, Zweit-Site entfern
   const repoTemplate = join(import.meta.dirname ?? '.', '..', '..', '..', 'infra', 'self-host', 's6', 'etc', 'caddy');
   assert.ok(existsSync(join(repoTemplate, 'Caddyfile.template')), 'Caddyfile.template fehlt im Repo');
   const out = renderCaddyfile(8080, 55580, repoTemplate);
-  assert.match(out, /http:\/\/:8080, http:\/\/127\.0\.0\.1:55580 \{/);
+  // Beide Listener nur auf Loopback (Klartext-API nicht ins Heimnetz)
+  assert.match(out, /http:\/\/127\.0\.0\.1:8080, http:\/\/127\.0\.0\.1:55580 \{/);
+  assert.doesNotMatch(out, /^http:\/\/:/m); // keine Site auf allen Interfaces
   assert.match(out, /reverse_proxy 127\.0\.0\.1:8002/); // Route-Parität
   // kein doppelter http://:8080-Site-Block mehr
   assert.equal((out.match(/^http:\/\/:8080 \{/gm) ?? []).length, 0);
@@ -122,6 +134,7 @@ test('nativeComponents: 14 Specs in Abhängigkeitsreihenfolge', () => {
     mediamtxYmlPath: join(dirs.run, 'mediamtx.yml'),
     caddyfilePath: join(dirs.run, 'Caddyfile'),
     weedS3JsonPath: join(dirs.run, 'weed-s3.json'),
+    garnetConfPath: join(dirs.run, 'garnet.conf'),
     frpcTomlPath: null,
   });
   const names = specs.map((s) => s.name);
@@ -135,6 +148,10 @@ test('nativeComponents: 14 Specs in Abhängigkeitsreihenfolge', () => {
   // chat-gateway zuletzt, Postgres zuerst (Migrationen)
   assert.equal(names[0], 'postgres');
   assert.equal(names[names.length - 1], 'chat-gateway');
+  // Garnet: Passwort über die Config-Datei, nie in argv
+  const garnet = specs.find((s) => s.name === 'garnet')!;
+  assert.ok(garnet.args.includes('--config-import-path'));
+  assert.ok(!garnet.args.includes(SECRETS.garnetPassword));
   // Ohne frpc.toml (VPS/keine Relay-Creds) startet KEIN frpc.
   assert.ok(!names.includes('frpc'));
 });
@@ -151,6 +168,7 @@ test('nativeComponents: frpc nur mit Relay-Config (Steuerungs-Tunnel)', () => {
     mediamtxYmlPath: join(dirs.run, 'mediamtx.yml'),
     caddyfilePath: join(dirs.run, 'Caddyfile'),
     weedS3JsonPath: join(dirs.run, 'weed-s3.json'),
+    garnetConfPath: join(dirs.run, 'garnet.conf'),
     frpcTomlPath: join(dirs.run, 'frpc.toml'),
   });
   const frpc = specs.find((s) => s.name === 'frpc');

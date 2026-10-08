@@ -10,11 +10,10 @@
  *   Health-Poll auf den Desktop-Port. stop() fährt in umgekehrter Reihenfolge
  *   ab, Postgres via pg_ctl fast stop.
  *
- * Secrets (client_secret, DB-Passwort) landen NUR in 0600-Dateien unter dem
- * Datenverzeichnis — nie in argv, nie in Logs.
+ * Secrets landen NUR in Dateien unter dem Datenverzeichnis — nie in argv/Logs.
  */
 
-import { mkdirSync, writeFileSync, existsSync, rmSync, readdirSync, statSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -40,6 +39,7 @@ import {
   renderWeedS3Config,
   renderCaddyfile,
   renderFrpcToml,
+  renderGarnetConf,
 } from './configs.ts';
 import { nativeComponents } from './components.ts';
 import { SupervisedProcess } from './processes.ts';
@@ -49,8 +49,12 @@ import {
   ensureDatabases,
   runMigrations,
   pgCtlStop,
+  postgresStartFehler,
 } from './postgres.ts';
 import { NATIVE_PORTS } from './types.ts';
+import { raeumeAlteLaeufe, loeschePidDateien, schreibePidDatei } from './laufreste.ts';
+import { belegtePorts, portBelegtFehler } from './portPruefung.ts';
+import { exportiereDaten, importiereDaten, type TransferErgebnis } from './datenTransfer.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -101,12 +105,14 @@ async function ensureRtmpsCert(
   if (existsSync(join(certDir, 'mediamtx.crt')) && existsSync(join(certDir, 'mediamtx.key'))) return;
   mkdirSync(certDir, { recursive: true });
   const helper = join(nativeRoot(), 'gen_selfsigned_cert.py');
-  await execFileAsync(venvPy, [helper, join(certDir, 'mediamtx.crt'), join(certDir, 'mediamtx.key'), hostname])
+  await execFileAsync(venvPy, [helper, join(certDir, 'mediamtx.crt'), join(certDir, 'mediamtx.key'), hostname], { timeout: 60_000 })
     .catch((e) => { throw new Error(`[native] RTMPS-Cert fehlgeschlagen: ${e.message}`); });
 }
 
 export class NativeBackendManager {
   private processes: SupervisedProcess[] = [];
+  /** run/ des laufenden Baums — stop() räumt dort die PID-Dateien weg. */
+  private runDir: string | null = null;
 
   /** Oberflächen-Parität mit ContainerBackendManager — main.ts ruft setzeCreds
    *  auf beiden Managern auf. Nativ ohne Wirkung: es gibt keinen Abschieds-Call
@@ -163,17 +169,25 @@ export class NativeBackendManager {
       throw new Error('native binaries fehlen (resources-native) — fetch-win-native.ps1 ausführen');
     }
 
-    // 0. Sauberer Zustand: Reste eines abgestürzten Vorlaufs killen (pidfiles).
-    await this.recojeAlteLauefe(userData);
-
     const dirs = datenDirs(datenRoot(userData));
+    // 0. Reste eines abgestürzten Vorlaufs beenden (nur nachweislich eigene,
+    //    laufreste.ts), dann alle festen Ports prüfen — mit zweiter Chance,
+    //    falls ein gerade beendeter Rest seinen Port noch hält.
+    const beendet = await raeumeAlteLaeufe(dirs.run);
+    let belegt = await belegtePorts((port) => tcpProbe(port));
+    if (belegt.length && beendet > 0) {
+      await new Promise((r) => setTimeout(r, 2000));
+      belegt = await belegtePorts((port) => tcpProbe(port));
+    }
+    if (belegt.length) throw portBelegtFehler(belegt);
+
     for (const d of [dirs.root, dirs.redis, dirs.weedMaster, dirs.weedVolume, dirs.weedFiler, dirs.uploadsAvatars, dirs.uploadsGuildIcons, dirs.secrets, dirs.backups, dirs.run]) {
       mkdirSync(d, { recursive: true });
     }
 
     progress('init');
     const secrets = ensureNativeSecrets(dirs.secrets);
-    // Öffentlicher Name wie im Container (containerBackendManager:238): mit
+    // Öffentlicher Name wie im Container (containerEnv.ts, renderContainerEnv): mit
     // Relay-Tunnel ist die Subdomain der öffentlich erreichbare Host (der
     // Tunnel routet nur sie) — creds.hostname (app-<id>.relay…) wäre stumm.
     // LIVEKIT_URL/WHEP/JWT-Issuer/CORS hängen alle an diesem Namen.
@@ -193,11 +207,13 @@ export class NativeBackendManager {
     const mediamtxYmlPath = join(dirs.run, 'mediamtx.yml');
     const caddyfilePath = join(dirs.run, 'Caddyfile');
     const weedS3JsonPath = join(dirs.run, 'weed-s3.json');
+    const garnetConfPath = join(dirs.run, 'garnet.conf');
     writeFileSync(livekitYamlPath, renderLivekitYaml(secrets, NATIVE_PORTS.voice), { encoding: 'utf-8' });
     writeFileSync(mediamtxYmlPath, renderMediamtxYml(publicHostname, dirs.certs, NATIVE_PORTS.mtxHook), { encoding: 'utf-8' });
     writeFileSync(caddyfilePath, renderCaddyfile(NATIVE_PORTS.caddyHttp, NATIVE_PORTS.caddyDesktop, templatesDir()), { encoding: 'utf-8' });
     const signingKey = randomBytes(32).toString('base64');
     writeFileSync(weedS3JsonPath, renderWeedS3Config(secrets.minioUser, secrets.minioPassword, signingKey), { encoding: 'utf-8' });
+    writeFileSync(garnetConfPath, renderGarnetConf(secrets.garnetPassword), { encoding: 'utf-8', mode: 0o600 });
     await ensureRtmpsCert(dirs.certs, publicHostname, venvPython());
     // Steuerungs-Relay (App-Hosting): nur mit vollständigen Relay-Creds —
     // sonst bleibt frpc aus (wie der schlafende frpc-longrun im Image).
@@ -215,7 +231,7 @@ export class NativeBackendManager {
     // 2. Prozessbaum — initdb VOR dem Start, Migrationen danach (06-run-
     //    migrations-Äquivalent): Postgres zuerst, dann Schema, dann Rest.
     progress('run');
-    ensureInitDb(dirs, secrets);
+    await ensureInitDb(dirs, secrets);
 
     const specs = nativeComponents({ dirs, secrets, env, identity: {
       hostname: publicHostname,
@@ -225,31 +241,23 @@ export class NativeBackendManager {
       clientSecret: creds.clientSecret,
       cloudOrigin: creds.cloudOrigin,
       adminEmail,
-    }, livekitYamlPath, mediamtxYmlPath, caddyfilePath, weedS3JsonPath, frpcTomlPath });
+    }, livekitYamlPath, mediamtxYmlPath, caddyfilePath, weedS3JsonPath, garnetConfPath, frpcTomlPath });
 
     const [pgSpec, ...restSpecs] = specs;
-    // Port-Kollisions-Gate: antwortet auf 5432 schon ein FREMDES Postgres,
-    // würde dessen tcpProbe unser Health-Gate erfüllen und die Diagnose
-    // kryptisch werden ("password authentication failed") — besser hier klappen.
-    if (await tcpProbe(NATIVE_PORTS.postgres)) {
-      throw new Error(
-        `Port ${NATIVE_PORTS.postgres} ist bereits belegt (anderes Postgres?) — ` +
-        'der Pulse-Server braucht den Port exklusiv.',
-      );
-    }
+    this.runDir = dirs.run;
     const pg = new SupervisedProcess({
       ...pgSpec,
-      gracefulStop: async () => { pgCtlStop(dirs); },
+      gracefulStop: () => pgCtlStop(dirs),
     });
     this.processes = [pg];
-    await pg.start();
-    writePidFile(dirs.run, 'postgres', pg.pid);
+    mitPidDatei(pg, dirs.run, pgSpec.name, pgSpec.command);
+    await pg.start().catch((e: Error) => { throw postgresStartFehler(e, pg.stderrEnde()); });
 
     // 3. Schema + Migrationen.
     progress('migrate');
-    waitForPostgres();
-    ensureDatabases(secrets);
-    runMigrations(venvPython(), {
+    await waitForPostgres();
+    await ensureDatabases(secrets);
+    await runMigrations(venvPython(), {
       auth: serviceDir('auth'),
       chat: serviceDir('chat-gateway'),
     }, secrets);
@@ -258,8 +266,8 @@ export class NativeBackendManager {
     for (const spec of restSpecs) {
       const proc = new SupervisedProcess(spec);
       this.processes.push(proc);
+      mitPidDatei(proc, dirs.run, spec.name, spec.command);
       await proc.start();
-      writePidFile(dirs.run, spec.name, proc.pid);
     }
 
     // 5. Health-Poll (Erststart braucht Startup der Services) — gleiche Route
@@ -279,6 +287,10 @@ export class NativeBackendManager {
       await proc.stop().catch(() => {});
     }
     this.processes = [];
+    // Gestoppt heißt: keine PID-Datei mehr. Bliebe sie stehen, zielte der
+    // nächste Start (womöglich nach einem Neustart mit recycelten PIDs) auf
+    // fremde Prozesse.
+    if (this.runDir) loeschePidDateien(this.runDir);
   }
 
   /** give-up "Server aufgeben": Prozesse stoppen, Daten LÖSCHEN. */
@@ -310,47 +322,31 @@ export class NativeBackendManager {
     return { sizeBytes: dirSizeBytes(dirs.root), lastAutoBackupAt };
   }
 
-  /** Export: Datenverzeichnis als tar (Windows-eigenes bsdtar). */
-  async exportData(tarPath: string): Promise<{ ok: boolean; error?: string }> {
+  /** Export: Datenverzeichnis als tar (datenTransfer.ts — ohne run/). */
+  async exportData(tarPath: string): Promise<TransferErgebnis> {
     const userData = userDataPfad();
     if (!userData) return { ok: false, error: 'userData unbekannt' };
-    const root = datenRoot(userData);
-    if (!existsSync(root)) return { ok: false, error: 'keine Daten vorhanden' };
-    await execFileAsync('tar', ['-cf', tarPath, '-C', root, '.']);
-    return { ok: true };
+    return exportiereDaten(datenRoot(userData), tarPath);
   }
 
-  /** Import: tar entpacken, Datenverzeichnis vorher leeren. */
-  async importData(tarPath: string): Promise<{ ok: boolean; error?: string }> {
+  /** Import: entpacken neben dem Bestand, prüfen, säubern, tauschen
+   *  (datenTransfer.ts). Der Bestand bleibt bei jedem Fehler erhalten. */
+  async importData(tarPath: string): Promise<TransferErgebnis> {
     const userData = userDataPfad();
     if (!userData) return { ok: false, error: 'userData unbekannt' };
-    const root = datenRoot(userData);
-    await rm(root, { recursive: true, force: true });
-    mkdirSync(root, { recursive: true });
-    await execFileAsync('tar', ['-xf', tarPath, '-C', root]);
-    return { ok: true };
-  }
-
-  /**
-   * Reste eines abgestürzten Vorlaufs: pidfiles lesen, PIDs killen. Nötig,
-   * weil Windows Kindprozesse NICHT mit dem Elternteil stirbt — nach einem
-   * Electron-Crash würden sonst Ports blockiert bleiben.
-   */
-  private async recojeAlteLauefe(userData: string): Promise<void> {
-    const runDir = datenDirs(datenRoot(userData)).run;
-    if (!existsSync(runDir)) return;
-    for (const f of readdirSync(runDir)) {
-      if (!f.endsWith('.pid')) continue;
-      const raw = readFileSync(join(runDir, f), 'utf8').trim();
-      const pid = Number(raw);
-      if (Number.isInteger(pid) && pid > 0) {
-        await execFileAsync('taskkill', ['/pid', String(pid), '/T', '/F']).catch(() => {});
-      }
-      rmSync(join(runDir, f), { force: true });
-    }
+    return importiereDaten(datenRoot(userData), tarPath);
   }
 }
 
-function writePidFile(runDir: string, name: string, pid: number | null): void {
-  if (pid) writeFileSync(join(runDir, `${name}.pid`), String(pid), { encoding: 'utf8' });
+/** PID-Datei bei JEDEM Spawn (auch Supervisor-Neustarts) neu schreiben —
+ *  mit Image-Pfad und Startzeit, damit ein späteres Aufräumen prüfen kann,
+ *  ob die PID noch zu uns gehört (laufreste.ts). */
+function mitPidDatei(proc: SupervisedProcess, runDir: string, name: string, image: string): void {
+  proc.onSpawn((pid) => {
+    try {
+      schreibePidDatei(runDir, name, { pid, image, gestartet: Date.now() });
+    } catch (e) {
+      console.error(`[native] PID-Datei für ${name} nicht schreibbar:`, e);
+    }
+  });
 }
