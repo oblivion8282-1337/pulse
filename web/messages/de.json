@@ -3023,6 +3023,7 @@
   "berechtigung_mikrofon_text": "Damit dich die anderen hören, braucht Pulse Zugriff auf dein Mikrofon. Im nächsten Schritt fragt dein Gerät nach der Erlaubnis — es fragt nur dieses eine Mal.",
   "berechtigung_kamera_titel": "Kamera für Bild und Video",
   "berechtigung_kamera_text": "Für Fotos, Videos und dein Kamerabild im Sprachkanal braucht Pulse Zugriff auf die Kamera. Im nächsten Schritt fragt dein Gerät nach der Erlaubnis — es fragt nur dieses eine Mal.",
+  "kopplung_scannen_knopf": "Code scannen",
   "voice_bar_undeafen": "Ton aktivieren",
   "voice_uebernommen_toast": "Sprachkanal wurde von deinem anderen Gerät übernommen — dort läuft die Verbindung jetzt weiter.",
   "voice_channel_full": "Dieser Sprachkanal ist voll.",

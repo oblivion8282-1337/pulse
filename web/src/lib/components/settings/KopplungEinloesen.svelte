@@ -29,6 +29,8 @@
     verlaufUebernehmen
   } from '$lib/kopplung/empfangen';
   import { standSicherAbfragen } from '$lib/kopplung/standAbfragen';
+  import { codeNormalisieren } from '$lib/kopplung/code';
+  import { qrScanMoeglich, qrScannen } from '$lib/platform/qrScan';
   import { kannVerwerfen, verwerfenGesperrt } from '$lib/kopplung/ansichtZustand';
   import type { EinloesFehler } from '$lib/kopplung/einloesFehler';
 
@@ -70,6 +72,37 @@
         return m.kopplung_fehler_kopplung_selbes_geraet();
       default:
         return m.kopplung_fehler_unbekannt();
+    }
+  }
+
+  let scanLaeuft = $state(false);
+
+  /**
+   * Code einlesen statt eintippen.
+   *
+   * **Der gescannte Inhalt wird normalisiert und GEPRÜFT, nicht blind
+   * eingelöst.** Eine Kamera liest jeden QR-Code, den man ihr hinhält — auch
+   * eine Paketverfolgung oder eine WLAN-Karte. Ohne die Prüfung ginge so ein
+   * Treffer als Einlöseversuch an den Server, verbrauchte eine Rate-Chance
+   * und sähe für den Nutzer wie „Code abgelaufen" aus. `codeNormalisieren`
+   * fängt genau das ab (Begründung dort).
+   *
+   * Trifft es, wird SOFORT eingelöst — wer gescannt hat, hat seine Eingabe
+   * schon gemacht; ein zweiter Tipp auf „Einlösen" wäre eine Quittung für
+   * etwas, das er gerade getan hat. Trifft es nicht, landet der Rohtext im
+   * Feld: dann sieht der Nutzer, WAS gelesen wurde, statt eines stummen
+   * Fehlschlags.
+   */
+  async function scannen() {
+    scanLaeuft = true;
+    try {
+      const roh = await qrScannen();
+      if (roh === null) return; // Abbruch, keine Kamera, keine Erlaubnis
+      const sauber = codeNormalisieren(roh);
+      eingabe = sauber ?? roh;
+      if (sauber !== null) await einloesen();
+    } finally {
+      scanLaeuft = false;
     }
   }
 
@@ -154,6 +187,19 @@
       class="font-mono tracking-widest"
       data-testid="kopplung-eingabe"
     />
+    {#if qrScanMoeglich()}
+      <!-- Scannen steht NEBEN dem Eintippen, nicht davor: Kamera verweigert,
+           kein Licht, Code auf Papier — in all diesen Fällen muss getippt
+           werden können, und ein Scanner als Pflichtweg wäre eine Sackgasse. -->
+      <Button
+        variant="secondary"
+        onclick={scannen}
+        disabled={laeuft || scanLaeuft}
+        data-testid="kopplung-scannen"
+      >
+        {m.kopplung_scannen_knopf()}
+      </Button>
+    {/if}
     <Button onclick={einloesen} disabled={laeuft} data-testid="kopplung-einloesen">
       {m.kopplung_eingeben_knopf()}
     </Button>
