@@ -45,3 +45,30 @@ test('tcpRelay: belegter Port → fail-soft (übersprungen, kein throw)', async 
   relay.close();
   blocker.close();
 });
+
+test('tcpRelay: close() reißt auch laufende Verbindungen ab', async () => {
+  const vm = await tcpEcho();
+  const listen = await freePort();
+  const relay = await startTcpRelayMapped([{ listen, target: vm.port }], '127.0.0.1', () => {});
+  const c = connect(listen, '127.0.0.1');
+  await new Promise<void>((r) => c.on('connect', () => r()));
+  c.write('x');
+  await new Promise<void>((r) => c.once('data', () => r()));
+  const zu = new Promise<boolean>((r) => {
+    const t = setTimeout(() => r(false), 2000);
+    c.on('close', () => { clearTimeout(t); r(true); });
+  });
+  c.on('error', () => {});
+  relay.close();
+  assert.equal(await zu, true);
+  vm.close();
+});
+
+test('tcpRelay: Bind-Adresse je Port ({ port, bind })', async () => {
+  const vm = await tcpEcho();
+  const listen = await freePort();
+  const relay = await startTcpRelayMapped([{ listen, target: vm.port, bind: '127.0.0.1' }], '127.0.0.1', () => {});
+  assert.deepEqual(relay.boundPorts, [listen]);
+  relay.close();
+  vm.close();
+});

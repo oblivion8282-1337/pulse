@@ -44,18 +44,27 @@ export function baueTestSdp(richtung: 'sendrecv' | 'recvonly', sitzung: number):
   );
 }
 
-/** Signalweg zu LiveKit: ein normaler HTTPS-GET auf /livekit. Es zählt JEDE
- *  HTTP-Antwort (auch 401 ohne Token) — sie beweist, dass Relay, Tunnel und
- *  LiveKit erreichbar sind. Timeout/Verbindungsfehler = tot. */
+/** Signalweg zu LiveKit: HTTPS-GET auf `/livekit/` — Caddy reicht das als
+ *  `GET /` an LiveKit durch, und LiveKit antwortet dort mit 200 „OK".
+ *
+ *  Scan 2026-10-08: Die frühere Fassung fragte das nackte `/livekit` ab und
+ *  zählte JEDE Antwort. Das matcht `handle_path /livekit/*` nicht und fiel in
+ *  den Catch-all (`respond … 200`) — grün auch bei totem LiveKit; ein
+ *  abgerissener Tunnel lieferte 404/502 vom Relay und war ebenso „grün". */
 export async function lebtLivekitSignalweg(relayHost: string): Promise<boolean> {
   try {
-    const r = await fetch(`https://${relayHost}/livekit`, {
+    const r = await fetch(`https://${relayHost}/livekit/`, {
       signal: AbortSignal.timeout(8_000),
     });
-    return r.status > 0;
+    return istLivekitAntwort(r.status, await r.text());
   } catch {
     return false;
   }
+}
+
+/** Nur LiveKits eigene Antwort zählt: 200 mit dem Körper „OK". */
+export function istLivekitAntwort(status: number, koerper: string): boolean {
+  return status === 200 && koerper.trim() === 'OK';
 }
 
 export interface MedienRundtripOptionen {

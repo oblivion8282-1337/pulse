@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDuKb, backupDateiZuMs } from '../../electron/localBackend/dataTools.ts';
+import { parseDuKb, backupDateiZuMs, IMPORT_SKRIPT } from '../../electron/localBackend/dataTools.ts';
 import { updateVerdict } from '../../electron/localBackend/containerBackendManager.ts';
 
 // Update-Entscheidung (Digest-Vergleich laufender Container vs. gepulltes Image)
@@ -48,4 +48,65 @@ test('backupDateiZuMs: fremde Dateien im Verzeichnis → null', () => {
   assert.equal(backupDateiZuMs('.bashrc'), null);
   assert.equal(backupDateiZuMs('backup-old.dump'), null);
   assert.equal(backupDateiZuMs(''), null);
+});
+
+// Import-Ablauf (Scan 2026-10-08): wirklich in einer Shell gefahren, mit einem
+// Temp-Verzeichnis statt /data. Nur dort, wo sh + tar da sind.
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+function importFahren(daten: string, archiv: string): number {
+  const skript = IMPORT_SKRIPT.replaceAll('/data', daten);
+  try {
+    execFileSync('sh', ['-c', skript], { input: readFileSync(archiv), stdio: ['pipe', 'ignore', 'ignore'] });
+    return 0;
+  } catch (e) {
+    return (e as { status: number }).status;
+  }
+}
+
+function bestand(): string {
+  const d = mkdtempSync(join(tmpdir(), 'pulse-import-'));
+  mkdirSync(join(d, 'pg'));
+  writeFileSync(join(d, 'pg', 'PG_VERSION'), 'alt');
+  writeFileSync(join(d, '.versteckt'), 'alt');
+  return d;
+}
+
+const ohneShell = process.platform === 'win32';
+
+test('Import: kaputtes Archiv lässt den Bestand unberührt', { skip: ohneShell }, () => {
+  const daten = bestand();
+  const kaputt = join(mkdtempSync(join(tmpdir(), 'pulse-arch-')), 'kaputt.tar');
+  writeFileSync(kaputt, 'das ist kein tar');
+  assert.notEqual(importFahren(daten, kaputt), 0);
+  assert.equal(readFileSync(join(daten, 'pg', 'PG_VERSION'), 'utf8'), 'alt');
+  assert.equal(existsSync(join(daten, '.pulse-import')), false);
+});
+
+test('Import: fremdes Archiv ohne pg/PG_VERSION wird abgewiesen (exit 3)', { skip: ohneShell }, () => {
+  const daten = bestand();
+  const quelle = mkdtempSync(join(tmpdir(), 'pulse-src-'));
+  writeFileSync(join(quelle, 'urlaub.jpg'), 'x');
+  const archiv = join(quelle, '..', `${quelle.split('/').pop()}.tar`);
+  execFileSync('tar', ['-cf', archiv, '-C', quelle, '.']);
+  assert.equal(importFahren(daten, archiv), 3);
+  assert.equal(readFileSync(join(daten, 'pg', 'PG_VERSION'), 'utf8'), 'alt');
+});
+
+test('Import: echtes Backup ersetzt den Bestand vollständig, samt dotfiles', { skip: ohneShell }, () => {
+  const daten = bestand();
+  const quelle = mkdtempSync(join(tmpdir(), 'pulse-src-'));
+  mkdirSync(join(quelle, 'pg'));
+  writeFileSync(join(quelle, 'pg', 'PG_VERSION'), 'neu');
+  writeFileSync(join(quelle, '.neu'), 'neu');
+  const archiv = join(quelle, '..', `${quelle.split('/').pop()}.tar`);
+  execFileSync('tar', ['-cf', archiv, '-C', quelle, '.']);
+  assert.equal(importFahren(daten, archiv), 0);
+  assert.equal(readFileSync(join(daten, 'pg', 'PG_VERSION'), 'utf8'), 'neu');
+  assert.equal(readFileSync(join(daten, '.neu'), 'utf8'), 'neu');
+  assert.equal(existsSync(join(daten, '.versteckt')), false);
+  assert.equal(existsSync(join(daten, '.pulse-import')), false);
 });

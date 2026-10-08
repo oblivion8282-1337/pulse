@@ -12,11 +12,20 @@
  *
  * Der Relay ist ein transparenter Byte-Durchreicher: die RTMPS-TLS-Sitzung
  * läuft Ende-zu-Ende zwischen Sidecar und MediaMTX DURCH den Relay (kein
- * TLS-Eingriff). Gebunden auf 127.0.0.1 (die Push-URL nutzt `localhost`), also
- * keine LAN-Exposition. Keine Electron-Imports (node:test-tauglich).
+ * TLS-Eingriff). Die Bind-Adresse steht je Port in medienPorts.ts
+ * (RELAY_TCP_PORTS): 1936 nur 127.0.0.1 (die Push-URL nutzt `localhost`),
+ * LiveKits ICE-TCP 7881 auf 0.0.0.0 (fremde Geräte klopfen an die LAN-IP).
+ *
+ * close() reißt auch die LAUFENDEN Verbindungen ab — sonst hielte eine
+ * RTMPS-Sitzung nach einem Relay-Neustart (neue VM-IP) die alte Strecke offen.
+ * Der Aufbau zur VM hat eine Frist (CONNECT_TIMEOUT_MS). Keine Electron-Imports
+ * (node:test-tauglich).
  */
 
 import { createServer, connect, type Server, type Socket } from 'node:net';
+
+/** Frist für den Verbindungsaufbau zur VM — danach wird der Client getrennt. */
+const CONNECT_TIMEOUT_MS = 5_000;
 
 export interface TcpRelay {
   /** Ports, die wirklich gebunden wurden (Diagnose/Test). */
@@ -26,19 +35,26 @@ export interface TcpRelay {
 
 /** Listen-/Ziel-Port-Paar. Produktiv immer identisch (Host:port → VM:port);
  *  getrennt nur für Tests (Relay + Fake-VM auf einer Maschine → sonst
- *  Port-Konflikt). */
+ *  Port-Konflikt). `bind` fehlt → 127.0.0.1. */
 export interface TcpPortPair {
   listen: number;
   target: number;
+  bind?: string;
 }
 
-/** Startet TCP-Relais für `ports` (Host 127.0.0.1:port → vmIp:port). */
+/** Startet TCP-Relais (Host bind:port → vmIp:port). Zahlen = 127.0.0.1. */
 export function startTcpRelay(
-  ports: number[],
+  ports: ReadonlyArray<number | { port: number; bind: string }>,
   vmIp: string,
   log: (msg: string) => void = console.log,
 ): Promise<TcpRelay> {
-  return startTcpRelayMapped(ports.map((p) => ({ listen: p, target: p })), vmIp, log);
+  return startTcpRelayMapped(
+    ports.map((p) => (typeof p === 'number'
+      ? { listen: p, target: p }
+      : { listen: p.port, target: p.port, bind: p.bind })),
+    vmIp,
+    log,
+  );
 }
 
 /** Wie startTcpRelay, aber mit expliziten Listen→Ziel-Paaren (Test-Seam). */
@@ -49,28 +65,41 @@ export function startTcpRelayMapped(
 ): Promise<TcpRelay> {
   const servers: Server[] = [];
   const boundPorts: number[] = [];
+  const offen = new Set<Socket>();
 
-  const bindOne = ({ listen: port, target }: TcpPortPair): Promise<void> =>
+  const bindOne = ({ listen: port, target, bind = '127.0.0.1' }: TcpPortPair): Promise<void> =>
     new Promise((resolve) => {
       const server = createServer((client: Socket) => {
         const upstream = connect(target, vmIp);
+        offen.add(client);
+        offen.add(upstream);
         // Bidirektional durchpipen; ein Fehler/EOF auf einer Seite reißt beide
         // ab (destroy ist idempotent — doppelte Aufrufe sind harmlos).
         const teardown = (): void => { client.destroy(); upstream.destroy(); };
+        upstream.setTimeout(CONNECT_TIMEOUT_MS);
+        upstream.once('connect', () => upstream.setTimeout(0));
+        upstream.on('timeout', teardown);
         client.on('error', teardown);
         upstream.on('error', teardown);
+        client.on('close', () => { offen.delete(client); teardown(); });
+        upstream.on('close', () => { offen.delete(upstream); teardown(); });
         client.pipe(upstream);
         upstream.pipe(client);
       });
 
-      server.on('error', (e) => {
+      // Nur der Listen-Fehler überspringt den Port; danach eigener Handler.
+      const listenFehler = (e: Error): void => {
         // Port belegt o.ä. → überspringen, Rest läuft (fail-soft).
-        log(`[tcp-relay] Port ${port} nicht bindbar (${(e as NodeJS.ErrnoException).code ?? e.message}) — übersprungen`);
+        log(`[tcp-relay] ${bind}:${port} nicht bindbar (${(e as NodeJS.ErrnoException).code ?? e.message}) — übersprungen`);
         resolve();
-      });
+      };
+      server.once('error', listenFehler);
 
-      // 127.0.0.1: die Owner-Push-URL zeigt auf `localhost` — kein LAN-Bind.
-      server.listen(port, '127.0.0.1', () => {
+      server.listen(port, bind, () => {
+        server.off('error', listenFehler);
+        server.on('error', (e) => {
+          log(`[tcp-relay] ${bind}:${port}: Laufzeitfehler (${(e as NodeJS.ErrnoException).code ?? e.message})`);
+        });
         boundPorts.push(port);
         servers.push(server);
         resolve();
@@ -85,6 +114,8 @@ export function startTcpRelayMapped(
         for (const s of servers) {
           try { s.close(); } catch { /* schon zu */ }
         }
+        for (const s of offen) s.destroy();
+        offen.clear();
       },
     };
   });
