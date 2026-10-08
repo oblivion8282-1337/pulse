@@ -14,7 +14,9 @@ optional ``expireTime`` JSON some builds accept is not needed here, the token TT
 already bounds the session.)
 
 Policy:
-  * ``api`` / ``metrics`` / ``pprof``      → 200 (also excluded via authHTTPExclude; allowed defensively).
+  * ``api``                               → 200; mit gesetztem ``mediamtx_api_password``
+                                             nur mit passenden Zugangsdaten (``api_zugang.py``).
+  * ``metrics`` / ``pprof``                → 200 (also excluded via authHTTPExclude; allowed defensively).
   * ``publish`` on ``channel-<id>``        → 200 iff ``password`` (or ``token``) names a Redis
                                              ``stream:token:<…>`` record with scope ``publish`` whose
                                              ``channel_id`` matches the path; else 401.
@@ -44,6 +46,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, field_validator
 from redis.asyncio import Redis
 
+from dcc_mediamtx_auth_hook.api_zugang import api_pruefen
 from dcc_mediamtx_auth_hook.config import get_settings
 from dcc_mediamtx_auth_hook.shared import (
     TOKEN_KEY,
@@ -395,6 +398,13 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
 @router.post("/", status_code=status.HTTP_200_OK)
 @router.post("/auth", status_code=status.HTTP_200_OK)
 async def authenticate(req: AuthRequest, request: Request) -> Response:
+    settings = get_settings()
+    if req.action == "api" and settings.mediamtx_api_password:
+        # Vor der Drossel — Begründung im Kopf von ``api_zugang.py``.
+        api_pruefen(
+            req.user, req.password, settings.mediamtx_api_user, settings.mediamtx_api_password
+        )
+        return Response(status_code=status.HTTP_200_OK)
     if not _rate_ok(req.ip or (request.client.host if request.client else "?")):
         raise HTTPException(status_code=429, detail="rate limited")
     redis = _get_redis(request)

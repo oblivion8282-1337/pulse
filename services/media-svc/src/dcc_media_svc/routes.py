@@ -804,7 +804,7 @@ async def kill_gast_sessions(
             stelle = i + 1
         return False
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    async with httpx.AsyncClient(timeout=5.0, auth=get_settings().mediamtx_api_auth) as client:
         seiten = 0
         while seiten < 50:  # Schutz gegen Endlos-Paginierung
             seiten += 1

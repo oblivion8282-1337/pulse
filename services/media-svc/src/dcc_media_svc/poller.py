@@ -514,7 +514,7 @@ async def run_poller(redis: Redis, *, stop_event: asyncio.Event | None = None) -
     """Long-running reconciliation loop. Resilient to MediaMTX being down."""
     settings = get_settings()
     stop = stop_event or asyncio.Event()
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    async with httpx.AsyncClient(timeout=5.0, auth=settings.mediamtx_api_auth) as client:
         while not stop.is_set():
             try:
                 await reconcile_once(redis, client)
