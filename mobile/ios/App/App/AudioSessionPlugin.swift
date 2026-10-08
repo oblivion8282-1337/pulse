@@ -1,5 +1,6 @@
 import AVFoundation
 import Capacitor
+import MediaPlayer
 
 /// Audio-Session-Steuerung für die Hülle (Etappe 3, Punkte 21/23/24/26).
 ///
@@ -23,7 +24,9 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setVoiceActive", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setPlaybackMode", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "routen", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "routeSetzen", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "routeSetzen", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "jetztLaeuft", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "jetztLaeuftAus", returnType: CAPPluginReturnPromise)
     ]
 
     /// Beobachter werden EINMAL gesetzt, beim ersten Laden des Plugins.
@@ -144,6 +147,72 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         } catch {
             call.reject("audio_session_error", nil, error)
         }
+    }
+
+    // MARK: - Sperrbildschirm und Kontrollzentrum (Punkt 25)
+
+    /// Was gerade läuft, auf dem Sperrbildschirm und im Kontrollzentrum
+    /// anzeigen — plus die beiden Knöpfe, die dort etwas bewirken können.
+    ///
+    /// **Was „Pause" bei einem Live-Strom heisst, ist eine Entscheidung.**
+    /// Anhalten kann man ihn nicht (er läuft weiter, man verpasst nur), und
+    /// Beenden wäre von einem Sperrbildschirm aus zu grob — ein Fehlgriff
+    /// risse die Übertragung weg. Hier bedeutet Pause deshalb STUMM, und
+    /// Wiedergabe wieder laut. Das ist nicht-zerstörend, sofort umkehrbar und
+    /// genau das, was man will, wenn jemand den Raum betritt.
+    ///
+    /// Mindestens ein aktiver Befehl ist nötig, damit iOS die Anzeige
+    /// überhaupt zeigt — eine reine Info-Karte ohne Knöpfe blendet es aus.
+    @objc func jetztLaeuft(_ call: CAPPluginCall) {
+        let titel = call.getString("titel") ?? "Pulse"
+        let zeile2 = call.getString("zeile2") ?? ""
+        DispatchQueue.main.async {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+                MPMediaItemPropertyTitle: titel,
+                MPMediaItemPropertyArtist: zeile2,
+                // Live: iOS zeigt dann keinen Fortschrittsbalken, der bei
+                // einem laufenden Strom ohnehin nichts bedeutete.
+                MPNowPlayingInfoPropertyIsLiveStream: true
+            ]
+            MPNowPlayingInfoCenter.default().playbackState = .playing
+            self.befehleVerdrahten()
+            call.resolve()
+        }
+    }
+
+    @objc func jetztLaeuftAus(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            MPNowPlayingInfoCenter.default().playbackState = .stopped
+            call.resolve()
+        }
+    }
+
+    private var befehleStehen = false
+
+    /// Einmal verdrahten, nicht bei jedem Strom: `addTarget` hängt JEDES Mal
+    /// einen weiteren Empfänger an, und dann feuert ein Tastendruck mehrfach.
+    private func befehleVerdrahten() {
+        guard !befehleStehen else { return }
+        befehleStehen = true
+        let z = MPRemoteCommandCenter.shared()
+        z.playCommand.isEnabled = true
+        z.pauseCommand.isEnabled = true
+        z.playCommand.addTarget { [weak self] _ in
+            self?.notifyListeners("fernbefehl", data: ["befehl": "laut"])
+            MPNowPlayingInfoCenter.default().playbackState = .playing
+            return .success
+        }
+        z.pauseCommand.addTarget { [weak self] _ in
+            self?.notifyListeners("fernbefehl", data: ["befehl": "stumm"])
+            MPNowPlayingInfoCenter.default().playbackState = .paused
+            return .success
+        }
+        // Titelsprünge gibt es hier nicht — ohne das Abschalten zeigt iOS
+        // Knöpfe, die nichts tun.
+        z.nextTrackCommand.isEnabled = false
+        z.previousTrackCommand.isEnabled = false
+        z.changePlaybackPositionCommand.isEnabled = false
     }
 
     // MARK: - Ereignisse

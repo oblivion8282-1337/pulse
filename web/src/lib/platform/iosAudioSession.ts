@@ -41,6 +41,8 @@ interface AudioSessionPlugin {
   setPlaybackMode(): Promise<void>;
   routen(): Promise<TonWege>;
   routeSetzen(options: { id: string }): Promise<void>;
+  jetztLaeuft(options: { titel: string; zeile2: string }): Promise<void>;
+  jetztLaeuftAus(): Promise<void>;
   addListener(
     name: 'unterbrechung',
     cb: (e: Unterbrechung) => void
@@ -48,6 +50,10 @@ interface AudioSessionPlugin {
   addListener(
     name: 'routeGewechselt',
     cb: (e: { aktuell: string; aktuellName: string }) => void
+  ): Promise<{ remove: () => void }>;
+  addListener(
+    name: 'fernbefehl',
+    cb: (e: { befehl: 'laut' | 'stumm' }) => void
   ): Promise<{ remove: () => void }>;
 }
 
@@ -116,5 +122,26 @@ export function iosWegWechsel(cb: () => void): () => void {
   const p = plugin();
   if (!p) return () => undefined;
   const griff = p.addListener('routeGewechselt', () => cb());
+  return () => void griff.then((h) => h.remove()).catch(() => undefined);
+}
+
+/** Was gerade läuft, auf Sperrbildschirm und Kontrollzentrum anzeigen. */
+export async function iosJetztLaeuft(titel: string, zeile2: string): Promise<void> {
+  if (!isCapacitorIOS()) return;
+  await plugin()?.jetztLaeuft({ titel, zeile2 }).catch(() => undefined);
+}
+
+/** Anzeige wieder abräumen. */
+export async function iosJetztLaeuftAus(): Promise<void> {
+  if (!isCapacitorIOS()) return;
+  await plugin()?.jetztLaeuftAus().catch(() => undefined);
+}
+
+/** Knopfdrücke vom Sperrbildschirm (`laut`/`stumm`). Rückgabe = Abriss. */
+export function iosFernbefehle(cb: (befehl: 'laut' | 'stumm') => void): () => void {
+  if (!isCapacitorIOS()) return () => undefined;
+  const p = plugin();
+  if (!p) return () => undefined;
+  const griff = p.addListener('fernbefehl', (e) => cb(e.befehl));
   return () => void griff.then((h) => h.remove()).catch(() => undefined);
 }

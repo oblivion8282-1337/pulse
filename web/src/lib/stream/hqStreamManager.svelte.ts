@@ -24,6 +24,8 @@ import { errText } from '$lib/utils/errText';
  */
 import { connectWhep, WhepError, type WhepSession } from './whep';
 import { tonWiedergabe } from '$lib/platform/iosTon';
+import { iosFernbefehle } from '$lib/platform/iosAudioSession';
+import { userCache } from '$lib/stores/users.svelte';
 import { DiagnoseSammler } from './diagnose-bericht';
 import { sendeDiagnoseBericht } from './diagnose-senden';
 import { WhepStatsReader, type StreamStats } from './whep-stats';
@@ -354,7 +356,11 @@ export class ManagedHqStream {
     // Audio-Betriebsart daraus folgt — ein Sprachkanal gewinnt (s.
     // `platform/tonModus.ts`). Mehrfaches Anmelden derselben Kachel beim
     // Wiederaufbau zaehlt einmal; No-op ausserhalb der iOS-Huelle.
-    tonWiedergabe(this.#tonKennung, true);
+    // Titel fuer Sperrbildschirm/Kontrollzentrum. Der Name kann fehlen (Cache
+    // noch nicht gefuellt) — dann bleibt es bei der Vorgabe im Plugin.
+    const sender = userCache.get(this.userId);
+    const wer = sender?.display_name || sender?.username || '';
+    tonWiedergabe(this.#tonKennung, true, wer ? `Übertragung von ${wer}` : undefined);
     // Audio bevorzugt über den Web-Audio-Graphen (boost) — läuft unabhängig vom
     // Video-Element weiter. Greift der nicht, Fallback auf ein verstecktes,
     // ungemutetes <audio>-Element (auch dauerhaft, ohne Video).
@@ -683,6 +689,27 @@ export class ManagedHqStream {
 // ---- Registry -------------------------------------------------------------
 
 const registry = new Map<string, ManagedHqStream>();
+
+/**
+ * Knoepfe vom Sperrbildschirm (Roadmap 25). Einmal verdrahtet, No-op ausser
+ * in der iOS-Huelle.
+ *
+ * **Was „Pause" hier heisst, ist eine Entscheidung** (Begruendung im Plugin):
+ * einen Live-Strom kann man nicht anhalten, und ihn vom Sperrbildschirm aus
+ * zu BEENDEN waere zu grob — ein Fehlgriff risse die Uebertragung weg. Pause
+ * bedeutet deshalb stumm, und zwar fuer alle offenen Kacheln; Wiedergabe
+ * wieder laut.
+ *
+ * `toggleMute` statt `setVolume(0)`: es merkt sich die vorige Lautstaerke,
+ * und genau die soll beim Aufdrehen zurueckkommen.
+ */
+iosFernbefehle((befehl) => {
+  for (const m of registry.values()) {
+    const stumm = m.volume === 0;
+    if (befehl === 'stumm' && !stumm) m.toggleMute();
+    if (befehl === 'laut' && stumm) m.toggleMute();
+  }
+});
 const keyOf = (channelId: string, userId: string, slot: number) =>
   `${channelId}:${userId}:${slot}`;
 

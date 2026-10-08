@@ -1,5 +1,11 @@
 import { isCapacitorIOS } from './runtime';
-import { iosPlaybackModus, iosUnterbrechungen, iosVoiceAktiv } from './iosAudioSession';
+import {
+  iosJetztLaeuft,
+  iosJetztLaeuftAus,
+  iosPlaybackModus,
+  iosUnterbrechungen,
+  iosVoiceAktiv
+} from './iosAudioSession';
 import { zielModus, type TonModus } from './tonModus';
 
 /**
@@ -91,11 +97,20 @@ export function tonVoice(aktiv: boolean): void {
  * (Stream-Kachel, Watch-Party) — mehrfaches Anmelden derselben Kennung zählt
  * einmal, s. Modulkopf.
  */
-export function tonWiedergabe(kennung: string, an: boolean): void {
+export function tonWiedergabe(kennung: string, an: boolean, titel?: string): void {
   unterbrechungenBeobachten();
+  const vorher = wiedergaben.size;
   if (an) wiedergaben.add(kennung);
   else wiedergaben.delete(kennung);
   void anwenden();
+  // Sperrbildschirm-Anzeige hängt an der ERSTEN und der LETZTEN Wiedergabe,
+  // nicht an jeder: bei zwei offenen Kacheln soll die zweite die Anzeige der
+  // ersten nicht überschreiben und ihr Schliessen sie nicht abräumen.
+  if (an && vorher === 0) {
+    void iosJetztLaeuft(titel || 'Pulse', titel ? 'Pulse' : '');
+  } else if (!an && wiedergaben.size === 0) {
+    void iosJetztLaeuftAus();
+  }
 }
 
 /** Testhilfe / Abmeldung: alles zurück auf Anfang. */
