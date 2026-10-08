@@ -2,7 +2,7 @@
  * Reine Bausteine des Container-Wegs (aus containerBackendManager.ts
  * herausgezogen, Größen-Policy): Image-Wahl, Env-Rendering, Update-
  * Entscheidung, Abschieds-Call. Keine I/O ausser dem Electron-Default-Import
- * (s. Kommentar dort).
+ * (s. Kommentar dort) und dem `fetch` des Abschieds.
  */
 
 // `node --test` (Unit-Gate) zieht 'electron' als CJS-String-Export (Pfad zum
@@ -31,6 +31,30 @@ export function abschiedsKoerper(creds: BootstrapCreds): {
     token: creds.clientSecret,
     client_id: creds.clientId,
   };
+}
+
+/** Sagt der Cloud „ich gehe jetzt offline“ — löscht den Telefonbuch-Eintrag
+ *  sofort, statt ihn bis zur Online-Schwelle (300 s) „online“ lügen zu
+ *  lassen: in diesem Fenster würden Clients auf den toten UDP-Port dialen
+ *  und die vollen ICE-Timeouts verbrennen (2026-10-03). Auth wie der
+ *  Herzschlag des Adapters: Pairing-Creds (client_id + client_secret).
+ *  Fire-and-forget, 2-s-Deckel; Fehler egal (Worst Case = Status quo). */
+export async function meldeDirektOffline(c: BootstrapCreds | null): Promise<void> {
+  if (!c) return;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 2_000);
+  try {
+    await fetch(abschiedsUrl(c), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(abschiedsKoerper(c)),
+      signal: ctl.signal,
+    });
+  } catch {
+    /* offline/Cloud down — der Eintrag altert wie bisher von allein */
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const DEFAULT_IMAGE = 'registry.howispulse.com/pulse-allinone:edge';
@@ -72,9 +96,12 @@ export function resolveImage(env: Record<string, string | undefined> = process.e
  *  nicht). [0] aus hostLanIpv4s = die Adresse im Subnetz des
  *  Default-Gateways (s. dort).
  *
- *  `udpGatewayAus` (Windows, `--network host`): das UDP-Gateway im Image
- *  (s6-Dienst, nur für macOS/gvproxy gebraucht) würde sonst auf ALLEN
- *  VM-Adressen lauschen — im WSL-Mirrored-Modus also im LAN. Der Dienst liest
+ *  `udpGatewayAus` (alles ausser macOS, s. udpGatewayAusFuer): das
+ *  UDP-Gateway im Image (s6-Dienst, nur für macOS/gvproxy gebraucht) ist
+ *  sonst ein unauthentisierter UDP-über-TCP-Tunnel in den Container. Unter
+ *  Windows (`--network host`) lauschte er auf ALLEN VM-Adressen — im
+ *  WSL-Mirrored-Modus also im LAN; unter Linux ist er zwar nicht
+ *  veröffentlicht, aber ohne Nutzen. Der Dienst liest
  *  `PULSE_UDP_GATEWAY_DISABLED=true` und bleibt dann untätig; ein Image ohne
  *  diesen Schalter ignoriert die Zeile. */
 export function renderContainerEnv(
@@ -125,6 +152,11 @@ export function renderContainerEnv(
     );
   }
   return lines.join('\n') + '\n';
+}
+
+/** Wer braucht das UDP-Gateway? Nur macOS (gvproxy reicht UDP nicht durch). */
+export function udpGatewayAusFuer(plattform: NodeJS.Platform = process.platform): boolean {
+  return plattform !== 'darwin';
 }
 
 /** Reine Update-Entscheidung: unterschiedliche, nicht-leere Image-IDs →

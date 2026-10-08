@@ -33,11 +33,14 @@ export function imSubnetz(adresse: string, netmask: string | undefined, ziel: st
 }
 
 /** Adapter, die von Haus aus virtuelle Brücken sind und im LAN nie erreichbar:
- *  Docker/Podman/libvirt unter Linux, der WSL-/Hyper-V-Default-Switch unter
+ *  Docker/Podman/CNI/libvirt/LXC/LXD/Incus/Waydroid unter Linux (`cni0`
+ *  ohne Bindestrich fiel bis 2026-10-08 durch, ebenso `lxcbr0`, `lxdbr0`,
+ *  `incusbr0`, `waydroid0`), der WSL-/Hyper-V-Default-Switch unter
  *  Windows. Bis 2026-10-08 stand hier stattdessen pauschal 172.16.0.0/12 —
  *  das warf echte LANs in diesem Bereich weg und liess ein WSL-NAT im
  *  192.168er-Bereich durch. */
-const VIRTUELLE_BRUECKE = /^(docker\d*|br-[0-9a-f]+|virbr\d+|podman\d*|cni-|veth|vEthernet \((WSL|Default Switch))/i;
+const VIRTUELLE_BRUECKE =
+  /^(docker\d*|br-[0-9a-f]+|virbr\d*|vnet\d+|podman\d*|cni\d*|cni-|flannel|veth|lxcbr\d*|lxdbr\d*|incusbr\d*|waydroid\d*|vEthernet \((WSL|Default Switch))/i;
 
 /** Adapter, die zwar eine Adresse tragen, aber selten der Weg ins LAN sind:
  *  VirtualBox-Host-Only (192.168.56.1), Windows-Hotspot (192.168.137.1,

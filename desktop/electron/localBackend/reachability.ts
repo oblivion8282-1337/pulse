@@ -5,7 +5,10 @@ import { randomBytes } from 'node:crypto';
 import { discoverPublicIp } from './stun.ts';
 
 export const PROBE_UDP_PORTS = [7882, 8189];
-export const PROBE_TCP_PORTS = [7881, 1936];
+// 1936 (RTMPS) ist seit dem Linux-Scan 2026-10-08 nur noch auf 127.0.0.1
+// veröffentlicht (der Owner streamt vom Server-Rechner) und wird nicht mehr
+// am Router freigegeben — von außen geprüft wäre es dauerhaft „zu".
+export const PROBE_TCP_PORTS = [7881];
 
 export type ReachabilityVerdict = 'reachable' | 'needs-forwarding' | 'cgnat' | 'unknown';
 export type ProbeResults = {

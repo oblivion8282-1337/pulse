@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage, Notification } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage, Notification, powerSaveBlocker } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -261,9 +261,15 @@ let mainWindow: BrowserWindow | null = null;
 // that actually quits is the tray's "Beenden" entry, which sets this flag
 // before calling `app.quit()`. The window's `close` handler honours it.
 let isQuitting = false;
+/** Der Nutzer hat bewusst beendet (Tray „Beenden", Server-App-Knopf, Fenster-X
+ *  mit quitOnClose) — im Gegensatz zu einem Ende, das das System auslöst
+ *  (Herunterfahren, Abmelden der Desktop-Sitzung, SIGTERM). Nur ein bewusstes
+ *  Beenden stoppt den Server-Container (Linux-Scan 2026-10-08, s. before-quit). */
+let nutzerBeendet = false;
 // Der Tray-"Beenden"-Callback — Client- und Server-Boot teilen ihn.
 const quitApp = (): void => {
   isQuitting = true;
+  nutzerBeendet = true;
   app.quit();
 };
 
@@ -333,6 +339,7 @@ function createWindow(): void {
     // before-quit-Handler (Sidecar-Shutdown) sauber greift.
     const quit = isQuitting || storeGet('quitOnClose') === true;
     if (quit) {
+      if (!isQuitting) nutzerBeendet = true; // Fenster-X mit quitOnClose
       isQuitting = true;
       return;
     }
@@ -595,6 +602,18 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     ? new NativeBackendManager()
     : new ContainerBackendManager();
   const hostStore = { get: storeGet, set: storeSet };
+  // Welche Runtime den Server trägt, wird gemerkt (Linux-Scan 2026-10-08):
+  // ohne Merker nahm die App bei jedem Start Podman vor Docker — kam Podman
+  // neben einem Docker-Server dazu, entstand still ein leerer Server.
+  if (manager instanceof ContainerBackendManager) {
+    manager.setzeRuntimeMerker({
+      lesen: () => {
+        const k = storeGet('pulse.host.runtime');
+        return k === 'podman' || k === 'docker' ? k : null;
+      },
+      schreiben: (kind) => storeSet('pulse.host.runtime', kind),
+    });
+  }
   // Benutzer-Welten (2026-10-01): die Welt (Container/Volume/Creds) gehört dem
   // Konto, das in der Server-App angemeldet ist. Beim Benutzerwechsel stoppt
   // die alte Welt (Daten bleiben im Volume), die des neuen Kontos kommt dran.
@@ -725,7 +744,21 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     relayUrl: () => (creds?.relaySubdomain ? `https://${creds.relaySubdomain}` : null),
   };
   const hl = new HostLifecycle(deps, SERVER_MODE ? { holePunch: true } : {});
+  // Solange der Server live ist, darf der Rechner nicht von selbst in den
+  // Ruhezustand gehen (GNOME/KDE-Auto-Suspend am Netzteil): sonst ist der
+  // Server offline, während die App „live" zeigt (Linux-Scan 2026-10-08).
+  // Nur im Server-Modus, und nur gegen das AUTOMATISCHE Schlafen — ein
+  // bewusstes Zuklappen oder „Bereitschaft" bleibt dem Nutzer.
+  let schlafSperre: number | null = null;
   hl.onPhase((e) => {
+    if (SERVER_MODE) {
+      if (e.phase === 'live' && schlafSperre === null) {
+        schlafSperre = powerSaveBlocker.start('prevent-app-suspension');
+      } else if (e.phase !== 'live' && e.phase !== 'preparing' && schlafSperre !== null) {
+        powerSaveBlocker.stop(schlafSperre);
+        schlafSperre = null;
+      }
+    }
     getWin()?.webContents.send('host:phase', e);
     // Jeder 'live'-Übergang (Start ODER Boot-Zustands-Abgleich) startet den
     // Cloud-Status-Poll; das Flag darin verhindert Doppel-Läufe.
@@ -866,6 +899,14 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:stop', (e) => {
     if (!localSenderOnly(e)) return;
     return hl.stop();
+  });
+  // „Server-App beenden"-Knopf in server.html — derselbe Weg wie der Tray-
+  // Eintrag „Beenden". Nötig, weil GNOME ohne AppIndicator-Erweiterung kein
+  // Tray-Symbol zeigt: das Fenster-X versteckt nur, die App war dort sonst
+  // gar nicht zu beenden (Linux-Scan 2026-10-08).
+  ipcMain.handle('host:quit', (e) => {
+    if (!localSenderOnly(e)) return;
+    quitApp();
   });
   ipcMain.handle('host:status', () => hl.getStatus());
   // server.html ruft das bei jedem UI-Refresh — Zustands-Abgleich ist ein
@@ -1057,7 +1098,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     return osApplyAutostart(on);
   });
   // "Deine Daten"-Karte: belegte Volume-Größe + Datum des letzten Exports.
-  ipcMain.handle('host:dataInfo', async () => {
+  ipcMain.handle('host:dataInfo', async (e) => {
+    // Dasselbe Gate wie host:refresh (Linux-Scan 2026-10-08): der Aufruf
+    // startet bis zu zwei Wegwerf-Container (`du -sk /data`) — die in der
+    // Login-Phase geladene Cloud-Seite soll ihn nicht in Schleife treten.
+    if (!localSenderOnly(e)) return { sizeBytes: null, lastBackupAt: null, lastAutoBackupAt: null };
     const lastBackupAt = (storeGet('pulse.host.lastBackupAt') as number | undefined) ?? null;
     let sizeBytes: number | null = null;
     let lastAutoBackup: number | null = null;
@@ -1104,12 +1149,21 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
         S('Server-App neu installieren.', 'Reinstall the server app.'),
       );
     } else {
+      // „Installiert, aber nicht benutzbar" (Docker-Dienst aus, kein Recht an
+      // docker.sock, Podman ohne subuid) bekommt seinen eigenen Grund —
+      // vorher stand hier „nicht gefunden", obwohl das Programm da war.
+      const problem = manager instanceof ContainerBackendManager
+        ? await manager.runtimeProblem().catch(() => null)
+        : null;
       push(
-        'runtime', S('Container-Runtime', 'Container runtime'), !!rt,
-        S('Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
+        'runtime', S('Container-Runtime', 'Container runtime'), !!rt && !problem,
+        problem ?? S('Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
           'Docker or Podman was not found on this device.'),
-        S('Docker installieren und die Server-App neu starten.',
-          'Install Docker and restart the server app.'),
+        problem
+          ? S('Den genannten Grund beheben und die Server-App neu starten.',
+            'Fix the reason above and restart the server app.')
+          : S('Podman (empfohlen) oder Docker installieren und die Server-App neu starten.',
+            'Install Podman (recommended) or Docker and restart the server app.'),
       );
     }
     const laeuft = rt ? await manager.isContainerRunning().catch(() => false) : false;
@@ -1169,6 +1223,22 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
           : `VM ${z.vmIp ?? '?'} · UDP ${z.udpPorts.join(', ') || '—'} · TCP ${z.tcpPorts.join(', ') || '—'}`,
       );
     }
+    // Linux + Docker-Bridge: LiveKit sieht im Container nur 172.17.x und per
+    // STUN die öffentliche Adresse, nicht die LAN-Adresse dieses Rechners —
+    // und kann in der Bridge keine zusätzliche ankündigen (mediatransportutil:
+    // NodeIP wird bei use_external_ip von STUN überschrieben). Geräte im
+    // selben WLAN brauchen dann Hairpin-NAT am Router oder einen Browser, der
+    // seine echten Adressen zeigt. Unter rootless Podman/pasta sieht der
+    // Container die LAN-Adresse selbst — dort trägt der Weg (Linux-E2E).
+    if (rt?.kind === 'docker' && process.platform === 'linux' && laeuft) {
+      push(
+        'heimnetz-sprache', S('Sprache im Heimnetz', 'Voice on the home network'), false,
+        S('Mit Docker kennt der Sprachserver die Adresse dieses Rechners im Heimnetz nicht. Geräte im selben WLAN kommen je nach Router und Browser nicht in den Sprachkanal; Gäste aus dem Internet sind nicht betroffen. Streams sind nicht betroffen.',
+          'With Docker the voice server does not know this computer\'s home-network address. Devices on the same Wi-Fi may fail to join voice, depending on router and browser; guests from the internet are not affected. Streams are not affected.'),
+        S('Wenn Geräte im WLAN nicht in den Sprachkanal kommen: den Server mit Podman statt Docker betreiben. Ein Wechsel geht derzeit nur über Export, Neueinrichtung und Import der Daten.',
+          'If devices on the Wi-Fi cannot join voice: run the server with Podman instead of Docker. Switching currently requires exporting, setting up again and importing your data.'),
+      );
+    }
     // Nativ (Windows) gibt es keinen Backup-Dienst (`components.ts`) — der
     // Container-Text „sichert täglich selbst" wäre dort eine falsche
     // Beruhigung (Scan 2026-10-08). Stattdessen der Handgriff, der wirklich
@@ -1219,7 +1289,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
             'Check again. If it stays red: stop and start the server.'),
           einzelheit: err.message,
         } as ProbeSchritt));
-        push('medien', S('Streams (Senden + Empfangen)', 'Streams (send + receive)'), medien.ok,
+        // „Signalweg", nicht „Senden + Empfangen": die Probe prüft WHIP/WHEP-
+        // Signalisierung über HTTP, kein ICE — ob UDP-Medien durch eine
+        // Firewall kommen, sieht sie nicht (Linux-Scan 2026-10-08).
+        push('medien', S('Streams (Signalweg)', 'Streams (signaling)'), medien.ok,
           medien.was_ist, medien.was_tun, medien.einzelheit);
       }
     }
@@ -1252,15 +1325,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // Operation ausführen, IMMER wieder hochfahren, wenn er vorher lief — auch
   // nach einem Fehler. Schritte gehen als host:exportStep-Events an die Karte.
   const step = (s: string): void => getWin()?.webContents.send('host:exportStep', s);
-  const withContainerStopped = async <T>(op: () => Promise<T>): Promise<T> => {
-    const wasRunning = await manager.isContainerRunning().catch(() => false);
-    try {
-      if (wasRunning) { step('stopping'); await manager.stop(); }
-      return await op();
-    } finally {
-      if (wasRunning) { step('restarting'); await hl.start().catch(() => {}); }
-    }
-  };
+  // Über den Lebenszyklus (Linux-Scan 2026-10-08): vorher hielt dieser Weg
+  // ihn nicht an — ein fälliges Update oder ein `host:me`-Start konnte mitten
+  // in einen bis zu 60-minütigen Import laufen und Postgres auf einem Volume
+  // starten, das gerade getauscht wird.
+  const withContainerStopped = <T>(op: () => Promise<T>): Promise<T> =>
+    hl.pausiertFuer(() => manager.isContainerRunning(), () => op(), step);
 
   ipcMain.handle('host:exportData', async (e) => {
     if (!localSenderOnly(e) || !creds) return { ok: false, error: 'forbidden' };
@@ -1345,7 +1415,14 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // blieben Postgres und die Python-Dienste als Waisen stehen (Windows beendet
   // Kinder nicht mit dem Elternteil), und der nächste NSIS-Update scheiterte
   // an den gesperrten Dateien (Scan 2026-10-08).
-  hostBackendStoppen = async () => {
+  hostBackendStoppen = async (anlass) => {
+    // Container-Weg: nur ein bewusstes Beenden stoppt den Container. Endet die
+    // App, weil das System herunterfährt oder die Sitzung endet, bleibt er
+    // stehen — ein `docker stop` hier markierte ihn als „vom Nutzer gestoppt",
+    // und `--restart unless-stopped` brachte ihn nach dem Neustart NICHT
+    // wieder (Linux-Scan 2026-10-08). Nativ stirbt der Prozessbaum ohnehin
+    // mit der Sitzung — dort immer geordnet stoppen (Postgres-Checkpoint).
+    if (anlass === 'system' && !NATIVE_BACKEND) return;
     await manager.stop();
     await loescheMappings().catch(() => {});
   };
@@ -2445,7 +2522,7 @@ let didShutdownSidecar = false;
 // in `bootClient` ueberschrieben.
 let stopUpdater: () => void = () => undefined;
 /** Vom Server-Modus gesetzt (wireHost): stoppt den lokalen Server-Stack. */
-let hostBackendStoppen: () => Promise<void> = async () => undefined;
+let hostBackendStoppen: (anlass: 'nutzer' | 'system') => Promise<void> = async () => undefined;
 /** Backstop für den Server-Stopp. Großzügiger als der Sidecar-Backstop:
  *  Postgres fährt beim geordneten Stopp einen Checkpoint, und ein hart
  *  abgeschossenes Postgres braucht beim nächsten Start eine Recovery. */
@@ -2481,7 +2558,7 @@ app.on('before-quit', (event) => {
   ])
     .then(() =>
       Promise.race([
-        hostBackendStoppen().catch((err) => {
+        hostBackendStoppen(nutzerBeendet ? 'nutzer' : 'system').catch((err) => {
           console.error('[host] Stopp beim Beenden fehlgeschlagen:', err);
         }),
         new Promise<void>((r) => setTimeout(r, HOST_STOPP_BACKSTOP_MS)),

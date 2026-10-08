@@ -51,7 +51,15 @@ let storePath: string | null = null;
 
 function tresorBereit(): boolean {
   try {
-    return safeStorage.isEncryptionAvailable();
+    if (!safeStorage.isEncryptionAvailable()) return false;
+    // Linux: Chromium meldet „verfügbar" auch beim Backend `basic_text` — das
+    // ist ein fest eingebauter Schlüssel, also Klartext mit Umweg. Ohne diese
+    // Prüfung hielt der Store im Flatpak (kein Schlüsselbund erreichbar) einen
+    // Tresor für vorhanden, und die Klartext-Lage blieb unsichtbar (Linux-Scan
+    // 2026-10-08). Dann lieber ehrlich der Klartext-Rückfall mit chmod 600.
+    if (process.platform === 'linux'
+      && safeStorage.getSelectedStorageBackend() === 'basic_text') return false;
+    return true;
   } catch {
     return false;
   }

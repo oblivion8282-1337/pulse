@@ -22,7 +22,7 @@
 
 import { rmSync } from 'node:fs';
 
-import { containerName, datenVolume } from './containerBackendManager.ts';
+import { containerName, datenVolume } from './containerWelt.ts';
 import { rtExec, rtExecFromFile, rtExecToFile, type ContainerRuntime } from './containerRuntime.ts';
 
 /** Erste Zahl aus `du -sk`-Ausgabe ("12345\t/data") → Bytes, sonst null. */

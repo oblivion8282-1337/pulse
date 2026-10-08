@@ -350,6 +350,8 @@ export interface PulseHostApi {
   start(opts?: HostStartOpts): Promise<void>;
   /** Stack sauber stoppen → Phase 'idle'. */
   stop(): Promise<void>;
+  /** Server-App beenden (wie der Tray-Eintrag „Beenden"). */
+  quit(): Promise<void>;
   /** Letztes Phasen-Ereignis abrufen (Snapshot, kein Subscribe). */
   getStatus(): Promise<HostPhaseEvent>;
   /** Zustands-Abgleich mit dem echten Container (überlebt App-Neustarts
