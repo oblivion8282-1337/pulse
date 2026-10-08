@@ -19,6 +19,11 @@ const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const lies = (pfad: string) => readFileSync(join(webRoot, pfad), 'utf8');
 
 const store = lies('src/lib/anrufe/anruf.svelte.ts');
+// Seit dem 2026-10-08 liegt die Plugin-Registrierung in einer eigenen Datei:
+// zwei `registerPlugin('Anruf')` (Store + VoIP-Token-Anmeldung) warnten
+// „Cannot register plugins twice", und ihre zwei Interface-Schnitte wären
+// beim nächsten Methoden-Zuwachs auseinandergelaufen.
+const bruecke = lies('src/lib/platform/anrufNativ.ts');
 const plugin = lies(
   '../mobile/android/app/src/main/java/com/howispulse/app/AnrufPlugin.java'
 );
@@ -27,8 +32,23 @@ const service = lies(
 );
 const manifest = lies('../mobile/android/app/src/main/AndroidManifest.xml');
 
+test('Die Plugin-Registrierung liegt an GENAU EINER Stelle', () => {
+  assert.match(bruecke, /registerPlugin<AnrufNativPlugin>\('Anruf'\)/);
+  // Der Vertrag beider Hüllen, an einem Ort — sonst fehlt eine Methode in
+  // einem von zwei Interfaces und TypeScript hält beide für vollständig.
+  assert.match(bruecke, /ankommen\(opts: \{ callId: string; gegenstelle: string \}\)/);
+  assert.match(bruecke, /beenden\(\): Promise<void>/);
+  assert.match(bruecke, /voipToken\(\): Promise</);
+  // Und nur dort: eine zweite Registrierung wäre genau der Rückfall.
+  assert.doesNotMatch(store, /registerPlugin</);
+  assert.doesNotMatch(
+    lies('src/lib/platform/voipToken.ts'),
+    /registerPlugin</
+  );
+});
+
 test('Store signalisiert ankommen/beenden und hört auf das aktion-Event', () => {
-  assert.match(store, /registerPlugin<AnrufNativPlugin>\('Anruf'\)/);
+  assert.match(store, /from '\$lib\/platform\/anrufNativ'/);
   // eingehend() kündigt nativ an; #aufräumen() beendet (deckt ablehnen,
   // auflegen, call_ende, Klingel-Timeout ab), annehmen() nach dem Verbinden.
   assert.match(store, /void nativAnkommen\(evt\.call_id, gegenstelle\)/);

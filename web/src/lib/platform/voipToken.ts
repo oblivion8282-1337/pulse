@@ -15,20 +15,11 @@
  *
  * Alles andere als iOS: No-op.
  */
-import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+import { anrufNativ } from './anrufNativ';
 import { request } from '$lib/api/client';
 import { pushGeraetId } from './geraeteKennungPush';
 import { isCapacitorIOS } from './runtime';
 
-interface AnrufNativPlugin {
-  voipToken(): Promise<{ token: string | null }>;
-  addListener(
-    event: 'voipToken',
-    cb: (data: { token: string }) => void
-  ): Promise<PluginListenerHandle>;
-}
-
-const plugin = registerPlugin<AnrufNativPlugin>('Anruf');
 
 let gemeldet: string | null = null;
 
@@ -51,8 +42,8 @@ async function melden(token: string | null): Promise<void> {
 /** Einmal nach dem Anmelden aufrufen. */
 export function voipTokenVerfolgen(): void {
   if (!isCapacitorIOS()) return;
-  void plugin.addListener('voipToken', ({ token }) => void melden(token));
-  void plugin
+  void anrufNativ.addListener('voipToken', ({ token }) => void melden(token));
+  void anrufNativ
     .voipToken()
     .then(({ token }) => melden(token))
     .catch(() => undefined);
@@ -65,7 +56,7 @@ export function voipTokenVerfolgen(): void {
 export async function voipTokenAbmelden(bearerOverride?: string): Promise<void> {
   if (!isCapacitorIOS()) return;
   try {
-    const { token } = await plugin.voipToken();
+    const { token } = await anrufNativ.voipToken();
     if (!token) return;
     await request<void>('/voip/token', {
       method: 'DELETE',

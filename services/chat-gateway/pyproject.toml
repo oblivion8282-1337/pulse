@@ -13,7 +13,17 @@ dependencies = [
     "pydantic-settings>=2.4",
     "pyjwt[crypto]>=2.10",
     "redis>=5.0",
-    "httpx>=0.27",
+    # http2-Extra ist PFLICHT, nicht Komfort: die APNs-Anbieter-Schnittstelle
+    # spricht ausschliesslich HTTP/2, und der VoIP-Push geht direkt dorthin
+    # (apns_voip.py — Firebase kann `apns-push-type: voip` nicht). Ohne das
+    # Extra fehlt `h2`, und httpx wirft beim Erzeugen des Klienten.
+    #
+    # Hier stand in der ersten Fassung von Punkt 40 die Annahme, `h2` komme
+    # ohnehin über `firebase-admin` mit. Im uv.lock steht es auch so — im
+    # INSTALLIERTEN Container-Environment war es nicht da, und der erste echte
+    # Sendeversuch scheiterte an einem ImportError. Ein Lockfile-Eintrag ist
+    # keine Zusage über das, was im Image liegt.
+    "httpx[http2]>=0.27",
     "structlog>=24.4",
     "websockets>=13.0",
     "pillow>=11.0",

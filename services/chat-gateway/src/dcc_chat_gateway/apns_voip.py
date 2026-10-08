@@ -21,9 +21,15 @@ VoIP-Pushes ganz.
 läuft wie bisher über die WebSocket. Ein fehlender Schlüssel darf keinen
 Anruf verhindern, der sonst zustande käme.
 
-**Keine neue Abhängigkeit:** ``httpx`` mit HTTP/2 (``h2`` zieht
-``firebase-admin`` selbst mit) und ``pyjwt[crypto]`` liegen schon im
-Environment.
+**Eine Abhängigkeit kam dazu, und zwar notwendig:** ``httpx[http2]``. Die
+APNs-Anbieter-Schnittstelle spricht ausschliesslich HTTP/2, es gibt keinen
+HTTP/1.1-Weg. Hier stand zuerst „keine neue Abhängigkeit, ``h2`` zieht
+``firebase-admin`` selbst mit" — im ``uv.lock`` sieht das auch so aus, im
+INSTALLIERTEN Container-Environment war ``h2`` aber nicht da, und der erste
+echte Sendeversuch scheiterte an einem ``ImportError``. **Lokal war es
+vorhanden**, deshalb lief derselbe Test auf der Entwicklermaschine und nicht
+auf dem Server. Ein Lockfile-Eintrag ist keine Zusage über das, was im Image
+liegt. ``pyjwt[crypto]`` lag wirklich schon da.
 """
 
 from __future__ import annotations
@@ -211,8 +217,14 @@ async def senden(*, zugang: ApnsZugang, geraete_token: str, nutzlast: dict) -> s
             antwort = await klient.post(
                 url, json=nutzlast, headers=kopfzeilen(zugang, jwt_mit_vorrat(zugang))
             )
-    except Exception:  # noqa: BLE001 — Push ist best-effort
-        log.warning("apns_voip_sendefehler")
+    except Exception as fehler:  # noqa: BLE001 — Push ist best-effort
+        # **Die Ausnahme-ART gehört ins Log, der Text NICHT.** Ohne die Art
+        # stand hier nur „apns_voip_sendefehler", und genau das kostete am
+        # 2026-10-08 eine Fehlersuche: die Ursache war ein fehlendes `h2`-Paket
+        # im Container (ImportError), und das hätte eine Zeile verraten. Der
+        # TEXT bleibt draussen, weil httpx-Fehler die URL mitführen — und in
+        # der URL steht der Gerätetoken (Projektregel: niemals Tokens loggen).
+        log.warning("apns_voip_sendefehler art=%s", type(fehler).__name__)
         return "warn"
     grund: str | None = None
     if antwort.status_code != 200:

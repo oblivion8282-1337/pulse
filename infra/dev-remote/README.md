@@ -65,9 +65,22 @@ an der falschen Stelle:
 
 Die Images `pulsetest-*:local` sind seit dem Umbau nur noch
 Abhängigkeits-Träger: sie liefern `/app/.venv`, der Quellcode kommt von außen.
-`uv.lock` ist zuletzt am 2026-09-18 gewandert (Commit `23e2dff1`) — die
-vorhandenen Images vom 2026-08-16 sind damit **veraltet** und müssen nach dem
-Checkout-Update (unten) einmal neu gebaut werden.
+`uv.lock` ist zuletzt am **2026-10-08** gewandert: der chat-gateway hängt
+seither an `httpx[http2]`, weil die APNs-Anbieter-Schnittstelle ausschliesslich
+HTTP/2 spricht (VoIP-Pushes, iOS-Punkt 40). **Das Image von `pulsetest-chat`
+wurde dafür am 2026-10-08 neu gebaut** — und der Anlass ist lehrreich: im
+`uv.lock` sah es so aus, als käme `h2` ohnehin über `firebase-admin` mit, und
+lokal war es auch da. Im Container nicht, und der erste echte Sendeversuch
+scheiterte an einem `ImportError`. Ein Lockfile-Eintrag ist keine Zusage über
+das, was im Image liegt.
+
+Der Bau-Parameter ist relativ zu `services/`, nicht der Pfad:
+
+```bash
+cd ~/pulse-test/repo && docker build -f Dockerfile.service \
+  --build-arg SVC_DIR=chat-gateway --build-arg SVC_PKG=dcc_chat_gateway \
+  -t pulsetest-chat:local .
+```
 
 Wenn doch einmal nötig: `~/pulse-test/repo` ist ein **alter Git-Checkout**, den
 `dev-sync.sh` bewusst nicht anfasst (der Sync überträgt nur Quellcode, keine
@@ -153,6 +166,66 @@ CLOUD_ATTACHMENT_MIME_PREFIXES=
 MediaMTX und MinIO spiegeln die Origin von sich aus zurück (nachgemessen:
 `access-control-allow-origin: http://localhost:5173`), WHEP und presignte
 S3-URLs funktionieren aus dem lokalen Vite deshalb ohne nginx-Eingriff.
+
+### 1b. APNs-Schlüssel für VoIP-Pushes (seit 2026-10-08, iOS-Punkt 40)
+
+Anrufe erreichen ein iPhone nur über einen **VoIP-Push**, und der geht nicht
+über Firebase: die Firebase-Schnittstelle kann `apns-push-type: voip` nicht
+setzen. Der chat-gateway spricht dafür direkt mit `api.push.apple.com`
+(`apns_voip.py`). Dafür braucht er Apples `.p8` **auf dem Server** — in der
+Firebase-Konsole liegt es für diesen Weg wirkungslos.
+
+```bash
+# Schlüssel neben die JWT-Schlüssel legen (der Container liest /secrets, uid 10001;
+# 0644 wie jwt_private.pem, sonst kommt uid 10001 nicht heran)
+scp AuthKey_<KEYID>.p8 michael@77.42.71.166:~/pulse-test/secrets/
+ssh michael@77.42.71.166 'chmod 644 ~/pulse-test/secrets/AuthKey_<KEYID>.p8'
+```
+
+Dann in `~/pulse-test/.env`:
+
+```
+APNS_KEY_FILE=/secrets/AuthKey_<KEYID>.p8
+APNS_KEY_ID=<KEYID>
+APNS_TEAM_ID=6FRUC2UST8
+APNS_BUNDLE_ID=com.howispulse.app
+APNS_SANDBOX=true
+```
+
+**`APNS_SANDBOX` ist keine Kleinigkeit.** Ein Gerätetoken gehört zu GENAU EINER
+Umgebung. Ein Entwicklungs-Bau (`aps-environment = development`, so steht es
+heute in `App.entitlements`) liefert Sandbox-Tokens, und die Produktions-Adresse
+weist sie mit `BadDeviceToken` ab — was aussieht wie ein kaputter Token und
+keine falsche Adresse ist. Für einen Store-Bau auf `false`.
+
+Danach `docker compose up -d --force-recreate chat-gateway` (eine
+`env_file`-Änderung wirkt erst beim Neuerzeugen, nicht beim `--reload`).
+
+**Fehlt der Schlüssel, ändert sich nichts** — der Anruf läuft wie vorher über
+die WebSocket, und wer keine offene Verbindung hat, verpasst ihn. Fail-open an
+jeder Stelle; eine Fehlkonfiguration darf keinen Anruf verhindern, der sonst
+zustande käme.
+
+**Prüfen, ob der Schlüssel gilt, ohne ein Gerät zu brauchen:** einen Push an
+einen absichtlich falschen Gerätetoken schicken. `BadDeviceToken` heisst, die
+ANMELDUNG war in Ordnung (nur der Token war falsch); `InvalidProviderToken`
+oder `ExpiredProviderToken` heisst, an Schlüssel, Key-ID oder Team-ID stimmt
+etwas nicht.
+
+```bash
+ssh michael@77.42.71.166 'docker exec pulsetest_chat python -c "
+import asyncio, httpx
+from dcc_chat_gateway import apns_voip
+from dcc_chat_gateway.config import get_settings
+z = apns_voip.zugang_aus_einstellungen(get_settings())
+async def m():
+    async with httpx.AsyncClient(http2=True, timeout=15.0) as k:
+        a = await k.post(apns_voip.host_fuer(z.sandbox) + \"/3/device/\" + \"0\"*64,
+                         json={}, headers=apns_voip.kopfzeilen(z, apns_voip.jwt_bauen(z)))
+    print(a.status_code, a.text[:100])
+asyncio.run(m())
+"'
+```
 
 ### 2. Compose einspielen
 
