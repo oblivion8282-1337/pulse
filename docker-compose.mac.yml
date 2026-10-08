@@ -1,0 +1,38 @@
+# macOS-Aufsatz für den lokalen Dev-Stack.
+#
+# **Wofür.** Docker Desktop für macOS hat kein echtes Host-Networking:
+# `network_mode: host` meint dort die Linux-VM, nicht den Mac. Container, die
+# darauf bauen, sind vom Mac aus unerreichbar — und sie sagen ihre VM-interne
+# Adresse als Verbindungsziel an. Ein Sprachkanal scheitert dann mit
+# „could not establish signal connection: Failed to fetch", was wie ein Fehler
+# der App aussieht und keiner ist.
+#
+# Dieser Aufsatz ersetzt Host-Networking durch VERÖFFENTLICHTE Ports — und
+# zwar nur auf 127.0.0.1, damit der Dev-Stack nicht im WLAN steht.
+#
+# Aufruf:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.mac.yml \
+#       --profile voice up -d
+#
+# MediaMTX hat einen eigenen Aufsatz, weil es in einem eigenen
+# Compose-Projekt lebt: `streaming/server/docker-compose.mac.yml`.
+#
+# **Was damit NICHT geht:** Voice von einem zweiten Gerät (Handy) gegen diesen
+# Stack. Die ICE-Ansage ist die Loopback-Adresse, und voice-signaling reicht
+# den Klienten `ws://localhost:7880`. Für ein zweites Gerät bräuchte es die
+# LAN-Adresse — und dagegen steht der Riegel in voice-signaling, der mit den
+# Repo-Dev-Schlüsseln keine nicht-lokale URL annimmt. Gleiche Lage wie auf
+# Windows (CLAUDE.md, `pnpm dev:local`).
+
+services:
+  livekit:
+    # Ersetzt `network_mode: host` aus der Haupt-Datei. Ohne diese Zeile
+    # lehnt Compose die `ports` unten ab (beides zusammen ist verboten).
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:7880:7880"
+      - "127.0.0.1:7881:7881"
+      - "127.0.0.1:7882-7892:7882-7892/udp"
+    volumes:
+      - ./infra/livekit/livekit.mac.yaml:/etc/livekit/livekit.yaml:ro

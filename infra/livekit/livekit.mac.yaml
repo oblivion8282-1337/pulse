@@ -1,0 +1,52 @@
+# macOS-Fassung der LiveKit-Dev-Konfiguration.
+#
+# **Warum es sie gibt.** Der reguläre Dev-Stack fährt LiveKit mit
+# `network_mode: host`. Auf Linux heisst das „der Rechner, auf dem Docker
+# läuft". Auf Docker Desktop für macOS heisst es „die Linux-VM" — und die ist
+# ein anderer Rechner: Der Container sieht sich als 192.168.65.3, kein Port
+# ist nach aussen offen, und vom Mac aus antwortet 7880 nie. Ein Sprachkanal
+# scheitert dann mit „could not establish signal connection: Failed to fetch",
+# was wie ein Fehler der App aussieht und keiner ist.
+#
+# Diese Datei gehört zu `docker-compose.mac.yml` im Wurzelverzeichnis, das
+# dieselben Ports statt dessen VERÖFFENTLICHT (nur auf 127.0.0.1 — der Stack
+# soll nicht im WLAN stehen).
+#
+# **Was damit nicht geht:** Voice vom Handy gegen diesen Stack. Die ICE-Ansage
+# unten ist die Loopback-Adresse, und voice-signaling reicht den Klienten
+# `ws://localhost:7880`; beides erreicht kein zweites Gerät. Dafür bräuchte es
+# die LAN-Adresse, und dagegen steht der Riegel in voice-signaling, der mit
+# den Repo-Dev-Schlüsseln keine nicht-lokale URL annimmt. Gleiche Lage wie auf
+# Windows (s. CLAUDE.md, `pnpm dev:local`).
+
+port: 7880
+
+rtc:
+  tcp_port: 7881
+  # Use a small UDP port range to keep iptables rules manageable. See
+  # memory/feedback_docker_ports.md — never expand this without switching
+  # to network_mode: host.
+  port_range_start: 7882
+  port_range_end: 7892
+  use_external_ip: false
+  # Feste Ansage auf die Loopback-Adresse: sonst nennt LiveKit seine
+  # VM-interne 192.168.65.3 als ICE-Kandidat, und kein Klient erreicht sie.
+  node_ip: 127.0.0.1
+
+keys:
+  devkey: devsecretdevsecretdevsecretdevsecret
+
+# Voice-Präsenz: LiveKit signiert jeden Webhook mit einem JWT aus dem
+# `api_key` unten. **Hier NICHT 127.0.0.1**: im Bridge-Netz ist das der
+# Container selbst, die Anwesenheits-Meldungen liefen ins Leere und die
+# Teilnehmerliste bliebe stehen. `host.docker.internal` ist das Tor zum Mac.
+webhook:
+  api_key: devkey
+  urls:
+    - http://host.docker.internal:8003/webhook
+
+log_level: info
+
+room:
+  enable_remote_unmute: true
+  max_participants: 50

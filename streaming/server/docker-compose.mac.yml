@@ -1,0 +1,47 @@
+# macOS-Aufsatz für den MediaMTX-Dev-Stack. Begründung wie im
+# Wurzel-`docker-compose.mac.yml`: Docker Desktop kennt kein echtes
+# Host-Networking, der Container wäre vom Mac aus unerreichbar.
+#
+# Aufruf:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.mac.yml up -d
+#
+# **Das Fork-Image muss lokal vorliegen.** GHCR verlangt eine Anmeldung; ohne
+# sie endet der Pull mit 403. Selbst bauen (dauert ein paar Minuten, die
+# Patches und die Go-Tests des Forks laufen dabei mit):
+#
+#     docker build -t ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7 \
+#       infra/mediamtx-fork
+#
+# Danach prüfen, was WIRKLICH läuft — der Tag sagt das nicht (s. Kommentar in
+# der Haupt-Datei): `docker logs streaming-mediamtx | head -1` muss
+# `v1.19.1-dirty` zeigen. „dirty" ist hier das Gütesiegel: es heisst, dass die
+# Patches im Baum sind. Ein sauberes `v1.19.1` wäre der Upstream.
+
+services:
+  mediamtx:
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:8889:8889"     # WebRTC/WHEP (HTTP)
+      - "127.0.0.1:8189:8189/udp" # WebRTC ICE
+      - "127.0.0.1:9997:9997"     # API — media-svc pollt /v3/paths/list
+      - "127.0.0.1:1936:1936"     # RTMPS (der Klient nimmt seit 2026-08-18 WHIP)
+    volumes:
+      - ./mediamtx.mac.yml:/mediamtx.yml:ro
+      - ./certs:/certs:ro
+    environment:
+      # **Produktions-Parität (Eigentümer-Entscheid 2026-10-08).** Die
+      # Haupt-Datei lässt FlexFEC bewusst AUS, damit bei der Fehlersuche nicht
+      # zwei Verlust-Maßnahmen gleichzeitig laufen und keine zuzuordnen ist.
+      # Hier steht der Produktionssatz, weil dieser Stack das Verhalten der
+      # Nutzer nachstellen soll. **Wer einem konkreten Bildfehler nachgeht,
+      # schaltet FlexFEC für den Durchgang wieder aus** — sonst sucht er im
+      # Nebel. Die Messreihe dazu steht in `infra/prod/docker-compose.yml`.
+      PULSE_KEYFRAME_INTERVAL: "0"
+      PULSE_DEPENDENCY_DESCRIPTOR: "1"
+      PULSE_KEYFRAME_ON_DISCARD: "1"
+      PULSE_VIDEO_REORDER_BUFFER: "128"
+      PULSE_FLEXFEC: "1"
+      PULSE_FLEXFEC_MEDIA: "10"
+      PULSE_FLEXFEC_FEC: "2"
+      PULSE_FLEXFEC_ADAPTIV: "1"

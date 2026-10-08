@@ -1,0 +1,120 @@
+# macOS-Fassung der MediaMTX-Dev-Konfiguration.
+#
+# **Warum es sie gibt.** Der reguläre Dev-Stack fährt MediaMTX mit
+# `network_mode: host`. Auf Linux ist das der Rechner selbst; auf Docker
+# Desktop für macOS ist es die Linux-VM — ein anderer Rechner. Kein Port ist
+# vom Mac aus offen, und MediaMTX würde seine VM-interne Adresse als
+# WebRTC-Kandidat ansagen. Übertragen und Zuschauen scheitern dann beide,
+# ohne dass irgendwo ein Fehler steht.
+#
+# Gehört zu `streaming/server/docker-compose.mac.yml`, das dieselben Ports
+# VERÖFFENTLICHT statt Host-Networking zu nehmen — und nur auf 127.0.0.1:
+# der Stack soll nicht im WLAN stehen.
+#
+# **Was damit nicht geht:** Zuschauen oder Übertragen von einem zweiten Gerät
+# (Handy). Alles hängt an der Loopback-Adresse. Gleiche Lage wie auf Windows
+# (s. CLAUDE.md, `pnpm dev:local`).
+#
+# Gegenüber `mediamtx.yml` sind genau ZWEI Zeilen anders, beide unten am Ort
+# begründet. Alles andere wird von dort übernommen — wer die Haupt-Datei
+# ändert, muss hier nachsehen.
+
+logLevel: info
+logDestinations: [stdout]
+
+# Schreibpuffer je Leser, in Paketen (Default 512). Ein 60-fps-Stream mit
+# FlexFEC-Paritaet liegt bei ~900-1100 Paketen je Sekunde und Zuschauer; ein
+# Zuschauer, der eine halbe Sekunde stockt (WLAN, Tab im Hintergrund), riss
+# mit dem Default die Queue („reader is too slow“ im Log) — MediaMTX verwirft
+# dann Pakete, der Zuschauer fragt per NACK/PLI nach, und aus einem kurzen
+# Stocken wird ein sichtbarer Ruckler samt Vollbild. 2048 traegt rund zwei
+# Sekunden Rueckstand (~3 MB je Zuschauer bei 12 Mbit/s) — Speicher gegen
+# Ruckeln, und der Speicher ist hier billig.
+writeQueueSize: 2048
+
+# RTMP-Ingest — RTMPS-only auf :1936. Plain RTMP :1935 ist aus, weil media-svc
+# nur rtmps://-URLs ausgibt (sonst wäre der Publish-Token im Klartext).
+# Braucht ein self-signed Cert-Pair unter streaming/server/certs/server.{crt,key}
+# (in den Container nach /certs/ gemounted). Wenn du das noch nicht hast:
+#   cd streaming/server && mkdir -p certs && \
+#     openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+#       -keyout certs/server.key -out certs/server.crt \
+#       -subj "/CN=localhost"
+rtmp: yes
+rtmpEncryption: strict
+rtmpsAddress: :1936
+rtmpServerCert: /certs/server.crt
+rtmpServerKey: /certs/server.key
+
+# HLS Low-Latency
+# HLS AUS (2026-08-03). Es wird auf diesem Weg von niemandem gelesen — der
+# Zuschauer kommt ueber WHEP —, und mit `PULSE_KEYFRAME_INTERVAL=0`
+# (Intra-Refresh) ist es aktiv schaedlich: HLS kann ein Segment nur an einem
+# Keyframe abschliessen. Ohne regelmaessige Keyframes waechst es bis zur
+# Grenze, der Muxer stuerzt ab ("reached maximum segment size") und faengt von
+# vorn an — gemessen alle rund 66 Sekunden, dauerhaft, mit Lastspitze bei
+# jedem Neustart.
+#
+# `hlsAlwaysRemux: yes` machte es schlimmer: damit baut MediaMTX die Segmente
+# auch dann, wenn niemand zusieht. Wer HLS zurueckholt, sollte zumindest das
+# ausschalten — und wissen, dass es mit Intra-Refresh nicht zusammengeht.
+# (Produktion hat HLS seit 2026-08-03 ebenfalls aus — hier stand laenger
+# faelschlich das Gegenteil.)
+hls: no
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 200ms
+hlsPartDuration: 100ms
+
+# WebRTC / WHEP (kein Audio auf dem RTMP/FLV-Pfad wegen AAC-Limit; SRT trägt Opus)
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+# Wie prod (infra/prod/mediamtx.yml): `yes` würde bei network_mode:host JEDE
+# Host-Schnittstelle als ICE-Kandidat anbieten — Docker-Bridges (172.x) und die
+# link-local `fe80::…`. Der Viewer verplempert dann seine ersten ICE-Runden auf
+# unerreichbaren Kandidaten (`deadline exceeded`), bevor der erreichbare dran
+# ist. Lokal ist der Viewer immer derselbe Host → 127.0.0.1 genügt und ist
+# eindeutig.
+# Von einem ANDEREN Gerät im LAN testen? Dann hier die LAN-IP dieses Rechners
+# ergänzen — sonst kennt der Viewer keinen erreichbaren Kandidaten.
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts:
+  - 127.0.0.1
+
+# API NUR auf localhost (media-svc pollt /v3/paths/list darüber)
+api: yes
+# macOS-Unterschied 1: Im Container muss die API auf ALLEN Schnittstellen
+# lauschen, sonst erreicht die Port-Veröffentlichung sie nicht. Abgeschottet
+# bleibt sie trotzdem — Docker bindet sie draussen nur an 127.0.0.1 des Macs
+# (s. docker-compose.mac.yml).
+apiAddress: :9997
+
+# Disable RTSP — RTMP + SRT reichen
+rtsp: no
+
+# SRT-Ingest für Opus-Audio-Pfad (RTMP/FLV kann nur AAC)
+# Push-streamid: publish:<path>:pulse:<stream-token>
+srt: yes
+srtAddress: :8890
+
+# === AUTH ===
+# HTTP-delegierte Authentifizierung an den Pulse mediamtx-auth-hook.
+authMethod: http
+# macOS-Unterschied 2: Im Bridge-Netz ist `localhost` der Container selbst —
+# der Auth-Hook läuft aber auf dem Mac. Ohne diese Zeile wird JEDE
+# Veröffentlichung und jedes Zuschauen abgewiesen.
+authHTTPAddress: http://host.docker.internal:8005/
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+paths:
+  # Pulse HQ-Channel-Streams heißen `channel-<snowflake>`. Erlaubt/abgelehnt
+  # wird jede Connection vom auth-hook — hier reicht der Default-Eintrag, damit
+  # MediaMTX die (dynamischen) Pfade überhaupt akzeptiert. Nicht-`channel-*`-
+  # Pfade lehnt der Hook ab.
+  all_others:
