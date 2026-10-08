@@ -570,6 +570,13 @@
      --safe-bottom) verwenden, nie env() direkt. */
   --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
   --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  /* Seitlich — erst seit dem 2026-10-08 nötig und deshalb vorher nicht da:
+     bis dahin war die iOS-Hülle auf Hochformat gelockt, und im Hochformat
+     sind links und rechts null. Mit dem Querformat fürs Stream-Vollbild
+     (Punkt 27) wandert die Aussparung an eine SEITE, und die schwebende
+     Stream-Steuerung sass darunter. Dieselbe Kette wie oben. */
+  --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
 
   /* Glas-Palette
      Hell ist KEINE Spiegelung von dunkel. Bis 2026-07-20 waren Flächen und

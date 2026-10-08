@@ -227,7 +227,7 @@ beim Bauen nicht mitgezogen wird, kostet später eine Doppelprüfung.
 |---|---|---|
 | 41 | Share-Empfang (Safari/Fotos → Pulse, Share-Extension in Swift) | M–L |
 | 42 | Face-ID-App-Lock | M |
-| 43 | iPad: Split-View/Sides nutzen (`--safe-area-inset-left/right` fehlen) | M |
+| 43 | iPad: Split-View/Sides nutzen — **die seitlichen Einzüge sind seit 2026-10-08 da** (`--safe-left`/`--safe-right` in `app.css`, dieselbe Kette wie oben/unten; der `AppDelegate` injizierte alle vier schon). Nötig wurden sie durch Punkt 27: solange die Hülle auf Hochformat gelockt war, sind links und rechts null — im Querformat wandert die Aussparung an eine SEITE, und genau dort sitzt die schwebende Stream-Steuerung (`TileMobilSteuerung`, vier Ecken halten jetzt Abstand). **Offen bleibt der eigentliche iPad-Teil:** Split-View und Stage Manager ändern die Fenstergröße ohne Lagewechsel, und die Einzüge werden heute bei `didBecomeActive` und bei einer Drehung nachgelesen — nicht bei einer Größenänderung. Das bräuchte einen `traitCollection`- bzw. `viewWillTransition`-Haken | M |
 | 44 | Quick Actions (Home-Screen-Long-Press) | S |
 | 45 | Widgets + App Intents (ungelesene PMs, „sende X …") | L |
 | 46 | TestFlight-Distribution + iOS-CI-Lane (GH Actions → xcodebuild → upload) | M |
