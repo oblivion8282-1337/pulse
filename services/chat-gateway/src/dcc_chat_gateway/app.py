@@ -222,6 +222,7 @@ async def lifespan(app: FastAPI):
     cloud_policy_task: asyncio.Task | None = None
     jwks_retry: asyncio.Task | None = None
     remote_audit: asyncio.Task | None = None
+    anzeigename_task: asyncio.Task | None = None
     owns_manager = False
     if getattr(app.state, "skip_redis", False):
         # Tests pre-wire connection_manager onto the app — leave it alone.
@@ -283,6 +284,12 @@ async def lifespan(app: FastAPI):
         # den Betreiber wirkungslos — die Instanz lief unbeirrt weiter
         # (beobachtet 2026-07-27, s. suspend_poller.py).
         if settings.pulse_instance_mode == "self-host" and settings.pulse_instance_id:
+            # Server-Name an die Cloud — beim Start und alle 6 h (instance_name.py).
+            from dcc_chat_gateway.instance_name import abgleich_loop
+
+            anzeigename_task = asyncio.create_task(
+                abgleich_loop(_routes_ws_ops.SessionLocal), name="dcc-anzeigename-abgleich"
+            )
             suspend_poller = asyncio.create_task(
                 suspend_poller_loop(
                     redis, settings.pulse_cloud_origin, settings.pulse_instance_id
@@ -383,7 +390,7 @@ async def lifespan(app: FastAPI):
             bg_tasks = (
                 supervisor, reaper, push_cleanup, idle_sweeper,
                 voice_pull_reaper, jwks_poller, suspend_poller, cloud_policy_task,
-                jwks_retry, dropbox_sweep_task, remote_audit,
+                jwks_retry, dropbox_sweep_task, remote_audit, anzeigename_task,
             )
             for task in bg_tasks:
                 if task is None:

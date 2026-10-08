@@ -234,6 +234,12 @@ class Settings(BaseSettings):
     # a mirror or internal proxy if they can't reach howispulse.com directly.
     pulse_cloud_origin: str = "https://howispulse.com"
 
+    # Instanz-Zugangsdaten bei der Cloud (Self-Host; dieselben, mit denen sich
+    # der direct-adapter im Heartbeat ausweist). Nur für die Meldung des
+    # Server-Namens (instance_name.py). Leer = keine Meldung. NIE loggen.
+    pulse_cloud_client_id: str = ""
+    pulse_cloud_client_secret: str = ""
+
     # Public web-app origin (this instance's own). Used to build user-facing
     # links inside messages — e.g. the rejoin invite in the unban DM, which the
     # client renders as a join card. Shared ``APP_BASE_URL`` env with auth-svc's
