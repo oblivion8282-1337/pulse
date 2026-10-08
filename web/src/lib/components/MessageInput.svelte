@@ -40,6 +40,7 @@
   import { applyComposerAction } from '$lib/shortcuts/composerActions';
   import { isElectron } from '$lib/platform/runtime';
   import { haptikTicken } from '$lib/platform/haptik';
+  import { sendungGezaehlt } from '$lib/platform/bewertung';
   import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
   import { drafts } from '$lib/stores/drafts.svelte';
   import { untrack } from 'svelte';
@@ -404,6 +405,7 @@
       const melden = (ok: boolean): void => {
         if (ok) {
           haptikTicken(); // Erst der gemeldete Erfolg tickt — kein Tick bei Fehlversuch
+          sendungGezaehlt(); // Bewertungsfrage im richtigen Moment (s. bewertungRegel.ts)
           text = '';
           anhaenge.nachDemSenden();
           mentionOverlay?.clear();
@@ -418,6 +420,7 @@
     }
     onSend(markupValue, ids, anhaenge.anhaenge);
     haptikTicken(); // Optimistischer Weg: der Abgang zählt als Erfolg
+    sendungGezaehlt();
     text = '';
     anhaenge.nachDemSenden();
     mentionOverlay?.clear();

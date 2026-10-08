@@ -45,6 +45,17 @@ nativ verdrahtet — das moderne Hybrid-Modell.
 1. `mobile/capacitor.config.json`: `server.url = https://howispulse.com/app`,
    `cleartext: false` — keine Dev-URL im Baum (Prüfung: `git diff` leer auf der Datei).
 2. `npx cap sync ios` + Release-Build in Xcode (Debug-Flag `CAPACITOR_DEBUG` prüfen).
+   **Danach den Hand-Patch erneut setzen**: `cap sync` erzeugt
+   `App/App/capacitor.config.json` neu und kennt dabei nur die npm-Plugins —
+   die EIGENEN Swift-Plugins fallen aus `packageClassList` heraus. Es sind
+   zwei: `AudioSessionPlugin` und `ReviewPlugin`. Fehlen sie, baut alles
+   durch, und erst am Gerät merkt man, dass Audio-Steuerung und
+   Bewertungsfrage nichts tun.
+   **Achtung, der Patch reist nicht mit:** die erzeugte Datei ist
+   gitignored. Auf einer frischen Maschine ist die Liste also IMMER
+   unvollständig, auch ohne `cap sync`. (Sauberer wäre, die Liste in
+   `mobile/capacitor.config.json` zu führen und zu prüfen, ob `cap sync` sie
+   stehen lässt — ungetestet, deshalb steht hier weiter der Handgriff.)
 3. Privacy Manifest im Bundle: `App.app/PrivacyInfo.xcprivacy` vorhanden (Build-Produkt).
 4. `web/.cert/` (mkcert) ist gitignored und landet nie im Bundle — die Hülle lädt remote.
 5. Gerätelauf: Tastatur (Composer sichtbar), Zoom (Suche/Felder zoomen nicht), Theme-Wechsel
@@ -115,7 +126,7 @@ am iPhone nötig (ich baue vor) · **Portal** = braucht Michaels Zugänge (Apple
 | 18 | Mitteilungs-Aktion „Antworten" — **NEU ZUGESCHNITTEN 2026-10-08 (Eigentümer).** Der ursprüngliche Punkt (Bild im Banner, entschlüsselte Vorschau) ist mit E2E-DMs **grundsätzlich nicht baubar**: eine Notification Service Extension ist ein eigener Prozess, kommt nicht an die IndexedDB der WebView, und das Geräte-Geheimnis ist `extractable: false`. Sie könnte weder Bild noch Text zeigen. Gebaut ist, was ohne Entschlüsselung geht: `UNTextInputNotificationAction` im AppDelegate (Kategorie `dm`, wortgleich mit `fcm.py::DM_KATEGORIE`) — der im Banner getippte Text wird als ENTWURF hinterlegt und im aufgehenden Chat gesendet, nicht im Ereignis-Handler. Dazu der Anhang-Hinweis: „Hat dir einen Anhang geschickt" statt „Neue Nachricht", wenn Bezugszeilen vorliegen (der Server weiss das, den Inhalt nie). **Eine Hintergrund-Aktion wie „Gelesen" braucht erst Punkt 35** — ohne Token in der Keychain erreicht nativer Code den Server nicht. Offen: nativer Neubau | M | Gerät |
 | 19 | Zeitkritische Pushs + Sounds — **FERTIG**: `apns-interruption-level: time-sensitive` + eigener Sound `pulse-push.caf` (im Bundle, Copy-Resources), Entitlement `com.apple.developer.usernotifications.time-sensitive` | ✅ | Gerät ✓ |
 | 20a | **Server: Stale-WS-Erkennung** — **FERTIG**: `ConnectionManager.stale_socket_reaper_loop` (Schwelle 95 s gegen den 25-s-Client-Ping), `user_socket_count` zählt nur frische Sockets. Im Hintergrund suspendierte Apps hielten sonst halboffene WebSockets, die der Gateway Minuten als online zählte und dabei Pushes unterdrückte | ✅ | Server |
-| 20b | Review-Prompt | — → Store-Review-API am richtigen Moment (nach erfolgreichem Senden) | S | Sim-Gate |
+| 20b | Review-Prompt — **GEBAUT 2026-10-08, braucht nativen Neubau.** Eigenes Swift-Plugin (`ReviewPlugin.swift`) statt Fremdpaket (Eigentümer-Entscheid): der Inhalt ist ein Systemaufruf. Gefragt wird NICHT nach jedem Senden, sondern nach 20 gesendeten Nachrichten und danach nie wieder von selbst (`platform/bewertungRegel.ts`, geprüft) — iOS zeigt die Frage höchstens dreimal im Jahr und sagt nie, ob sie erschien; jeder Aufruf verbraucht also blind ein knappes Kontingent, und bei jedem Senden zu fragen verschiesst es genau dann, wenn der Nutzer die App noch nicht kennt. **Die Oberfläche darf aus dem Aufruf nichts schliessen** — ein „Danke für deine Bewertung" danach wäre eine Lüge | S | Gerät |
 
 ## Etappe 3 — Audio nativ
 
