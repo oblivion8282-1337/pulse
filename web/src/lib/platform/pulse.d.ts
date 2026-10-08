@@ -352,6 +352,10 @@ export interface PulseHostApi {
   stop(): Promise<void>;
   /** Server-App beenden (wie der Tray-Eintrag „Beenden"). */
   quit(): Promise<void>;
+  /** Server-Name lesen (Server-App, 2026-10-08). */
+  serverName(): Promise<{ ok: boolean; name?: string | null; error?: string }>;
+  /** Server-Name setzen; leer = zurücksetzen. */
+  setServerName(name: string): Promise<{ ok: boolean; name?: string | null; error?: string }>;
   /** Letztes Phasen-Ereignis abrufen (Snapshot, kein Subscribe). */
   getStatus(): Promise<HostPhaseEvent>;
   /** Zustands-Abgleich mit dem echten Container (überlebt App-Neustarts

@@ -25,6 +25,9 @@ const UI_EN = {
   'Server läuft.': 'Server is running.',
   'Server wird gestoppt …': 'Server is stopping …',
   'Pause: ': 'Paused: ',
+  'Gespeichert — Mitglieder sehen den Namen gleich.': 'Saved — members will see the name shortly.',
+  'Nicht gespeichert: ': 'Not saved: ',
+  'unbekannt': 'unknown',
   'Update gescheitert — alte Fassung wird wiederhergestellt …': 'Update failed — restoring the previous version …',
   'Server wird gestartet …': 'Server is starting …',
   'Einrichten …': 'Setting up …',
@@ -328,6 +331,21 @@ async function doImport() {
   }
 }
 
+// Den Namen EINMAL je Live-Gang laden — sonst überschriebe jeder Refresh,
+// was der Nutzer gerade tippt.
+let serverNameGeladen = false;
+async function ladeServerName() {
+  if (serverNameGeladen || !host.serverName) return;
+  serverNameGeladen = true;
+  const r = await host.serverName().catch(() => null);
+  if (r && r.ok) $('serverName').value = r.name || '';
+  else serverNameGeladen = false; // Server noch nicht bereit → nächster Refresh
+}
+function serverNameText(text, warn = false) {
+  $('serverNameHint').textContent = text;
+  $('serverNameHint').classList.toggle('warn', warn);
+}
+
 async function refresh() {
   if (!host) { $('statustext').textContent = ui('Fehler: Host-Bridge nicht verfügbar.'); $('dot').className = 'dot err'; return; }
   // Zustands-Abgleich zuerst: hebt die Phase auf 'live', falls der
@@ -343,7 +361,7 @@ async function refresh() {
   const phase = st.phase || 'idle';
   // Übergang in 'live' → Daten-Info ungültig machen (Größe/Backup-Zeit sind
   // genau dann neu zu messen; s. Kommentar an dataInfoLoaded).
-  if (phase === 'live' && letzteGesehenePhase !== 'live') dataInfoLoaded = false;
+  if (phase === 'live' && letzteGesehenePhase !== 'live') { dataInfoLoaded = false; serverNameGeladen = false; }
   letzteGesehenePhase = phase;
   setStatus(phase, st.detail);
   const running = ['preparing', 'going-live', 'live'].includes(phase);
@@ -352,6 +370,8 @@ async function refresh() {
   $('setupRow').classList.toggle('hidden', paired || running || superseded);
   $('btnStartRow').classList.toggle('hidden', !paired || running || superseded);
   $('btnStopRow').classList.toggle('hidden', phase !== 'live');
+  $('nameRow').classList.toggle('hidden', phase !== 'live' || !host.serverName);
+  if (phase === 'live') ladeServerName();
   // Token-Fallback nur, wenn automatische Provisionierung fehl schlug.
   $('pairRow').classList.toggle('hidden', paired || !provisionFailed || superseded);
   $('btnPairRow').classList.toggle('hidden', paired || !provisionFailed || superseded);
@@ -488,6 +508,17 @@ function bind() {
   // "Abmelden": Session-Cookie löschen + zurück zum Login (Main-Prozess
   // navigiert das Fenster). Danach kann sich ein anderer Account anmelden;
   // diese server.html wird dabei verlassen, daher kein Button-Reset im Erfolg.
+  $('btnServerName').onclick = async () => {
+    $('btnServerName').disabled = true;
+    const r = await host.setServerName($('serverName').value).catch((e) => ({ ok: false, error: e.message }));
+    $('btnServerName').disabled = false;
+    if (r && r.ok) {
+      $('serverName').value = r.name || '';
+      serverNameText(ui('Gespeichert — Mitglieder sehen den Namen gleich.'));
+    } else {
+      serverNameText(ui('Nicht gespeichert: ') + ((r && r.error) || ui('unbekannt')), true);
+    }
+  };
   $('btnQuit').onclick = async () => {
     $('btnQuit').disabled = true;
     $('statustext').textContent = ui('Server wird gestoppt …');
@@ -604,6 +635,9 @@ if (SPRACHE !== 'de') {
     'Verbindung prüfen': 'Check connection',
     'Abmelden': 'Sign out',
     'Server-App beenden': 'Quit server app',
+    'Server-Name': 'Server name',
+    'Speichern': 'Save',
+    'So heißt dein Server bei allen, die beigetreten sind. Leer lassen zeigt die Adresse.': 'This is what everyone who joined sees. Leave empty to show the address.',
     'Stoppt auch den Server. Das Fenster zu schließen lässt ihn weiterlaufen.': 'Also stops the server. Closing the window keeps it running.',
     'Anmelden': 'Sign in',
     'Server aufgeben …': 'Shut down server …',
