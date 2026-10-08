@@ -36,6 +36,7 @@ from dcc_shared.snowflake import kennung_aus_text
 
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
+from dcc_auth.instance_status import melde, setze_online
 from dcc_auth.models_instances import (
     InstanceDirectEndpoint,
     RegisteredInstance,
@@ -143,6 +144,8 @@ async def directory_heartbeat(
         )
     )
     await db.commit()
+    # Server läuft: Mitglieder bekommen ihn in die Leiste (nur beim Wechsel).
+    await setze_online(getattr(request.app.state, "redis", None), db, inst, True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -170,6 +173,36 @@ async def directory_offline(body: OfflineIn, request: Request, db: SessionDep) -
         delete(InstanceDirectEndpoint).where(InstanceDirectEndpoint.instance_id == inst.id)
     )
     await db.commit()
+    # Geordneter Stopp: sofort aus der Leiste aller Mitglieder.
+    await setze_online(getattr(request.app.state, "redis", None), db, inst, False)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class AnzeigenameIn(BaseModel):
+    """Der Server meldet den Namen, den ihm sein Betreiber gegeben hat —
+    identische Auth wie der Heartbeat. ``None``/leer = Name entfernt."""
+
+    model_config = ConfigDict(extra="forbid")
+    instance_id: Annotated[str, Field(min_length=1, max_length=32)]
+    token: Annotated[str, Field(min_length=1, max_length=128)]
+    client_id: Annotated[str, Field(max_length=128)] | None = None
+    # 60 wie ``instance_name`` im chat-gateway (schemas.py), dessen Wert hier
+    # ankommt.
+    anzeigename: Annotated[str, Field(max_length=60)] | None = None
+
+
+@router.post("/selfhost/anzeigename", status_code=status.HTTP_204_NO_CONTENT)
+async def setze_anzeigename(body: AnzeigenameIn, request: Request, db: SessionDep) -> Response:
+    """Anzeigename der Instanz setzen und den Mitgliedern melden (idempotent)."""
+    settings = get_settings()
+    await _check_rate(request, "directory_heartbeat", settings.rate_limit_directory_heartbeat)
+    inst = await _authed_instance(db, body.instance_id, body.token, body.client_id)
+    # Steuerzeichen raus, Ränder weg — der Wert landet in jeder Server-Leiste.
+    name = "".join(z for z in (body.anzeigename or "") if z.isprintable()).strip() or None
+    if name != inst.anzeigename:
+        inst.anzeigename = name
+        await db.commit()
+        await melde(getattr(request.app.state, "redis", None), db, inst)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
