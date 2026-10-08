@@ -32,13 +32,9 @@
  */
 
 import { devS3Url } from '$lib/api/devS3Url';
-
-const ERSATZ_DATEINAME = 'anhang';
-
-/** Reiner Kern (für den Test): leerer Name → Ersatzname, s. Modulkopf. */
-export function dateiNameOderErsatz(dateiname: string | null | undefined): string {
-  return dateiname || ERSATZ_DATEINAME;
-}
+// Reiner Kern in eigenem, importfreiem Modul — nur so erreicht ihn Nodes
+// Testläufer (diese Datei hier zieht `devS3Url` über den $lib-Alias nach).
+import { dateiNameOderErsatz } from './dateinameErsatz';
 
 /**
  * Stellt `quelle` als Datei bereit und reicht sie weiter: über das native

@@ -440,7 +440,7 @@ import { Portal } from 'bits-ui';
         {@const box = reserveBox(a)}
         <button
           type="button"
-          class="block max-h-96 w-fit max-w-full md:max-w-md cursor-zoom-in overflow-hidden rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary"
+          class="block max-h-96 w-fit max-w-[min(28rem,100%)] cursor-zoom-in overflow-hidden rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary"
           style={box}
           onclick={() => openLightbox(a)}
           data-testid="attachment-image"

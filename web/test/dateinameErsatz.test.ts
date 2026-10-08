@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { dateiNameOderErsatz } from '../src/lib/platform/dateiTeilen.ts';
+import { dateiNameOderErsatz } from '../src/lib/platform/dateinameErsatz.ts';
 
 test('leerer Dateiname fällt auf den Ersatznamen zurück', () => {
 	// Ohne download-Namen navigiert der Anker-Klick in die blob:-Adresse

@@ -1756,6 +1756,9 @@ class VoiceRoom {
     // leaves call-mode after we hang up. No-op off Capacitor-Android.
     void setVoiceActive(false);
     void iosVoiceAktiv(false);
+    // Wake-Lock freigeben, BEVOR die Referenz fällt — sonst bleibt das Display
+    // für die restliche Sitzung an (der Griff ist dann nicht mehr erreichbar).
+    this.#releaseWakeLock?.();
     this.#releaseWakeLock = null;
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.#onVisible);
