@@ -63,6 +63,32 @@ nativ verdrahtet — das moderne Hybrid-Modell.
    im App-Umschalter, Self-Host-Server im Heimnetz erreichbar (Local-Network-Dialog kommt).
 6. Version + Build-Nummer im Target hochsetzen; Upload über Xcode-Organizer (TestFlight).
 
+### Bau und Installation von der Kommandozeile (2026-10-08 so gefahren)
+
+    cd mobile/ios/App
+    xcodebuild -project App.xcodeproj -scheme App -configuration Debug \
+      -destination 'id=<UDID>' -derivedDataPath build-device \
+      -allowProvisioningUpdates DEVELOPMENT_TEAM=6FRUC2UST8 CODE_SIGN_STYLE=Automatic build
+    xcrun devicectl device install app --device <COREDEVICE-ID> \
+      build-device/Build/Products/Debug-iphoneos/App.app
+
+**Zwei Stolpersteine, beide haben je einen Anlauf gekostet:**
+1. **`DEVELOPMENT_TEAM` steht nirgends im Projekt.** Ohne die Zuweisung auf
+   der Kommandozeile bricht der Bau mit „Signing for 'App' requires a
+   development team" ab — in Xcode wählt man es von Hand. Für die
+   CI-Lane (Punkt 46) muss es ins Projekt oder in eine `xcconfig`.
+2. **`devicectl` und `xcodebuild` führen VERSCHIEDENE Gerätenummern.**
+   `xcrun devicectl list devices` liefert die CoreDevice-Kennung (für
+   `install`), `xcrun xctrace list devices` die UDID (für `-destination`).
+   Die eine in die andere Stelle gesetzt gibt „Unable to find a device
+   matching the provided destination specifier" — mit einer Liste, in der
+   nur Simulatoren stehen, was in die Irre führt.
+
+**Und eine Prüf-Falle:** Das gebaute Binary trägt KEINE Symboltabelle.
+`strings`/`nm` finden darin weder die eigenen Plugins noch `AppDelegate` —
+das beweist nichts. Ob eine Quelldatei wirklich übersetzt wurde, zeigt
+`build-device/Build/Intermediates.noindex/App.build/.../Objects-normal/arm64/<Name>.o`.
+
 ## UI-Tests (XCUITest, seit 2026-10-06)
 
 `mobile/ios/App/AppUITests/UITests.swift` — kompletter Sendefluss (Anmeldung
@@ -123,7 +149,7 @@ am iPhone nötig (ich baue vor) · **Portal** = braucht Michaels Zugänge (Apple
 | 15 | Push-Basis PM/Erwähnung — **FERTIG 2026-10-06, am Gerät verifiziert**: APNs-Keys (Sandbox&Production-Key D4X4VN6JF2 in Firebase Dev+Prod-Zeile), Entitlement, FCM-Weg für iOS-Hülle geöffnet, Token-Registrierung + Banner am Gerät bestätigt. Notwendig dafür war zusätzlich: FIREBASE_SERVICE_ACCOUNT_KEY am Gateway (dev-up) und Garage/MinIO-Port-Frieden im Dev-Stack | ✅ | Gerät ✓ |
 | 16 | Universal Links — **GEBAUT 2026-10-08, braucht Neubau + Deploy.** Beansprucht sind NUR Chat-Pfade (`/app/@me/*`, `/app/rooms/*`, `/app/guilds/*`, Eigentümer-Entscheid) — die übrige Web-App bleibt im Browser erreichbar. Team ID `6FRUC2UST8` aus dem Provisioning-Profil. Datei liegt in `web/static/.well-known/`; **der eigene nginx-Block ist Pflicht**, weil sie absichtlich keine Dateiendung trägt und nginx ihr sonst nicht `application/json` gibt — iOS holt sie dann ab, verwirft sie still, und nichts funktioniert ohne Fehlermeldung. Klient-Seite: `platform/universalLinks.ts` über `platform/tiefenlink.ts` (geprüft, 7 Tests: fremde Herkunft, http, Pfade ausserhalb `/app`, `/appetit`-Präfixfalle). **Offen: Entitlement wirkt erst nach nativem Neubau, AASA erst nach Web-Deploy** | M | Gerät + Deploy |
 | 17 | Icon-Badge — **FERTIG 2026-10-08, am Gerät verifiziert.** Gezählt werden ungelesene NACHRICHTEN der privaten Gespräche. Die Zahl reist im Push mit (`aps.badge`), weil die JS-Engine im Hintergrund eingefroren ist; der Server führt sie als Fortschreibung je Konto (`badgezaehler.py`), der wache Klient korrigiert sie über `POST /fcm/badge`. Zwei Fallen, beide am Gerät gefunden: der Klient darf seine 0 erst melden, wenn der Postfach-Abholweg durch ist (sonst löscht „weiss ich nicht" den richtigen Stand), und `latestByChannel` muss aus dem `ready`-Rahmen gesät werden (sonst ist `isUnread` beim Start immer false und die App zeigt nirgends eine Marke) | ✅ | Gerät ✓ |
-| 18 | Mitteilungs-Aktion „Antworten" — **NEU ZUGESCHNITTEN 2026-10-08 (Eigentümer).** Der ursprüngliche Punkt (Bild im Banner, entschlüsselte Vorschau) ist mit E2E-DMs **grundsätzlich nicht baubar**: eine Notification Service Extension ist ein eigener Prozess, kommt nicht an die IndexedDB der WebView, und das Geräte-Geheimnis ist `extractable: false`. Sie könnte weder Bild noch Text zeigen. Gebaut ist, was ohne Entschlüsselung geht: `UNTextInputNotificationAction` im AppDelegate (Kategorie `dm`, wortgleich mit `fcm.py::DM_KATEGORIE`) — der im Banner getippte Text wird als ENTWURF hinterlegt und im aufgehenden Chat gesendet, nicht im Ereignis-Handler. Dazu der Anhang-Hinweis: „Hat dir einen Anhang geschickt" statt „Neue Nachricht", wenn Bezugszeilen vorliegen (der Server weiss das, den Inhalt nie). **Eine Hintergrund-Aktion wie „Gelesen" braucht erst Punkt 35** — ohne Token in der Keychain erreicht nativer Code den Server nicht. Offen: nativer Neubau | M | Gerät |
+| 18 | Mitteilungs-Aktion „Antworten" — **NEU ZUGESCHNITTEN 2026-10-08 (Eigentümer).** Der ursprüngliche Punkt (Bild im Banner, entschlüsselte Vorschau) ist mit E2E-DMs **grundsätzlich nicht baubar**: eine Notification Service Extension ist ein eigener Prozess, kommt nicht an die IndexedDB der WebView, und das Geräte-Geheimnis ist `extractable: false`. Sie könnte weder Bild noch Text zeigen. Gebaut ist, was ohne Entschlüsselung geht: `UNTextInputNotificationAction` im AppDelegate (Kategorie `dm`, wortgleich mit `fcm.py::DM_KATEGORIE`) — der im Banner getippte Text wird als ENTWURF hinterlegt und im aufgehenden Chat gesendet, nicht im Ereignis-Handler. Dazu der Anhang-Hinweis: „Hat dir einen Anhang geschickt" statt „Neue Nachricht", wenn Bezugszeilen vorliegen (der Server weiss das, den Inhalt nie). **Eine Hintergrund-Aktion wie „Gelesen" braucht erst Punkt 35** — ohne Token in der Keychain erreicht nativer Code den Server nicht. **Am Gerät 2026-10-08:** Bau, Installation und Start verifiziert (iPhone 16 Pro), Anhang-Hinweis im Banner bestätigt. Die Antworten-Aktion ist registriert und ausgeliefert, eine ausdrückliche Gegenprobe am Banner steht noch aus | M | Gerät (teilweise ✓) |
 | 19 | Zeitkritische Pushs + Sounds — **FERTIG**: `apns-interruption-level: time-sensitive` + eigener Sound `pulse-push.caf` (im Bundle, Copy-Resources), Entitlement `com.apple.developer.usernotifications.time-sensitive` | ✅ | Gerät ✓ |
 | 20a | **Server: Stale-WS-Erkennung** — **FERTIG**: `ConnectionManager.stale_socket_reaper_loop` (Schwelle 95 s gegen den 25-s-Client-Ping), `user_socket_count` zählt nur frische Sockets. Im Hintergrund suspendierte Apps hielten sonst halboffene WebSockets, die der Gateway Minuten als online zählte und dabei Pushes unterdrückte | ✅ | Server |
 | 20b | Review-Prompt — **GEBAUT 2026-10-08, braucht nativen Neubau.** Eigenes Swift-Plugin (`ReviewPlugin.swift`) statt Fremdpaket (Eigentümer-Entscheid): der Inhalt ist ein Systemaufruf. Gefragt wird NICHT nach jedem Senden, sondern nach 20 gesendeten Nachrichten und danach nie wieder von selbst (`platform/bewertungRegel.ts`, geprüft) — iOS zeigt die Frage höchstens dreimal im Jahr und sagt nie, ob sie erschien; jeder Aufruf verbraucht also blind ein knappes Kontingent, und bei jedem Senden zu fragen verschiesst es genau dann, wenn der Nutzer die App noch nicht kennt. **Die Oberfläche darf aus dem Aufruf nichts schliessen** — ein „Danke für deine Bewertung" danach wäre eine Lüge | S | Gerät |
