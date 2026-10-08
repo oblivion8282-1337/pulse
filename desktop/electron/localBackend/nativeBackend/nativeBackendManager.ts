@@ -32,6 +32,7 @@ import {
   templatesDir,
 } from './paths.ts';
 import { ensureNativeSecrets } from './secrets.ts';
+import { NativeLivekitIp, oeffentlicheIpFuerStart } from './livekitIp.ts';
 import { renderNativeEnv } from './envContract.ts';
 import {
   renderLivekitYaml,
@@ -113,6 +114,7 @@ export class NativeBackendManager {
   private processes: SupervisedProcess[] = [];
   /** run/ des laufenden Baums — stop() räumt dort die PID-Dateien weg. */
   private runDir: string | null = null;
+  private livekitIp: NativeLivekitIp | null = null;
 
   /** Oberflächen-Parität mit ContainerBackendManager — main.ts ruft setzeCreds
    *  auf beiden Managern auf. Nativ ohne Wirkung: es gibt keinen Abschieds-Call
@@ -208,7 +210,8 @@ export class NativeBackendManager {
     const caddyfilePath = join(dirs.run, 'Caddyfile');
     const weedS3JsonPath = join(dirs.run, 'weed-s3.json');
     const garnetConfPath = join(dirs.run, 'garnet.conf');
-    writeFileSync(livekitYamlPath, renderLivekitYaml(secrets, NATIVE_PORTS.voice), { encoding: 'utf-8' });
+    const oeffentlicheIp = await oeffentlicheIpFuerStart();
+    writeFileSync(livekitYamlPath, renderLivekitYaml(secrets, NATIVE_PORTS.voice, oeffentlicheIp), { encoding: 'utf-8' });
     writeFileSync(mediamtxYmlPath, renderMediamtxYml(publicHostname, dirs.certs, NATIVE_PORTS.mtxHook), { encoding: 'utf-8' });
     writeFileSync(caddyfilePath, renderCaddyfile(NATIVE_PORTS.caddyHttp, NATIVE_PORTS.caddyDesktop, templatesDir()), { encoding: 'utf-8' });
     const signingKey = randomBytes(32).toString('base64');
@@ -266,6 +269,11 @@ export class NativeBackendManager {
     for (const spec of restSpecs) {
       const proc = new SupervisedProcess(spec);
       this.processes.push(proc);
+      if (spec.name === 'livekit') {
+        this.livekitIp = new NativeLivekitIp({
+          yamlPfad: livekitYamlPath, secrets, voicePort: NATIVE_PORTS.voice, prozess: proc, gesetzt: oeffentlicheIp,
+        });
+      }
       mitPidDatei(proc, dirs.run, spec.name, spec.command);
       await proc.start();
     }
@@ -287,10 +295,16 @@ export class NativeBackendManager {
       await proc.stop().catch(() => {});
     }
     this.processes = [];
+    this.livekitIp = null;
     // Gestoppt heißt: keine PID-Datei mehr. Bliebe sie stehen, zielte der
     // nächste Start (womöglich nach einem Neustart mit recycelten PIDs) auf
     // fremde Prozesse.
     if (this.runDir) loeschePidDateien(this.runDir);
+  }
+
+  /** Öffentliche IP ↔ LiveKit nachziehen (livekitIp.ts). */
+  async abgleichOeffentlicheIp(): Promise<string> {
+    return this.livekitIp ? this.livekitIp.abgleichen() : 'nicht-zustaendig';
   }
 
   /** give-up "Server aufgeben": Prozesse stoppen, Daten LÖSCHEN. */

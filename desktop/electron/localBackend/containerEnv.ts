@@ -103,13 +103,18 @@ export function resolveImage(env: Record<string, string | undefined> = process.e
  *  WSL-Mirrored-Modus also im LAN; unter Linux ist er zwar nicht
  *  veröffentlicht, aber ohne Nutzen. Der Dienst liest
  *  `PULSE_UDP_GATEWAY_DISABLED=true` und bleibt dann untätig; ein Image ohne
- *  diesen Schalter ignoriert die Zeile. */
+ *  diesen Schalter ignoriert die Zeile.
+ *
+ *  `oeffentlicheIp` (nur Linux): die öffentliche IPv4 als feste LiveKit-
+ *  `node_ip` (05-init-livekit.sh → pulse-livekit-node-ip). Ein Image ohne
+ *  diese Behandlung ignoriert die Zeile und bleibt beim STUN-Weg. */
 export function renderContainerEnv(
   creds: BootstrapCreds,
   adminEmail?: string,
   lanIps: string[] = [],
   vmAnnounceIp?: string,
   udpGatewayAus = false,
+  oeffentlicheIp?: string,
 ): string {
   const hostname = creds.relaySubdomain ?? creds.hostname;
   const lines = [
@@ -141,6 +146,9 @@ export function renderContainerEnv(
   // durchkommt (Windows-Voice-Fall 2026-10-01).
   if (vmAnnounceIp) lines.push(`PULSE_VM_ANNOUNCE_IP=${vmAnnounceIp}`);
   if (udpGatewayAus) lines.push('PULSE_UDP_GATEWAY_DISABLED=true');
+  // Öffentliche IPv4 als feste LiveKit-node_ip (Linux, oeffentlicheIp.ts) —
+  // Stichtag ist der Start; Wechsel zieht der Abgleich im Betrieb nach.
+  if (oeffentlicheIp) lines.push(`PULSE_PUBLIC_IPV4=${oeffentlicheIp}`);
   // Relay-Zeilen nur, wenn ALLE drei Werte da sind (Bestandsinstanzen) —
   // leere PULSE_RELAY_*-Strings gälten im Image als "Relay konfiguriert";
   // das Erkennungsmuster ist FEHLENDE Variablen.

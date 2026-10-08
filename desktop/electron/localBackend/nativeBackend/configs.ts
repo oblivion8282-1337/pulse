@@ -20,7 +20,10 @@ import { NATIVE_PORTS, NATIVE_MEDIA_PORTS } from './types.ts';
 import type { NativeSecrets } from './types.ts';
 import { templatesDir } from './paths.ts';
 
-export function renderLivekitYaml(secrets: NativeSecrets, voicePort: number): string {
+/** `oeffentlicheIp` gesetzt: feste `node_ip` statt STUN — LiveKit schaltet
+ *  sonst Firefox auf „nur öffentliche Adresse" um, und ein Firefox-Gast im
+ *  selben Heimnetz scheitert am fehlenden Hairpin-NAT (oeffentlicheIp.ts). */
+export function renderLivekitYaml(secrets: NativeSecrets, voicePort: number, oeffentlicheIp?: string): string {
   return `port: ${NATIVE_PORTS.livekitApi}
 # Signal/Twirp-API nur auf Loopback — von außen kommt man ausschließlich über
 # Caddy (/livekit, erreicht über frpc oder den direct-adapter, beide lokal).
@@ -33,10 +36,12 @@ rtc:
   tcp_port: ${NATIVE_PORTS.livekitRtcTcp}
   port_range_start: ${NATIVE_MEDIA_PORTS.livekitUdpStart}
   port_range_end: ${NATIVE_MEDIA_PORTS.livekitUdpEnd}
-  # Nativ: STUN sieht die echte öffentliche IP, kein WSL-Doppel-NAT davor —
-  # der Standardweg wie auf einem VPS (livekit.yaml.template: use_external_ip).
-  use_external_ip: true
-  skip_external_ip_validation: true
+  # Öffentliche Adresse: fest vorgegeben, wenn die Server-App sie ermitteln
+  # konnte (s. renderLivekitYaml-Kommentar); sonst STUN in LiveKit selbst —
+  # nativ sieht STUN die echte öffentliche IP, kein WSL-Doppel-NAT davor.
+${oeffentlicheIp
+    ? `  use_external_ip: false\n  node_ip: ${oeffentlicheIp}`
+    : '  use_external_ip: true\n  skip_external_ip_validation: true'}
   advertise_internal_ip: true
   # IPv6-Kandidaten unterdrücken — gleiche Begründung wie im Template
   # (Fritz!Box blockt eingehendes IPv6 → Gäste hängen nur in Timeouts).
