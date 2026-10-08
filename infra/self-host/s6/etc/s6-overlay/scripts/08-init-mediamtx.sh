@@ -6,6 +6,30 @@ DATA="${PULSE_DATA_PATH:-/data}"
 CERT_DIR="${DATA}/certs"
 TEMPLATE=/opt/pulse/templates/mediamtx.yml.template
 
+# Zusätzliche Host-Kandidaten des App-Hosts als fertige YAML-Zeile (oder
+# nichts). $1 = PULSE_VM_ANNOUNCE_IP, $2 = PULSE_DIRECT_EXTRA_HOST_IPS
+# (kommagetrennt, so schreibt sie containerEnv.ts), $3 = die eigenen
+# Interface-Adressen des Containers (leerzeichengetrennt, `hostname -I`).
+# Nur IPv4 kommt durch — der ICE-Socket ist auf 0.0.0.0 gebunden, eine
+# IPv6-Ankündigung liefe ins Leere. Was der Container schon selbst sieht
+# (pasta: echte LAN-IP am Interface), steuert webrtcIPsFromInterfaces bei
+# und fällt hier als Doppel heraus.
+zusatz_kandidaten_zeile() {
+    _liste=""
+    for _ip in $1 $(printf '%s' "${2:-}" | tr ',' ' '); do
+        case "$_ip" in
+            *[!0-9.]* | *..* | *.*.*.*.* | .* | *. ) continue ;;
+            *.*.*.*) ;;
+            *) continue ;;
+        esac
+        case " ${3:-} " in *" $_ip "*) continue ;; esac
+        case ", $_liste, " in *", $_ip, "*) continue ;; esac
+        _liste="${_liste:+$_liste, }$_ip"
+    done
+    [ -n "$_liste" ] && printf 'webrtcAdditionalHosts: [%s]\n' "$_liste"
+    return 0
+}
+
 # Self-signed cert for MediaMTX RTMPS (rtmpsAddress :1936). Idempotent —
 # only generated on first start. Self-host operators that want a real cert
 # can drop their own ${CERT_DIR}/mediamtx.{crt,key} into the data volume.
@@ -149,14 +173,23 @@ EOF
                 printf '  - url: stun:%s\n' "${stun}"
             done
         } >> /etc/mediamtx/mediamtx.yml
-        # VM-Betrieb (Win/podman-machine): Interfaces = VM-intern (172.x),
-        # srflx = WAN hinter WSL-Doppel-NAT — beides für fremde Geräte tot
-        # (gleiches Bild wie bei LiveKit, s. 05-init-livekit.sh). Die Host-
-        # LAN-IP kommt als zusätzlicher Kandidat dazu; die Pakete erreichen
-        # den :8189-Socket über das Host-UDP-Relay auf genau dieser Adresse.
-        if [ -n "${PULSE_VM_ANNOUNCE_IP:-}" ]; then
-            printf 'webrtcAdditionalHosts: [%s]\n' "${PULSE_VM_ANNOUNCE_IP}" >> /etc/mediamtx/mediamtx.yml
-        fi
+        # Host-LAN-IPs als zusätzliche Kandidaten. Zwei Fälle, ein Weg:
+        # - VM-Betrieb (Win/podman-machine, PULSE_VM_ANNOUNCE_IP): Interfaces =
+        #   VM-intern (172.x), srflx = WAN hinter WSL-Doppel-NAT — beides für
+        #   fremde Geräte tot (gleiches Bild wie bei LiveKit, s.
+        #   05-init-livekit.sh). Die Pakete erreichen :8189 über das Host-UDP-
+        #   Relay auf genau dieser Adresse.
+        # - Linux mit Docker-Bridge: das Interface trägt nur 172.17.x, srflx
+        #   ist die WAN-Adresse — ein zweites Gerät im WLAN bekäme ohne
+        #   Hairpin am Router keinen Stream. Die Host-LAN-IPs
+        #   (PULSE_DIRECT_EXTRA_HOST_IPS, setzt die Server-App auf allen
+        #   Plattformen) treffen den per `-p 8189:8189/udp` veröffentlichten
+        #   Port.
+        # Unter pasta sieht der Container die LAN-IP selbst; das Doppel fällt
+        # in zusatz_kandidaten_zeile heraus.
+        zusatz_kandidaten_zeile "${PULSE_VM_ANNOUNCE_IP:-}" \
+            "${PULSE_DIRECT_EXTRA_HOST_IPS:-}" "$(hostname -I 2>/dev/null || true)" \
+            >> /etc/mediamtx/mediamtx.yml
     else
         # ---- VPS-Self-Host: öffentlich erreichbar, der Hostname IST der Server ----
         # Der einzige brauchbare Host-Kandidat ist der öffentliche Hostname —
