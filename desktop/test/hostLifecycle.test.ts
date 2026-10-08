@@ -179,3 +179,39 @@ test('applyUpdate: Backend-Fehler → something-paused (kein throw)', async () =
   await hl.applyUpdate();
   assert.equal(hl.getStatus().phase, 'something-paused');
 });
+
+// Scan 2026-10-08: Kontowechsel + host:me-Abgleich riefen start() fast
+// gleichzeitig — nativ liefen danach zwei Postgres auf demselben Datenverzeichnis.
+test('zwei gleichzeitige start() fahren das Backend genau einmal hoch', async () => {
+  let starts = 0;
+  let freigeben!: () => void;
+  const tor = new Promise<void>((r) => { freigeben = r; });
+  const hl = new HostLifecycle(fakeDeps({
+    startBackend: async () => { starts++; await tor; },
+  }), { holePunch: true });
+  const a = hl.start();
+  const b = hl.start();
+  freigeben();
+  await Promise.all([a, b]);
+  assert.equal(starts, 1);
+  assert.equal(hl.getStatus().phase, 'live');
+  // Nach dem Ende ist ein neuer Start wieder ein echter Start.
+  await hl.start();
+  assert.equal(starts, 2);
+});
+
+test('stop() mitten im Start wartet die Sequenz ab und endet idle', async () => {
+  const reihenfolge: string[] = [];
+  let freigeben!: () => void;
+  const tor = new Promise<void>((r) => { freigeben = r; });
+  const hl = new HostLifecycle(fakeDeps({
+    startBackend: async () => { await tor; reihenfolge.push('gestartet'); },
+    stopBackend: async () => { reihenfolge.push('gestoppt'); },
+  }), { holePunch: true });
+  const lauf = hl.start();
+  const halt = hl.stop();
+  freigeben();
+  await Promise.all([lauf, halt]);
+  assert.deepEqual(reihenfolge, ['gestartet', 'gestoppt']);
+  assert.equal(hl.getStatus().phase, 'idle');
+});

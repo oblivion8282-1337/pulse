@@ -48,6 +48,9 @@ const UI_EN = {
   'Einrichtung fehlgeschlagen: ': 'Setup failed: ',
   'Verbinden fehlgeschlagen: ': 'Pairing failed: ',
   'Start fehlgeschlagen: ': 'Start failed: ',
+  'Die Windows-Abfrage wurde abgebrochen — WSL2 ist nicht installiert.': 'The Windows prompt was cancelled — WSL2 is not installed.',
+  'WSL2 ist installiert. Bitte Windows neu starten und danach den Server starten.': 'WSL2 is installed. Please restart Windows, then start the server.',
+  'WSL2 ließ sich nicht installieren.': 'WSL2 could not be installed.',
   'Export fehlgeschlagen: ': 'Export failed: ',
   'Backup gespeichert.': 'Backup saved.',
   'Backup importiert.': 'Backup imported.',
@@ -442,7 +445,18 @@ function bind() {
       $('btnStart').disabled = true;
       const wsl = await host.setupWindows().catch(() => null);
       $('btnStart').disabled = false; refresh();
-      if (!wsl || wsl.ok !== true) return;
+      // Abbruch und Neustart-Bedarf benennen statt still zurückzukehren
+      // (Scan 2026-10-08: ein abgebrochenes UAC galt vorher als Erfolg).
+      if (wsl && wsl.neustartNoetig) {
+        alert(ui('WSL2 ist installiert. Bitte Windows neu starten und danach den Server starten.'));
+        return;
+      }
+      if (!wsl || wsl.ok !== true) {
+        alert(ui(wsl && wsl.abgebrochen
+          ? 'Die Windows-Abfrage wurde abgebrochen — WSL2 ist nicht installiert.'
+          : 'WSL2 ließ sich nicht installieren.'));
+        return;
+      }
     }
     $('btnStart').disabled = true;
     await host.start({}).catch((e) => alert(ui('Start fehlgeschlagen: ') + e.message));
