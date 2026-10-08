@@ -17,7 +17,7 @@
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { suchnorm, namePasst } from '$lib/utils/suche';
-  import { serversStore } from '$lib/api/servers.svelte';
+  import { serversStore, istSichtbar } from '$lib/api/servers.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { guildIconSrc } from '$lib/guildIcon';
@@ -82,7 +82,8 @@
     });
   });
 
-  let server = $derived(serversStore.servers);
+  // Gestoppte Heim-Server nicht (lib/servers/anzeige.ts, Entscheid 2026-10-08).
+  let server = $derived(serversStore.servers.filter(istSichtbar));
   let mehrereServer = $derived(server.length > 1);
 
   // ---- Suche über die EIGENEN Communities (nur die, in denen man drin ist —

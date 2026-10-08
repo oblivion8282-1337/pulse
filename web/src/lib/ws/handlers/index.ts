@@ -25,6 +25,7 @@ import * as anrufe from './anrufe';
 import * as ready from './ready';
 import * as error from './error';
 import * as admin from './admin';
+import * as instanzen from './instanzen';
 
 export type { HandlerContext } from './context';
 export type { ReadyContext } from './ready';
@@ -50,4 +51,5 @@ export function registerAllHandlers(
   anrufe.register(ctx);
   error.register();
   admin.register();
+  instanzen.register();
 }

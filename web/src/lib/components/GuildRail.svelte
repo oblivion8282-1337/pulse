@@ -49,6 +49,7 @@
   import {
     serversStore,
     serverDisplayName as resolveServerName,
+    istSichtbar,
     type ServerEntry
   } from '$lib/api/servers.svelte';
   import { leaveAndRemoveServer, notifyLeaveOutcome } from '$lib/api/server-removal';
@@ -422,7 +423,9 @@
          Server-Label + Status-Dot. Darunter die Communitys DIESES Servers,
          dann ein "+" zum Anlegen einer neuen Community auf DIESEM Server. Am
          Ende globaler "+ Server"-Button für Self-Host-Add. -->
-    {#each serversStore.servers as server, sectionIdx (server.id)}
+    <!-- Gestoppte Heim-Server stehen nicht in der Leiste (istSichtbar,
+         lib/servers/anzeige.ts — Entscheid 2026-10-08: für alle). -->
+    {#each serversStore.servers.filter(istSichtbar) as server, sectionIdx (server.id)}
       {@const isActiveServer = activeServer.serverId === server.id}
       {@const sectionGuilds = serverGuilds.get(server.id)}
       {@const sState = serverState.get(server.id).state}

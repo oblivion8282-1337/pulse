@@ -76,6 +76,11 @@ export interface Instance {
    *  Optional, weil ein älterer Cloud-Stand das Feld noch nicht schickt; wird
    *  dort wie `false` behandelt (s. `hydrateFromBackend`). */
   set_up?: boolean;
+  /** Vom Betreiber vergebener Name (der Server meldet ihn der Cloud) —
+   *  `null` = keiner. Optional: ältere Cloud schickt das Feld nicht. */
+  anzeigename?: string | null;
+  /** Nur Heim-Server (`app_host`): läuft er? `null` = unbekannt (VPS). */
+  online?: boolean | null;
 }
 
 /** Spiegelt ApplicationOut (Admin-Route — trägt applicant_username). */
