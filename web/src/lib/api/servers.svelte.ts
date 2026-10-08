@@ -22,6 +22,8 @@ import { isElectron } from '$lib/platform/runtime';
 import { normalizeHostname } from '$lib/utils/hostname';
 import { instancesApi } from '$lib/api/instances';
 import { neueUuid } from '$lib/utils/uuid';
+import { anzeigeName, istSichtbar } from '$lib/servers/anzeige';
+import { instanzNachzug } from '$lib/servers/instanzNachzug';
 import type { PulseStoreApi } from '$lib/platform/pulse';
 
 export type ServerEntry = {
@@ -60,6 +62,11 @@ export type ServerEntry = {
   // (2026-08-27). Auswertung: ``lib/servers/erstellrecht.ts``.
   // null = unbekannt (Alt-Eintrag oder Cloud).
   role?: 'owner' | 'member' | null;
+  // Name und Online-Zustand aus der CLOUD (/me/instances + instance_status,
+  // 2026-10-08) — Regeln in lib/servers/anzeige.ts. Beide optional:
+  // Alt-Einträge und ältere Clouds kennen sie nicht (= unbekannt).
+  anzeigename?: string | null;
+  online?: boolean | null;
   notification_mode: 'all' | 'mentions' | 'none';
   added_at: number;           // Date.now() ms
 };
@@ -67,15 +74,18 @@ export type ServerEntry = {
 /**
  * Anzuzeigender Server-Name. Den Namen bestimmt allein der Server-Admin —
  * ein Nutzer kann einen Server, auf dem er ist, NICHT selbst umbenennen.
- * Vorrang:
+ * Vorrang (Regel und Begründung: lib/servers/anzeige.ts):
  *  1. Cloud: der feste „Pulse Cloud"-Name (``label``).
- *  2. Self-Host: der vom Admin gesetzte Instanz-Name (``server_name``),
+ *  2. Self-Host: der Name aus der Cloud (``anzeigename``), dann der aus dem
+ *     letzten ready-Rahmen (``server_name``),
  *  3. sonst der Hostname (URL).
  */
 export function serverDisplayName(entry: ServerEntry): string {
-  if (entry.isCloud) return entry.label;
-  return entry.server_name || entry.hostname;
+  return anzeigeName(entry);
 }
+
+/** Steht der Server in der Leiste? (gestoppte Heim-Server nicht, s. anzeige.ts) */
+export { istSichtbar };
 
 export const CLOUD_HOSTNAME = 'https://howispulse.com';
 const CLOUD_LABEL = 'Pulse Cloud';
@@ -305,6 +315,24 @@ class ServersStore {
     }
   }
 
+  /** Live-Stand eines Heim-Servers aus der Cloud (`instance_status`, oder
+   *  eine belastbare Telefonbuch-Messung). Kein Treffer = Server nicht in
+   *  dieser Liste (noch nicht eingerichtet/entfernt) — nichts zu tun. */
+  setzeInstanzStatus(
+    instanceId: string,
+    stand: { online?: boolean; anzeigename?: string | null },
+  ): ServerEntry | undefined {
+    const e = this.servers.find((s) => s.instance_id === instanceId);
+    if (!e) return undefined;
+    const online = stand.online ?? e.online ?? null;
+    const anzeigename = 'anzeigename' in stand ? (stand.anzeigename ?? null) : (e.anzeigename ?? null);
+    if (online === (e.online ?? null) && anzeigename === (e.anzeigename ?? null)) return e;
+    this.servers = this.servers.map((s) => (s.id === e.id ? { ...s, online, anzeigename } : s));
+    saveToStorage(this.servers);
+    this._notifyChange();
+    return this.find(e.id);
+  }
+
   find(serverId: string): ServerEntry | undefined {
     return this.servers.find((s) => s.id === serverId);
   }
@@ -374,52 +402,12 @@ class ServersStore {
         );
 
         if (existing) {
-          // Bereits gelistet → den geräteübergreifenden Notification-Modus
-          // (Cloud = Quelle der Wahrheit) nachziehen, falls er hier abweicht.
-          // Der Name kommt NICHT von hier — den bestimmt der Server-Admin.
-          //
-          // Der Hostname sehr wohl: bei App-Host-Servern wechselt er vom
-          // synthetischen Platzhalter auf die Relay-Subdomain, sobald das
-          // Gerät gepaart ist. Ohne Nachziehen zeigt ein einmal gespeicherter
-          // Eintrag für immer auf den toten Platzhalter-Host.
-          const hostChanged = existing.instance_id === inst.id && existing.hostname !== normalized;
-          // Umgekehrt die instance_id: gleicher Hostname, aber andere/fehlende
-          // ID = der Betreiber hat die Instanz unter derselben Adresse NEU
-          // registriert (Löschen + frisches Setup). Ohne Nachziehen bleibt die
-          // ID der ALTEN (gelöschten) Instanz stehen — der Sweep gelöschter
-          // Instanzen (deleted-instance-sweep.ts) entfernt dann einen LEBENDEN
-          // Server, und falsch verdrahtete Einträge werden unsweepbar
-          // (Vorfall 2026-07-14, pulse.unicutmedia.com).
-          const idChanged = existing.hostname === normalized && existing.instance_id !== inst.id;
-          if (
-            hostChanged ||
-            idChanged ||
-            existing.notification_mode !== inst.notification_mode ||
-            existing.origin !== inst.origin ||
-            existing.role !== inst.role
-          ) {
-            this.servers = this.servers.map((s) =>
-              s.id === existing.id
-                ? {
-                    ...s,
-                    hostname: hostChanged ? normalized : s.hostname,
-                    instance_id: idChanged ? inst.id : s.instance_id,
-                    // Default-Label mitheilen: label war nie ein User-Wunsch,
-                    // sondern der Hostname zum Add-Zeitpunkt. Nach einem
-                    // Hostname-Wechsel bliebe sonst für immer das alte
-                    // Platzhalter-/Relay-Label stehen. Custom-Labels
-                    // (label ≠ hostname) bleiben unangetastet.
-                    label: hostChanged && s.label === s.hostname ? normalized : s.label,
-                    notification_mode: inst.notification_mode,
-                    // Herkunft nachziehen (Direct-only-Weiche braucht sie;
-                    // Alt-Einträge haben sie noch nicht).
-                    origin: inst.origin,
-                    // Rolle nachziehen: ein Besitzerwechsel (Owner-Transfer)
-                    // aendert sie, und Alt-Eintraege haben sie noch gar nicht.
-                    role: inst.role,
-                  }
-                : s,
-            );
+          // Bereits gelistet → an den Cloud-Stand angleichen (Hostname,
+          // Instanz-ID, Modus, Herkunft, Rolle, Name, Online — Begründungen
+          // in lib/servers/instanzNachzug.ts).
+          const neu = instanzNachzug(existing, inst, normalized);
+          if (neu) {
+            this.servers = this.servers.map((s) => (s.id === existing.id ? neu : s));
             mutated = true;
           }
           continue;
@@ -454,6 +442,8 @@ class ServersStore {
             origin: inst.origin,
             isCloud: false,
             role: inst.role,
+            anzeigename: inst.anzeigename ?? null,
+            online: inst.online ?? null,
             notification_mode: inst.notification_mode,
             // Die Schleife hat nicht eingerichtete Instanzen oben übersprungen
             // (``inst.set_up === false``) — was hier ankommt, ist eingerichtet,

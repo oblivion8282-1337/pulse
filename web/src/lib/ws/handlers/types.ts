@@ -435,6 +435,13 @@ export type ServerEvent =
         rejection_reason: string | null;
       };
     }
+  // Heim-Server läuft / läuft nicht / heißt jetzt so (auth-svc über
+  // user:events, je Mitglied). Nur von der Cloud-Verbindung angenommen
+  // (handlers/instanzen.ts).
+  | {
+      op: 'instance_status';
+      data: { instance_id: string; online: boolean; anzeigename: string | null };
+    }
   | { op: 'user_blocked'; data: { user_id: string } }
   | { op: 'user_unblocked'; data: { user_id: string } }
   | {

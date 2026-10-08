@@ -62,6 +62,10 @@ const PURE_SOCIAL_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   // auch dann kommen, wenn das Sender-Fenster im Hintergrund liegt.
   'gruppe_lesestand',
   'zustellung_bestaetigt',
+  // Heim-Server an/aus/umbenannt (2026-10-08): kommt nur über die Cloud und
+  // muss auch dann ankommen, wenn gerade ein Self-Host aktiv ist — sonst
+  // bliebe ein gestoppter Server in der Leiste stehen.
+  'instance_status',
 ]);
 
 /**

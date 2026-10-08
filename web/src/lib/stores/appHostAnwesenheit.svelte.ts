@@ -80,6 +80,12 @@ class AppHostAnwesenheit {
     this._running = false;
   }
 
+  /** Stand von außen übernehmen (Push `instance_status`) — zählt wie eine
+   *  frische Messung. */
+  vermerke(instanceId: string, offline: boolean): void {
+    this.eintraege = { ...this.eintraege, [instanceId]: { offline, gemessen: Date.now() } };
+  }
+
   /** Server wurde entfernt → Messung wegwerfen. */
   forget(instanceId: string): void {
     if (!(instanceId in this.eintraege)) return;
@@ -120,6 +126,9 @@ class AppHostAnwesenheit {
         ...this.eintraege,
         [instanceId]: { offline, gemessen: Date.now() },
       };
+      // Belastbare Messung → auch die Leiste (lib/servers/anzeige.ts). Fängt
+      // ein verlorenes `instance_status` ab (WS-Neuaufbau, Cloud-Deploy).
+      serversStore.setzeInstanzStatus(instanceId, { online: !offline });
       return offline;
     } catch {
       /* Netz weg → unbekannt */
