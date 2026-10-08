@@ -23,6 +23,13 @@ interface AudioNodeBundle {
    *  it MediaStreamAudioSourceNode emits nothing for RTCPeerConnection tracks
    *  (known Chromium bug). We never hear it; the audible path is
    *  source → [compressor →] gain → [limiter →] ctx.destination.
+   *  It still follows the chosen output device: Chromium's echo canceller
+   *  listens to ONE output device, and both this element's WebRTC renderer and
+   *  `AudioContext.setSinkId` set that device, last writer wins
+   *  (`webrtc_audio_renderer.cc` / `realtime_audio_destination_handler.cc`,
+   *  M150). Left on the default device, a renderer created after the context
+   *  (everyone left, someone rejoins) points the canceller at the wrong device,
+   *  and the remote voices coming out of the speakers go back out via the mic.
    *  Mobile: this element IS the audible path (unmuted) — see the class doc. */
   anchor: HTMLAudioElement;
   userId: string;
@@ -131,13 +138,14 @@ export class RemoteAudioElements {
     anchor.autoplay = true;
     anchor.srcObject = stream;
     anchor.style.display = 'none';
+    // Both paths: audible on mobile, echo-canceller reference on desktop (see `anchor`).
+    if (this.outputDeviceId) void applySinkId(anchor, this.outputDeviceId);
 
     if (this.#mobile) {
       // The <audio> element IS the audible path — it survives a backgrounded
       // screen lock where an AudioContext would be suspended.
       anchor.muted = this.deafened;
       anchor.volume = this.#elementVolume(userId);
-      if (this.outputDeviceId) void applySinkId(anchor, this.outputDeviceId);
       document.body.appendChild(anchor);
       const node: AudioNodeBundle = {
         source: null,
@@ -241,10 +249,9 @@ export class RemoteAudioElements {
    *  alive while the graph is rebuilt on a fresh context bound to the new sink. */
   async setOutputDevice(deviceId: string): Promise<void> {
     this.outputDeviceId = deviceId;
-    if (this.#mobile) {
-      await Promise.all([...this.#nodes.values()].map((n) => applySinkId(n.anchor, deviceId)));
-      return;
-    }
+    // Both paths: audible on mobile, echo-canceller reference on desktop (see `anchor`).
+    await Promise.all([...this.#nodes.values()].map((n) => applySinkId(n.anchor, deviceId)));
+    if (this.#mobile) return;
     // No context yet → the next attach() builds one already bound to this sink.
     if (!this.#ctx) return;
     const live = [...this.#nodes.entries()].map(([sid, n]) => ({
