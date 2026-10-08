@@ -15,6 +15,13 @@
   import { m } from '$lib/paraglide/messages.js';
   import type { Attachment } from '$lib/api/types';
   import { dateiTeilenOderLaden } from '$lib/platform/dateiTeilen';
+  import {
+    ZOOM_AUS,
+    begrenzeStand,
+    doppeltippStand,
+    pinchStand,
+    type Zoomstand
+  } from './lightboxZoom';
 
   let {
     open = $bindable(false),
@@ -72,6 +79,89 @@
       laeuft = false;
     }
   }
+  // ---- Pinch-/Doppeltipp-Zoom (Roadmap 32) -------------------------------
+  // Die Rechnung steht geprüft in `lightboxZoom.ts`; hier nur die Gesten.
+  // Pointer-Events statt Touch-Events: dieselbe Mechanik trägt Finger, Stift
+  // und Maus, und sie ist das, was WebKit und Chromium gemeinsam können.
+  let zoom = $state<Zoomstand>({ ...ZOOM_AUS });
+  let flaeche = $state<HTMLDivElement | null>(null);
+  const zeiger = new Map<number, { x: number; y: number }>();
+  // `$state`, weil das Markup sie liest: während einer Geste muss der
+  // CSS-Übergang AUS sein, sonst läuft das Bild dem Finger hinterher.
+  let pinchBeginn = $state<{ abstand: number; stand: Zoomstand } | null>(null);
+  let schiebeVon = $state<{ x: number; y: number; stand: Zoomstand } | null>(null);
+  let letzterTipp = 0;
+
+  /** Punkt relativ zur MITTE der Bildfläche — die Bezugsgröße der Rechnung. */
+  function zurMitte(x: number, y: number): { x: number; y: number } {
+    const r = flaeche?.getBoundingClientRect();
+    if (!r) return { x: 0, y: 0 };
+    return { x: x - (r.left + r.width / 2), y: y - (r.top + r.height / 2) };
+  }
+
+  function festzurren(stand: Zoomstand): void {
+    const r = flaeche?.getBoundingClientRect();
+    zoom = begrenzeStand(stand, r?.width ?? 0, r?.height ?? 0);
+  }
+
+  function zeigerRunter(e: PointerEvent): void {
+    zeiger.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (zeiger.size === 2) {
+      const [a, b] = [...zeiger.values()];
+      pinchBeginn = { abstand: Math.hypot(a.x - b.x, a.y - b.y), stand: { ...zoom } };
+      schiebeVon = null;
+      return;
+    }
+    if (zeiger.size !== 1) return;
+    const jetzt = Date.now();
+    // Doppeltipp: zwei Berührungen innerhalb von 300 ms. Kein `dblclick` —
+    // das feuert auf Touch unzuverlässig und erst nach Verzögerung.
+    if (jetzt - letzterTipp < 300) {
+      festzurren(doppeltippStand(zoom));
+      letzterTipp = 0;
+      return;
+    }
+    letzterTipp = jetzt;
+    if (zoom.skala > 1) schiebeVon = { x: e.clientX, y: e.clientY, stand: { ...zoom } };
+  }
+
+  function zeigerBewegt(e: PointerEvent): void {
+    if (!zeiger.has(e.pointerId)) return;
+    zeiger.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinchBeginn && zeiger.size === 2) {
+      const [a, b] = [...zeiger.values()];
+      const abstand = Math.hypot(a.x - b.x, a.y - b.y);
+      // Entartete Geste (beide Finger auf einem Punkt): nichts rechnen, sonst
+      // entsteht ein NaN-Faktor.
+      if (pinchBeginn.abstand <= 0) return;
+      const m = zurMitte((a.x + b.x) / 2, (a.y + b.y) / 2);
+      festzurren(pinchStand(pinchBeginn.stand, abstand / pinchBeginn.abstand, m.x, m.y));
+      return;
+    }
+    if (!schiebeVon || zeiger.size !== 1) return;
+    festzurren({
+      skala: schiebeVon.stand.skala,
+      dx: schiebeVon.stand.dx + (e.clientX - schiebeVon.x),
+      dy: schiebeVon.stand.dy + (e.clientY - schiebeVon.y)
+    });
+  }
+
+  function zeigerHoch(e: PointerEvent): void {
+    zeiger.delete(e.pointerId);
+    if (zeiger.size < 2) pinchBeginn = null;
+    if (zeiger.size === 0) schiebeVon = null;
+  }
+
+  // Beim Schliessen zurücksetzen: das nächste Bild soll nicht im Zoom des
+  // vorigen aufgehen.
+  $effect(() => {
+    if (!open) {
+      zoom = { ...ZOOM_AUS };
+      zeiger.clear();
+      pinchBeginn = null;
+      schiebeVon = null;
+    }
+  });
 </script>
 
 <DialogPrimitive.Root bind:open>
@@ -87,13 +177,38 @@
         {filename ?? m.lightbox_image_preview()}
       </DialogPrimitive.Title>
 
-      <AutoRefreshImage
-        {attachmentId}
-        {src}
-        {alt}
-        {anhang}
-        class="h-full w-full rounded-xl object-contain shadow-2xl"
-      />
+      <!-- Gesten-Fläche. `touch-action: none` ist Pflicht: sonst nimmt der
+           Browser Pinch und Wisch selbst entgegen (Seiten-Zoom, Scroll) und
+           die Pointer-Events kommen nie an. Die Fläche liegt UNTER den
+           Knöpfen (z-Reihenfolge im Markup), damit Schliessen und Speichern
+           bedienbar bleiben. -->
+      <div
+        bind:this={flaeche}
+        class="flex h-full w-full touch-none select-none items-center justify-center overflow-hidden"
+        role="group"
+        aria-label={filename ?? m.lightbox_image_preview()}
+        onpointerdown={zeigerRunter}
+        onpointermove={zeigerBewegt}
+        onpointerup={zeigerHoch}
+        onpointercancel={zeigerHoch}
+        data-testid="lightbox-zoomflaeche"
+      >
+        <div
+          class="h-full w-full"
+          style="transform: translate({zoom.dx}px, {zoom.dy}px) scale({zoom.skala}); transition: {schiebeVon ||
+          pinchBeginn
+            ? 'none'
+            : 'transform 150ms ease-out'};"
+        >
+          <AutoRefreshImage
+            {attachmentId}
+            {src}
+            {alt}
+            {anhang}
+            class="pointer-events-none h-full w-full rounded-xl object-contain shadow-2xl"
+          />
+        </div>
+      </div>
 
       <button
         type="button"

@@ -137,7 +137,7 @@ am iPhone nötig (ich baue vor) · **Portal** = braucht Michaels Zugänge (Apple
 | 29 | Picture-in-Picture | Web-Eckfenster → echtes System-PiP über alle Apps (AVPictureInPictureController) | L | Sim+Gerät |
 | 30 | AirPlay | — → AVRoutePickerView | M | Gerät |
 | 31 | Wake-Lock verifizieren | `navigator.wakeLock` vorhanden → Verhalten im WKWebView am Gerät prüfen, ggf. nativ ersetzen | S | Gerät |
-| 32 | Lightbox Pinch-Zoom | kein Gesture-Code → Pinch/Doppel-Tap-Zoom für Bilder | S | Sim |
+| 32 | Lightbox Pinch-Zoom — **GEBAUT 2026-10-08, Sim-Abnahme offen.** Pinch 1–4x, Doppeltipp schaltet 1x/2x, im Zoom schiebbar, Grenzen so, dass keine leere Fläche einläuft. Rechnung importfrei und geprüft (`components/lightboxZoom.ts`, 6 Tests), Gesten über Pointer-Events (tragen Finger, Stift und Maus; `touch-action: none` ist Pflicht, sonst frisst der Browser Pinch und Wisch selbst). Keine neue Abhängigkeit. **Was die Tests NICHT abdecken: das Gefühl** — Trägheit, Fingertreue beim Pinch, Doppeltipp-Fenster. Das gehört in den Simulator | S | Sim |
 
 ## Etappe 5 — Integrität & Übernahme (angepasst: ohne OAuth)
 
