@@ -28,9 +28,16 @@ rtc:
   # nur LAN-/IPv6-Kandidaten → Voice/Streaming für Externe tot. Ab v1.13.1
   # (mediatransportutil PR #88); am echten App-Host verifiziert 2026-07-13.
   skip_external_ip_validation: true
-  # Öffentliche IPv4 ZUSÄTZLICH zum LAN-Host-Kandidaten ankündigen (pion
-  # Append- statt Replace-Modus) — sonst verlöre der Owner im selben LAN
-  # seinen 192.168er-Weg und hinge am kaputten Hairpin.
+  # Öffentliche IPv4 ZUSÄTZLICH zum Interface-Host-Kandidaten ankündigen (pion
+  # Append- statt Replace-Modus) statt ihn zu ersetzen. Einen LAN-Weg (Owner
+  # im selben Netz, ohne Hairpin am Router) bringt das NUR, wenn der Container
+  # die LAN-IP selbst am Interface sieht — rootless Podman/pasta. Unter der
+  # Docker-Bridge ist die interne Adresse 172.17.x, für ein zweites Gerät im
+  # WLAN unerreichbar. Eine zusätzliche Host-LAN-IP lässt sich hier nicht
+  # nachreichen: bei use_external_ip überschreibt LiveKit die NodeIP mit der
+  # STUN-Adresse, und es gibt nur EINE IPv4 (mediatransportutil, Stand 1.13.3).
+  # MediaMTX hat dafür webrtcAdditionalHosts (08-init-mediamtx.sh), LiveKit
+  # nicht.
   advertise_internal_ip: true
   # IPv6-Kandidaten unterdrücken: Fritz!Box blockt eingehendes IPv6 → Gäste
   # laufen auf v6-Kandidaten nur in Timeouts (bekannter Dauer-Fallstrick,

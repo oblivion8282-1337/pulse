@@ -19,11 +19,13 @@ pub struct Config {
     pub data_path: String,
     pub stun_servers: Vec<String>,
     pub heartbeat_interval_secs: u64,
-    /// LAN-IPs des VM-Hosts (Win/Mac podman machine): der Container sieht nur
-    /// die VM-interne Adresse, die der ip_filter verwirft — ohne diese Liste
-    /// enthielte die Answer dort GAR KEINE Kandidaten. Die Server-App rendert
-    /// sie kommagetrennt in `PULSE_DIRECT_EXTRA_HOST_IPS`; sdp.rs synthetisiert
-    /// daraus Host-Kandidaten (auf Linux dedupliziert gegen die nativen).
+    /// LAN-IPs des Hosts (alle Plattformen): der Container sieht im VM-Fall
+    /// (Win/Mac podman machine) nur die VM-interne, unter der Docker-Bridge nur
+    /// die 172.17er-Adresse, und beide wirft `sdp::strip_unusable_hosts` aus
+    /// der Answer — ohne diese Liste enthielte sie dort GAR KEINE
+    /// Host-Kandidaten. Die Server-App rendert sie kommagetrennt in
+    /// `PULSE_DIRECT_EXTRA_HOST_IPS`; sdp.rs synthetisiert daraus
+    /// Host-Kandidaten (auf Linux dedupliziert gegen die nativen).
     pub extra_host_ips: Vec<std::net::Ipv4Addr>,
 }
 
