@@ -24,7 +24,7 @@
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
   import StreamStatusBar from '$lib/stream/components/StreamStatusBar.svelte';
   import { onMount } from 'svelte';
-  import { isCapacitorAndroid } from '$lib/platform/runtime';
+  import { isCapacitorAndroid, isCapacitorIOS } from '$lib/platform/runtime';
   import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
   import { type AudioRoute } from '$lib/platform/audioRoute';
 
@@ -47,7 +47,9 @@
   // verbundene Bluetooth-Gerät; die Wahl geht als feste Route ans native
   // Routing. Der Stand lebt im geteilten audioRouteState — Einstellungen und
   // Popup sehen jede Änderung der jeweils anderen Stelle sofort.
-  const showAudioRouteToggle = isCapacitorAndroid();
+  // Auch auf iOS: dort gibt es Lautsprecher/Hoermuschel im Menue, die
+  // Geraetewahl bleibt dem System (s. audioRoute.ts::iosWegZuWahl).
+  const showAudioRouteToggle = isCapacitorAndroid() || isCapacitorIOS();
   let routeMenuOffen = $state(false);
   onMount(() => {
     if (!showAudioRouteToggle) return;

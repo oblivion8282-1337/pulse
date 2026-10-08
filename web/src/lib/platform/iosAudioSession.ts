@@ -12,9 +12,43 @@ import { isCapacitorIOS } from './runtime';
  * Browser und Electron: No-op.
  */
 
+/** Ein waehlbarer Ausgabeweg. `id` ist `speaker`, `earpiece` oder die UID
+ *  eines echten Geraets (AirPods, Autoradio, Kabel-Headset). */
+export interface TonWeg {
+  id: string;
+  /** iOS-Porttyp (`BluetoothHFP`, `HeadphonesBT`, `Speaker`, …) bzw. die
+   *  beiden festen Werte `speaker`/`earpiece`. */
+  art: string;
+  name: string;
+}
+
+export interface TonWege {
+  /** Porttyp des AKTIVEN Ausgangs — nicht zwingend eine `id` aus `geraete`. */
+  aktuell: string;
+  aktuellName: string;
+  geraete: TonWeg[];
+}
+
+/** Telefonanruf, Siri, Wecker. */
+export interface Unterbrechung {
+  art: 'begonnen' | 'beendet';
+  /** Nur bei `beendet`: iOS haelt ein Fortsetzen fuer angebracht. */
+  weiterMoeglich?: boolean;
+}
+
 interface AudioSessionPlugin {
   setVoiceActive(options: { aktiv: boolean }): Promise<void>;
   setPlaybackMode(): Promise<void>;
+  routen(): Promise<TonWege>;
+  routeSetzen(options: { id: string }): Promise<void>;
+  addListener(
+    name: 'unterbrechung',
+    cb: (e: Unterbrechung) => void
+  ): Promise<{ remove: () => void }>;
+  addListener(
+    name: 'routeGewechselt',
+    cb: (e: { aktuell: string; aktuellName: string }) => void
+  ): Promise<{ remove: () => void }>;
 }
 
 function plugin(): AudioSessionPlugin | null {
@@ -38,4 +72,49 @@ export async function iosPlaybackModus(): Promise<void> {
   const p = plugin();
   if (!p) return;
   await p.setPlaybackMode().catch(() => undefined);
+}
+
+/**
+ * Die verfuegbaren Ausgabewege. Leere Liste ausserhalb der Huelle.
+ *
+ * **iOS waehlt anders als Android**: dort pinnt man ein Ausgabegeraet, hier
+ * waehlt man den Eingang und der Ausgang folgt (bei einem Bluetooth-Headset
+ * ist beides dasselbe Geraet). Lautsprecher und Hoermuschel sind kein
+ * Eingang, sondern eine Uebersteuerung — sie stehen deshalb als feste
+ * Eintraege in der Liste.
+ */
+export async function iosTonWege(): Promise<TonWege | null> {
+  if (!isCapacitorIOS()) return null;
+  const p = plugin();
+  if (!p) return null;
+  return p.routen().catch(() => null);
+}
+
+/** Einen Ausgabeweg erzwingen. `false`, wenn er nicht (mehr) da ist. */
+export async function iosTonWegSetzen(id: string): Promise<boolean> {
+  if (!isCapacitorIOS()) return false;
+  const p = plugin();
+  if (!p) return false;
+  return p
+    .routeSetzen({ id })
+    .then(() => true)
+    .catch(() => false);
+}
+
+/** Unterbrechungen melden (Telefonanruf, Siri, Wecker). Rueckgabe = Abriss. */
+export function iosUnterbrechungen(cb: (e: Unterbrechung) => void): () => void {
+  if (!isCapacitorIOS()) return () => undefined;
+  const p = plugin();
+  if (!p) return () => undefined;
+  const griff = p.addListener('unterbrechung', cb);
+  return () => void griff.then((h) => h.remove()).catch(() => undefined);
+}
+
+/** Wegwechsel melden (Headset rein/raus, AirPods verbunden). */
+export function iosWegWechsel(cb: () => void): () => void {
+  if (!isCapacitorIOS()) return () => undefined;
+  const p = plugin();
+  if (!p) return () => undefined;
+  const griff = p.addListener('routeGewechselt', () => cb());
+  return () => void griff.then((h) => h.remove()).catch(() => undefined);
 }

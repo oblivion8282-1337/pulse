@@ -1,5 +1,5 @@
 import { isCapacitorIOS } from './runtime';
-import { iosPlaybackModus, iosVoiceAktiv } from './iosAudioSession';
+import { iosPlaybackModus, iosUnterbrechungen, iosVoiceAktiv } from './iosAudioSession';
 import { zielModus, type TonModus } from './tonModus';
 
 /**
@@ -42,8 +42,46 @@ async function anwenden(): Promise<void> {
   else await iosVoiceAktiv(false);
 }
 
+/**
+ * Unterbrechungen (Telefonanruf, Siri, Wecker) — Roadmap-Punkt 26.
+ *
+ * **Warum das nicht ohne Zutun heilt:** iOS deaktiviert die Session zu Beginn
+ * der Unterbrechung selbst. Danach steht sie auf tot, der Sprachkanal ist
+ * stumm — und die Verbindung steht weiter, es sieht also nach „verbunden,
+ * aber keiner hört mich" aus. Das Zurückschalten muss die App tun.
+ *
+ * **Und der Merker muss zurückgesetzt werden**, sonst passiert gar nichts:
+ * `anwenden()` steigt aus, wenn das Ziel dem zuletzt Angewandten entspricht —
+ * und das tut es hier, denn gewollt ist weiter `voice`. Die Session ist
+ * trotzdem weg. Ohne diese eine Zeile wäre der ganze Beobachter wirkungslos.
+ *
+ * Der Abriss wird nicht gebraucht: der Beobachter lebt so lange wie die
+ * Seite, und genauso lange gibt es eine Audio-Session zu reparieren.
+ */
+let beobachtet = false;
+
+function unterbrechungenBeobachten(): void {
+  if (beobachtet || !isCapacitorIOS()) return;
+  beobachtet = true;
+  iosUnterbrechungen((e) => {
+    if (e.art === 'begonnen') {
+      // iOS hat die Session schon abgeschaltet. Nur mitschreiben, damit das
+      // Wiederherstellen unten greift.
+      angewandt = 'aus';
+      return;
+    }
+    // `weiterMoeglich` wird bewusst NICHT verlangt: iOS setzt es nicht
+    // zuverlässig, und ein Sprachkanal, in dem jemand sitzt, soll zurück-
+    // kommen. Scheitert das Aktivieren, bleibt es beim stillen No-op — wie
+    // vorher, nur mit Versuch.
+    angewandt = 'aus';
+    void anwenden();
+  });
+}
+
 /** Sprachkanal betreten (`true`) oder verlassen (`false`). */
 export function tonVoice(aktiv: boolean): void {
+  unterbrechungenBeobachten();
   voiceAktiv = aktiv;
   void anwenden();
 }
@@ -54,6 +92,7 @@ export function tonVoice(aktiv: boolean): void {
  * einmal, s. Modulkopf.
  */
 export function tonWiedergabe(kennung: string, an: boolean): void {
+  unterbrechungenBeobachten();
   if (an) wiedergaben.add(kennung);
   else wiedergaben.delete(kennung);
   void anwenden();
@@ -64,4 +103,9 @@ export function tonZuruecksetzen(): void {
   voiceAktiv = false;
   wiedergaben.clear();
   angewandt = 'aus';
+}
+
+/** Der zuletzt angewandte Modus — für Anzeige und Tests. */
+export function tonModusJetzt(): TonModus {
+  return angewandt;
 }

@@ -20,7 +20,8 @@ import { errText } from '$lib/utils/errText';
  */
 import { registerPlugin } from '@capacitor/core';
 import { request } from '$lib/api/client';
-import { isCapacitorAndroid } from './runtime';
+import { isCapacitorAndroid, isCapacitorIOS } from './runtime';
+import { iosTonWege, iosTonWegSetzen } from './iosAudioSession';
 
 export type AudioRoute = 'auto' | 'speaker' | 'earpiece';
 
@@ -77,10 +78,32 @@ let lastSetVoiceActiveError: string | null = null;
 /** Force the native audio output route. No-op outside the Android wrapper.
  *  Either a fixed way (`route`) or one concrete device from
  *  {@link listAudioRoutes} (`deviceId` — z. B. ein bestimmtes BT-Headset). */
+/**
+ * iOS-Porttyp → die Wahl, die die Oberfläche kennt.
+ *
+ * Alles, was weder eingebauter Lautsprecher noch Hörmuschel ist (AirPods,
+ * Autoradio, Kabel-Headset), meldet `device` — dann zeigt die Leiste das
+ * Bluetooth-Zeichen und markiert keinen der beiden festen Wege. Dass dort
+ * KEIN Gerätename steht, ist Absicht: auf iOS wählt man das Gerät im System
+ * (Kontrollzentrum bzw. AirPlay-Knopf, Roadmap-Punkt 30), nicht in der App —
+ * eine eigene Liste wäre eine zweite, schlechtere Bedienung derselben Sache.
+ */
+function iosWegZuWahl(porttyp: string): AudioRoute | 'device' {
+  if (porttyp === 'Speaker') return 'speaker';
+  if (porttyp === 'Receiver') return 'earpiece';
+  return 'device';
+}
+
 export async function setAudioRoute(
   route?: AudioRoute,
   deviceId?: number
 ): Promise<void> {
+  if (isCapacitorIOS()) {
+    // Auf iOS gibt es nur die beiden Übersteuerungen; `auto` heisst dort
+    // „nicht übersteuern", und das ist die Hörmuschel-Seite.
+    if (route) await iosTonWegSetzen(route === 'earpiece' ? 'earpiece' : 'speaker');
+    return;
+  }
   if (!isCapacitorAndroid()) return;
   try {
     await plugin.setRoute({ route, deviceId });
@@ -92,6 +115,16 @@ export async function setAudioRoute(
 /** Auswahl-Liste für das Route-Popup (Geräte + aktuelle Wahl). Liefert eine
  *  leere Liste außerhalb des Android-Wrappers. */
 export async function listAudioRoutes(): Promise<AudioRouteList> {
+  if (isCapacitorIOS()) {
+    const wege = await iosTonWege();
+    return {
+      current: wege ? iosWegZuWahl(wege.aktuell) : 'auto',
+      currentDeviceId: 0,
+      // Bewusst leer, s. `iosWegZuWahl`. Das Menü rendert die beiden festen
+      // Wege ohnehin und die Geräteliste nur, wenn welche da sind.
+      devices: []
+    };
+  }
   if (!isCapacitorAndroid()) return { current: 'auto', currentDeviceId: 0, devices: [] };
   try {
     return await plugin.listRoutes();
