@@ -19,27 +19,40 @@ const ROUTE_CMD: Partial<Record<NodeJS.Platform, [string, string[]]>> = {
   win32: ['route', ['print', '0.0.0.0']],
 };
 
+/** Gateway der Default-Route mit der KLEINSTEN Metrik. Mehrere Default-
+ *  Routen sind auf Windows der Normalfall (LAN + WLAN, VPN, Hotspot) — die
+ *  erste Zeile von `route print` ist nur die erste in Windows' Tabelle, nicht
+ *  die, über die Windows tatsächlich routet (das ist die mit der kleinsten
+ *  Metrik). Linux dito bei `ip route show default` mit mehreren Zeilen; ohne
+ *  `metric` gilt dort 0 (Kernel-Vorgabe). macOS liefert genau eine Route. */
 export function parseGateway(platform: NodeJS.Platform, routeOutput: string): string | null {
   if (platform === 'darwin') {
     const m = routeOutput.match(RE_DARWIN);
     return m ? m[1] : null;
   }
+  let best: { gw: string; metric: number } | null = null;
+  const nimm = (gw: string, metric: number): void => {
+    if (!best || metric < best.metric) best = { gw, metric };
+  };
   if (platform === 'linux') {
-    const m = routeOutput.match(RE_LINUX);
-    return m ? m[1] : null;
-  }
-  if (platform === 'win32') {
+    for (const line of routeOutput.split('\n')) {
+      const m = line.match(RE_LINUX);
+      if (!m) continue;
+      const metric = line.match(/\bmetric\s+(\d+)/);
+      nimm(m[1], metric ? Number(metric[1]) : 0);
+    }
+  } else if (platform === 'win32') {
     for (const line of routeOutput.split('\n')) {
       const t = line.trim();
-      if (t.startsWith('0.0.0.0')) {
-        const parts = t.split(/\s+/);
-        // 0.0.0.0  0.0.0.0  <gateway>  <iface>  <metric>
-        if (parts.length >= 3 && RE_IPV4.test(parts[2]) && parts[2] !== '0.0.0.0') return parts[2];
-      }
+      if (!t.startsWith('0.0.0.0')) continue;
+      const parts = t.split(/\s+/);
+      // 0.0.0.0  0.0.0.0  <gateway>  <interface-IP>  <metric>
+      if (parts.length < 3 || !RE_IPV4.test(parts[2]) || parts[2] === '0.0.0.0') continue;
+      const metric = Number(parts[4]);
+      nimm(parts[2], Number.isFinite(metric) ? metric : Number.MAX_SAFE_INTEGER);
     }
-    return null;
   }
-  return null;
+  return (best as { gw: string } | null)?.gw ?? null;
 }
 
 function subnetFallbackGateway(): string | null {
