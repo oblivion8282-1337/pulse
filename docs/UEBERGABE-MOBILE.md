@@ -8,6 +8,56 @@
 
 ---
 
+## 0. Aktueller Stand (2026-10-08, ZCode-Session · Branch `feat/ios`, gepusht bis `b97e43ae`+)
+
+**Wo die Session aufgehört hat** — der offene Faden, damit die nächste Session sofort
+weiterarbeiten kann:
+
+### Läuft am Gerät verifiziert
+- **Etappe 1 komplett** (14/14): Tastatur, 16px-Zoom, StatusBar, Share-Sheet, Haptik,
+  externe Links, Privacy-Screen, Privacy-Manifest, Local-Network-Key, Target 16.1,
+  L10n, Release-Checkliste, echtes App-Icon (Sonar-Ping, `fea51fa2`).
+- **Etappe-2-Kern**: Push am Gerät (Banner bestätigt), APNs-Keys `D4X4VN6JF2`
+  (Sandbox & Production) in Firebase Dev+Prod-Zeilen, Service-Account im Gateway,
+  FCM-Weg für die iOS-Hülle offen, Stale-WS-Reaper (95 s), zeitkritische Pushs mit
+  eigenem Sound `pulse-push.caf`.
+
+### Der offene Faden: Icon-Badge (Item 17) am Gerät
+- Code steht (`platform/badge.ts`, Resume-Refresh `b97e43ae`), rotes Debug-Overlay
+  (`badge.ts::debugAnzeigen`, TEMP — entfernen!) zeigt am Gerät: **„badge geräumt
+  (0 ungelesen)"**.
+- Die letzte Test-Nachricht von max („Badge-Test 3 …") wurde NACH dieser 0 gesendet.
+  **Nächster Schritt:** Handy — Pulse öffnen → rote Zeile muss ≥1 zeigen (sonst
+  Zählung/readState debuggen) → Home-Screen → Badge „1" muss auf dem Icon stehen.
+  Danach: TEMP-Debug-Overlay aus `badge.ts` entfernen, committen, pushen.
+- Detailfrage an den Nutzer geklärt: Badge = rotes Zähl-Plättchen am App-Icon
+  (Anzahl ungelesener Gespräche, iOS-Konvention).
+
+### Bekannte Stolpersteine dieser Session (nicht erneut fallen lassen)
+1. **cap sync überschreibt** die generierte `App/App/capacitor.config.json` — der
+   Hand-Patch `packageClassList += AudioSessionPlugin` muss danach erneut rein
+   (Release-Checkliste).
+2. **Storyboards-Subklasse** (PulseBridgeViewController im Main.storyboard) führte
+   am Gerät zu schwarzem Fenster — Rückzug auf CAPBridgeViewController, Plugin-
+   Registrierung via packageClassList (Befund + Fix `fa7e561c`).
+3. **Device-Install braucht entsperrtes Handy** (Developer-Disk-Image), sonst
+   „could not be mounted".
+4. **Vite muss mit mkcert-HTTPS laufen** (`VITE_HTTPS_CERT/KEY`, `web/.cert/`),
+   sonst lädt die Hülle ins Leere; Sim-Trust via `simctl keychain add-root-cert`.
+5. **Sim-App-Taps**: cliclick-Koordinaten gelten nur bei Vordergrund-Simulator
+   (`open -a Simulator`); Fenster-Geometie per System-Events-Query holen.
+
+### Umfeld
+- Dev-Stack läuft (Gateway mit Firebase-Service-Account, Garage statt MinIO auf
+  9000, Vite auf https://192.168.178.171:5173 — LAN-IP!, Handy + Sim laden von dort).
+- **Nicht committen:** `mobile/capacitor.config.json` (Dev-Umlenkung) und
+  `web/pw-check.mjs` (Nutzer-Datei). Temp-Debug-Overlay in badge.ts vor dem
+  Merge entfernen.
+
+---
+
+## 1. Produktziel
+
 ## 1. Produktziel
 
 Pulse ist eine Chat- und Community-Plattform (Web + Desktop + Mobile) mit
