@@ -12,7 +12,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { createReadStream, createWriteStream, existsSync } from 'node:fs';
+import { chmodSync, createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 export interface ContainerRuntime {
@@ -91,8 +91,14 @@ export async function rtExecToFile(
   opts: { timeoutMs?: number } = {},
 ): Promise<{ code: number; stderr: string }> {
   const { argv } = rt;
+  // Der Export trägt alle Server-Schlüssel (JWT, Postgres, Secrets) — die
+  // Datei bekommt 0600. `mode` greift nur beim ANLEGEN: eine schon
+  // vorhandene Zieldatei (Überschreiben im Speichern-Dialog) behielte sonst
+  // ihre alten Rechte, deshalb zusätzlich vor UND nach dem Schreiben chmod.
+  // Windows kennt die Bits nicht, dort schützt das Benutzerprofil.
+  nurEigentuemer(filePath);
   return new Promise((resolve, reject) => {
-    const out = createWriteStream(filePath);
+    const out = createWriteStream(filePath, { mode: 0o600 });
     const child = spawn(argv[0], [...argv.slice(1), ...args], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -115,6 +121,11 @@ export async function rtExecToFile(
       reject(err);
     };
     out.on('error', brichAb);
+    // Der eigentliche Datenstrom. Fehlte vom 2026-09-21 (c1a001b5, beim
+    // Einbau von brichAb mit weggefallen) bis 2026-10-08: jeder Export
+    // schrieb eine LEERE Datei und meldete Erfolg — die Prüfung des Inhalts
+    // steht seither in containerHaertung.test.ts.
+    child.stdout.pipe(out);
     child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
     child.on('error', brichAb);
     child.on('close', (code) => {
@@ -124,10 +135,15 @@ export async function rtExecToFile(
       out.close(() => {
         if (erledigt) return;
         erledigt = true;
+        nurEigentuemer(filePath);
         resolve({ code: code ?? -1, stderr });
       });
     });
   });
+}
+
+function nurEigentuemer(pfad: string): void {
+  try { chmodSync(pfad, 0o600); } catch { /* fehlt noch / Windows */ }
 }
 
 /** Gegenstück zu rtExecToFile: eine Datei streamt in die stdin des Kindes —
@@ -170,18 +186,6 @@ export async function rtExecFromFile(
   });
 }
 
-async function probe(rt: ContainerRuntime): Promise<boolean> {
-  try {
-    // `--version` (Client-only): auf Win/Mac schlägt `version` ohne laufende
-    // podman machine fehl — Verfügbarkeit heißt hier "Binary da", das Hochfahren
-    // der Machine übernimmt ensureMachine() beim Start.
-    const r = await rtExec(rt, ['--version'], { timeoutMs: 15_000 });
-    return r.code === 0;
-  } catch {
-    return false;
-  }
-}
-
 /** Kandidaten in Präferenz-Reihenfolge für die aktuelle Umgebung. */
 export function runtimeCandidates(
   env: Record<string, string | undefined> = process.env,
@@ -207,13 +211,7 @@ export function runtimeCandidates(
   return out;
 }
 
-/** Erste funktionierende Runtime oder null (UI zeigt dann den Setup-Hinweis). */
-export async function detectRuntime(): Promise<ContainerRuntime | null> {
-  for (const cand of runtimeCandidates()) {
-    if (await probe(cand)) return cand;
-  }
-  return null;
-}
+// Prüfung und Wahl der Runtime (Daemon-Probe, Merker, Bestand): runtimeWahl.ts.
 
 /** Windows: ist WSL2 einsatzbereit? `wsl --status` liefert 0 nur, wenn die
  *  Funktion installiert ist — genau die Voraussetzung von `podman machine init`.
