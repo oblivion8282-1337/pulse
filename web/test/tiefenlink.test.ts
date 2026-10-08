@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { zielPfad } from '../src/lib/platform/tiefenlink.ts';
+import { zielPfad, zielPfadIntern } from '../src/lib/platform/tiefenlink.ts';
 
 test('Chat-Adresse wird zum Ziel in der App', () => {
 	assert.equal(zielPfad('https://howispulse.com/app/@me/12345'), '/app/@me/12345');
@@ -41,4 +41,25 @@ test('/app selbst ist erlaubt', () => {
 test('Unsinn gibt null statt zu werfen', () => {
 	assert.equal(zielPfad('keine-adresse'), null);
 	assert.equal(zielPfad(''), null);
+});
+
+test('zielPfadIntern laesst nur App-Pfade durch', () => {
+  assert.equal(zielPfadIntern('/app'), '/app');
+  assert.equal(zielPfadIntern('/app/@me/123'), '/app/@me/123');
+  assert.equal(zielPfadIntern('/app/rooms/7'), '/app/rooms/7');
+});
+
+test('zielPfadIntern weist alles ab, was aus der App herausfuehrt', () => {
+  // Protokoll-relativ: fuer den Router eine fremde Herkunft.
+  assert.equal(zielPfadIntern('//boese.example'), null);
+  // Kein Pfad, sondern eine Adresse.
+  assert.equal(zielPfadIntern('https://boese.example/app'), null);
+  // Praefixfalle wie bei zielPfad.
+  assert.equal(zielPfadIntern('/appetit'), null);
+  // Alles ausserhalb der App.
+  assert.equal(zielPfadIntern('/login'), null);
+  assert.equal(zielPfadIntern('/'), null);
+  // Relativ, also nicht eindeutig.
+  assert.equal(zielPfadIntern('app/@me/1'), null);
+  assert.equal(zielPfadIntern(''), null);
 });

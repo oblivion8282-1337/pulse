@@ -12,6 +12,7 @@
   import { sweepDeletedServers } from '$lib/api/deleted-instance-sweep';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
@@ -34,6 +35,8 @@
   import { netzwacheStarten } from '$lib/ws/netzwache';
   import { schriftGroesseVerfolgen } from '$lib/platform/schriftGroesse';
   import { voipTokenVerfolgen } from '$lib/platform/voipToken';
+  import { schnellwahlSetzen, schnellwahlVerfolgen } from '$lib/platform/schnellwahl';
+  import { schnellwahlEintraege } from '$lib/platform/schnellwahlAuswahl';
   import VerbindungsHinweis from '$lib/components/VerbindungsHinweis.svelte';
   import BerechtigungVorerklaerung from '$lib/components/BerechtigungVorerklaerung.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
@@ -96,6 +99,19 @@
     queueMicrotask(() => {
       serverGuilds.setSnapshot(id, list);
     });
+  });
+
+  // Schnellwahl am App-Symbol: die drei letzten Gespräche (Punkt 44).
+  // Als Effekt, weil sich BEIDES bewegt — die Liste der Gespräche und die
+  // Namen aus dem Nutzer-Cache, der beim Start noch leer ist. Die Auswahl
+  // selbst steht geprüft in `platform/schnellwahlAuswahl.ts`; ohne Namen
+  // fällt ein Gespräch dort heraus, statt mit einer Zahl am Symbol zu landen.
+  $effect(() => {
+    const namen: Record<string, string | undefined> = {};
+    for (const dm of directMessages.list) {
+      namen[dm.other_user_id] = userCache.byId[dm.other_user_id]?.username;
+    }
+    void schnellwahlSetzen(schnellwahlEintraege(directMessages.list, namen));
   });
 
   // Server-Snapshot-Loader. Läuft bei jeder Änderung von
@@ -286,6 +302,9 @@
     // PushKit-Token anmelden, damit ein Anruf das Telefon erreicht, auch wenn
     // keine WebSocket offen ist (Punkt 40).
     voipTokenVerfolgen();
+    // Schnellwahl am App-Symbol: auf einen Tipp aus dem Symbol reagieren
+    // (Punkt 44). Die EINTRÄGE setzt der Effekt weiter oben.
+    schnellwahlVerfolgen();
 
     // Vom Betreiber gelöschte Self-Host-Server aus der lokalen Liste räumen
     // (öffentliche Suspend-Liste der Cloud, anonymer Abgleich). Fire-and-forget.

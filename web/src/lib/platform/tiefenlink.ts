@@ -42,3 +42,24 @@ export function zielPfad(adresse: string): string | null {
   if (ziel.startsWith('//')) return null;
   return ziel;
 }
+
+/**
+ * Dasselbe für einen PFAD ohne Herkunft — für Ziele, die aus der Hülle
+ * zurückkommen (Schnellwahl am Icon, iOS-Punkt 44).
+ *
+ * **Warum das geprüft wird, obwohl der Pfad von uns selbst stammt.** Er hat
+ * die App verlassen: er lag als `userInfo` in einem
+ * `UIApplicationShortcutItem` und damit in einem Bereich, den das System
+ * verwaltet und der einen Neustart überdauert. Was zurückkommt, ist deshalb
+ * eine EINGABE, auch wenn wir sie selbst geschrieben haben — dieselbe Haltung
+ * wie bei `zielPfad` gegenüber der Apple-Vorauswahl.
+ *
+ * Erlaubnisliste wie oben: genau `/app` oder darunter, kein `//`.
+ */
+export function zielPfadIntern(pfad: string): string | null {
+  if (!pfad.startsWith('/')) return null;
+  if (pfad.startsWith('//')) return null;
+  // Genau `/app` oder darunter — `/appetit` darf nicht durchrutschen.
+  if (pfad !== '/app' && !pfad.startsWith('/app/')) return null;
+  return pfad;
+}

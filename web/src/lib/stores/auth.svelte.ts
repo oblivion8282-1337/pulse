@@ -256,6 +256,7 @@ class AuthStore {
       // FCM-Token ebenso (P0.1) — gleiche Erb-Baisse, gleiche Entsaftung.
       void import('$lib/platform/fcm').then((m) => m.abmeldeFcmToken());
       void import('$lib/platform/voipToken').then((m) => m.voipTokenAbmelden());
+      void import('$lib/platform/schnellwahl').then((m) => m.schnellwahlLeeren());
       // Self-Host-Connections + Session-Tokens des Vorgängers schließen.
       for (const s of serversStore.servers) {
         if (s.isCloud) continue;
@@ -406,6 +407,7 @@ class AuthStore {
     // hier weiter die Post des Vorgängers. Best-effort wie oben.
     void import('$lib/platform/fcm').then((m) => m.abmeldeFcmToken(pushBearer));
     void import('$lib/platform/voipToken').then((m) => m.voipTokenAbmelden(pushBearer));
+    void import('$lib/platform/schnellwahl').then((m) => m.schnellwahlLeeren());
     clearTokens();
     // Voice-Resume verwerfen — nach explizitem Logout darf der nächste Boot
     // nicht in den alten Channel zurückspringen.

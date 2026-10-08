@@ -149,6 +149,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         UNUserNotificationCenter.current().setNotificationCategories([dm])
     }
 
+    /// Schnellwahl bei LAUFENDER App (Punkt 44). Der Kaltstart-Fall läuft
+    /// nicht hier durch, sondern über die `launchOptions` — s. unten.
+    func application(
+        _ application: UIApplication,
+        performActionFor shortcutItem: UIApplicationShortcutItem,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        Schnellwahl.gewaehlt(shortcutItem)
+        completionHandler(true)
+    }
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Frueh und unbedingt: die Kategorien muessen stehen, BEVOR die erste
         // Meldung eintrifft. Sie haengen nicht an der Mitteilungserlaubnis —
@@ -159,6 +170,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // irgendeine WebView existiert — ein Capacitor-Plugin gibt es dann
         // noch nicht. Begründung im Kopf von `AnrufPlugin.swift`.
         Anrufverwaltung.geteilt.starten()
+        // Schnellwahl beim KALTSTART: iOS legt die Wahl in die
+        // `launchOptions` und ruft `performActionFor` dann NICHT. Wer nur den
+        // einen Weg verdrahtet, hat eine Schnellwahl, die aus dem laufenden
+        // Betrieb funktioniert und aus dem Symbol heraus nichts tut — also
+        // genau im Hauptfall nicht.
+        if let wahl = launchOptions?[.shortcutItem] as? UIApplicationShortcutItem {
+            Schnellwahl.gewaehlt(wahl)
+        }
         NotificationCenter.default.addObserver(
             self, selector: #selector(lageGewechselt),
             name: UIDevice.orientationDidChangeNotification, object: nil)
