@@ -43,6 +43,7 @@ interface AudioSessionPlugin {
   routeSetzen(options: { id: string }): Promise<void>;
   jetztLaeuft(options: { titel: string; zeile2: string }): Promise<void>;
   jetztLaeuftAus(): Promise<void>;
+  airplayWaehler(): Promise<void>;
   addListener(
     name: 'unterbrechung',
     cb: (e: Unterbrechung) => void
@@ -144,4 +145,25 @@ export function iosFernbefehle(cb: (befehl: 'laut' | 'stumm') => void): () => vo
   if (!p) return () => undefined;
   const griff = p.addListener('fernbefehl', (e) => cb(e.befehl));
   return () => void griff.then((h) => h.remove()).catch(() => undefined);
+}
+
+/**
+ * Öffnet Apples AirPlay-Auswahl (Punkt 30 der iOS-Liste).
+ *
+ * Gibt `false` zurück, wenn der Dialog nicht aufgeht — dann gehört ein
+ * Hinweis auf das Kontrollzentrum in die Oberfläche. Das Plugin kann das
+ * nicht garantieren (Begründung dort an der Methode), und ein Knopf, der
+ * still nichts tut, wäre die schlechtere Antwort.
+ */
+export async function iosAirplayWaehler(): Promise<boolean> {
+  if (!isCapacitorIOS()) return false;
+  const p = plugin();
+  if (!p) return false;
+  return p
+    .airplayWaehler()
+    .then(() => true)
+    .catch((e) => {
+      console.warn('[iosAudioSession] AirPlay-Auswahl nicht erreichbar', e);
+      return false;
+    });
 }

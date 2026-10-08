@@ -21,7 +21,7 @@ import { errText } from '$lib/utils/errText';
 import { registerPlugin } from '@capacitor/core';
 import { request } from '$lib/api/client';
 import { isCapacitorAndroid, isCapacitorIOS } from './runtime';
-import { iosTonWege, iosTonWegSetzen } from './iosAudioSession';
+import { iosAirplayWaehler, iosTonWege, iosTonWegSetzen } from './iosAudioSession';
 
 export type AudioRoute = 'auto' | 'speaker' | 'earpiece';
 
@@ -75,9 +75,6 @@ const plugin = registerPlugin<AudioRoutePlugin>('AudioRoute');
  *  Snapshot, damit ein stiller Routing-Fehlschlag im Feld sichtbar wird. */
 let lastSetVoiceActiveError: string | null = null;
 
-/** Force the native audio output route. No-op outside the Android wrapper.
- *  Either a fixed way (`route`) or one concrete device from
- *  {@link listAudioRoutes} (`deviceId` — z. B. ein bestimmtes BT-Headset). */
 /**
  * iOS-Porttyp → die Wahl, die die Oberfläche kennt.
  *
@@ -94,6 +91,10 @@ function iosWegZuWahl(porttyp: string): AudioRoute | 'device' {
   return 'device';
 }
 
+/** Force the native audio output route. No-op outside the mobile wrappers
+ *  (Android and iOS). Either a fixed way (`route`) or one concrete device from
+ *  {@link listAudioRoutes} (`deviceId` — z. B. ein bestimmtes BT-Headset); the
+ *  `deviceId` form is Android-only, see the iOS branch below. */
 export async function setAudioRoute(
   route?: AudioRoute,
   deviceId?: number
@@ -110,6 +111,21 @@ export async function setAudioRoute(
   } catch (e) {
     console.warn('[audioRoute] setRoute failed', e);
   }
+}
+
+/** `true`, wenn diese Hülle die AirPlay-Auswahl des Systems öffnen kann.
+ *
+ *  Nur iOS. Android hat kein AirPlay, und im Browser gibt es keinen Weg zu
+ *  einem System-Dialog — dort bleibt der Eintrag deshalb aus, statt zu
+ *  erscheinen und nichts zu tun. */
+export function airplayMoeglich(): boolean {
+  return isCapacitorIOS();
+}
+
+/** Öffnet die AirPlay-Auswahl. `false` = ging nicht, dann hilft nur das
+ *  Kontrollzentrum (s. `iosAirplayWaehler`). */
+export async function airplayOeffnen(): Promise<boolean> {
+  return iosAirplayWaehler();
 }
 
 /** Auswahl-Liste für das Route-Popup (Geräte + aktuelle Wahl). Liefert eine

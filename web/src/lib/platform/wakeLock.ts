@@ -10,6 +10,14 @@
  *    on Linux (honours the desktop's power settings via logind inhibit), which
  *    the browser Wake Lock API is not inside Electron. Preferred whenever the
  *    bridge is present.
+ *  - iPhone-Hülle → `Wachhalten.wachHalten` (`isIdleTimerDisabled`). Vorgezogen,
+ *    weil für eine WKWebView NICHT belegt ist, dass `navigator.wakeLock` dort
+ *    greift — Safari kann die Schnittstelle seit iOS 16.4, die eingebettete
+ *    WebView ist damit nicht mitgesagt, und **gemessen wurde es nicht**. Der
+ *    native Weg macht die Frage gegenstandslos. Der unangenehme Teil des
+ *    Browser-Wegs ist nicht, dass er scheitern KÖNNTE, sondern dass er dabei
+ *    nicht wirft: der Bildschirm ginge mitten im Zuschauen aus, und nichts
+ *    sagte warum.
  *  - Browser / older desktop builds → `navigator.wakeLock.request('screen')`.
  *    Used both in the browser and in a desktop app whose bundled preload predates
  *    the `power` bridge (the bridge ships with a native rebuild, the web bundle
@@ -26,15 +34,26 @@
  * reconcile re-reads the *current* desired state, so a fast acquire→release
  * resolves to a no-op instead of leaking a never-released lock.
  */
+import { iosWachHalten, iosWachhaltenVerfuegbar } from './iosWachhalten';
+
 let leases = 0;
 let engaged = false;
 let sentinel: WakeLockSentinel | null = null;
 let pending: Promise<void> = Promise.resolve();
 
-/** The Electron powerSaveBlocker bridge, if this build's preload exposes it.
- *  Absent in the browser and in desktop builds older than the bridge. */
-function powerBridge(): { keepAwake(on: boolean): Promise<boolean> } | undefined {
-  return (typeof window !== 'undefined' && window.pulse?.power) || undefined;
+/** Der native Schalter dieser Umgebung, falls es einen gibt: die
+ *  Electron-Brücke (`powerSaveBlocker`) oder das iPhone-Plugin. Beide haben
+ *  dieselbe Form — ein Schalter mit zwei Flanken —, deshalb ein gemeinsamer
+ *  Zugang statt eines dritten Zweiges in `reconcile()`.
+ *
+ *  Reihenfolge: Electron zuerst. In einer Electron-Hülle gibt es kein
+ *  Capacitor, die Fälle schliessen sich also aus; die Reihenfolge ist nur
+ *  deshalb festgelegt, damit sie nicht zufällig ist. */
+function nativerSchalter(): { keepAwake(on: boolean): Promise<unknown> } | undefined {
+  const bridge = (typeof window !== 'undefined' && window.pulse?.power) || undefined;
+  if (bridge) return bridge;
+  if (iosWachhaltenVerfuegbar()) return { keepAwake: (on: boolean) => iosWachHalten(on) };
+  return undefined;
 }
 
 function desired(): boolean {
@@ -46,11 +65,11 @@ async function reconcile(): Promise<void> {
   const want = desired();
   if (want === engaged) return; // already in the target state
 
+  const schalter = nativerSchalter();
   if (want) {
-    const bridge = powerBridge();
-    if (bridge) {
+    if (schalter) {
       try {
-        await bridge.keepAwake(true);
+        await schalter.keepAwake(true);
         engaged = true;
       } catch {
         /* leave disengaged — best-effort */
@@ -73,10 +92,9 @@ async function reconcile(): Promise<void> {
     // else: no backend available — stay disengaged.
   } else {
     engaged = false;
-    const bridge = powerBridge();
-    if (bridge) {
+    if (schalter) {
       try {
-        await bridge.keepAwake(false);
+        await schalter.keepAwake(false);
       } catch {
         /* best-effort */
       }

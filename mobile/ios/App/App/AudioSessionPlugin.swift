@@ -1,4 +1,6 @@
 import AVFoundation
+import AVKit
+import UIKit
 import Capacitor
 import MediaPlayer
 
@@ -26,7 +28,8 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "routen", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "routeSetzen", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "jetztLaeuft", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "jetztLaeuftAus", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "jetztLaeuftAus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "airplayWaehler", returnType: CAPPluginReturnPromise)
     ]
 
     /// Beobachter werden EINMAL gesetzt, beim ersten Laden des Plugins.
@@ -250,5 +253,46 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
             "aktuell": session.currentRoute.outputs.first?.portType.rawValue ?? "",
             "aktuellName": session.currentRoute.outputs.first?.portName ?? ""
         ])
+    }
+
+    /// Öffnet Apples AirPlay-Auswahl (Punkt 30).
+    ///
+    /// **Warum ein unsichtbarer `AVRoutePickerView` und ein ausgelöster Tipp.**
+    /// Es gibt keine öffentliche Schnittstelle, die den Auswahl-Dialog direkt
+    /// aufruft — `AVRoutePickerView` ist der einzige Weg, und er ist als
+    /// sichtbarer Knopf gedacht. Unsere Oberfläche ist Web; einen nativen Knopf
+    /// pixelgenau über eine WebView zu legen hiesse, seine Position bei jedem
+    /// Umbau der Leiste nachzupflegen. Deshalb hängt der Wähler nur für die
+    /// Dauer des Aufrufs in der Hierarchie und sein eigener Knopf wird
+    /// programmatisch getippt. Das ist KEINE private Schnittstelle — wir
+    /// schicken einer öffentlichen Ansicht eine Aktion auf ihren eigenen
+    /// Unterknopf.
+    ///
+    /// Die Annahme dabei ist, dass dieser Unterknopf ein `UIButton` IST. Sie
+    /// trifft heute zu, ist aber von Apple nirgends zugesagt — deshalb wird
+    /// der Fehlschlag gemeldet statt verschluckt: das Web kann dann sagen
+    /// „bitte über das Kontrollzentrum", anstatt dass ein Knopf still nichts
+    /// tut.
+    @objc func airplayWaehler(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let wurzel = self.bridge?.viewController?.view else {
+                call.reject("keine Ansicht")
+                return
+            }
+            let waehler = AVRoutePickerView(frame: .zero)
+            waehler.isHidden = true
+            wurzel.addSubview(waehler)
+            let knopf = waehler.subviews.compactMap { $0 as? UIButton }.first
+            knopf?.sendActions(for: .touchUpInside)
+            // Erst im nächsten Durchlauf entfernen: der Dialog wird aus der
+            // Aktion heraus aufgebaut, ein sofortiges Entfernen nähme ihm
+            // seinen Ursprung.
+            DispatchQueue.main.async { waehler.removeFromSuperview() }
+            if knopf == nil {
+                call.reject("AirPlay-Auswahl nicht erreichbar")
+            } else {
+                call.resolve()
+            }
+        }
     }
 }

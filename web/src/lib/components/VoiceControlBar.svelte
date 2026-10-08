@@ -5,15 +5,12 @@
   import MicIcon from '@lucide/svelte/icons/mic';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import ShieldIcon from '@lucide/svelte/icons/shield';
-  import BluetoothIcon from '@lucide/svelte/icons/bluetooth';
   import HeadphonesIcon from '@lucide/svelte/icons/headphones';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
   import VideoIcon from '@lucide/svelte/icons/video';
   import VideoOffIcon from '@lucide/svelte/icons/video-off';
   import SwitchCameraIcon from '@lucide/svelte/icons/switch-camera';
-  import Volume2Icon from '@lucide/svelte/icons/volume-2';
-  import EarIcon from '@lucide/svelte/icons/ear';
   import { voice } from '$lib/voice/livekit.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
@@ -26,13 +23,28 @@
   import { onMount } from 'svelte';
   import { isCapacitorAndroid, isCapacitorIOS } from '$lib/platform/runtime';
   import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
-  import { type AudioRoute } from '$lib/platform/audioRoute';
+  import VoiceAusgabeMenue from './VoiceAusgabeMenue.svelte';
 
   // Handy-Klasse? Wird vom Mount-Punkt hereingereicht (Geraete-Trennung):
   // Desktop leistet die Leiste im Sidebar-Fuss, Handy als Dock unter dem
   // Panel — dort entfallen die nur-Rechner-Knoepfe (Watch-Party, Bildschirm
   // teilen, Kamera-Wechsler am Tablet).
   let { handy }: { handy: boolean } = $props();
+
+  // Die Ausgabe-Wahl (`VoiceAusgabeMenue`) gibt es nur in den Mobil-Hüllen —
+  // nur dort liegt ein natives Routing-Plugin darunter. Die Weiche steht hier
+  // und nicht in der Komponente, damit es EINE Stelle mit dieser Bedingung
+  // gibt. Auf iOS stehen im Menü nur Lautsprecher und Hörmuschel, die
+  // Gerätewahl bleibt dem System (Begründung: audioRoute.ts::iosWegZuWahl).
+  //
+  // Der Stand lebt im geteilten audioRouteState, deshalb genügt hier ein
+  // Auffrischen beim Mount: Einstellungen und Menü sehen jede Änderung der
+  // jeweils anderen Stelle sofort.
+  const showAudioRouteToggle = isCapacitorAndroid() || isCapacitorIOS();
+  onMount(() => {
+    if (!showAudioRouteToggle) return;
+    void audioRouteState.aktualisieren();
+  });
 
   // Camera-toggle gate: same shape as the HQ-stream button. Hide when
   // the channel's resolved permissions lack USE_VIDEO. Falls back to
@@ -42,32 +54,6 @@
   // unconditionally in the LiveKit token, so a determined user could
   // still publish video via DevTools. A backend gate via
   // ``can_publish_sources`` is the proper follow-up.
-  // Route-Auswahl-Popup — nur in der Android-App (natives AudioRoute-Plugin).
-  // Tippen poppt eine kleine Liste auf: Hörmuschel, Lautsprecher und jedes
-  // verbundene Bluetooth-Gerät; die Wahl geht als feste Route ans native
-  // Routing. Der Stand lebt im geteilten audioRouteState — Einstellungen und
-  // Popup sehen jede Änderung der jeweils anderen Stelle sofort.
-  // Auch auf iOS: dort gibt es Lautsprecher/Hoermuschel im Menue, die
-  // Geraetewahl bleibt dem System (s. audioRoute.ts::iosWegZuWahl).
-  const showAudioRouteToggle = isCapacitorAndroid() || isCapacitorIOS();
-  let routeMenuOffen = $state(false);
-  onMount(() => {
-    if (!showAudioRouteToggle) return;
-    void audioRouteState.aktualisieren();
-  });
-  async function oeffneRouteMenue(): Promise<void> {
-    routeMenuOffen = !routeMenuOffen;
-    if (routeMenuOffen) await audioRouteState.aktualisieren();
-  }
-  function waehleFestenWeg(r: AudioRoute): void {
-    routeMenuOffen = false;
-    void audioRouteState.festenWegWaehlen(r);
-  }
-  async function waehleGeraet(id: number): Promise<void> {
-    routeMenuOffen = false;
-    await audioRouteState.geraetWaehlen(id);
-  }
-
   let canUseCamera = $derived.by(() => {
     const cid = voice.channelId;
     if (!cid) return true;
@@ -236,64 +222,10 @@
         </Tooltip.Content>
       </Tooltip.Root>
 
-      <!-- Watch-Party auf Mobil ausgeblendet — Desktop-Feature (s. Phase 6). -->
       {#if showAudioRouteToggle}
-        <!-- Route-Auswahl: Tippen poppt die Geräteliste auf (Hörmuschel,
-             Lautsprecher, verbundenes Bluetooth). Nur in der Android-App. -->
-        <div class="relative">
-          {#if routeMenuOffen}
-            <!-- Klick-Fänger: Popup schließt bei Tippen daneben. -->
-            <button
-              class="fixed inset-0 z-20"
-              aria-label="close"
-              onclick={() => (routeMenuOffen = false)}
-            ></button>
-          {/if}
-          <!-- Kein Tooltip hier: auf dem Handy poppte beim Tippen das
-               „Audio-Ausgabe"-Bubble statt der Geräteliste — die Liste selbst
-               ist selbsterklärend. -->
-          <Button
-            variant={audioRouteState.liste?.current === 'earpiece' ? 'ghost' : 'default'}
-            size="icon-sm"
-            class={btnCls}
-            onclick={oeffneRouteMenue}
-            data-testid="voice-audio-route-toggle"
-            aria-label={m.voice_bar_route_menu()}
-          >
-            {#if audioRouteState.liste?.current === 'earpiece'}<EarIcon class={iconCls} />{:else if audioRouteState.liste?.current === 'device'}<BluetoothIcon class={iconCls} />{:else}<Volume2Icon class={iconCls} />{/if}
-          </Button>
-          {#if routeMenuOffen && audioRouteState.liste}
-            <div
-              class="bg-bg-panel border-border absolute bottom-full left-1/2 z-30 mb-2 w-52 -translate-x-1/2 rounded-xl border p-1 shadow-lg"
-              data-testid="voice-audio-route-menu"
-            >
-              <button
-                class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {audioRouteState.liste.current === 'earpiece' ? 'bg-bg-hover font-semibold' : ''}"
-                onclick={() => waehleFestenWeg('earpiece')}
-              >
-                <EarIcon class="size-4" />
-                {m.voice_bar_route_name_hoermuschel()}
-              </button>
-              <button
-                class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {audioRouteState.liste.current === 'speaker' || audioRouteState.liste.current === 'auto' ? 'bg-bg-hover font-semibold' : ''}"
-                onclick={() => waehleFestenWeg('speaker')}
-              >
-                <Volume2Icon class="size-4" />
-                {m.voice_bar_route_name_lautsprecher()}
-              </button>
-              {#each audioRouteState.liste.devices.filter((d) => d.type.startsWith('BLUETOOTH') || d.type === 'BLE_HEADSET') as d (d.id)}
-                <button
-                  class="text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm {audioRouteState.liste.current === 'device' && audioRouteState.liste.currentDeviceId === d.id ? 'bg-bg-hover font-semibold' : ''}"
-                  onclick={() => void waehleGeraet(d.id)}
-                >
-                  <BluetoothIcon class="size-4" />
-                  <span class="truncate">{d.name && d.name.trim() ? d.name : m.voice_bar_route_name_bt()}</span>
-                </button>
-              {/each}
-            </div>
-          {/if}
-        </div>
+        <VoiceAusgabeMenue {btnCls} {iconCls} />
       {/if}
+      <!-- Watch-Party auf Mobil ausgeblendet — Desktop-Feature (s. Phase 6). -->
       {#if voice.channelId && !handy}
         <WatchPartyStartButton channelId={voice.channelId} />
       {/if}

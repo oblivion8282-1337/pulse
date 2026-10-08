@@ -3011,6 +3011,8 @@
   "voice_bar_route_name_lautsprecher": "Lautsprecher",
   "voice_bar_route_name_hoermuschel": "Hörmuschel",
   "voice_bar_route_name_bt": "Bluetooth",
+  "voice_bar_route_name_airplay": "AirPlay …",
+  "voice_bar_route_airplay_fehler": "AirPlay-Auswahl liess sich nicht öffnen — bitte das Kontrollzentrum nutzen.",
   "voice_bar_undeafen": "Ton aktivieren",
   "voice_uebernommen_toast": "Sprachkanal wurde von deinem anderen Gerät übernommen — dort läuft die Verbindung jetzt weiter.",
   "voice_channel_full": "Dieser Sprachkanal ist voll.",
