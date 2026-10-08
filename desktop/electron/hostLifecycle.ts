@@ -59,6 +59,12 @@ export class HostLifecycle {
   private _cbs: Array<(e: HostPhaseEvent) => void> = [];
   private readonly deps: HostDeps;
   private readonly opts: { holePunch?: boolean };
+  /** Die gerade laufende Start-Sequenz (Single-Flight, Scan 2026-10-08).
+   *  Ohne sie startete ein Kontowechsel (`wendeBenutzerAn` → `start()`) und
+   *  der fast gleichzeitige `host:me`-Abgleich den Server zweimal — nativ
+   *  liefen dann zwei Postgres auf demselben Datenverzeichnis, und der erste
+   *  fiel aus der Prozessliste, die `stop()` abfährt. */
+  private _laufend: Promise<void> | null = null;
   constructor(
     deps: HostDeps,
     /** holePunch: Server-App — LiveKit/MediaMTX löst die Medien-Verbindung per
@@ -88,7 +94,23 @@ export class HostLifecycle {
     this._emit('live', { relayUrl: this.deps.relayUrl() ?? undefined });
   }
 
-  async start(): Promise<void> {
+  /** Startet die Sequenz — oder hängt sich an die schon laufende an. */
+  start(): Promise<void> {
+    if (this._laufend) return this._laufend;
+    const lauf = this._starte().finally(() => {
+      if (this._laufend === lauf) this._laufend = null;
+    });
+    this._laufend = lauf;
+    return lauf;
+  }
+
+  /** Wartet eine laufende Start-Sequenz ab (No-Op ohne). Für Aufrufer, die den
+   *  Backend-Zustand erst NACH einem laufenden Start beurteilen dürfen. */
+  async warteAufStart(): Promise<void> {
+    await this._laufend?.catch(() => {});
+  }
+
+  private async _starte(): Promise<void> {
     try {
       const pre = (await this.deps.checkPrereqs?.()) ?? 'ok';
       if (pre !== 'ok') {
@@ -132,6 +154,9 @@ export class HostLifecycle {
   }
 
   async stop(): Promise<void> {
+    // Erst die laufende Sequenz abwarten: ein Stopp mitten im Start ließe den
+    // Rest der Sequenz danach weiterlaufen und den Server wieder hochfahren.
+    await this.warteAufStart();
     try { await this.deps.stopBackend(); } catch { /* best-effort */ }
     this._emit('idle');
   }
@@ -170,7 +195,7 @@ export class HostLifecycle {
    *  dem eigentlichen Ablauf lässt die UI "Update wird installiert …" zeigen
    *  statt eines generischen Neustarts. */
   async applyUpdate(): Promise<void> {
-    if (this._last.phase !== 'live') return;
+    if (this._last.phase !== 'live' || this._laufend) return;
     this._emit('preparing', { step: 'update' });
     try {
       await this._runBackend();

@@ -552,7 +552,7 @@ contextBridge.exposeInMainWorld('pulse', {
       ipcRenderer.invoke('host:giveUp', opts),
     unpair: (): Promise<void> => ipcRenderer.invoke('host:unpair'),
     runtimeAvailable: (): Promise<boolean> => ipcRenderer.invoke('host:runtime'),
-    setupWindows: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('host:setupWindows'),
+    setupWindows: (): Promise<{ ok: boolean; neustartNoetig: boolean; abgebrochen: boolean }> => ipcRenderer.invoke('host:setupWindows'),
     // "Angemeldet als …" (eingeloggter Cloud-User) + "Abmelden" (Session-Cookie
     // löschen, zurück zum Login → anderer Account möglich).
     me: (): Promise<{ username: string; displayName: string | null } | null> =>

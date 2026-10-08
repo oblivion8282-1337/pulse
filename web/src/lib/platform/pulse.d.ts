@@ -391,7 +391,7 @@ export interface PulseHostApi {
   runtimeAvailable(): Promise<boolean>;
   /** Windows-Erststart-Assistent: WSL2 mit Admin-Abfrage installieren
    *  (Phase 'needs-windows-setup'). Nach ok ist meist ein Neustart nötig. */
-  setupWindows(): Promise<{ ok: boolean }>;
+  setupWindows(): Promise<{ ok: boolean; neustartNoetig: boolean; abgebrochen: boolean }>;
   /** Eingeloggter Cloud-User (für die "Angemeldet als …"-Zeile). null bei
    *  fehlender Session (gepairter Server ohne frischen Login). */
   me(): Promise<{ username: string; displayName: string | null } | null>;
