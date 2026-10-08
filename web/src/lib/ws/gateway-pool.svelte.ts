@@ -16,7 +16,6 @@ import type { ServerEntry } from '$lib/api/servers.svelte';
 
 class GatewayPool {
   readonly #connections = new Map<string, GatewayConnection>();
-
   /** Holt die Connection für `serverId` oder erzeugt sie. Wirft wenn kein
    *  ServerEntry existiert (Caller hat schon Server-Switch gemacht aber der
    *  Eintrag wurde gelöscht — Hard-Fehler, kein silenter Fallback). */
@@ -48,6 +47,16 @@ class GatewayPool {
     if (!conn) return;
     conn.disconnect();
     this.#connections.delete(serverId);
+  }
+
+  /** Weck-Prüfung an alle offenen Verbindungen (s. `netzwache.ts`).
+   *
+   *  An ALLE, nicht nur an die aktive: wer einen Self-Host benutzt, hat die
+   *  Cloud-Verbindung im Hintergrund mitlaufen, und der verschlüsselte
+   *  DM-Weg hängt an ihr (`postfach_neu`). Nur die aktive zu wecken hiesse,
+   *  dass nach einem Netzwechsel die Unterhaltungen weiter stillstehen. */
+  alleWachPruefen(): void {
+    for (const conn of this.#connections.values()) conn.wachPruefen();
   }
 
   /** Schließt alle Connections (Sign-Out). */

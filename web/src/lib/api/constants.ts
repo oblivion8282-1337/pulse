@@ -31,6 +31,20 @@ export const WS_PING_INTERVAL_MS = 25_000;
 export const WS_PONG_TIMEOUT_MS = 90_000;
 
 /**
+ * Frist für die WECK-Prüfung (`GatewayConnection.wachPruefen`) — nicht für den
+ * laufenden Herzschlag.
+ *
+ * Der Unterschied ist der Anlass: `WS_PONG_TIMEOUT_MS` muss grosszügig sein,
+ * weil Browser `setInterval` im Hintergrund-Tab auf ≥60 s drosseln und ein
+ * knapper Wert dort gesunde Verbindungen wegwürfe. Beim Aufwachen gilt das
+ * Gegenteil — der Tab ist gerade sichtbar geworden, die Zeitgeber laufen
+ * wieder normal, und der Nutzer schaut auf eine App, die stillsteht. 5 s sind
+ * reichlich für einen Rundlauf über eine funktionierende Leitung; eine
+ * Fehleinschätzung kostet nur einen Reconnect, nicht Daten.
+ */
+export const WS_WACH_FRIST_MS = 5_000;
+
+/**
  * WS-Schliesscodes (Plan §DE-10/§5).
  *
  * Gegenstueck: `services/chat-gateway/src/dcc_chat_gateway/routes/ws.py`

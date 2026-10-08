@@ -31,6 +31,8 @@
   import { badgeMelden } from '$lib/platform/badgeMelden';
   import { ungeleseneNachrichten } from '$lib/navigation/abzeichen.svelte';
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
+  import { netzwacheStarten } from '$lib/ws/netzwache';
+  import VerbindungsHinweis from '$lib/components/VerbindungsHinweis.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
   import WatchPartyPickerDialog from '$lib/components/WatchPartyPickerDialog.svelte';
@@ -272,6 +274,10 @@
     // kein Resume-Eintrag vorliegt. DANACH (sequenziell — Resume gewinnt):
     // Auto-Connect in den fest gewählten Voice-Channel, falls konfiguriert.
     void resumeVoiceIfPending().then(() => autoConnectIfConfigured());
+    // Netz zurück / App wieder vorn → Verbindungen sofort prüfen, statt auf
+    // die nächste Backoff-Stufe zu warten (bis 300 s). Begründung und die
+    // drei Anlässe: `ws/netzwache.ts`.
+    netzwacheStarten();
 
     // Vom Betreiber gelöschte Self-Host-Server aus der lokalen Liste räumen
     // (öffentliche Suspend-Liste der Cloud, anonymer Abgleich). Fire-and-forget.
@@ -609,6 +615,10 @@
     </div>
   {/if}
 </div>
+
+<!-- Verbindungs-Hinweis: oben, nicht blockierend. Begründung samt der
+     Abweichung von „Deckblatt" in der Komponente. -->
+<VerbindungsHinweis />
 
 <!-- Globaler Watch-Party-Auswahl-Dialog (wenn ein User mehrere Partys hostet) -->
 <WatchPartyPickerDialog />
