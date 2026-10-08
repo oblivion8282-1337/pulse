@@ -57,6 +57,12 @@ write_if_missing() {
 [ -f "${KEYS}/minio.password" ] || write_if_missing \
     "${KEYS}/minio.password" "$(gen_hex)"
 
+# Zugang zu MediaMTX' Steuer-API (:9997). media-svc schickt es als Basic-Auth
+# mit, der auth-hook prüft es (dcc_mediamtx_auth_hook/api_zugang.py). Vorher
+# hing die API allein an der Loopback-Bindung — Begründung dort.
+[ -f "${KEYS}/mediamtx_api.password" ] || write_if_missing \
+    "${KEYS}/mediamtx_api.password" "$(gen_urlsafe)"
+
 # Self-Host JWT signing keypair — Ed25519 for Self-Host session tokens
 # (Phase 5 issues those for /cert-login; the key here is what chat-gateway
 # uses to sign + voice-signaling/media-svc to verify).

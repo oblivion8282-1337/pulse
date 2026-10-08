@@ -2,5 +2,14 @@
 # UDP-Gateway — TCP⇄UDP-Brücke für die Host-UDP-Relays der Server-App
 # (podman-machine-Betrieb: Win-WSL2 leitet published UDP nicht durch,
 # mac-gvproxy ebenso; nur TCP kommt in die VM. Details im Skriptkopf.)
+#
+# PULSE_UDP_GATEWAY_DISABLED=true → Dienst idlet. Gebraucht wird das Gateway
+# nur auf macOS (gvproxy); ein VPS oder eine Windows-podman-machine mit
+# `--network host` (dort lauscht es sonst auf allen VM-Adressen) braucht es
+# nicht. Vorgabe bleibt AN, weil die macOS-Server-App die Variable nicht setzt.
 exec 2>&1
+if [ "${PULSE_UDP_GATEWAY_DISABLED:-false}" = "true" ]; then
+    echo "[udp-gateway] PULSE_UDP_GATEWAY_DISABLED=true — Dienst idlet."
+    exec sleep infinity
+fi
 exec /opt/pulse/venv/bin/python3 -u /etc/s6-overlay/scripts/udp-gateway.py

@@ -19,7 +19,9 @@ use webrtc::data_channel::RTCDataChannel;
 use webrtc::data_channel::data_channel_message::DataChannelMessage;
 use webrtc::peer_connection::RTCPeerConnection;
 
+use crate::grenzen::{OffeneIds, Platz, Reservierung};
 use crate::protocol::{BODY_CHUNK_BYTES, HttpFrameIn, HttpFrameOut};
+use crate::ziel::backend_url;
 
 fn backend_base() -> String {
     // Caddy bedient in JEDEM TLS-Modus zusätzlich http://:8080 (Caddyfile-
@@ -55,15 +57,21 @@ struct PendingReq {
     path: String,
     headers: Vec<(String, String)>,
     body: Vec<u8>,
+    /// Hält den Anteil am Puffer-Budget und den Platz unter den offenen IDs
+    /// des Kanals, bis `dispatch` fertig ist (grenzen.rs).
+    budget: Reservierung,
+    _platz: Platz,
 }
 
 fn wire_http_channel(dc: Arc<RTCDataChannel>) {
     let pending: Arc<Mutex<HashMap<u64, PendingReq>>> = Arc::new(Mutex::new(HashMap::new()));
+    let offene = OffeneIds::default();
     let http = bridge_client();
     let dc_for_handler = dc.clone();
     dc.on_message(Box::new(move |msg: DataChannelMessage| {
         let dc = dc_for_handler.clone();
         let pending = pending.clone();
+        let offene = offene.clone();
         let http = http.clone();
         Box::pin(async move {
             let Ok(frame) = serde_json::from_slice::<HttpFrameIn>(&msg.data) else {
@@ -71,7 +79,21 @@ fn wire_http_channel(dc: Arc<RTCDataChannel>) {
             };
             match frame {
                 HttpFrameIn::Req { id, method, path, headers, fin } => {
-                    let req = PendingReq { method, path, headers, body: Vec::new() };
+                    // Eine wiederverwendete ID ersetzt die alte Anfrage — deren
+                    // Platz wird VOR dem Belegen frei, sonst zählte sie doppelt.
+                    drop(pending.lock().await.remove(&id));
+                    let Some(platz) = offene.belegen() else {
+                        send_err(&dc, id, "too many open requests").await;
+                        return;
+                    };
+                    let req = PendingReq {
+                        method,
+                        path,
+                        headers,
+                        body: Vec::new(),
+                        budget: Reservierung::default(),
+                        _platz: platz,
+                    };
                     if fin {
                         tokio::spawn(dispatch(http, dc, id, req));
                     } else {
@@ -85,6 +107,12 @@ fn wire_http_channel(dc: Arc<RTCDataChannel>) {
                         map.remove(&id);
                         return;
                     };
+                    if !req.budget.wachsen(chunk.len()) {
+                        map.remove(&id);
+                        drop(map);
+                        send_err(&dc, id, "request body too large").await;
+                        return;
+                    }
                     req.body.extend_from_slice(&chunk);
                     if fin {
                         let req = map.remove(&id).expect("gerade geholt");
@@ -113,14 +141,22 @@ fn skip_header(name: &str) -> bool {
     )
 }
 
-async fn dispatch(http: reqwest::Client, dc: Arc<RTCDataChannel>, id: u64, req: PendingReq) {
+async fn dispatch(http: reqwest::Client, dc: Arc<RTCDataChannel>, id: u64, mut req: PendingReq) {
     // ponytail: ALLE Klienten eines App-Hosts kommen hier als 127.0.0.1 an —
     // die echte WebRTC-Gegenstelle wird nicht propagiert (dazu müsste die
     // ICE-Selected-Pair-Adresse je Kanal durchgereicht werden). Folgen:
     // gemeinsame IP-Buckets + der 100-Sockets-je-IP-Deckel des chat-gateway
     // gelten instanzweit. Upgrade-Pfad: XFF aus der ICE-Remote-Adresse
     // setzen (Caddy überschreibt heute mit {remote_host} = Adapter).
-    let url = format!("{}{}", backend_base(), req.path);
+    let url = match backend_url(&backend_base(), &req.path, false) {
+        Ok(u) => u,
+        Err(e) => {
+            // Pfad selbst nicht loggen (Query kann Tokens tragen).
+            eprintln!("[bridge] Pfad abgewiesen (req {id}): {e:?}");
+            send_err(&dc, id, "invalid path").await;
+            return;
+        }
+    };
     let Ok(method) = req.method.parse::<reqwest::Method>() else {
         send_err(&dc, id, "invalid method").await;
         return;
@@ -135,7 +171,7 @@ async fn dispatch(http: reqwest::Client, dc: Arc<RTCDataChannel>, id: u64, req: 
         }
     }
     if !req.body.is_empty() {
-        builder = builder.body(req.body);
+        builder = builder.body(std::mem::take(&mut req.body));
     }
     let res = match builder.send().await {
         Ok(r) => r,
@@ -221,9 +257,13 @@ fn wire_ws_channel(dc: Arc<RTCDataChannel>, path: String) {
     }));
 
     tokio::spawn(async move {
-        let base = backend_base().replacen("http", "ws", 1);
-        let url = format!("{base}{path}");
-        let Ok((stream, _)) = tokio_tungstenite::connect_async(&url).await else {
+        let Ok(url) = backend_url(&backend_base(), &path, true) else {
+            // Kein eigener Fehler-Frame im WS-Kanal: Schließen IST die Absage.
+            eprintln!("[bridge] WS-Pfad abgewiesen");
+            let _ = dc_in.close().await;
+            return;
+        };
+        let Ok((stream, _)) = tokio_tungstenite::connect_async(url.as_str()).await else {
             eprintln!("[bridge] Backend-WS nicht erreichbar");
             let _ = dc_in.close().await;
             return;

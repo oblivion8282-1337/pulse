@@ -48,9 +48,15 @@ changed="${1:-}"
 # Muster hier auf `streaming/` beschränkt geblieben, hätte der Krypto-Kern am
 # Tag seiner Entstehung 11 Tests gehabt, die in KEINEM Gate laufen — dieselbe
 # Fehlerklasse, die dieser Block überhaupt erst begründet hat.
+#
+# `infra/self-host/direct-adapter` ist seit dem 2026-10-08 dabei: der Adapter
+# ist der Eingang JEDES Heim-Servers vom Direktweg her, und seine Tests (darunter
+# die Gegenprobe zur Pfad-Weiterleitung auf fremde Hosts, Scan 2026-10-08)
+# liefen bis dahin in keinem Gate.
 for kiste in $(echo "$changed" | sed -n \
   -e 's|^\(streaming/pulse-[a-z-]*\)/.*|\1|p' \
-  -e 's|^\(krypto/pulse-[a-z-]*\)/.*|\1|p' | sort -u); do
+  -e 's|^\(krypto/pulse-[a-z-]*\)/.*|\1|p' \
+  -e 's|^\(infra/self-host/direct-adapter\)/.*|\1|p' | sort -u); do
   [ "$kiste" = "streaming/pulse-player" ] && continue
   [ -f "$kiste/Cargo.toml" ] || continue
   # `${kiste}` mit Klammern, und das ist kein Schoenheitsfehler: macOS

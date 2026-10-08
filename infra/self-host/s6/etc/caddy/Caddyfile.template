@@ -1,6 +1,12 @@
 {
     # Global Options
     email {$PULSE_ADMIN_EMAIL}
+    # Admin-API aus (Scan 2026-10-08): sie lauscht sonst ohne Anmeldung auf
+    # localhost:2019, und jeder lokale Prozess — nativ unter Windows also
+    # jedes Programm des Nutzers — könnte Caddy darüber umkonfigurieren.
+    # Pulse lädt die Konfiguration nie zur Laufzeit nach (s6 und der native
+    # Supervisor starten Caddy neu), braucht die API also nicht.
+    admin off
     # Auto-TLS via Let's Encrypt (Default, PULSE_TLS_MODE=auto).
     # PULSE_TLS_MODE=provided → eigenes Cert unter /data/certs/{cert.pem,key.pem}.
     # 07-init-caddy.sh patcht den Site-Block entsprechend beim Container-Start.

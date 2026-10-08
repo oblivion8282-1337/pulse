@@ -20,6 +20,7 @@ LIVEKIT_KEY=$(cat "${KEYS}/livekit.key")
 LIVEKIT_SECRET=$(cat "${KEYS}/livekit.secret")
 MINIO_USER=$(cat "${KEYS}/minio.user")
 MINIO_PASS=$(cat "${KEYS}/minio.password")
+MEDIAMTX_API_PASS=$(cat "${KEYS}/mediamtx_api.password")
 
 # Ingest-Ziel für den RTMPS-Push des HQ-Sidecars.
 #
@@ -118,6 +119,10 @@ export LIVEKIT_API_URL='http://127.0.0.1:7880'
 # diese Vars defaultet media-svc auf localhost → HQ-Streaming-URLs unbrauchbar von
 # außen (F16, gleicher Fall wie LIVEKIT_URL/F15). WHEP läuft über Caddy /whep → 8889.
 export MEDIAMTX_API_URL='http://127.0.0.1:9997/v3/paths/list'
+# Zugangsdaten der API — gelesen von media-svc (schickt sie mit) UND vom
+# auth-hook (prüft sie); 08-init-mediamtx.sh leitet "api" deshalb an den Hook.
+export MEDIAMTX_API_USER=pulse-media-svc
+export MEDIAMTX_API_PASSWORD='${MEDIAMTX_API_PASS}'
 export MEDIAMTX_INGEST_HOST='${MEDIAMTX_INGEST}'
 export MEDIAMTX_PUBLIC_BASE='https://${PULSE_HOSTNAME}/whep'
 # Gäste-Publish per WHIP (WebRTC-Ingest, NAT-lochbar); Owner bleibt RTMPS —

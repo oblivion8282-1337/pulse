@@ -89,8 +89,12 @@ moq: no
 
 authMethod: http
 authHTTPAddress: http://127.0.0.1:8005
+# "api" steht hier bewusst NICHT (anders als infra/prod/mediamtx.yml): die
+# API-Anfragen gehen an den Hook, der die Zugangsdaten aus
+# MEDIAMTX_API_PASSWORD prüft (07-render-env.sh, api_zugang.py). Die
+# Loopback-Bindung allein schützt im Container nicht — dort laufen weitere
+# Prozesse, die Anfragen im Auftrag Fremder stellen (Direktweg-Adapter).
 authHTTPExclude:
-  - action: api
   - action: metrics
   - action: pprof
 

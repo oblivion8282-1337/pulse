@@ -17,12 +17,31 @@ Protokoll (pro TCP-Verbindung):
     Client-Adresse eine Verbindung, damit die Antworten zurücksinnen).
 Der Port (UDP_GATEWAY_PORT = 55981) ist im Container nicht nach außen
 publiziert; die Server-App erreicht ihn über ihren 127.0.0.1-Publish.
+
+**Warum 0.0.0.0 und nicht 127.0.0.1** (Security-Scan 2026-10-08 geprüft):
+Ein Publish (`-p 127.0.0.1:55981:55981/tcp`) schränkt nur die HOST-Seite ein.
+Im Container kommt die weitergeleitete Verbindung über dessen Netzschnittstelle
+an, nicht über sein Loopback — ein Bind auf 127.0.0.1 nähme sie nicht an. Die
+Erreichbarkeit hängt deshalb am Publish, nicht an diesem Bind. Wo der Container
+mit `--network host` läuft (Windows-podman-machine), lauscht der Dienst auf
+allen Adressen der VM; wer ihn dort nicht braucht, schaltet ihn ab:
+`PULSE_UDP_GATEWAY_DISABLED=true` (s6-rc.d/udp-gateway/run).
+
+**Grenze gleichzeitiger Flows** (`MAX_FLOWS`): je Verbindung zwei Threads,
+vorher unbegrenzt — eine Verbindungsflut legte den Prozess über die
+Thread-Zahl lahm. Die Gegenseite (`desktop/electron/localBackend/udpGateway.ts`
+mit `relayGrenzen.ts`) hält höchstens 256 Peers je Listener bei 14
+Medien-Ports, also bis zu 3 584 legitime Flows; 4 096 liegt darüber, damit die
+Grenze nur eine Flut trifft. Über der Grenze wird die neue Verbindung sofort
+geschlossen — die Gegenseite verwirft dann diesen einen Peer und baut beim
+nächsten Paket neu auf.
 """
 import socket
 import struct
 import threading
 
 LISTEN = ("0.0.0.0", 55981)
+MAX_FLOWS = 4096
 
 
 def recvn(conn, n):
@@ -35,7 +54,7 @@ def recvn(conn, n):
     return buf
 
 
-def handle(conn):
+def handle(conn, plaetze):
     udp = None
     try:
         port = struct.unpack(">H", recvn(conn, 2))[0]
@@ -72,6 +91,29 @@ def handle(conn):
             conn.close()
         except Exception:
             pass
+        plaetze.release()
+
+
+def serve(srv, max_flows=MAX_FLOWS):
+    """Nimmt Verbindungen an, höchstens `max_flows` gleichzeitig."""
+    plaetze = threading.BoundedSemaphore(max_flows)
+    voll_gemeldet = False
+    while True:
+        conn, _ = srv.accept()
+        if not plaetze.acquire(blocking=False):
+            if not voll_gemeldet:
+                print(f"[udp-gateway] {max_flows} Flows offen — weitere abgewiesen", flush=True)
+                voll_gemeldet = True
+            conn.close()
+            continue
+        voll_gemeldet = False
+        try:
+            threading.Thread(target=handle, args=(conn, plaetze), daemon=True).start()
+        except RuntimeError:
+            # Kein Thread mehr zu haben (Systemgrenze) — diese eine Verbindung
+            # aufgeben statt den ganzen Dienst sterben zu lassen.
+            plaetze.release()
+            conn.close()
 
 
 def main():
@@ -80,9 +122,8 @@ def main():
     srv.bind(LISTEN)
     srv.listen(128)
     print("[udp-gateway] bereit auf 55981/tcp", flush=True)
-    while True:
-        conn, _ = srv.accept()
-        threading.Thread(target=handle, args=(conn,), daemon=True).start()
+    serve(srv)
 
 
-main()
+if __name__ == "__main__":
+    main()

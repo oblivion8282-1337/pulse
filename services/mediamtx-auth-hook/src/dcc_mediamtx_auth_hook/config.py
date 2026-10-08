@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     # self-host that fronts MediaMTX with its own gate, or an emergency rollback.
     read_token_required: bool = True
 
+    # Zugangsdaten für MediaMTX' Steuer-API (``action == "api"``). Leer =
+    # ungeprüft wie bisher (Vorgabe, Cloud). Begründung: ``api_zugang.py``.
+    # Dieselben Variablen liest media-svc, um sie mitzuschicken.
+    mediamtx_api_user: str = "pulse-media-svc"
+    mediamtx_api_password: str = ""
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
