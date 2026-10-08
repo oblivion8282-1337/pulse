@@ -43,6 +43,7 @@ import {
 import { RelaySteuerung, type RelayZiel, type RelayZustand } from './relaySteuerung.ts';
 import { pullMitWegwerfLogin } from './registryAuth.ts';
 import { meldeDirektOffline, renderContainerEnv, resolveImage, udpGatewayAusFuer } from './containerEnv.ts';
+import { gleicheContainerIpAb, oeffentlicheIpFuerStart } from './containerIpAbgleich.ts';
 
 // Bestands-Exporte (Tests, Aufrufer) — die Quellen liegen in hostNetz.ts,
 // medienPorts.ts, containerEnv.ts und containerWelt.ts.
@@ -194,6 +195,7 @@ export class ContainerBackendManager {
     const lanIps = hostLanIpv4s(undefined, { gateway, vmIp });
     const envInhalt = renderContainerEnv(
       creds, adminEmail, lanIps, vmBetrieb ? lanIps[0] : undefined, udpGatewayAusFuer(),
+      await oeffentlicheIpFuerStart(),
     );
 
     const { image, local } = resolveImage();
@@ -316,6 +318,12 @@ export class ContainerBackendManager {
    *  App-Instanz ihn selbst gestartet hat — `--restart unless-stopped`
    *  überlebt App-/Host-Neustarts)? argv-Array, keine Shell-Interpolation.
    *  `inspect` auf einen fehlenden Container liefert exit != 0 → false. */
+  /** Öffentliche IP ↔ LiveKit nachziehen (containerIpAbgleich.ts). */
+  async abgleichOeffentlicheIp(): Promise<string> {
+    const rt = await this.ensureRuntime();
+    return rt ? gleicheContainerIpAb(rt) : 'nicht-zustaendig';
+  }
+
   async isContainerRunning(): Promise<boolean> {
     const rt = await this.ensureRuntime();
     if (!rt) return false;

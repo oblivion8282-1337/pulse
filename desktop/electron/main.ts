@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage, Notification, powerSaveBlocker } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage, Notification, powerSaveBlocker, powerMonitor } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -751,7 +751,32 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // Nur im Server-Modus, und nur gegen das AUTOMATISCHE Schlafen — ein
   // bewusstes Zuklappen oder „Bereitschaft" bleibt dem Nutzer.
   let schlafSperre: number | null = null;
+  // Öffentliche IP ↔ LiveKit (oeffentlicheIp.ts): Heimanschlüsse haben keine
+  // feste IP. LiveKit bekommt die Adresse fest vorgegeben (sonst bekommt
+  // Firefox im selben Heimnetz keinen Medienweg) und folgt ihr deshalb nicht
+  // selbst — der Abgleich hier zieht sie nach und startet bei einem Wechsel
+  // NUR LiveKit neu. Takt: alle 2 Minuten, kurz nach jedem Live-Gehen und
+  // nach dem Aufwachen (nach einem Ruhezustand ist ein Wechsel am
+  // wahrscheinlichsten).
+  let ipAbgleichLaeuft = false;
+  const ipAbgleich = async (): Promise<void> => {
+    if (!SERVER_MODE || ipAbgleichLaeuft || hl.getStatus().phase !== 'live') return;
+    ipAbgleichLaeuft = true;
+    try {
+      const r = await manager.abgleichOeffentlicheIp();
+      if (r === 'gesetzt') console.warn('[host] öffentliche IP gewechselt — LiveKit-Adresse nachgezogen');
+    } catch (err) {
+      console.warn('[host] IP-Abgleich fehlgeschlagen:', (err as Error).message);
+    } finally {
+      ipAbgleichLaeuft = false;
+    }
+  };
+  if (SERVER_MODE) {
+    setInterval(() => { void ipAbgleich(); }, 120_000).unref();
+    powerMonitor.on('resume', () => { setTimeout(() => { void ipAbgleich(); }, 10_000); });
+  }
   hl.onPhase((e) => {
+    if (SERVER_MODE && e.phase === 'live') setTimeout(() => { void ipAbgleich(); }, 15_000);
     if (SERVER_MODE) {
       if (e.phase === 'live' && schlafSperre === null) {
         schlafSperre = powerSaveBlocker.start('prevent-app-suspension');

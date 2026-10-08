@@ -50,6 +50,16 @@ if [ -n "${PULSE_VM_ANNOUNCE_IP:-}" ]; then
     echo "[05-init-livekit] VM-Betrieb: node_ip=${PULSE_VM_ANNOUNCE_IP}, use_external_ip aus"
 fi
 
+# App-Host ohne VM (Linux): die Server-App reicht die öffentliche IPv4 mit
+# (PULSE_PUBLIC_IPV4). Fest vorgegeben statt per STUN, damit LiveKit Firefox
+# nicht auf „nur öffentliche Adresse" umschaltet — Begründung und Wechsel-
+# Behandlung in pulse-livekit-node-ip (infra/self-host/livekit-node-ip.sh).
+# Ohne die Variable bleibt der STUN-Weg wie bisher.
+if [ -z "${PULSE_VM_ANNOUNCE_IP:-}" ] && [ -n "${PULSE_PUBLIC_IPV4:-}" ]; then
+    LIVEKIT_YAML=/etc/livekit/livekit.yaml /usr/local/bin/pulse-livekit-node-ip "${PULSE_PUBLIC_IPV4}" \
+        || echo "[05-init-livekit] WARN: PULSE_PUBLIC_IPV4 nicht übernommen — STUN-Weg bleibt"
+fi
+
 chown pulse:pulse /etc/livekit/livekit.yaml
 chmod 0640 /etc/livekit/livekit.yaml
 
