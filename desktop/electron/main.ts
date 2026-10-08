@@ -777,8 +777,8 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     powerMonitor.on('resume', () => { setTimeout(() => { void ipAbgleich(); }, 10_000); });
   }
   hl.onPhase((e) => {
-    if (SERVER_MODE && e.phase === 'live') setTimeout(() => { void ipAbgleich(); }, 15_000);
     if (SERVER_MODE) {
+      if (e.phase === 'live') setTimeout(() => { void ipAbgleich(); }, 15_000);
       if (e.phase === 'live' && schlafSperre === null) {
         schlafSperre = powerSaveBlocker.start('prevent-app-suspension');
       } else if (e.phase !== 'live' && e.phase !== 'preparing' && schlafSperre !== null) {
@@ -927,32 +927,31 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!localSenderOnly(e)) return;
     return hl.stop();
   });
-  // „Server-App beenden"-Knopf in server.html — derselbe Weg wie der Tray-
-  // Eintrag „Beenden". Nötig, weil GNOME ohne AppIndicator-Erweiterung kein
-  // Tray-Symbol zeigt: das Fenster-X versteckt nur, die App war dort sonst
-  // gar nicht zu beenden (Linux-Scan 2026-10-08).
   // Server-Name (2026-10-08): der Betreiber benennt seinen Server hier statt
   // nur unter /app/admin — der chat-gateway meldet ihn der Cloud, und die
   // Server-Leiste aller Mitglieder zeigt ihn statt der Relay-Adresse.
-  ipcMain.handle('host:serverName', async (e) => {
-    if (!localSenderOnly(e)) return { ok: false, error: 'forbidden' };
+  const serverNameAntwort = async (name?: string) => {
     try {
-      return { ok: true, name: await manager.serverName() };
+      return { ok: true, name: await manager.serverName(name) };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
+  };
+  ipcMain.handle('host:serverName', async (e) => {
+    if (!localSenderOnly(e)) return { ok: false, error: 'forbidden' };
+    return serverNameAntwort();
   });
   ipcMain.handle('host:setServerName', async (e, name: unknown) => {
     if (!localSenderOnly(e)) return { ok: false, error: 'forbidden' };
     if (typeof name !== 'string' || name.trim().length > SERVERNAME_MAX) {
       return { ok: false, error: `Höchstens ${SERVERNAME_MAX} Zeichen.` };
     }
-    try {
-      return { ok: true, name: await manager.serverName(name.trim()) };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
-    }
+    return serverNameAntwort(name.trim());
   });
+  // „Server-App beenden"-Knopf in server.html — derselbe Weg wie der Tray-
+  // Eintrag „Beenden". Nötig, weil GNOME ohne AppIndicator-Erweiterung kein
+  // Tray-Symbol zeigt: das Fenster-X versteckt nur, die App war dort sonst
+  // gar nicht zu beenden (Linux-Scan 2026-10-08).
   ipcMain.handle('host:quit', (e) => {
     if (!localSenderOnly(e)) return;
     quitApp();
