@@ -212,7 +212,15 @@
     el.muted = boosted;
     applyVolume();
     localBlocked = boosted && boost.suspended;
-    el.play().catch(() => { /* autoplay best effort */ });
+    el.play().catch(() => {
+      // Nicht verstaerkt heisst: dieses Element IST der hoerbare Weg, und eine
+      // abgelehnte Wiedergabe muss sichtbar werden. Vorher stand hier ein
+      // leeres `catch` — auf iOS blieb der Stream damit stumm, ohne Knopf und
+      // ohne Hinweis, weil `localBlocked` nur den verstaerkten Fall abdeckt.
+      // Im verstaerkten Fall ist das Element absichtlich stumm; dort
+      // entscheidet `boost.suspended`, nicht dieser Fehlschlag.
+      if (!boosted) localBlocked = true;
+    });
     return () => { at.detach(el); };
   });
 
@@ -241,15 +249,29 @@
     applyVolume();
   }
 
+  /**
+   * „Ton aktivieren" auf der Stream-Kachel.
+   *
+   * **Alle drei Startversuche werden noch in der Klick-Aufgabe abgesetzt.**
+   * WebKit verwirft die Nutzeraktivierung ueber ein `await` hinweg, und
+   * `AudioContext.resume()` braucht sie genauso wie `<audio>.play()`. Die
+   * vorige Fassung wartete erst auf `voice.unblockAudio()` und weckte den
+   * Verstaerker-Kontext danach — auf iOS blieb er deshalb `suspended`, und weil
+   * das Element im verstaerkten Fall stumm ist, war vom Stream NICHTS zu
+   * hoeren (am 2026-10-09 am iPhone gemeldet). Derselbe Fehler stand im
+   * Sprachweg, s. `voice/livekit.svelte.ts::unblockAudio`.
+   */
   async function enableAudio() {
-    await voice.unblockAudio();
-    try {
-      await audioEl?.play();
-      await boost?.resume();
-      localBlocked = !!boost?.suspended;
-    } catch {
-      /* still blocked — leave the button visible */
-    }
+    const stimmen = voice.unblockAudio().catch(() => undefined);
+    const element = (audioEl?.play() ?? Promise.resolve())
+      .then(() => true)
+      .catch(() => false);
+    const verstaerker = (boost?.resume() ?? Promise.resolve()).catch(() => undefined);
+    await Promise.all([stimmen, verstaerker]);
+    const elementSpielt = await element;
+    // Verstaerkt: der Kontext traegt den Ton, das Element ist stumm. Sonst ist
+    // das Element der hoerbare Weg — dann zaehlt sein Ergebnis.
+    localBlocked = boost ? boost.suspended : !elementSpielt;
   }
 
   onDestroy(() => {
