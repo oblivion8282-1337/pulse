@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-10-09.1",
+      "date": "2026-10-09",
+      "style": "Sachlich",
+      "title": "Schneller live",
+      "items": [
+        "Nach dem Start einer Bildschirmübertragung bist du wieder sofort live. Zuletzt konnte das bis zu einer halben Minute dauern."
+      ]
+    },
+    {
       "id": "2026-10-08.1",
       "date": "2026-10-08",
       "style": "Sachlich",
