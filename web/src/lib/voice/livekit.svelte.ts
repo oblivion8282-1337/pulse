@@ -60,7 +60,7 @@ import { istAblehnung, standMerken } from '$lib/platform/berechtigung.svelte';
 import { isMobile } from '$lib/platform/runtime';
 import { melde } from '$lib/diagnose/app-diagnose';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
-import { tonSystemFilterBeobachten, tonSystemFiltert, tonVoice } from '$lib/platform/iosTon';
+import { tonSystemFiltert, tonVoice } from '$lib/platform/iosTon';
 import { filterziel } from './filterwahl';
 import { sidecar } from '$lib/stream/sidecar';
 import { runningStreamSlots } from '$lib/stream/state.svelte';
@@ -1955,7 +1955,6 @@ export const voice = new VoiceRoom();
 // Einmal je Fenster, ohne Abriss: der Rückruf prüft selbst, ob ein Raum offen
 // ist (`applyNoiseFilter` kehrt ohne Raum sofort zurück), und ausserhalb der
 // iOS-Hülle feuert er nie.
-tonSystemFilterBeobachten(() => void voice.applyNoiseFilter());
 
 // ShortcutHost feuert die globalen Voice-Shortcuts über die schlanke Registry
 // in state.svelte.ts, damit das Root-Layout dieses Modul (und mit ihm
