@@ -25,6 +25,10 @@ export class AudioDevices {
   #onInputChanged: () => void | Promise<void>;
   /** Eingabegerät vor der BT-Umschaltung — für den Rückweg, wenn BT weg ist. */
   #eingabeVorBt: string | null = null;
+  /** Der Room, dem das Ausgabegerät zuletzt gemeldet wurde. `selectedOutputId`
+   *  überlebt Verbindungen (und füllt schon das Einstellungs-Panel ohne Room) —
+   *  ein Vergleich nur damit meldete einem neuen Room das Gerät nie. */
+  #ausgabeGemeldetAn: Room | null = null;
 
   constructor(audioEls: RemoteAudioElements, onInputChanged: () => void | Promise<void>) {
     this.#audioEls = audioEls;
@@ -49,13 +53,7 @@ export class AudioDevices {
     this.selectedOutputId = deviceId;
     const label = this.outputs.find((d) => d.deviceId === deviceId)?.label ?? '';
     settings.setOutputDevice(deviceId, label);
-    if (room) {
-      try {
-        await room.switchActiveDevice('audiooutput', deviceId);
-      } catch {
-        /* setSinkId not supported in some browsers — ignore */
-      }
-    }
+    if (room) await this.#switch(room, 'audiooutput', deviceId);
     await this.#audioEls.setOutputDevice(deviceId);
     // Der HQ-Stream-Ton hängt nicht an `#audioEls` (eigener Audio-Graph, s.
     // `stream/volumeBoost.ts`) und muss deshalb separat mitgenommen werden —
@@ -85,6 +83,12 @@ export class AudioDevices {
       if (room) await this.#switch(room, 'audiooutput', outMatch.deviceId);
       await this.#audioEls.setOutputDevice(outMatch.deviceId);
       hqStreams.setOutputDevice(outMatch.deviceId);
+    } else if (room && outMatch.deviceId && this.#ausgabeGemeldetAn !== room) {
+      // Gerät unverändert, aber der Room ist neu: LiveKit setzt das Gerät auf
+      // die Elemente, die ES anhängt (Ton einer Bildschirmfreigabe), nur wenn
+      // es davon weiß. Sonst bleiben die auf dem Standardgerät und können
+      // Chromiums Echo-Unterdrückung dorthin ziehen (s. `anchor` in `audioElements.ts`).
+      await this.#switch(room, 'audiooutput', outMatch.deviceId);
     }
 
     await this.#mikrofonFolgtBt(room);
@@ -141,8 +145,9 @@ export class AudioDevices {
   async #switch(room: Room, kind: MediaDeviceKind, deviceId: string): Promise<void> {
     try {
       await room.switchActiveDevice(kind, deviceId);
+      if (kind === 'audiooutput') this.#ausgabeGemeldetAn = room;
     } catch {
-      /* ignore */
+      /* device vanished, or browser can't switch outputs (LiveKit: Safari, no setSinkId) — ignore */
     }
   }
 }
