@@ -318,3 +318,99 @@ Remote-Debugging der Debug-APK). Ohne Flag: altes Verhalten, Zeile für Zeile.
 **Offen danach:** Ergebnis der Kernprobe in §1/§7 eintragen (bei Rot:
 Fallback-Diskussion Regler-Kopplung), iOS (CallKit), 1:1-Anruf-E2EE nativ
 nur wenn sich die Frame-Crypto über die Bridge tragen lässt.
+
+**Offen danach:** Ergebnis der Kernprobe in §1/§7 eintragen (bei Rot:
+Fallback-Diskussion Regler-Kopplung), iOS (CallKit), 1:1-Anruf-E2EE nativ
+nur wenn sich die Frame-Crypto über die Bridge tragen lässt.
+
+---
+
+## 9. Kernprobe + Nachzug (2026-10-09, Windows-Rechner, Galaxy S22 per USB)
+
+Erste Runde Kernprobe und Gerätetests — **P1-Abnahme GRÜN**, plus Nachbau-
+Pakete aus den Befunden. Getestet gegen den lokalen Windows-Stack
+(`scripts/dev-local.mjs`), Debug-APK mit `server.url → http://localhost:5173`
+(adb reverse 5173/7880/7881; Cleartext-Overlay siehe `app/src/debug/`).
+
+**Grün gemessen (`dumpsys audio`):**
+
+- `USAGE_VOICE_COMMUNICATION` auf AudioTrack (Stimme) UND SoundPool
+  (`voice.*`-Klänge), `setMode(MODE_IN_COMMUNICATION)` vom SDK — der
+  Stempel sitzt am Entstehungsort, genau wie geplant.
+- Sperrbildschirm: Minuten bei ausgemachtem Screen verbunden, Wiedergabe-
+  Tracks aktiv, kein `participant_left`, Gegenstelle sieht den Teilnehmer.
+- Route = speaker, Anruf-Regler 15/15; Lautstärke-HUD „Anruf“.
+
+**Befund, kein Bug:** OneUI dämpft `USAGE_VOICE_COMMUNICATION` am
+Lautsprecher spürbar gegenüber Medien (Volllast-Beep gleich leise wie
+Stimme). Gegenmittel im Code: Wiedergabe-Boost `PLAYBACK_BOOST = 5.0`
+(VoiceEngine) — wirkt routenübergreifend (vor der Audio-Weiche), der Ton
+bleibt im Anruf-Regler; Regler hat pro Weg eigene Indizes.
+
+**Neu gebaut (§5.1-Lücken nativ geschlossen):**
+
+- **Sprech-Ring**: eigener PCM-Pegel-Tap am `RemoteAudioTrack` (addSink,
+  RMS, Schwelle 0.002 + 600-ms-Nachhall) — die Server-Active-Speaker kamen
+  am Gerät nie an. Derselbe `speakers`-Store wie im Web → Ring, Glow und
+  fetter Name funktionieren unverändert.
+- **Kachel-Highlight**: sprechende Person bekommt `bg-primary/10 +
+  ring-primary/40` (VoiceParticipantTile).
+- **Route-Push**: AudioRoutePlugin feuert `routesChanged` per
+  AudioDeviceCallback; `listRoutes`/`getRoute` lesen den LIVE-Weg am
+  `CommunicationDevice` (der Router wird nativ nicht bedient und blieb
+  sonst auf der letzten Web-Wahl stehen); Join-Refresh nach 2,5 s. Das
+  Route-Icon zeigt BT-Wechsel sofort, ohne Popup-Öffnen.
+- **Lautstärke-Determinismus**: `applyRemoteVolumes()` bei JEDEM
+  Subscribe/Reconnect/Deafen — vorher hing der Pegel am SDK-Zufall des
+  Pfads („manchmal leise, Neustart half“).
+
+**Neu gebaut (Chat-Benachrichtigungen, WhatsApp-Stil):**
+
+- `HinweisePlugin`: IMPORTANCE_HIGH-Channel „Nachrichten“,
+  `MessagingStyle` je chatId (gruppiert), Avatar (nebenläufig geladen),
+  Badge (`setNumber`), POST_NOTIFICATIONS-Fluss (erlaubt/anfordern),
+  Tipp → `pulse_ziel`-Extra → MainActivity → zielUrl-Handshake → Web-goto.
+- Web: `notifications/inPage.ts` zweigt im APK auf das Plugin um — alle
+  Gates bleiben (DND/Sichtschutz/Server-Stumm/Sub-Toggles/Hintergrund)
+  plus Ausnahme „im Sprachkanal poppt es auch bei sichtbarer App“.
+- Unterwegs gefixt: `erlaubt()` fehlte im Plugin — der Wrapper verschluckte
+  dadurch JEDE Meldung still (Stufe-1-Direktaufruf ging, der Wrapper-Weg
+  war totes Gehege). Und: `window.Capacitor.Plugins.X` ist NICHT dasselbe
+  Objekt wie der registerPlugin-Proxy — Spione darauf messen nichts.
+
+**Server/DB (Windows-Rechner):**
+
+- `dev-local.mjs` ist beim Garage-Umbau (22080a45) nachgezogen und der
+  doppelte Bootstrap-Faller (POSIX-source + MSYS-Pfadwandlung) gefixt —
+  `f5d2cbe2`.
+- Lokale DB war auf feat/mobile-Stand (0093_meine_anhaenge, ED25519 fehlte
+  → DM-E2EE 500er). Sauber auf Branch-Head gebracht: alembic_version auf
+  0089 zurückgestempelt (direkt via psql — `alembic stamp` liest zuerst),
+  0090–0093 echt hochgezogen, auf 0097_meine_anhaenge gestempelt (Inhalte
+  hat die DB aus feat 0090–0093 ≡ Branch 0094–0097), 0098+0099 nachgezogen.
+  `PULSE_DEV_SKIP_MIGRATIONS=1` ist auf diesem Rechner damit ÜBERFLÜSSIG
+  geworden — Skript-Lauf ohne Skip grün.
+
+**Offen (nächste Session):**
+
+- **dm_bump erreicht den Handy-Socket nicht**: Server fan-out grün
+  (publish_guild_event → GUILD_EVENTS_CHANNEL, DmBumpEvent gegencheckt),
+  Handy-WS authentifiziert (ready-Frame, richtige user_id), CDP-Sniffer
+  sieht den Frame trotzdem nicht. Nächster Hebel: `_ws_user`-Registration
+  + GUILD_EVENTS-Listener-Loop für diesen Socket verifizieren. Wichtig
+  für den Test: DMs real aus dem Composer schicken — HTTP-POST-Test-DMs
+  (mein Werkzeug heute) laufen über denselben publish, sind also gleich-
+  wertig; Composer-DMs mit E2EE additionally.
+- **Screen-off-Popups mit Inhalt**: WebView friert ein (WS + Plugin-Calls
+  stocken, CDP-Timeouts) — braucht FCM mit Inhalt. DMs sind E2EE →
+  serverseitig unmöglich (Design, bewusst inhaltsfrei); Erwähnungen in
+  Klartext-Kanälen wären machbar. Produkt-Entscheidung (Michael).
+- **P4-Rest**: BT-Übernahme (Boost greift laut Nutzer auch auf BT),
+  GSM-Anruf-Randfall, Verlassen/Mode-Freigabe, Route-Ping-Pong beobachten.
+- **APK/Config-Nota**: `mobile/capacitor.config.json` (git) zeigt auf
+  Produktion; das installierte Debug-APK hat die Dev-URL eingebrannt (aus
+  dem letzten `cap sync` vor dem Revert). Ein neues `cap sync` + Build
+  Flamekt die App auf Produktion — für Geräte-Tests vorher wieder auf
+  `http://localhost:5173` + cleartext umstellen (siehe app/src/debug).
+- Test-Konten lokal: kernprobe-a / kernprobe-b, Passwort
+  `kernprobe-test-1234`, Server „Kernprobe-Server“.
