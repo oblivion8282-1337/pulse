@@ -144,7 +144,9 @@
       <button
         {...props}
         type="button"
-        class="glass-panel flex flex-col items-center gap-3 rounded-2xl px-6 py-5 text-left transition-colors data-[state=open]:ring-2 data-[state=open]:ring-primary/50"
+        class="glass-panel flex flex-col items-center gap-3 rounded-2xl px-6 py-5 text-left transition-colors {p.isSpeaking
+          ? 'bg-primary/10 ring-1 ring-primary/40'
+          : ''} data-[state=open]:ring-2 data-[state=open]:ring-primary/50"
         data-testid="voice-participant"
         data-identity={p.identity}
         draggable={true}

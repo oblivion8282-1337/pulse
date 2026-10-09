@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.SoundPool
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.howispulse.app.R
 import io.livekit.android.LiveKit
@@ -19,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import livekit.org.webrtc.AudioTrackSink
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -59,6 +61,21 @@ object VoiceEngine {
 
     private const val TAG = "VoiceEngine"
 
+    /**
+     * Wiedergabe-Boost für ferne Stimmen (1.0 = neutral): OneUI dämpft
+     * USAGE_VOICE_COMMUNICATION am Lautsprecher gegenüber Medien-Ton spürbar
+     * (Telephonie-Lautstärkekurve), der Boost gleicht das an — der Ton bleibt
+     * im Anruf-Regler. ponytail: fester Wert statt Settings-Hook; wenn der
+     * Nutzer regeln will, Master-Lautstärke (web) nativ an setVolume anbinden.
+     */
+    private const val PLAYBACK_BOOST = 5.0
+
+    /** Pegel-Tap: Sprech-Schwelle (RMS) und Nachhall — siehe trackSinks.
+     *  0.002, weil die Gegenstellen-Kette (Chrome-NS, AGC aus) schon bei
+     *  ~0.008 normale Sprache liefert und Stille exakt 0 ist. */
+    private const val SPEAK_THRESHOLD = 0.002
+    private const val SPEAK_HANGOVER_MS = 600L
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private var initialized = false
     private var scope: CoroutineScope? = null
@@ -76,11 +93,23 @@ object VoiceEngine {
     @Volatile
     private var deafened = false
 
-    /** Identitäten der aktuellen Sprecher (Server-Active-Speaker). Main-Thread-only. */
+    /** Identitäten der aktuellen Sprecher. Main-Thread-only. Quelle ist der
+     *  eigene Pegel-Tap (trackSinks) — die Server-Active-Speaker kamen am
+     *  Gerät nie an (Nutzerbefund 2026-10-09: kein Sprech-Ring vom PC aus). */
     private val speakers = mutableSetOf<String>()
 
     /** Subscribed fernem Audio-Tracks (für Deafen). Main-Thread-only. */
     private val remoteAudio = mutableSetOf<RemoteAudioTrack>()
+
+    /** Pegel-Tap für die Sprech-Anzeige: je fernem Audio-Track ein
+     *  AudioTrackSink, der PCM-RMS in [sinkLevels] schreibt (Sink-Thread);
+     *  ein 200-ms-Ticker auf dem Main-Thread leitet daraus das Sprech-Set
+     *  ab (Schwelle + Nachhall) und emittiert bei Änderung. Serverunabhängig
+     *  — der §8-Upgrade-Weg "eigener Level-Tap am Android-Track". */
+    private val trackSinks = mutableMapOf<RemoteAudioTrack, Pair<String, AudioTrackSink>>()
+    private val sinkLevels = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    private val lastLoudAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private var levelTicker: Runnable? = null
 
     /** Raum-Etikett aus dem Web ('voice' | 'anruf:<id>') — läuft in jedem
      *  Snapshot mit, damit die beiden Web-Konsumenten (Sprachkanal-Fassade,
@@ -163,30 +192,58 @@ object VoiceEngine {
                         when (ev) {
                             is RoomEvent.Connected -> {
                                 connected = true
+                                startLevelTicker()
                                 state = "connected"
                             }
-                            is RoomEvent.Reconnected -> state = "connected"
+                            is RoomEvent.Reconnected -> {
+                                state = "connected"
+                                // Nach dem Resubscribe die Lautstärke neu
+                                // behaupten: je nach Reconnect-Pfad kommen
+                                // dieselben Track-Objekte zurück, ohne dass
+                                // TrackSubscribed je Track feuert — sonst
+                                // war der Pegel nach Connect Zufall
+                                // (Nutzerbefund: teils leise Teilnehmer,
+                                // App-Neustart half). Der Nachlauf fängt den
+                                // Fall ab, in dem die Tracks erst NACH dem
+                                // Event wieder da sind.
+                                applyRemoteVolumes()
+                                mainHandler.postDelayed({ applyRemoteVolumes() }, 1000)
+                            }
                             is RoomEvent.Reconnecting -> state = "reconnecting"
                             is RoomEvent.Disconnected, is RoomEvent.FailedToConnect -> {
                                 connected = false
+                                stopLevelTicker()
                                 speakers.clear()
+                                trackSinks.clear()
+                                sinkLevels.clear()
+                                lastLoudAt.clear()
                                 remoteAudio.clear()
                                 state = "disconnected"
-                            }
-                            is RoomEvent.ActiveSpeakersChanged -> {
-                                speakers.clear()
-                                ev.speakers.forEach { sp -> sp.identity?.let { speakers.add(it.value) } }
                             }
                             is RoomEvent.TrackSubscribed -> {
                                 val t = ev.track
                                 if (t is RemoteAudioTrack) {
                                     remoteAudio.add(t)
-                                    if (deafened) t.setVolume(0.0)
+                                    val id = ev.participant.identity?.value ?: ""
+                                    if (id.isNotEmpty()) {
+                                        val sink = levelSinkFor(id)
+                                        trackSinks[t] = Pair(id, sink)
+                                        t.addSink(sink)
+                                    }
+                                    applyRemoteVolumes()
                                 }
                             }
                             is RoomEvent.TrackUnsubscribed -> {
                                 val t = ev.track
-                                if (t is RemoteAudioTrack) remoteAudio.remove(t)
+                                if (t is RemoteAudioTrack) {
+                                    trackSinks.remove(t)?.let { (id, sink) ->
+                                        t.removeSink(sink)
+                                        sinkLevels.remove(id)
+                                        lastLoudAt.remove(id)
+                                        speakers.remove(id)
+                                    }
+                                    remoteAudio.remove(t)
+                                }
                             }
                             else -> {}
                         }
@@ -263,18 +320,82 @@ object VoiceEngine {
         }
     }
 
+    /** Eine Lautstärke für alle fernen Tracks — deterministisch bei JEDEM
+     *  (Wieder-)Verbinden, Taub inklusive. Ohne explizites Setzen hing der
+     *  Pegel am SDK-Zustand des jeweiligen Pfads (Erstsubscribe vs. Reconnect)
+     *  und konnte leise ausfallen. */
+    private fun applyRemoteVolumes() {
+        val v = if (deafened) 0.0 else PLAYBACK_BOOST
+        remoteAudio.forEach { t ->
+            try {
+                t.setVolume(v)
+            } catch (_: Exception) {
+            }
+        }
+        Log.i(TAG, "remote volume -> $v (${remoteAudio.size} tracks)")
+    }
+
+    /** PCM-Sink für einen fernem Track: RMS je Frame in [sinkLevels], samt
+     *  Nachhall-Zeitstempel. Läuft im RTC-Thread — nur die Maps berühren. */
+    private fun levelSinkFor(identity: String): AudioTrackSink = AudioTrackSink { buf, _, _, _, _, _ ->
+        try {
+            buf.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            buf.rewind()
+            var sum = 0.0
+            var n = 0
+            while (buf.remaining() >= 2) {
+                val v = buf.short / 32768.0
+                sum += v * v
+                n++
+            }
+            if (n > 0) {
+                val rms = Math.sqrt(sum / n)
+                sinkLevels[identity] = rms
+                if (rms > SPEAK_THRESHOLD) lastLoudAt[identity] = SystemClock.elapsedRealtime()
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    /** 200-ms-Ticker: Sprech-Set aus Pegel + Nachhall ableiten, bei Änderung
+     *  Snapshot emittieren — die UI (Sprech-Ring) sieht dasselbe Feld wie im
+     *  Web-Pfad. Main-Thread-only. */
+    private fun startLevelTicker() {
+        stopLevelTicker()
+        val run = object : Runnable {
+            override fun run() {
+                if (!connected) return
+                val now = SystemClock.elapsedRealtime()
+                val neu = mutableSetOf<String>()
+                for ((id, _) in sinkLevels) {
+                    val laut = (sinkLevels[id] ?: 0.0) > SPEAK_THRESHOLD
+                    val nachhall = now - (lastLoudAt[id] ?: 0L) < SPEAK_HANGOVER_MS
+                    if (laut || nachhall) neu.add(id)
+                }
+                if (neu != speakers) {
+                    speakers.clear()
+                    speakers.addAll(neu)
+                    emitSnapshot()
+                }
+                mainHandler.postDelayed(this, 200)
+            }
+        }
+        levelTicker = run
+        mainHandler.postDelayed(run, 200)
+    }
+
+    private fun stopLevelTicker() {
+        levelTicker?.let { mainHandler.removeCallbacks(it) }
+        levelTicker = null
+    }
+
     /** Tauchschaltung: Wiedergabe aller fernem Tracks stummschalten (Mic koppelt
      *  das Web selbst mit). Neue Tracks kommen bei [deafened] direkt stumm an. */
     @JvmStatic
     fun setDeafened(on: Boolean) {
         mainHandler.post {
             deafened = on
-            remoteAudio.forEach { t ->
-                try {
-                    t.setVolume(if (on) 0.0 else 1.0)
-                } catch (_: Exception) {
-                }
-            }
+            applyRemoteVolumes()
         }
     }
 
@@ -315,7 +436,11 @@ object VoiceEngine {
                 o.put("name", p.name ?: "")
                 o.put("isLocal", isLocal)
                 o.put("isSpeaking", identity in speakers)
-                o.put("audioLevel", p.audioLevel.toDouble())
+                // SDK-audioLevel bleibt am Gerät 0 (keine Server-Speaker) —
+                // der Pegel-Tap liefert das Level für den UI-Glow: RMS 0..0.125
+                // auf 0..1 gemappt (0.008 = leise Sprache → ~0.06, 0.1 = laut).
+                val tap = sinkLevels[identity]
+                o.put("audioLevel", if (tap != null) Math.min(1.0, tap * 8) else p.audioLevel.toDouble())
                 o.put("micMuted", !p.isMicrophoneEnabled)
                 o.put("cameraOn", p.isCameraEnabled)
                 o.put("connectionQuality", p.connectionQuality.name.lowercase())
