@@ -31,6 +31,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.device_meldungen import device_out
+from dcc_chat_gateway.haekchen import kanaele_loeschen as haekchen_kanaele_loeschen
+from dcc_chat_gateway.haekchen import konto_loeschen as haekchen_konto_loeschen
 from dcc_chat_gateway.models import (
     MENTION_TYPE_USER,
     Anruf,
@@ -229,6 +231,8 @@ async def _delete_dm_channels(
             Anruf.channel_id.in_(cids), Anruf.art == ART_DM
         )
     )
+    # Zustellstaende (Haekchen-Treppe) haengen polymorph ohne FK am Kanal.
+    await haekchen_kanaele_loeschen(session, cids)
     await session.execute(
         sa_delete(DirectMessageChannel).where(DirectMessageChannel.id.in_(cids))
     )
@@ -383,6 +387,9 @@ async def _purge_db(
     # ``user_purge_gruppen.purge_private_group_memberships`` fuer die
     # Erb-/Loesch-Regel.
     await purge_private_group_memberships(session, user_id)
+    # 9b-2. Lese-/Zustellstaende des Kontos in fortbestehenden Gruppen und
+    # als Absender/Empfaenger ueberhaupt (``haekchen.py``, kein FK auf User).
+    await haekchen_konto_loeschen(session, user_id)
 
     # 9c. E2E-Postfach (Etappe D) — Geraete-Buendel, Einmalschluessel und
     # Postfach-Zeilen des geloeschten Kontos, s. Modul-Docstring von

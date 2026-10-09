@@ -39,7 +39,8 @@ from sqlalchemy import or_, select
 import dcc_chat_gateway.config as _cfg
 from dcc_chat_gateway import s3, watchkeys
 from dcc_chat_gateway.db import SessionLocal
-from dcc_chat_gateway.dm_vorschau import letzte_nachrichten, lesestaende
+from dcc_chat_gateway.dm_vorschau import letzte_nachrichten
+from dcc_chat_gateway.haekchen import dm_staende
 from dcc_chat_gateway.friend_events import (
     load_blocks_in,
     load_blocks_out,
@@ -47,6 +48,7 @@ from dcc_chat_gateway.friend_events import (
 from dcc_chat_gateway.friend_privacy import (
     DEFAULT_DM_POLICY,
     DEFAULT_FRIEND_REQ_POLICY,
+    DEFAULT_LESEBESTAETIGUNGEN,
     DEFAULT_SHOW_IN_SEARCH,
 )
 from dcc_chat_gateway.friend_schemas import FriendRequestOut
@@ -82,6 +84,10 @@ from dcc_chat_gateway.role_wire import role_wire_dict
 from dcc_chat_gateway.security import AuthenticatedUser
 
 log = logging.getLogger(__name__)
+
+
+def _opt_str(v: int | None) -> str | None:
+    return str(v) if v is not None else None
 
 
 async def build_and_send_ready_frame(
@@ -369,9 +375,9 @@ async def build_and_send_ready_frame(
             # die Liste im Klienten-Speicher (`directMessages.seed`), die
             # Vorschau waere sonst nach jedem Verbindungsaufbau wieder weg.
             dm_letzte = await letzte_nachrichten(session, list(dm_rows))
-            # Serverseitiger Lesefortschritt (P0.2): eigen + Gegenstelle je DM
-            # in einem Rutsch — der ready-Rahmen ist die Seed-Stelle des Klienten.
-            lese = await lesestaende(session, [d.id for d in dm_rows])
+            # Lese- und Zustellstand (P0.2, Migration 0101) je DM in einem
+            # Rutsch — der ready-Rahmen ist die Seed-Stelle des Klienten.
+            staende = await dm_staende(session, user.id, dm_rows)
             dm_channels = []
             for d in dm_rows:
                 other = d.user_b_id if d.user_a_id == user.id else d.user_a_id
@@ -383,8 +389,7 @@ async def build_and_send_ready_frame(
                     and other not in blocks_out_set
                     and other not in blocks_in_set
                 )
-                eigener_stand = lese.get((d.id, user.id))
-                partner_stand = lese.get((d.id, other))
+                st = staende[d.id]
                 dm_channels.append(
                     {
                         "id": str(d.id),
@@ -403,12 +408,9 @@ async def build_and_send_ready_frame(
                         ),
                         # Additiv, optional (P0.2): numerisch-opake IDs —
                         # der Client vergleicht sie über compareSnowflakeId.
-                        "last_read_message_id": (
-                            str(eigener_stand) if eigener_stand is not None else None
-                        ),
-                        "partner_last_read_message_id": (
-                            str(partner_stand) if partner_stand is not None else None
-                        ),
+                        "last_read_message_id": _opt_str(st.eigener_gelesen),
+                        "partner_last_read_message_id": _opt_str(st.partner_gelesen),
+                        "partner_zugestellt_bis": _opt_str(st.partner_zugestellt),
                     }
                 )
         else:
@@ -550,12 +552,14 @@ async def build_and_send_ready_frame(
                 "dm_policy": DEFAULT_DM_POLICY,
                 "friend_request_policy": DEFAULT_FRIEND_REQ_POLICY,
                 "show_in_search": DEFAULT_SHOW_IN_SEARCH,
+                "lesebestaetigungen": DEFAULT_LESEBESTAETIGUNGEN,
             }
         else:
             privacy_dict = {
                 "dm_policy": privacy_row.dm_policy,
                 "friend_request_policy": privacy_row.friend_request_policy,
                 "show_in_search": privacy_row.show_in_search,
+                "lesebestaetigungen": privacy_row.lesebestaetigungen,
             }
         # Etappe-2 friend-system payload — cloud only. Self-host omits these
         # keys entirely so the frontend's Social handler has a clean signal.

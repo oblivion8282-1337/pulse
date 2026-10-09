@@ -205,9 +205,10 @@ class DmLesestandEvent(_EventBase):
     ``last_read_message_id`` gelesen (Übergabe P0.2). ID numerisch-opak,
     Details am ``DmLesestand``-Modell des chat-gateway.
 
-    Geht an BEIDE Teilnehmer: der Partner baut daraus die Lese-Häkchen,
-    die anderen Geräte des Lesenden löschen damit ihre Ungelesen-Zähler
-    (geräteübergreifender Stand, der eigentliche Punkt von P0.2)."""
+    Geht an den Lesenden — seine anderen Geräte löschen damit ihre
+    Ungelesen-Zähler (geräteübergreifender Stand, der eigentliche Punkt von
+    P0.2) — und, nur bei beidseitig eingeschalteten Lesebestätigungen
+    (Migration 0101), an den Partner, der daraus die Lese-Häkchen baut."""
 
     op: Literal["dm_lesestand"] = "dm_lesestand"
     channel_id: str
@@ -265,15 +266,24 @@ class GruppeNeuEvent(BaseModel):
 
 class ZustellungBestaetigtEvent(BaseModel):
     """``op="zustellung_bestaetigt"`` — an den Absender: ein Empfangskonto
-    hat die Umschläge dieses Kanals abgeholt und gesichert (Quittung,
+    hat seine Nachrichten in diesem Kanal bis (inklusive)
+    ``zugestellt_bis`` abgeholt und gesichert (Quittung,
     ``postfach_quittung``). Zweiter grauer Haken der WhatsApp-Treppe
-    (Befund 05.10.): gesendet → angekommen → gelesen."""
+    (Befund 05.10.): gesendet → angekommen → gelesen.
+
+    ``zugestellt_bis`` ist die kanonische ID der jüngsten angekommenen
+    Nachricht DIESES Absenders (numerisch-opak wie beim Lesestand) — der
+    Absender vergleicht sie mit seinen eigenen IDs, ohne Uhrzeit. Bis
+    2026-10-10 trug das Ereignis keinen Stand, und der Klient stempelte die
+    eigene Empfangszeit darauf; ein Absender, der beim Abholen offline war,
+    sah den Haken deshalb nie."""
 
     model_config = ConfigDict(extra="forbid")
 
     op: Literal["zustellung_bestaetigt"] = "zustellung_bestaetigt"
     channel_id: str
     user_id: str
+    zugestellt_bis: str
 
 
 class GruppeLesestandEvent(BaseModel):

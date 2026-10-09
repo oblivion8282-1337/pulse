@@ -27,6 +27,7 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import exists, select
 from sqlalchemy import update as sa_update
 
+from dcc_chat_gateway.haekchen import kanaele_loeschen
 from dcc_chat_gateway.models import PrivateGroupChannel, PrivateGroupMember
 
 
@@ -44,7 +45,13 @@ async def gruppe_loeschen_wenn_leer(session, gruppe_id: int) -> bool:
             ),
         )
     )
-    return bool(ergebnis.rowcount)
+    if not ergebnis.rowcount:
+        return False
+    # Die Zustellstaende haengen ohne Fremdschluessel an der Gruppe
+    # (``haekchen.py``) — die Kaskade, die ``gruppen_lesestand`` mitnimmt,
+    # erreicht sie nicht.
+    await kanaele_loeschen(session, [gruppe_id])
+    return True
 
 
 async def ersteller_erbe_uebertragen(session, gruppe_id: int, user_id: int) -> None:

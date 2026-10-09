@@ -21,6 +21,7 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_privacy import (
     DEFAULT_DM_POLICY,
     DEFAULT_FRIEND_REQ_POLICY,
+    DEFAULT_LESEBESTAETIGUNGEN,
     DEFAULT_SHOW_IN_SEARCH,
     DM_POLICY_VALUES,
     FRIEND_REQ_POLICY_VALUES,
@@ -41,11 +42,13 @@ def _row_to_out(row: UserPrivacy | None) -> PrivacyOut:
             dm_policy=DEFAULT_DM_POLICY,
             friend_request_policy=DEFAULT_FRIEND_REQ_POLICY,
             show_in_search=DEFAULT_SHOW_IN_SEARCH,
+            lesebestaetigungen=DEFAULT_LESEBESTAETIGUNGEN,
         )
     return PrivacyOut(
         dm_policy=row.dm_policy,
         friend_request_policy=row.friend_request_policy,
         show_in_search=row.show_in_search,
+        lesebestaetigungen=row.lesebestaetigungen,
     )
 
 
@@ -103,6 +106,11 @@ async def update_my_privacy(
                 if payload.show_in_search is not None
                 else DEFAULT_SHOW_IN_SEARCH
             ),
+            lesebestaetigungen=(
+                payload.lesebestaetigungen
+                if payload.lesebestaetigungen is not None
+                else DEFAULT_LESEBESTAETIGUNGEN
+            ),
         )
         session.add(row)
         try:
@@ -146,3 +154,5 @@ def _apply_patch(row: UserPrivacy, payload: PrivacyUpdate) -> None:
         row.friend_request_policy = payload.friend_request_policy
     if payload.show_in_search is not None:
         row.show_in_search = payload.show_in_search
+    if payload.lesebestaetigungen is not None:
+        row.lesebestaetigungen = payload.lesebestaetigungen

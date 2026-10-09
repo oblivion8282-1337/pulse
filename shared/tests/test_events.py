@@ -397,6 +397,7 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "op": "zustellung_bestaetigt",
         "channel_id": "2",
         "user_id": "3",
+        "zugestellt_bis": "1",
     },
 }
 

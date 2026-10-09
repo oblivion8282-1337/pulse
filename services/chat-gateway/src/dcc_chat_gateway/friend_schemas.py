@@ -112,6 +112,7 @@ class PrivacyOut(BaseModel):
     dm_policy: int
     friend_request_policy: int
     show_in_search: bool
+    lesebestaetigungen: bool = True
 
 
 class PrivacyUpdate(BaseModel):
@@ -124,3 +125,4 @@ class PrivacyUpdate(BaseModel):
         int | None, Field(default=None, ge=0, le=255)
     ] = None
     show_in_search: bool | None = None
+    lesebestaetigungen: bool | None = None

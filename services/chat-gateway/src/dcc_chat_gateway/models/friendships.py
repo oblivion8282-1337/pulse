@@ -140,6 +140,12 @@ class UserPrivacy(Base):
     show_in_search: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )
+    # Lesebestätigungen in DMs (Migration 0101, WhatsApp-Regel): aus = der
+    # eigene Lesestand erreicht keine Gegenstelle, und fremde erreichen einen
+    # selbst nicht — beides in ``haekchen.py``. Gruppen bleiben ausgenommen.
+    lesebestaetigungen: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"), default=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
