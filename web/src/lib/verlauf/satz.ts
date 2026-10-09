@@ -24,6 +24,8 @@ type Satz = {
   /** S. `schema.ts::Satz.kontoId` — dieselbe Bedeutung, hier nur strukturell
    *  dupliziert (importfrei-Pflicht). */
   kontoId: string;
+  /** S. `schema.ts::Satz.nichtZugestellt`. */
+  nichtZugestellt?: boolean;
 };
 
 /**
@@ -78,7 +80,8 @@ export function zuSatz(kanalId: string, nachricht: unknown, kontoId: string): Sa
     anhaenge,
     antwortAufId,
     kryptoId,
-    kontoId
+    kontoId,
+    ...(n.nicht_zugestellt === true ? { nichtZugestellt: true } : {})
   };
 }
 
@@ -104,6 +107,8 @@ export type SatzAlsNachricht = {
   /** Wie `Message.krypto_id` (`api/types.ts`) — dort optional-ohne-`null`,
    *  deshalb `undefined` statt `null` bei Fehlen (s. `satzZuNachricht`). */
   krypto_id?: string;
+  /** Wie `Message.nicht_zugestellt` — nur gesetzt, wenn es zutrifft. */
+  nicht_zugestellt?: boolean;
   /** Reaktionen auf eine VERSCHLUESSELTE Nachricht in der Anzeige-Form von
    *  `Message.reactions` (strukturell `ReactionAggregate`). Rechnet nicht
    *  `satzZuNachricht` (das „ich" darin braucht das Konto, das diese Datei
@@ -168,6 +173,7 @@ export function satzZuNachricht(satz: Satz): SatzAlsNachricht {
     ...(satz.verschluesselt ? { verschluesselt: true } : {}),
     reply_to_id: satz.antwortAufId ?? null,
     krypto_id: satz.kryptoId ?? undefined,
+    ...(satz.nichtZugestellt ? { nicht_zugestellt: true } : {}),
     attachments: verschluesselteAnhaenge(satz.anhaenge ?? [])
   };
 }

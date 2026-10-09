@@ -18,6 +18,7 @@
  * DM-Weg uebergeben `{serverId: serversStore.cloudId()}`.
  */
 
+import type { ZustellstandMeldung } from '../krypto/zustellstand';
 import { request } from './client';
 import type { PostfachEinliefernErgebnis } from '../krypto/zustellErgebnis';
 
@@ -128,9 +129,14 @@ export const postfachApi = {
 
   /** Loescht die genannten Zustellungen des genannten Geraets — erst
    *  aufrufen, NACHDEM die Umschlaege lokal sicher abgelegt sind (s.
-   *  `empfangen.ts`). */
+   *  `empfangen.ts`). `zustellstaende` meldet den Absendern zugleich, bis
+   *  wohin ihre Nachrichten angekommen sind (`krypto/zustellstand.ts`). */
   quittieren(
-    body: { device_pubkey: string; zustellung_ids: string[] },
+    body: {
+      device_pubkey: string;
+      zustellung_ids: string[];
+      zustellstaende?: ZustellstandMeldung[];
+    },
     route: { serverId?: string } = {}
   ): Promise<void> {
     return request<void>('/postfach/quittung', { method: 'POST', body }, route);

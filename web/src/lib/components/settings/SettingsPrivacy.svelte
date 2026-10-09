@@ -1,5 +1,5 @@
 <!--
-  Privacy settings pane: friend-request policy, discoverability.
+  Privacy settings pane: friend-request policy, discoverability, read receipts.
 
   The DM-policy control was removed: direct messages are governed by the
   friend-gate (you can only open a DM with a friend), which supersedes the
@@ -18,6 +18,7 @@
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
+  import { directMessages } from '$lib/stores/directMessages.svelte';
 
   const FR_OPTIONS = [
     {
@@ -47,9 +48,14 @@
     if ('friend_request_policy' in patch) revert.friend_request_policy = privacy.current.friend_request_policy;
     if ('show_in_search' in patch) revert.show_in_search = privacy.current.show_in_search;
     if ('dm_policy' in patch) revert.dm_policy = privacy.current.dm_policy;
+    if ('lesebestaetigungen' in patch) revert.lesebestaetigungen = privacy.current.lesebestaetigungen;
     privacy.update(patch);
     try {
       await friendsApi.updatePrivacy(patch);
+      // Wieder eingeschaltet: der Server hat die Lesestände der Gegenstellen
+      // bis eben zurückgehalten — jetzt nachholen statt bis zum Neuladen
+      // ohne Blau dazustehen.
+      if (patch.lesebestaetigungen === true) void directMessages.hydrate();
     } catch (e) {
       privacy.update(revert);
       toast.error(m.settings_privacy_save_failed(), {
@@ -64,6 +70,10 @@
 
   function setShowInSearch(v: boolean) {
     void savePatch({ show_in_search: v });
+  }
+
+  function setLesebestaetigungen(v: boolean) {
+    void savePatch({ lesebestaetigungen: v });
   }
 </script>
 
@@ -111,6 +121,25 @@
         checked={privacy.current.show_in_search}
         onchange={(e) => setShowInSearch((e.currentTarget as HTMLInputElement).checked)}
         data-testid="privacy-show-in-search"
+      />
+    </label>
+  </section>
+
+  <!-- Lesebestätigungen (WhatsApp-Regel: aus = in DMs in beide Richtungen
+       kein Blau; Gruppen ausgenommen — Beschreibung sagt es dem Nutzer) -->
+  <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
+    <label class="flex items-start justify-between gap-3 text-sm">
+      <span class="flex flex-col gap-0.5">
+        <span class="text-text-bright">{m.settings_privacy_lesebestaetigungen_label()}</span>
+        <span class="text-text-muted text-xs">
+          {m.settings_privacy_lesebestaetigungen_desc()}
+        </span>
+      </span>
+      <Checkbox
+        class="mt-0.5"
+        checked={privacy.current.lesebestaetigungen !== false}
+        onchange={(e) => setLesebestaetigungen((e.currentTarget as HTMLInputElement).checked)}
+        data-testid="privacy-lesebestaetigungen"
       />
     </label>
   </section>

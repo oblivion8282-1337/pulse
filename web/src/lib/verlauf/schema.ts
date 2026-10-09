@@ -95,6 +95,14 @@ export type Satz = {
    * keinem Konto" (fail-closed), nicht als Treffer fuer irgendwen.
    */
   kontoId: string;
+  /**
+   * Eigene Gruppennachricht, die kein Mitglied empfangen konnte
+   * (`Message.nicht_zugestellt`, 2026-10-10) — die Anzeige zeigt dafür ein
+   * Warnzeichen statt des Hakens, auch nach einem Neustart. Kein
+   * `DB_VERSION`-Bump (neues FELD, s. `antwortAufId`); fehlt es, gilt
+   * „zugestellt bzw. unbekannt".
+   */
+  nichtZugestellt?: boolean;
 };
 
 /**

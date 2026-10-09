@@ -205,6 +205,14 @@ export type Message = {
    * traegt.
    */
   krypto_id?: string;
+  /**
+   * Nur lokal, nur an eigenen Gruppennachrichten: kein Mitglied konnte sie
+   * empfangen (`krypto/gruppe/senden.ts`, `lokal_ohne_zustellung`). Die
+   * Nachricht bleibt verwahrt, zeigt aber statt des Hakens ein Warnzeichen —
+   * mit dem normalen grauen Haken sah sie aus wie gesendet. Überlebt im
+   * Verlaufs-Satz (`verlauf/satz.ts`).
+   */
+  nicht_zugestellt?: boolean;
 };
 
 /**
@@ -236,6 +244,9 @@ export type DMChannel = {
    */
   last_read_message_id?: string | null;
   partner_last_read_message_id?: string | null;
+  /** Zustellstand der Gegenstelle für EIGENE Nachrichten (doppelt grau,
+   *  Migration 0101) — kanonische ID der jüngsten angekommenen. */
+  partner_zugestellt_bis?: string | null;
   /**
    * Server-resolved gate: true iff a friendship exists AND no block sits
    * between the two users in either direction. Drives the hard-cut DM

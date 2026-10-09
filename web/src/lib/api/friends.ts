@@ -60,6 +60,8 @@ type PrivacyResponse = {
   dm_policy: number;
   friend_request_policy: number;
   show_in_search: boolean;
+  /** Lesebestätigungen in DMs (Migration 0101). */
+  lesebestaetigungen?: boolean;
 };
 
 type PrivacyPatch = Partial<PrivacyResponse>;

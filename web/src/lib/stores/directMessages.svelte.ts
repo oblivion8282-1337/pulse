@@ -2,6 +2,7 @@ import { chatApi } from '$lib/api/chat';
 import type { DMChannel } from '$lib/api/types';
 import { blocks } from './blocks.svelte';
 import { compareSnowflakeId } from '$lib/utils/snowflake';
+import { quittungen } from '$lib/stores/quittungen.svelte';
 import { verlaufLesenSaetze } from '$lib/verlauf/db';
 import { aktuellesKonto } from '$lib/verlauf/konto';
 import { verlaufZustand } from '$lib/verlauf/zustand.svelte';
@@ -65,6 +66,16 @@ class DirectMessageStore {
     }
     this.byId = next;
     this.loaded = true;
+    // Lese-/Zustellstand der Gegenstelle (Häkchen-Treppe) — dieselben Felder
+    // wie im ready-Rahmen; nur vorwärts, ein älterer Schnappschuss schadet nicht.
+    for (const d of dms) {
+      if (d.partner_last_read_message_id) {
+        quittungen.gelesenMelden(d.id, d.other_user_id, d.partner_last_read_message_id);
+      }
+      if (d.partner_zugestellt_bis) {
+        quittungen.zugestelltMelden(d.id, d.other_user_id, d.partner_zugestellt_bis);
+      }
+    }
     void this.mergeLokaleVorschauen(Object.keys(next));
   }
 

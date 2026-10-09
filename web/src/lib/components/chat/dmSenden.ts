@@ -12,8 +12,8 @@ import { kanonischeAntwortId } from '$lib/krypto/kanonischeAntwortId';
 import { GeraeteIdentitaetGeaendertFehler } from '$lib/krypto/buendelSignatur';
 import type { DMChannel, Message } from '$lib/api/types';
 import { m } from '$lib/paraglide/messages.js';
-import { messages } from '$lib/stores/messages.svelte';
 import { sendeKlartextDm } from '$lib/components/chat/dmKlartextSenden';
+import { vorlaeufigZeigen } from '$lib/components/chat/vorlaeufigVerschluesselt';
 import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
 interface DmSendeAuftrag {
@@ -63,14 +63,22 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
     // Megolm-Frame, die Bytes bleiben serverseitig an die Mitglieds-Zustel-
     // lungen gebunden (derselbe sterbliche Weg wie bei DMs).
     const kanonischeId = kanonischeAntwortId(replyToId, visibleMessages);
+    // Die Uhr, solange die Sendung läuft (`vorlaeufigVerschluesselt.ts`).
+    const vorlaeufig = vorlaeufigZeigen(gruppenKanal, userId, text, kanonischeId, anhaenge);
     void import('$lib/krypto/gruppe/sendenMitAnzeige').then(async ({ gruppeSendenMitAnzeige }) => {
       try {
-        const ok = await gruppeSendenMitAnzeige(gruppenKanal, text, kanonischeId, anhaenge);
+        const ok = await gruppeSendenMitAnzeige(
+          gruppenKanal, text, kanonischeId, anhaenge, vorlaeufig.ersetzen
+        );
         melden?.(ok);
       } catch {
         melden?.(false);
+      } finally {
+        // Ersetzt oder gescheitert — eine übrig gebliebene Kopie muss weg.
+        vorlaeufig.entfernen();
       }
-    });    return;
+    });
+    return;
   }
 
   if (!activeDM) return;
@@ -93,6 +101,9 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
     // verschluesselten Nachricht haben dafuer verschiedene lokale IDs, s.
     // `krypto/kanonischeAntwortId.ts`. Erst uebersetzen, dann senden.
     const kanonischeId = kanonischeAntwortId(replyToId, visibleMessages);
+    // Die Uhr, solange die Sendung läuft (`vorlaeufigVerschluesselt.ts`) —
+    // jeder Ausgang unten ersetzt oder entfernt sie.
+    const vorlaeufig = vorlaeufigZeigen(cid, userId, text, kanonischeId, anhaenge);
     void import('$lib/krypto/senden').then(async ({ sendeVerschluesselt }) => {
       const senden = () => sendeVerschluesselt(cid, partnerId, text, kanonischeId, anhaenge);
       let ergebnis;
@@ -123,6 +134,7 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
           ergebnis = await senden();
         }
       } catch (err) {
+        vorlaeufig.entfernen();
         melden?.(false);
         // Ein UNERWARTETER Fehler (Bughunt 2026-08-28, zweiter Fund):
         // `sendeVerschluesselt` liefert die BEKANNTEN Faelle (204 =
@@ -148,10 +160,11 @@ export function sendeDmNachricht(auftrag: DmSendeAuftrag): void {
         return;
       }
       if (ergebnis?.art === 'verschluesselt') {
-        messages.upsert(ergebnis.nachricht);
+        vorlaeufig.ersetzen(ergebnis.nachricht);
         melden?.(true);
         return;
       }
+      vorlaeufig.entfernen();
       // NICHTS eingeliefert (kein Zielgeraet auf einer der beiden Seiten,
       // oder der Server hat jeden Empfaenger uebersprungen). Frueher ging
       // die Nachricht hier im Klartext hinaus; seit Spec §3a gibt es diesen

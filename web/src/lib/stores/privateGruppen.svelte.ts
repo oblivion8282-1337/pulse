@@ -29,6 +29,7 @@
  */
 import type { PrivateGruppe } from '$lib/api/gruppen';
 import { compareSnowflakeId } from '$lib/utils/snowflake';
+import { quittungen } from '$lib/stores/quittungen.svelte';
 
 class PrivateGruppenStore {
   byId = $state<Record<string, PrivateGruppe>>({});
@@ -81,12 +82,16 @@ class PrivateGruppenStore {
       }
     }
     this.byId = next;
+    // Lese-/Zustellstände je Mitglied (Häkchen-Treppe) — nur vorwärts, eine
+    // Antwort ohne Stände ändert nichts.
+    for (const g of gruppen) quittungen.gruppeSeeden(g);
     this.#bereitAufloesen();
   }
 
   /** Traegt eine einzelne Gruppe nach (Antwort einer Mutation). */
   upsert(gruppe: PrivateGruppe): void {
     this.byId = { ...this.byId, [gruppe.id]: gruppe };
+    quittungen.gruppeSeeden(gruppe);
   }
 
   entfernen(gruppeId: string): void {

@@ -18,6 +18,7 @@
 import { toast } from 'svelte-sonner';
 
 import type { AnhangAngabe } from '../nachrichtNutzlast';
+import type { Message } from '../../api/types';
 import { messages } from '../../stores/messages.svelte';
 import { m } from '../../paraglide/messages.js';
 
@@ -25,8 +26,12 @@ export async function gruppeSendenMitAnzeige(
   kanalId: string,
   text: string,
   replyToId: string | null,
-  anhaenge: AnhangAngabe[] = []
-): Promise<boolean> {  const { sendeInGruppe } = await import('./senden');
+  anhaenge: AnhangAngabe[] = [],
+  // Zeigt die fertige Nachricht an — der Aufrufer reicht hier das Ersetzen
+  // seiner vorläufigen Kopie (Uhr) herein, sonst gilt das schlichte Einfügen.
+  anzeigen: (nachricht: Message) => void = (n) => messages.upsert(n)
+): Promise<boolean> {
+  const { sendeInGruppe } = await import('./senden');
   let ergebnis;
   try {
     ergebnis = await sendeInGruppe(kanalId, text, replyToId, anhaenge);
@@ -73,7 +78,7 @@ export async function gruppeSendenMitAnzeige(
     }
   }
   if (ergebnis.art === 'gesendet') {
-    messages.upsert(ergebnis.nachricht);
+    anzeigen(ergebnis.nachricht);
     return true;
   }
   if (ergebnis.art === 'lokal_ohne_zustellung') {
@@ -81,7 +86,7 @@ export async function gruppeSendenMitAnzeige(
     // ehrlich benannt: sie ist LOKAL da, aber kein Mitglied konnte sie
     // empfangen. Sobald ein Mitglied seine App neu veröffentlicht, holt
     // die nächste Nachricht alles nach.
-    messages.upsert(ergebnis.nachricht);
+    anzeigen(ergebnis.nachricht);
     toast.warning(m.gruppe_senden_lokal_erfasst());
     return false;
   }
