@@ -57,7 +57,7 @@ import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { istAblehnung, standMerken } from '$lib/platform/berechtigung.svelte';
-import { isMobile } from '$lib/platform/runtime';
+import { isCapacitorIOS, isMobile } from '$lib/platform/runtime';
 import { melde } from '$lib/diagnose/app-diagnose';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
 import { tonSystemFiltert, tonVoice } from '$lib/platform/iosTon';
@@ -1377,11 +1377,23 @@ class VoiceRoom {
   #audioCaptureDefaults(): AudioCaptureOptions {
     const a = settings.audio;
     const customProcessor = a.noiseSuppression !== 'off';
+    // **Läuft unsere eigene Sendekette hier wirklich?** Auf iOS seit dem
+    // 2026-10-10 nicht mehr: dort filtert das System (s. `tonSystemFiltert`),
+    // und `filterwahl.ts` baut deshalb keinen eigenen Prozessor auf.
+    const eigeneKette = customProcessor && !isCapacitorIOS();
     const opts: AudioCaptureOptions = {
-      autoGainControl: false,
+      // **Die Pegelautomatik hängt daran, und das ist der Punkt.** Sie war aus,
+      // weil RNNoise plus Makeup-Verstärkung den Pegel selbst machten. Ohne
+      // diese Kette ist „aus" keine Entscheidung mehr, sondern ein Loch: das
+      // rohe Mikrofonsignal eines Telefons in normaler Haltung ist leise und
+      // dünn, und beim Gegenüber kommt genau das an. Wo wir nichts mehr
+      // verstärken, muss das System es dürfen.
+      autoGainControl: !eigeneKette,
       echoCancellation: a.echoCancellation,
-      // RNNoise+Gate handles noise — no browser-side NS layered on top.
-      noiseSuppression: false,
+      // Ohne eigene Kette auch die System-Unterdrückung anfordern. Auf WebKit
+      // ist das ohnehin ein Paket mit der Echo-Auslöschung — die Zeile sagt
+      // jetzt dasselbe wie die Wirklichkeit, statt ihr zu widersprechen.
+      noiseSuppression: !eigeneKette,
       // Custom processor is mono — stereo capture yields nothing.
       channelCount: a.stereo && !customProcessor ? 2 : 1
     };
