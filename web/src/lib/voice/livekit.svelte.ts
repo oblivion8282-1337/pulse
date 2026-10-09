@@ -485,8 +485,15 @@ class VoiceRoom {
       return;
     }
 
-    // We're still inside the user gesture that triggered connect() — resume the
-    // AudioContext now so attached <audio> elements can play (autoplay policy).
+    // Startversuch fuer die Wiedergabe. Der Kommentar hier behauptete bis zum
+    // 2026-10-09, man sei "still inside the user gesture that triggered
+    // connect()" — das haelt nicht: zwischen Klick und dieser Zeile liegen die
+    // awaits des LiveKit-Handshakes, und WebKit hat die Nutzeraktivierung
+    // laengst verworfen. Auf iOS scheitert deshalb auch LiveKits stummes
+    // Hilfselement, und die spaeter eintreffenden fremden Tonspuren bleiben
+    // gesperrt — dagegen steht der "Audio aktivieren"-Knopf (unblockAudio),
+    // der in der Geste laeuft. Auf Chromium genuegt eine frueher erteilte
+    // Interaktion mit der Seite, dort fuehrt der Weg hier zum Ziel.
     try {
       await room.startAudio();
     } catch {
@@ -859,17 +866,32 @@ class VoiceRoom {
     }
   }
 
-  /** Call from a synchronous click handler to unblock the browser AudioContext. */
+  /** Call from a synchronous click handler to unblock audio playback.
+   *
+   *  **Beide Startversuche muessen in derselben Aufgabe wie der Klick stehen.**
+   *  WebKit verwirft die Nutzeraktivierung ueber ein `await` hinweg; ein
+   *  `await room.startAudio()` VOR dem eigenen Nachspielen verbrannte sie, und
+   *  danach wurde jedes `<audio>.play()` wieder abgelehnt — der Knopf sah tot
+   *  aus, obwohl er ausloeste (am 2026-10-09 am iPhone gemeldet). `startAudio`
+   *  ist zwar `async`, setzt seine `play()`-Aufrufe aber noch synchron ab
+   *  (erst danach wartet es auf `Promise.all`), also genuegt es, es ohne
+   *  `await` anzustossen und erst spaeter einzusammeln.
+   *
+   *  Auf Mobil entscheidet ueber `audioBlocked` das Ergebnis UNSERER Elemente,
+   *  nicht `room.canPlaybackAudio`: dort sind sie der hoerbare Weg, waehrend
+   *  LiveKits Zaehlung nur die per `track.attach()` angehaengten SDK-Elemente
+   *  umfasst — und die bleiben leer, wir legen eigene an. Ohne diese
+   *  Unterscheidung meldete `canPlaybackAudio` Erfolg, weil LiveKit nur sein
+   *  stummes iOS-Hilfselement abspielen musste. */
   async unblockAudio(): Promise<void> {
     const room = this.#room;
     if (!room) return;
-    try {
-      await room.startAudio();
-    } catch {
-      // startAudio can throw if already started — harmless.
-    }
-    this.#audioEls.replayAll();
-    this.audioBlocked = !room.canPlaybackAudio;
+    // Reihenfolge ist wesentlich: beides noch in der Geste absetzen.
+    const livekit = room.startAudio().catch(() => undefined);
+    const eigene = this.#audioEls.replayAll();
+    await livekit;
+    const eigeneSpielen = await eigene;
+    this.audioBlocked = isMobile() ? !eigeneSpielen : !room.canPlaybackAudio;
   }
 
   async setScreenShare(on: boolean): Promise<void> {
@@ -1481,7 +1503,16 @@ class VoiceRoom {
       })
       .on(RoomEvent.AudioPlaybackStatusChanged, () => {
         if (!_active()) return;
-        this.audioBlocked = !this.#room?.canPlaybackAudio;
+        // Auf Mobil darf dieses Ereignis die Sperre nur SETZEN, nicht aufheben.
+        // Es beschreibt LiveKits eigene Elemente; auf iOS genuegt dort das
+        // stumme Hilfselement, damit `canPlaybackAudio` true meldet — der
+        // hoerbare Weg sind aber unsere `<audio>`-Elemente (s. unblockAudio).
+        // Ohne diese Einschraengung verschwand der Hinweis, waehrend weiter
+        // nichts zu hoeren war: ein Zustand, aus dem der Nutzer nicht
+        // herausfindet, weil der Knopf mit ihm verschwindet.
+        const livekitBlockiert = !this.#room?.canPlaybackAudio;
+        if (isMobile() && !livekitBlockiert) return;
+        this.audioBlocked = livekitBlockiert;
       });
   }
 

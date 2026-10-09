@@ -271,13 +271,32 @@ export class RemoteAudioElements {
   }
 
   /** Re-trigger playback (resume the AudioContext + replay any anchor audio
-   *  elements that autoplay refused) after a user gesture. */
-  replayAll(): void {
+   *  elements that autoplay refused) after a user gesture.
+   *
+   *  **Jeder `play()`-Aufruf geschieht synchron**, bevor diese Funktion
+   *  zurueckkehrt — das Promise sammelt nur die Ergebnisse ein. WebKit verlangt
+   *  die Nutzeraktivierung an der Stelle des Aufrufs, und die ist nach dem
+   *  ersten `await` verbraucht; ein `for await` ueber die Knoten wuerde also
+   *  alles ausser dem ersten Element verlieren.
+   *
+   *  Der Rueckgabewert sagt, ob ALLE Elemente spielen. Auf dem Mobil-Pfad ist
+   *  das die einzige belastbare Quelle fuer `audioBlocked`: dort sind diese
+   *  Elemente der hoerbare Weg, und LiveKits `canPlaybackAudio` beschreibt
+   *  ausschliesslich die per `track.attach()` angehaengten Elemente des SDK —
+   *  die bleiben hier leer. */
+  replayAll(): Promise<boolean> {
     const ctx = this.#ctx;
     if (ctx && ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
+    const laeufe: Promise<boolean>[] = [];
     for (const node of this.#nodes.values()) {
-      void node.anchor.play().catch(() => undefined);
+      laeufe.push(
+        node.anchor
+          .play()
+          .then(() => true)
+          .catch(() => false)
+      );
     }
+    return Promise.all(laeufe).then((r) => r.every(Boolean));
   }
 
   clear(): void {
