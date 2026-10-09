@@ -144,12 +144,40 @@ function webAudioSession(ziel: TonModus): void {
   }
 }
 
+/**
+ * Wann wir zuletzt selbst an der Session gedreht haben.
+ *
+ * **Gegen eine Rückkopplung, die am 2026-10-10 am Gerät gemessen wurde.**
+ * `setCategory`/`setActive` LÖSEN einen Routenwechsel aus — und der
+ * Routenwechsel löste hier wieder ein Einrichten aus. Im Gerätelog standen
+ * dadurch 4–10 Kategorie-Wechsel pro Sekunde, durchgehend, und über
+ * 850.000 Zeilen allein aus `audiomxd` in wenigen Minuten. Die Folge war
+ * nicht nur Last: jeder weitere Session-Ruf stand in dieser Schlange, die
+ * Oberfläche fror ein, und das Mikrofon reagierte nicht mehr.
+ *
+ * Das Ereignis aus der Hülle trägt keine Nutzlast — JS kann also nicht
+ * sehen, OB sich die Route wirklich geändert hat. Deshalb die Zeit als
+ * Ersatz: ein Wechsel kurz nach dem eigenen Einrichten ist dessen Folge.
+ * Sauberer wäre, die Hülle den Weg mitschicken zu lassen (`Tonweg` kennt
+ * sie bereits) und nur bei echtem Wechsel neu einzurichten — das braucht
+ * aber einen nativen Neubau.
+ */
+let zuletztAngewandt = 0;
+/** Wie lange nach eigenem Einrichten ein Routenwechsel als dessen Folge gilt. */
+const EIGENE_FOLGE_MS = 1500;
+/** Ruhe, bevor ein echter Wechsel beantwortet wird — bündelt Schwälle. */
+const WEG_RUHE_MS = 400;
+let wegGriff: ReturnType<typeof setTimeout> | null = null;
+
 async function anwenden(): Promise<void> {
   const ziel = zielModus(voiceQuellen.size > 0, wiedergaben.size);
   webAudioSession(ziel);
   if (!isCapacitorIOS()) return;
   if (ziel === angewandt) return;
   angewandt = ziel;
+  // VOR dem nativen Ruf setzen, nicht erst danach: die Routenwechsel
+  // entstehen WÄHREND er läuft.
+  zuletztAngewandt = Date.now();
   const vorher = systemFiltert;
   if (ziel === 'voice') {
     systemFiltert = (await iosVoiceAktiv(true, hqFunk)) === 'voiceChat';
@@ -160,6 +188,7 @@ async function anwenden(): Promise<void> {
     await iosVoiceAktiv(false);
     systemFiltert = false;
   }
+  zuletztAngewandt = Date.now();
   if (systemFiltert !== vorher) {
     // Kopie, weil ein Hörer sich im Ruf abmelden darf.
     for (const h of [...filterHoerer]) h();
@@ -214,8 +243,17 @@ function unterbrechungenBeobachten(): void {
   // Einrichtung dahinter ist eine andere (dieselbe Falle wie oben).
   iosWegWechsel(() => {
     if (voiceQuellen.size === 0) return; // ohne Mikrofon ist der Weg einerlei
-    angewandt = 'aus';
-    void anwenden();
+    // Unsere eigene Einrichtung erzeugt Routenwechsel — die dürfen nicht die
+    // nächste auslösen (s. `zuletztAngewandt`).
+    if (Date.now() - zuletztAngewandt < EIGENE_FOLGE_MS) return;
+    if (wegGriff) clearTimeout(wegGriff);
+    wegGriff = setTimeout(() => {
+      wegGriff = null;
+      if (voiceQuellen.size === 0) return;
+      if (Date.now() - zuletztAngewandt < EIGENE_FOLGE_MS) return;
+      angewandt = 'aus';
+      void anwenden();
+    }, WEG_RUHE_MS);
   });
 }
 
@@ -272,6 +310,11 @@ export function tonZuruecksetzen(): void {
   wiedergaben.clear();
   angewandt = 'aus';
   webTyp = null;
+  zuletztAngewandt = 0;
+  if (wegGriff) {
+    clearTimeout(wegGriff);
+    wegGriff = null;
+  }
 }
 
 /** Der zuletzt angewandte Modus — für Anzeige und Tests. */
