@@ -122,9 +122,26 @@ let webTyp: AudioSessionTyp | null = null;
  * Session. Der Verdacht ist damit noch nicht bewiesen, aber eine haengende App
  * ist nicht der Zustand, in dem man weitersucht.
  *
+ * **Am 2026-10-10 gemessen, nachdem die Rueckkopplung behoben war** — der
+ * erste Fehlschlag war also nicht zwangslaeufig der Schnittstelle
+ * anzulasten. Ergebnis trotzdem negativ:
+ *
+ * - Kosten: die Kategorie-Wechsel kehrten zurueck, Spitzen von 9 pro
+ *   Sekunde, wo es mit abgeschaltetem Schalter NULL in 45 s waren. Die
+ *   Schnittstelle ist damit eine dritte Partei im Streit um dieselbe
+ *   Session, nicht dessen Schlichtung.
+ * - Nutzen: keiner messbar. Die Modus-Verteilung blieb im selben
+ *   Verhaeltnis (videochat rund 70 % von default, in beiden Laeufen),
+ *   WebKit reagierte auf die Ansage also nicht erkennbar.
+ *
+ * Grenzen der Messung, damit niemand mehr hineinliest als drin steht: je ein
+ * Lauf, unterschiedlich lange gesprochen, und 219 Kabelabrisse im zweiten.
+ * Die Kostenseite ist dennoch unzweideutig (0 gegen Spitzen von 9/s).
+ *
  * Die Abbildung bleibt stehen (samt Tests): die Luecke ist echt, WebKit kennt
- * unsere Absicht weiterhin nicht. Was fehlt, ist das WIE — vermutlich nicht
- * gleichzeitig mit dem nativen Einrichten, sondern davor und einmalig.
+ * unsere Absicht weiterhin nicht. Was fehlt, ist das WIE — und nach dieser
+ * Messung ist die naechste Frage nicht „wie setzen wir den Typ", sondern ob
+ * unsere Huelle ueberhaupt noch eine eigene Session einrichten sollte.
  */
 const WEB_AUDIO_SESSION_AN = false;
 
