@@ -518,7 +518,10 @@ class VoiceRoom {
     }
 
     this.state = room.state;
-    this.audioBlocked = !room.canPlaybackAudio;
+    // Frischer Raum, noch keine fremde Spur — auf Mobil heisst das: nichts ist
+    // gesperrt. LiveKits Urteil gilt hier NICHT, s.
+    // `#livekitWiedergabeUebernehmen`.
+    this.audioBlocked = isMobile() ? false : !room.canPlaybackAudio;
     voiceState.channelId = channelId;
     voiceState.connected = room.state === ConnectionState.Connected;
     this.#refreshParticipants();
@@ -1521,17 +1524,34 @@ class VoiceRoom {
       })
       .on(RoomEvent.AudioPlaybackStatusChanged, () => {
         if (!_active()) return;
-        // Auf Mobil darf dieses Ereignis die Sperre nur SETZEN, nicht aufheben.
-        // Es beschreibt LiveKits eigene Elemente; auf iOS genuegt dort das
-        // stumme Hilfselement, damit `canPlaybackAudio` true meldet — der
-        // hoerbare Weg sind aber unsere `<audio>`-Elemente (s. unblockAudio).
-        // Ohne diese Einschraengung verschwand der Hinweis, waehrend weiter
-        // nichts zu hoeren war: ein Zustand, aus dem der Nutzer nicht
-        // herausfindet, weil der Knopf mit ihm verschwindet.
-        const livekitBlockiert = !this.#room?.canPlaybackAudio;
-        if (isMobile() && !livekitBlockiert) return;
-        this.audioBlocked = livekitBlockiert;
+        this.#livekitWiedergabeUebernehmen();
       });
+  }
+
+  /**
+   * LiveKits Urteil ueber die Wiedergabe uebernehmen — aber nur dort, wo es
+   * eines IST.
+   *
+   * `room.canPlaybackAudio` beschreibt ausschliesslich die per `track.attach()`
+   * angehaengten Elemente des SDK. Auf dem Desktop sind das unsere; auf Mobil
+   * legen wir eigene `<audio>`-Elemente an (sie ueberleben die
+   * Bildschirmsperre, s. `voice/audioElements.ts`), und LiveKit kennt sie
+   * nicht — sein Flag beschreibt dort im Wesentlichen sein eigenes stummes
+   * iOS-Hilfselement, das es in `startAudio()` anlegt.
+   *
+   * **Am 2026-10-10 am Geraet belegt:** die Ueberlagerung „Audio ist
+   * stummgeschaltet" erschien, OHNE dass je ein `<audio>.play()` abgelehnt
+   * worden waere — der dort angezeigte Grund blieb leer. Sie kam allein von
+   * hier. Zuvor stand an dieser Stelle ein halber Schutz („darf nur setzen,
+   * nicht aufheben"); der war in die falsche Richtung gedacht: setzen ist
+   * genau das, was LiveKit auf Mobil nicht darf.
+   *
+   * Dort entscheidet allein der Rueckruf aus `#audioEls.attach()` — der
+   * einzige, der den hoerbaren Weg wirklich beobachtet.
+   */
+  #livekitWiedergabeUebernehmen(): void {
+    if (isMobile()) return;
+    this.audioBlocked = !this.#room?.canPlaybackAudio;
   }
 
   /** Debounced wrapper: coalesces rapid bursts of LiveKit events into a single
