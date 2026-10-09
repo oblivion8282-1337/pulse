@@ -5,7 +5,8 @@
 //!    (danach gehört der Socket dem WebRTC-Mux — alle PeerConnections teilen
 //!    diesen einen, im Router veröffentlichten Port).
 //! 2. Heartbeat-Task: meldet Adresse + DTLS-Fingerprint ans Cloud-Telefonbuch
-//!    (IP-Frische über Wegwerf-Socket-Probes; der Port bleibt der von Schritt 1).
+//!    (IP-Frische über Wegwerf-Socket-Probes; der Port bleibt der von Schritt 1)
+//!    und reicht eine neue IP an die Answer-Fabrik weiter (`watch`-Kanal).
 //! 3. Signal-Task: Klingeldraht zur Cloud — Offers rein, Answers raus; die
 //!    PeerConnections bridgen DataChannels aufs lokale Backend (bridge.rs).
 //!
@@ -13,6 +14,7 @@
 
 mod bridge;
 mod config;
+mod grenzen;
 mod heartbeat;
 mod identity;
 mod protocol;
@@ -20,6 +22,7 @@ mod rtc;
 mod sdp;
 mod signal;
 mod stun_probe;
+mod ziel;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -111,19 +114,23 @@ async fn main() -> Result<()> {
 
     // Ab hier gehört der Socket dem WebRTC-Mux.
     if !cfg.extra_host_ips.is_empty() {
-        // Win/Mac (podman machine): der Container sieht nur die VM-Adresse —
-        // diese Host-LAN-IPs kommen von der Server-App und werden als
-        // Host-Kandidaten in jede Answer injiziert (LAN-Clients).
+        // Die Server-App liefert die Host-LAN-IPs auf allen Plattformen; sie
+        // werden als Host-Kandidaten in jede Answer injiziert (LAN-Clients).
+        // Unverzichtbar im VM-Fall (Win/Mac podman machine: der Container
+        // sieht nur die VM-Adresse) und unter der Docker-Bridge (172.17.x).
         println!(
-            "[direct-adapter] zusätzliche Host-Kandidaten (VM-Host-LAN): {}",
+            "[direct-adapter] zusätzliche Host-Kandidaten (Host-LAN): {}",
             cfg.extra_host_ips.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ")
         );
     }
+    // Die Außenadresse teilen sich Herzschlag (schreibt) und Fabrik (liest je
+    // Answer) — sonst trüge nach einer Zwangstrennung jede Answer die alte IP.
+    let (public_ip_tx, public_ip_rx) = tokio::sync::watch::channel(initial.ip());
     let factory = Arc::new(rtc::RtcFactory::new(
         socket,
         ident.certificate.clone(),
         &cfg.stun_servers,
-        initial.ip(),
+        public_ip_rx,
         cfg.extra_host_ips.clone(),
         cfg.direct_port,
     ));
@@ -138,7 +145,10 @@ async fn main() -> Result<()> {
         loop {
             // IP-Frische: Wegwerf-Socket reicht (IP ist portunabhängig).
             match stun_probe::discover_public_ip_ephemeral(&hb_cfg.stun_servers).await {
-                Ok(addr) => public_ip = addr.ip(),
+                Ok(addr) => {
+                    public_ip = addr.ip();
+                    public_ip_tx.send_replace(public_ip);
+                }
                 Err(e) => eprintln!("[direct-adapter] STUN-Fehler: {e:#}"),
             }
             let report = std::net::SocketAddr::new(public_ip, public_port);

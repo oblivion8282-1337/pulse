@@ -11,12 +11,14 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
     SmallInteger,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -77,6 +79,15 @@ class RegisteredInstance(Base):
     env_file_downloaded_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )  # One-Shot-Markierung (siehe Migration 0036 + generate_env_file)
+    # Name, den der Betreiber seinem Server gibt (Migration 0055) — meldet der
+    # Server selbst über ``POST /selfhost/anzeigename``. NULL = keiner gesetzt,
+    # die Oberfläche zeigt dann die Adresse.
+    anzeigename: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Zuletzt an die Mitglieder gemeldeter Online-Zustand (instance_status.py)
+    # — nur ein Wechsel löst ein Ereignis aus.
+    online_gemeldet: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
 
     # Relationships
     registrar: Mapped["User | None"] = relationship("User", foreign_keys=[registered_by])

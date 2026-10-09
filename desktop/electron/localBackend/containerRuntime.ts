@@ -12,7 +12,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { createReadStream, createWriteStream, existsSync } from 'node:fs';
+import { chmodSync, createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 export interface ContainerRuntime {
@@ -91,8 +91,14 @@ export async function rtExecToFile(
   opts: { timeoutMs?: number } = {},
 ): Promise<{ code: number; stderr: string }> {
   const { argv } = rt;
+  // Der Export trägt alle Server-Schlüssel (JWT, Postgres, Secrets) — die
+  // Datei bekommt 0600. `mode` greift nur beim ANLEGEN: eine schon
+  // vorhandene Zieldatei (Überschreiben im Speichern-Dialog) behielte sonst
+  // ihre alten Rechte, deshalb zusätzlich vor UND nach dem Schreiben chmod.
+  // Windows kennt die Bits nicht, dort schützt das Benutzerprofil.
+  nurEigentuemer(filePath);
   return new Promise((resolve, reject) => {
-    const out = createWriteStream(filePath);
+    const out = createWriteStream(filePath, { mode: 0o600 });
     const child = spawn(argv[0], [...argv.slice(1), ...args], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -115,6 +121,11 @@ export async function rtExecToFile(
       reject(err);
     };
     out.on('error', brichAb);
+    // Der eigentliche Datenstrom. Fehlte vom 2026-09-21 (c1a001b5, beim
+    // Einbau von brichAb mit weggefallen) bis 2026-10-08: jeder Export
+    // schrieb eine LEERE Datei und meldete Erfolg — die Prüfung des Inhalts
+    // steht seither in containerHaertung.test.ts.
+    child.stdout.pipe(out);
     child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
     child.on('error', brichAb);
     child.on('close', (code) => {
@@ -124,10 +135,15 @@ export async function rtExecToFile(
       out.close(() => {
         if (erledigt) return;
         erledigt = true;
+        nurEigentuemer(filePath);
         resolve({ code: code ?? -1, stderr });
       });
     });
   });
+}
+
+function nurEigentuemer(pfad: string): void {
+  try { chmodSync(pfad, 0o600); } catch { /* fehlt noch / Windows */ }
 }
 
 /** Gegenstück zu rtExecToFile: eine Datei streamt in die stdin des Kindes —
@@ -154,6 +170,11 @@ export async function rtExecFromFile(
       ? setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs)
       : null;
     src.on('error', (err) => { if (timer) clearTimeout(timer); child.kill('SIGKILL'); reject(err); });
+    // Wie in rtExec: stirbt das Kind vor dem Lesen (Import abgebrochen,
+    // Container weg, Timeout-SIGKILL), emittiert stdin async EPIPE — ohne
+    // Listener eine unbehandelte Exception im MAIN-Prozess. `pipe` hängt
+    // keinen Fehler-Listener ans Ziel. 'close' liefert das Ergebnis.
+    child.stdin.on('error', () => { src.destroy(); });
     src.pipe(child.stdin);
     child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
     child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
@@ -163,18 +184,6 @@ export async function rtExecFromFile(
       resolve({ code: code ?? -1, stdout, stderr });
     });
   });
-}
-
-async function probe(rt: ContainerRuntime): Promise<boolean> {
-  try {
-    // `--version` (Client-only): auf Win/Mac schlägt `version` ohne laufende
-    // podman machine fehl — Verfügbarkeit heißt hier "Binary da", das Hochfahren
-    // der Machine übernimmt ensureMachine() beim Start.
-    const r = await rtExec(rt, ['--version'], { timeoutMs: 15_000 });
-    return r.code === 0;
-  } catch {
-    return false;
-  }
 }
 
 /** Kandidaten in Präferenz-Reihenfolge für die aktuelle Umgebung. */
@@ -202,13 +211,7 @@ export function runtimeCandidates(
   return out;
 }
 
-/** Erste funktionierende Runtime oder null (UI zeigt dann den Setup-Hinweis). */
-export async function detectRuntime(): Promise<ContainerRuntime | null> {
-  for (const cand of runtimeCandidates()) {
-    if (await probe(cand)) return cand;
-  }
-  return null;
-}
+// Prüfung und Wahl der Runtime (Daemon-Probe, Merker, Bestand): runtimeWahl.ts.
 
 /** Windows: ist WSL2 einsatzbereit? `wsl --status` liefert 0 nur, wenn die
  *  Funktion installiert ist — genau die Voraussetzung von `podman machine init`.
@@ -223,26 +226,64 @@ export async function wslReady(): Promise<boolean> {
   }
 }
 
+/** Exit-Code für „vom Nutzer abgebrochen" (Windows ERROR_CANCELLED) — so
+ *  meldet das Skript eine abgelehnte UAC-Abfrage. */
+export const WSL_ABGEBROCHEN = 1223;
+/** Windows-Standardcode „Erfolg, Neustart nötig" (ERROR_SUCCESS_REBOOT_REQUIRED).
+ *  Ob `wsl --install` ihn liefert, ist hier nicht belegt — deshalb prüft
+ *  installWslErgebnis den Neustart-Bedarf zusätzlich über `wsl --status`. */
+export const WSL_NEUSTART = 3010;
+
+/** PowerShell für den elevierten WSL-Install. Vorher endete eine abgebrochene
+ *  UAC-Abfrage als Erfolg: Start-Process warf nur einen NICHT-terminierenden
+ *  Fehler, `$p` blieb `$null`, und `exit $p.ExitCode` ist `exit $null` = 0.
+ *  Jetzt: ErrorActionPreference Stop + try/catch, `$null` ausdrücklich als
+ *  Abbruch. */
+export const WSL_INSTALL_SKRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  "try { $p = Start-Process -FilePath 'wsl.exe' -ArgumentList '--install','--no-distribution' -Verb RunAs -Wait -PassThru } "
+    + `catch { exit ${WSL_ABGEBROCHEN} }`,
+  `if ($null -eq $p -or $null -eq $p.ExitCode) { exit ${WSL_ABGEBROCHEN} }`,
+  'exit $p.ExitCode',
+].join('; ');
+
+export interface WslInstallErgebnis {
+  ok: boolean;
+  /** Installiert, aber erst nach einem Windows-Neustart nutzbar. */
+  neustartNoetig: boolean;
+  abgebrochen: boolean;
+}
+
+/** Reine Auswertung: Exit-Code des Skripts + ob `wsl --status` danach 0 ist. */
+export function wslInstallAuswerten(code: number, statusOk: boolean): WslInstallErgebnis {
+  if (code === WSL_ABGEBROCHEN) return { ok: false, neustartNoetig: false, abgebrochen: true };
+  if (code !== 0 && code !== WSL_NEUSTART) return { ok: false, neustartNoetig: false, abgebrochen: false };
+  return { ok: true, neustartNoetig: code === WSL_NEUSTART || !statusOk, abgebrochen: false };
+}
+
 /** Windows-Erststart-Assistent: WSL2 mit UAC-Elevation installieren
  *  (`wsl --install --no-distribution` — die Distro braucht podman machine nicht,
  *  es importiert sein eigenes Image). Start-Process -Verb RunAs zeigt die
- *  Admin-Abfrage; -Wait/-PassThru reichen den ExitCode des elevierten Prozesses
- *  durch (UAC abgebrochen → PowerShell wirft → Exit != 0). Nach Erfolg ist
- *  meist ein Windows-Neustart nötig — das sagt die Karte dem User. */
-export async function installWsl(): Promise<boolean> {
-  if (process.platform !== 'win32') return false;
-  const cmd =
-    "$p = Start-Process -FilePath 'wsl.exe' -ArgumentList '--install','--no-distribution' -Verb RunAs -Wait -PassThru; exit $p.ExitCode";
+ *  Admin-Abfrage; -Wait/-PassThru reichen den ExitCode des elevierten
+ *  Prozesses durch (s. WSL_INSTALL_SKRIPT für den Abbruch-Fall). */
+export async function installWslErgebnis(): Promise<WslInstallErgebnis> {
+  const fehl = { ok: false, neustartNoetig: false, abgebrochen: false };
+  if (process.platform !== 'win32') return fehl;
   try {
     const r = await rtExec(
       { argv: ['powershell.exe'] },
-      ['-NoProfile', '-NonInteractive', '-Command', cmd],
+      ['-NoProfile', '-NonInteractive', '-Command', WSL_INSTALL_SKRIPT],
       { timeoutMs: 30 * 60_000 },
     );
-    return r.code === 0;
+    return wslInstallAuswerten(r.code, r.code === 0 || r.code === WSL_NEUSTART ? await wslReady() : false);
   } catch {
-    return false;
+    return fehl;
   }
+}
+
+/** Bestands-Schnittstelle (main.ts `host:setupWindows`): nur Erfolg ja/nein. */
+export async function installWsl(): Promise<boolean> {
+  return (await installWslErgebnis()).ok;
 }
 
 export type MachineAction = 'none' | 'init' | 'start';

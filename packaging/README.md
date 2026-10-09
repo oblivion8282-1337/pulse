@@ -140,6 +140,9 @@ needed, to pull the freedesktop runtime + the Electron BaseApp.)
 flow in the cloud whenever a push to `main` touches a path that's bundled into the
 Flatpak (mirrors the legacy `.githooks/pre-push` trigger filter). First run ~30 min,
 cached runs ~5 min (the workflow caches `~/.local/share/flatpak` + `.flatpak-builder/`).
+Seit 2026-10-08 in zwei Jobs: `build` baut unsigniert und sieht kein Geheimnis,
+`publish` (ohne Checkout) bekommt das OSTree-Repo als Artefakt, signiert jede Ref
+und lädt hoch — Begründung im Kopf von `flatpak.yml`.
 
 **Required repo secrets** (Settings → Secrets and variables → Actions):
 - `FLATPAK_GPG_PRIVATE_KEY` — the **same** passwordless key the friends already

@@ -13,13 +13,16 @@
  * danach Frames [2 Byte Länge][Payload] beidseitig.
  *
  * Struktur wie udpRelay.ts (Listener pro Port + Wegwerf-Verbindungen pro Peer
- * + Idle-Sweep) — der Unterschied ist nur der Transport Host→Container:
- * dort UDP an die VM-IP (Win/WSL, VM vom Host erreichbar), hier TCP-Frames.
+ * + Idle-Sweep + Grenzen aus relayGrenzen.ts) — der Unterschied ist nur der
+ * Transport Host→Container: dort UDP an die VM-IP (Win/WSL, VM vom Host
+ * erreichbar), hier TCP-Frames. Wie dort beendet ein Laufzeitfehler nach dem
+ * Bind den Listener nicht.
  * Keine Electron-Imports (node:test-tauglich).
  */
 
 import { createSocket, type Socket, type RemoteInfo } from 'node:dgram';
 import { connect as tcpConnect, type Socket as TcpSocket } from 'node:net';
+import { NeuePeerBremse, beruehre, gedrosselt, lruEinfuegen } from './relayGrenzen.ts';
 
 /** Peer gilt nach dieser Stille als weg — ICE keepalives kommen alle ~2s,
  *  60s ist großzügig und hält die Map klein. */
@@ -81,6 +84,8 @@ export function startUdpGatewayRelayMapped(
   const sweeps: NodeJS.Timeout[] = [];
   const boundPorts: number[] = [];
   const allPipes = new Set<PeerPipe>();
+  const bremse = new NeuePeerBremse();
+  const meldeGedrosselt = gedrosselt(log);
 
   const bindOne = ({ listen, target }: GatewayPortPair): Promise<void> =>
     new Promise((resolve) => {
@@ -99,21 +104,30 @@ export function startUdpGatewayRelayMapped(
       sweep.unref();
       sweeps.push(sweep);
 
-      listener.on('error', (e) => {
+      const sendeFehler = (err: Error | null): void => {
+        if (err) meldeGedrosselt(String(listen), `[udp-gateway-relay] Port ${listen}: Sendefehler (${(err as NodeJS.ErrnoException).code ?? err.message}) — läuft weiter`);
+      };
+      // Nur der BIND-Fehler überspringt den Port (s. udpRelay.ts) — beim
+      // 'listening' wird er gegen einen Laufzeit-Handler getauscht.
+      const bindFehler = (e: Error): void => {
         // EADDRINUSE etc. → Port überspringen, Rest läuft (fail-soft).
         log(`[udp-gateway-relay] Port ${listen} nicht bindbar (${(e as NodeJS.ErrnoException).code ?? e.message}) — übersprungen`);
+        clearInterval(sweep);
         try { listener.close(); } catch { /* schon zu */ }
         resolve();
-      });
+      };
+      listener.once('error', bindFehler);
 
       listener.on('message', (msg: Buffer, peer: RemoteInfo) => {
         const key = `${peer.address}:${peer.port}`;
         const known = peers.get(key);
         if (known) {
           known.lastSeen = Date.now();
+          beruehre(peers, key, known);
           try { known.toGateway.write(frame(msg)); } catch { peers.delete(key); }
           return;
         }
+        if (!bremse.erlaube(peer.address)) return; // Flut: still verwerfen
 
         // Neuer Peer: TCP-Verbindung zum Gateway; Setup-Frame + erstes Paket
         // gehen im connect-Callback raus (frühere Pakete puffert der Socket).
@@ -121,6 +135,11 @@ export function startUdpGatewayRelayMapped(
         toGateway.setTimeout(CONNECT_TIMEOUT_MS);
         let buf = Buffer.alloc(0);
         toGateway.on('connect', () => {
+          // Die Frist gilt nur dem Verbindungsaufbau — als Leerlauf-Frist
+          // stehen gelassen, risse sie nach 5 s Stille die Pipe ab; das
+          // nächste Paket bekäme eine neue Verbindung und damit im Container
+          // einen neuen Quellport. Leerlauf räumt der Sweep (IDLE_MS).
+          toGateway.setTimeout(0);
           const setup = Buffer.allocUnsafe(2);
           setup.writeUInt16BE(target);
           toGateway.write(setup);
@@ -135,22 +154,30 @@ export function startUdpGatewayRelayMapped(
             buf = buf.subarray(2 + len);
             const p = peers.get(key);
             if (p) p.lastSeen = Date.now();
-            listener.send(payload, peer.port, peer.address);
+            listener.send(payload, peer.port, peer.address, sendeFehler);
           }
         });
         const pipe: PeerPipe = { toGateway, lastSeen: Date.now() };
         const verwerfen = () => {
-          peers.delete(key);
+          // Nur die EIGENE Pipe austragen — nach einer LRU-Verdrängung kann
+          // unter demselben Schlüssel schon eine neuere stehen.
+          if (peers.get(key) === pipe) peers.delete(key);
           allPipes.delete(pipe);
+          toGateway.destroy();
         };
         toGateway.on('timeout', verwerfen);
         toGateway.on('error', verwerfen);
         toGateway.on('close', verwerfen);
-        peers.set(key, pipe);
+        const alt = lruEinfuegen(peers, key, pipe);
+        if (alt) { try { alt.toGateway.destroy(); } catch { /* schon zu */ } }
         allPipes.add(pipe);
       });
 
       listener.bind(listen, '0.0.0.0', () => {
+        listener.off('error', bindFehler);
+        listener.on('error', (e) => {
+          meldeGedrosselt(String(listen), `[udp-gateway-relay] Port ${listen}: Laufzeitfehler (${(e as NodeJS.ErrnoException).code ?? e.message}) — läuft weiter`);
+        });
         boundPorts.push(listen);
         sockets.push(listener);
         listener.on('close', () => {

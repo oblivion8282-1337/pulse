@@ -350,6 +350,12 @@ export interface PulseHostApi {
   start(opts?: HostStartOpts): Promise<void>;
   /** Stack sauber stoppen → Phase 'idle'. */
   stop(): Promise<void>;
+  /** Server-App beenden (wie der Tray-Eintrag „Beenden"). */
+  quit(): Promise<void>;
+  /** Server-Name lesen (Server-App, 2026-10-08). */
+  serverName(): Promise<{ ok: boolean; name?: string | null; error?: string }>;
+  /** Server-Name setzen; leer = zurücksetzen. */
+  setServerName(name: string): Promise<{ ok: boolean; name?: string | null; error?: string }>;
   /** Letztes Phasen-Ereignis abrufen (Snapshot, kein Subscribe). */
   getStatus(): Promise<HostPhaseEvent>;
   /** Zustands-Abgleich mit dem echten Container (überlebt App-Neustarts
@@ -391,7 +397,7 @@ export interface PulseHostApi {
   runtimeAvailable(): Promise<boolean>;
   /** Windows-Erststart-Assistent: WSL2 mit Admin-Abfrage installieren
    *  (Phase 'needs-windows-setup'). Nach ok ist meist ein Neustart nötig. */
-  setupWindows(): Promise<{ ok: boolean }>;
+  setupWindows(): Promise<{ ok: boolean; neustartNoetig: boolean; abgebrochen: boolean }>;
   /** Eingeloggter Cloud-User (für die "Angemeldet als …"-Zeile). null bei
    *  fehlender Session (gepairter Server ohne frischen Login). */
   me(): Promise<{ username: string; displayName: string | null } | null>;

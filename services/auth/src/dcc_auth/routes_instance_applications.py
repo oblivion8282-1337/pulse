@@ -145,6 +145,13 @@ class InstanceOut(BaseModel):
     # Vorgabe ``False``: ein Feld, das im Zweifel „eingerichtet" behauptet,
     # brächte genau den Zustand zurück, den es abstellen soll.
     set_up: bool = False
+    # Name, den der Betreiber dem Server gegeben hat (Migration 0055) — die
+    # Leiste zeigt ihn statt der Adresse. NULL = keiner gesetzt.
+    anzeigename: str | None = None
+    # Nur App-Hosts (Heim-Server): läuft er gerade? Die Leiste blendet einen
+    # gestoppten aus. VPS-Instanzen melden sich nicht beim Telefonbuch —
+    # dort bleibt das Feld ``None`` (= unbekannt, NICHT ausblenden).
+    online: bool | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +201,8 @@ def _instance_to_out(
         # die Oberfläche Knöpfe zeigen, die anschließend 404 laufen.
         role="owner" if inst.registered_by == viewer_id else "member",
         set_up=set_up,
+        anzeigename=inst.anzeigename,
+        online=inst.online_gemeldet if inst.origin == "app_host" else None,
     )
 
 

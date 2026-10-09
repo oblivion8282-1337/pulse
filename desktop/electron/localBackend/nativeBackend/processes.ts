@@ -10,9 +10,15 @@ import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { waitFor } from '../health.ts';
+import { systemProgramm } from './laufreste.ts';
 import type { ServiceSpec } from './types.ts';
 
 type ExitCallback = (code: number | null) => void;
+type SpawnCallback = (pid: number) => void;
+
+/** So viele stderr-Zeilen hebt der Supervisor auf — für Startfehler-
+ *  Meldungen (postgresStartFehler), nicht als Log. */
+const STDERR_ZEILEN = 40;
 
 async function raceWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
   return Promise.race([
@@ -24,7 +30,7 @@ async function raceWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean
 function killTree(pid: number): void {
   if (process.platform !== 'win32') return;
   try {
-    execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    execFileSync(systemProgramm('taskkill.exe'), ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
   } catch { /* best effort */ }
 }
 
@@ -38,6 +44,8 @@ export class SupervisedProcess {
    *  der Ports hält, die der Manager nicht mehr kennt. reset nur in start(). */
   private disposed = false;
   private exitCallbacks: ExitCallback[] = [];
+  private spawnCallbacks: SpawnCallback[] = [];
+  private stderrZeilen: string[] = [];
 
   constructor(spec: ServiceSpec & { gracefulStop?: () => Promise<void>; gracePeriodMs?: number }) {
     this.spec = { restartMax: 3, gracePeriodMs: 3000, ...spec };
@@ -115,6 +123,17 @@ export class SupervisedProcess {
     this.exitCallbacks.push(cb);
   }
 
+  /** Feuert bei JEDEM Spawn mit PID — auch bei Supervisor-Neustarts, damit
+   *  die PID-Datei nicht auf einen toten (und später recycelten) Wert zeigt. */
+  onSpawn(cb: SpawnCallback): void {
+    this.spawnCallbacks.push(cb);
+  }
+
+  /** Die letzten stderr-Zeilen (höchstens STDERR_ZEILEN). */
+  stderrEnde(): string {
+    return this.stderrZeilen.join('\n');
+  }
+
   private async _spawn(): Promise<void> {
     const { name, command, args, env, cwd } = this.spec;
     const child = spawn(command, args, {
@@ -128,7 +147,10 @@ export class SupervisedProcess {
     child.stderr?.setEncoding('utf8');
     child.stderr?.on('data', (chunk: string) => {
       for (const line of chunk.split('\n')) {
-        if (line.trim()) console.error(`[${name}] ${line}`);
+        if (!line.trim()) continue;
+        console.error(`[${name}] ${line}`);
+        this.stderrZeilen.push(line);
+        if (this.stderrZeilen.length > STDERR_ZEILEN) this.stderrZeilen.shift();
       }
     });
     child.on('error', (err) => {
@@ -137,6 +159,11 @@ export class SupervisedProcess {
     child.on('exit', (code, signal) => {
       this._onChildExit(code, signal ?? `code ${code}`);
     });
+    if (child.pid) {
+      for (const cb of this.spawnCallbacks) {
+        try { cb(child.pid); } catch { /* ignore */ }
+      }
+    }
   }
 
   private _onChildExit(code: number | null, reason: string): void {

@@ -6,7 +6,8 @@ currently have an active publisher. From that we reconcile the per-channel
 *set* of HQ streamers in Redis (``stream:channel:<cid>`` →
 ``{user_ids: [...], since}``) and publish any change on ``stream:events``.
 In sustained idle (no publisher anywhere, nothing known in Redis) the tick
-stretches to ``_IDLE_POLL_INTERVAL_S`` — see ``_poll_interval``.
+stretches to ``_IDLE_POLL_INTERVAL_S`` — see ``_poll_interval``; a freshly
+issued publish token wakes it back up (``weckruf.py``).
 
 The publisher's user-id is right there in the path, so no ``stream:active:``
 lookup is needed for attribution (the auth hook still writes those records;
@@ -29,6 +30,7 @@ import httpx
 import structlog
 from redis.asyncio import Redis
 
+from dcc_media_svc import weckruf
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.streamkeys import (
     CHANNEL_STATE_KEY,
@@ -255,7 +257,8 @@ _empty_snapshot_streak = 0
 # Publisher UND kennt Redis keinen Kanal, ist nichts zu tun — der 3-s-Takt
 # würde Leerlauf mit 28.800 Abfragen/Tag bezahlen. Ab der Schwelle dehnen wir
 # auf ``_IDLE_POLL_INTERVAL_S``; ein Publisher irgendwo setzt den Zähler
-# zurück und der nächste Takt ist wieder schnell. Eigener Zähler neben
+# zurück, sobald ein Durchlauf ihn sieht — bis dahin holt der Weckruf beim
+# Sende-Token den Takt zurück (``weckruf.py``). Eigener Zähler neben
 # ``_empty_snapshot_streak``: der ist die Teardown-Gnade (leerer Snapshot
 # gegen Redis-Wissen, Lebenszyklus endet bei 2) — dieses hier misst
 # anhaltende Ruhe, beides in einem Zähler würde die Gnadenlogik verfilzen.
@@ -264,8 +267,11 @@ _IDLE_POLL_INTERVAL_S = 30.0
 _idle_streak = 0
 
 
-def _poll_interval(idle_streak: int, base_s: float) -> float:
-    """Schneller Takt solange etwas passiert, gedehnter im gesicherten Leerlauf."""
+def _poll_interval(idle_streak: int, base_s: float, *, wach: bool = False) -> float:
+    """Höchstens Halbsekundentakt, solange ein angekündigter Stream noch nicht gesehen
+    wurde; schneller Takt, solange etwas passiert; gedehnt im gesicherten Leerlauf."""
+    if wach:
+        return min(base_s, weckruf.WACH_TAKT_S)
     if idle_streak < _IDLE_BACKOFF_AFTER_POLLS:
         return base_s
     return _IDLE_POLL_INTERVAL_S
@@ -347,6 +353,7 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
                 publishers[cid].discard((uid, slot))
         publishers = {cid: prs for cid, prs in publishers.items() if prs}
 
+    weckruf.gesehen((cid, uid, slot) for cid, prs in publishers.items() for uid, slot in prs)
     known = await _list_known_channels(redis)
 
     # Leerlauf-Buchführung für den Backoff im Loop (siehe _poll_interval):
@@ -514,18 +521,23 @@ async def run_poller(redis: Redis, *, stop_event: asyncio.Event | None = None) -
     """Long-running reconciliation loop. Resilient to MediaMTX being down."""
     settings = get_settings()
     stop = stop_event or asyncio.Event()
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        while not stop.is_set():
-            try:
-                await reconcile_once(redis, client)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # noqa: BLE001 — MediaMTX may be unreachable
-                log.warning("mediamtx_poll_failed", error=str(exc))
-            try:
-                await asyncio.wait_for(
-                    stop.wait(),
-                    timeout=_poll_interval(_idle_streak, settings.poll_interval_s),
+    geweckt = weckruf.anmelden()
+    try:
+        async with httpx.AsyncClient(timeout=5.0, auth=settings.mediamtx_api_auth) as client:
+            while not stop.is_set():
+                # Vor dem Durchlauf löschen: ein Weckruf WÄHREND des Durchlaufs
+                # bleibt stehen und verkürzt den folgenden Schlaf auf null.
+                geweckt.clear()
+                try:
+                    await reconcile_once(redis, client)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 — MediaMTX may be unreachable
+                    log.warning("mediamtx_poll_failed", error=str(exc))
+                await weckruf.schlafen(
+                    stop,
+                    geweckt,
+                    _poll_interval(_idle_streak, settings.poll_interval_s, wach=weckruf.ist_wach()),
                 )
-            except TimeoutError:
-                pass
+    finally:
+        weckruf.abmelden()

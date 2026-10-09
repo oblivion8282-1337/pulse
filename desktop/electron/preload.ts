@@ -505,6 +505,11 @@ contextBridge.exposeInMainWorld('pulse', {
   host: {
     start: (opts: unknown): Promise<void> => ipcRenderer.invoke('host:start', opts),
     stop: (): Promise<void> => ipcRenderer.invoke('host:stop'),
+    quit: (): Promise<void> => ipcRenderer.invoke('host:quit'),
+    serverName: (): Promise<{ ok: boolean; name?: string | null; error?: string }> =>
+      ipcRenderer.invoke('host:serverName'),
+    setServerName: (name: string): Promise<{ ok: boolean; name?: string | null; error?: string }> =>
+      ipcRenderer.invoke('host:setServerName', name),
     getStatus: (): Promise<unknown> => ipcRenderer.invoke('host:status'),
     // Zustands-Abgleich: fragt den echten Containerstatus ab (überlebt App-
     // Neustarts dank `--restart unless-stopped`) und hebt die Phase bei
@@ -552,7 +557,7 @@ contextBridge.exposeInMainWorld('pulse', {
       ipcRenderer.invoke('host:giveUp', opts),
     unpair: (): Promise<void> => ipcRenderer.invoke('host:unpair'),
     runtimeAvailable: (): Promise<boolean> => ipcRenderer.invoke('host:runtime'),
-    setupWindows: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('host:setupWindows'),
+    setupWindows: (): Promise<{ ok: boolean; neustartNoetig: boolean; abgebrochen: boolean }> => ipcRenderer.invoke('host:setupWindows'),
     // "Angemeldet als …" (eingeloggter Cloud-User) + "Abmelden" (Session-Cookie
     // löschen, zurück zum Login → anderer Account möglich).
     me: (): Promise<{ username: string; displayName: string | null } | null> =>

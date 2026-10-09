@@ -61,6 +61,9 @@ export function ensureNativeSecrets(secretsDir: string): NativeSecrets {
   mkdirSync(secretsDir, { recursive: true });
 
   const postgresPassword = readOrCreate(join(secretsDir, 'postgres.password'), genHex);
+  const garnetPassword = readOrCreate(join(secretsDir, 'garnet.password'), genHex);
+  // Wie 03-init-secrets.sh (mediamtx_api.password, token_urlsafe).
+  const mediamtxApiPassword = readOrCreate(join(secretsDir, 'mediamtx_api.password'), genUrlSafe);
   const internalServiceToken = readOrCreate(join(secretsDir, 'internal_service.token'), genUrlSafe);
   const certChallengeSecret = readOrCreate(join(secretsDir, 'cert_challenge.secret'), genUrlSafe);
   // Garage/weed-Key-IDs MÜSSEN "GK" + 24 Hex-Zeichen sein (03-init-secrets.sh:
@@ -82,6 +85,8 @@ export function ensureNativeSecrets(secretsDir: string): NativeSecrets {
 
   return {
     postgresPassword,
+    garnetPassword,
+    mediamtxApiPassword,
     internalServiceToken,
     certChallengeSecret,
     minioUser,

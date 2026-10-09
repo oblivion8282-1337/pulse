@@ -1,3 +1,17 @@
+# Shell-Skripte und alles, was in den Self-Host-Container wandert, IMMER mit
+# LF auschecken — auch auf Windows mit autocrlf=true. Ein CRLF-Skript läuft im
+# Container nicht: `#!/bin/sh\r` findet keinen Interpreter, und die s6-Dateien
+# ohne Endung (`run`, `finish`, `type`, `up`) liest s6 als „longrun\r". Gebaut
+# wird das Image aus dem Arbeitsbaum, ein Windows-Checkout lieferte also genau
+# diese Bytes aus.
+#
+# `text=auto` statt `text` für den ganzen Baum: heute liegen dort nur Text und
+# leere s6-Marker-Dateien, aber eine später hinzukommende Binärdatei bliebe
+# damit unangetastet. Steht ZUOBERST, damit die `-text`-Ausnahmen darunter
+# (spätere Zeilen gewinnen) weiter greifen.
+infra/self-host/** text=auto eol=lf
+*.sh text eol=lf
+
 # Patch-Dateien niemals in CRLF umschreiben: `git apply` vergleicht sie
 # byteweise mit LF-Quellbäumen (webrtc-rs, windows-capture, FFmpeg), und ein
 # per autocrlf=true ausgecheckter CRLF-Patch passt dann nicht mehr.

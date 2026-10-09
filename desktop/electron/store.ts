@@ -10,8 +10,9 @@
  * File: `<userData>/pulse-stream.json`. Loaded once into memory on first use
  * (`app.whenReady()` → `initStore()`); every `set` re-serialises the whole blob.
  *
- * **Security:** secret-bearing keys (`GEHEIME_SCHLUESSEL` — `pulse.host.creds`,
- * legacy `custom_servers`) are encrypted via Electron `safeStorage` since the
+ * **Security:** secret-bearing keys (`istGeheimerSchluessel` — `pulse.host.creds`
+ * incl. the per-user `pulse.host.creds.<id>`, `pulse.host.auth`, legacy
+ * `custom_servers`) are encrypted via Electron `safeStorage` since the
  * 2026-09-23 bughunt (see below); without an OS keyring they fall back to
  * cleartext. On Linux we `chmod 700` the userData dir and `chmod 600` the
  * JSON file (writes always use `{ mode: 0o600 }`). On Windows/macOS chmod is a
@@ -28,6 +29,7 @@ import {
   istGeheimWickel,
   wickelGeheimnis
 } from './geheimform';
+import { istGeheimerSchluessel } from './storeSchluessel';
 
 const STORE_FILE = 'pulse-stream.json';
 
@@ -36,14 +38,9 @@ let data: Record<string, unknown> | null = null;
 let storePath: string | null = null;
 
 /**
- * Store-Schlüssel, die verschlüsselt abgelegt werden (Bughunt 2026-09-23).
- *
- * * `pulse.host.creds` — das Pairing des Server-Modus: `client_secret` +
- *   `relay_tunnel_token`, bislang Klartext-JSON. Wer die Datei liest (Malware
- *   im Nutzerkontext, gesichertes Backup, Sync-Client auf dem Profilordner),
- *   erhielt die vollständige Instanz-Identität samt Relay-Tunnel.
- * * `custom_servers` — LEGACY: kann auf Alt-Installationen noch Stream-Keys
- *   tragen; neue Fassungen leeren den Schlüssel (`stream/persistence.ts`).
+ * Welche Schlüssel verschlüsselt liegen, entscheidet `istGeheimerSchluessel`
+ * (`storeSchluessel.ts` — eine Regel über die Schlüsselform, weil die
+ * Zugangsdaten je Benutzer-Welt ein Suffix tragen).
  *
  * Verschlüsselt wird über Electron `safeStorage` (DPAPI/Keychain/libsecret).
  * **Fallback ohne OS-Tresor** (Linux headless): Klartext wie bisher — der
@@ -51,20 +48,27 @@ let storePath: string | null = null;
  * Start-Migration holt beim nächsten Start mit Tresor nach. Beide Formen
  * koexistieren; gelesen wird transparent (`istGeheimWickel` unterscheidet).
  */
-const GEHEIME_SCHLUESSEL = new Set(['pulse.host.creds', 'custom_servers']);
 
 function tresorBereit(): boolean {
   try {
-    return safeStorage.isEncryptionAvailable();
+    if (!safeStorage.isEncryptionAvailable()) return false;
+    // Linux: Chromium meldet „verfügbar" auch beim Backend `basic_text` — das
+    // ist ein fest eingebauter Schlüssel, also Klartext mit Umweg. Ohne diese
+    // Prüfung hielt der Store im Flatpak (kein Schlüsselbund erreichbar) einen
+    // Tresor für vorhanden, und die Klartext-Lage blieb unsichtbar (Linux-Scan
+    // 2026-10-08). Dann lieber ehrlich der Klartext-Rückfall mit chmod 600.
+    if (process.platform === 'linux'
+      && safeStorage.getSelectedStorageBackend() === 'basic_text') return false;
+    return true;
   } catch {
     return false;
   }
 }
 
 /** Wickelt den Wert eines Geheimnis-Schlüssels, wenn ein Tresor bereit ist —
- *  sonst unverändert (Klartext-Fallback, s. `GEHEIME_SCHLUESSEL`). */
+ *  sonst unverändert (Klartext-Fallback, s. `istGeheimerSchluessel`). */
 function verschluessleWert(key: string, value: unknown): unknown {
-  if (!GEHEIME_SCHLUESSEL.has(key) || !tresorBereit()) return value;
+  if (!istGeheimerSchluessel(key) || !tresorBereit()) return value;
   try {
     return wickelGeheimnis(JSON.stringify(value), (klar) => safeStorage.encryptString(klar));
   } catch (err) {
@@ -80,7 +84,7 @@ function verschluessleWert(key: string, value: unknown): unknown {
  *  es wird verworfen statt halb ausgeliefert, Neu-Pairing ist der Weg
  *  zurück. */
 function entschluesseleWert(key: string, value: unknown): unknown {
-  if (!GEHEIME_SCHLUESSEL.has(key) || !istGeheimWickel(value)) return value;
+  if (!istGeheimerSchluessel(key) || !istGeheimWickel(value)) return value;
   const klar = entwickleGeheimnis(value, (d) => safeStorage.decryptString(d));
   if (klar === null) {
     console.error(
@@ -163,7 +167,8 @@ export function initStore(): void {
   // gewickelt wurde.
   if (tresorBereit()) {
     let migriert = false;
-    for (const key of GEHEIME_SCHLUESSEL) {
+    for (const key of Object.keys(data)) {
+      if (!istGeheimerSchluessel(key)) continue;
       const wert = data[key];
       if (wert === undefined || istGeheimWickel(wert)) continue;
       const gewickelt = verschluessleWert(key, wert);
@@ -202,7 +207,7 @@ export function storeGet(key: string): unknown {
 /** Read the whole blob (a shallow copy so callers can't mutate the mirror).
  *  Gewickelte Geheimnisse kommen transparent als Klartext zurück — der
  *  Renderer kennt nur die Klartext-Formen (die Geheimnis-Schlüssel sind
- *  über `RENDERER_BLOCKED_STORE_KEYS`/Allowlist ohnehin gesperrt bzw. nur
+ *  über `istRendererGesperrt`/Allowlist ohnehin gesperrt bzw. nur
  *  Legacy).
  *  `geheimnisseAusnehmen` schlüsselt die genannten Schlüssel gar nicht erst
  *  (Bughunt 2026-09-23, zweiter Lauf): der Renderer-getAll-Pfad reicht sie
@@ -210,12 +215,13 @@ export function storeGet(key: string): unknown {
  *  geschützten Wert nicht bei jedem getAllSync entschlüsseln (libsecret-DBus
  *  ist synchron und blockiert beim hängenden Keyring Main UND Renderer). */
 export function storeGetAll(
-  geheimnisseAusnehmen?: ReadonlySet<string>
+  geheimnisseAusnehmen?: (key: string) => boolean
 ): Record<string, unknown> {
   if (!data) return {};
   const kopie: Record<string, unknown> = { ...data };
-  for (const key of GEHEIME_SCHLUESSEL) {
-    if (geheimnisseAusnehmen?.has(key)) continue;
+  for (const key of Object.keys(kopie)) {
+    if (!istGeheimerSchluessel(key)) continue;
+    if (geheimnisseAusnehmen?.(key)) continue;
     if (kopie[key] === undefined) continue;
     const wert = entschluesseleWert(key, kopie[key]);
     if (wert === undefined) {

@@ -20,11 +20,12 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage, Notification } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, screen, shell, nativeImage, Notification, powerSaveBlocker, powerMonitor } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { URL } from 'node:url';
+import { execFile } from 'node:child_process';
 // Injected by esbuild's `--define` at build time (see `esbuild.mjs`) so only
 // the version string is baked in, not the whole `package.json` object.
 declare const __APP_VERSION__: string;
@@ -46,6 +47,7 @@ import { RemoteEingabe } from './remoteInputHost';
 import { zielFuerAblage, rolleLesen, endeAnstoss } from './ablageWeiche';
 import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
+import { istRendererGesperrt } from './storeSchluessel';
 import { createTray, recreateTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
 import { wireNotify } from './notify';
 import { wireSicherungRuecklauf } from './sicherungRuecklauf';
@@ -58,7 +60,8 @@ import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
 import { ContainerBackendManager, resolveImage, HOST_HTTP_PORT, setzeContainerWelt } from './localBackend/containerBackendManager';
 import { NativeBackendManager, setzeNativeWelt } from './localBackend/nativeBackend/nativeBackendManager';
-import { wslReady, installWsl, inFlatpak } from './localBackend/containerRuntime';
+import { NATIVE_PORTS } from './localBackend/nativeBackend/types';
+import { wslReady, installWslErgebnis, inFlatpak } from './localBackend/containerRuntime';
 import { volumeSizeBytes, exportVolume, importVolume, lastAutoBackupAt } from './localBackend/dataTools';
 import { httpHealth } from './localBackend/health';
 import { lebtLivekitSignalweg, medienRundtrip, type ProbeSchritt } from './localBackend/medienprobe';
@@ -74,7 +77,8 @@ import {
 } from './serverAuth';
 import { runGiveUp } from './serverGiveUp';
 import { checkReachability } from './localBackend/reachability';
-import { mapMediaPorts } from './localBackend/portMapper';
+import { mapMediaPorts, loescheMappings } from './localBackend/portMapper';
+import { SERVERNAME_MAX } from './localBackend/serverName';
 import { diagnostiziere } from './localBackend/netdiag';
 import { checkCredsSupersede, checkInstanceDeleted } from './serverSupersede';
 
@@ -259,9 +263,15 @@ let mainWindow: BrowserWindow | null = null;
 // that actually quits is the tray's "Beenden" entry, which sets this flag
 // before calling `app.quit()`. The window's `close` handler honours it.
 let isQuitting = false;
+/** Der Nutzer hat bewusst beendet (Tray „Beenden", Server-App-Knopf, Fenster-X
+ *  mit quitOnClose) — im Gegensatz zu einem Ende, das das System auslöst
+ *  (Herunterfahren, Abmelden der Desktop-Sitzung, SIGTERM). Nur ein bewusstes
+ *  Beenden stoppt den Server-Container (Linux-Scan 2026-10-08, s. before-quit). */
+let nutzerBeendet = false;
 // Der Tray-"Beenden"-Callback — Client- und Server-Boot teilen ihn.
 const quitApp = (): void => {
   isQuitting = true;
+  nutzerBeendet = true;
   app.quit();
 };
 
@@ -315,6 +325,10 @@ function createWindow(): void {
   });
 
   mainWindow.once('ready-to-show', () => {
+    // Server-App per Autostart: kein Fenster — sie läuft im Hintergrund, die
+    // Benachrichtigung aus bootServer macht sie sichtbar (Scan 2026-10-08:
+    // vorher öffnete sich das Fenster bei jedem Windows-Login).
+    if (SERVER_MODE && process.argv.includes('--autostarted')) return;
     mainWindow?.show();
     // The pending invite payload (if any) is delivered via the pull-based
     // `invite:getPending` IPC handler once the renderer's onMount fires.
@@ -327,6 +341,7 @@ function createWindow(): void {
     // before-quit-Handler (Sidecar-Shutdown) sauber greift.
     const quit = isQuitting || storeGet('quitOnClose') === true;
     if (quit) {
+      if (!isQuitting) nutzerBeendet = true; // Fenster-X mit quitOnClose
       isQuitting = true;
       return;
     }
@@ -589,6 +604,18 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     ? new NativeBackendManager()
     : new ContainerBackendManager();
   const hostStore = { get: storeGet, set: storeSet };
+  // Welche Runtime den Server trägt, wird gemerkt (Linux-Scan 2026-10-08):
+  // ohne Merker nahm die App bei jedem Start Podman vor Docker — kam Podman
+  // neben einem Docker-Server dazu, entstand still ein leerer Server.
+  if (manager instanceof ContainerBackendManager) {
+    manager.setzeRuntimeMerker({
+      lesen: () => {
+        const k = storeGet('pulse.host.runtime');
+        return k === 'podman' || k === 'docker' ? k : null;
+      },
+      schreiben: (kind) => storeSet('pulse.host.runtime', kind),
+    });
+  }
   // Benutzer-Welten (2026-10-01): die Welt (Container/Volume/Creds) gehört dem
   // Konto, das in der Server-App angemeldet ist. Beim Benutzerwechsel stoppt
   // die alte Welt (Daten bleiben im Volume), die des neuen Kontos kommt dran.
@@ -633,15 +660,28 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   /** Benutzerwechsel: nur bei ECHTEM Weltwechsel anhalten (der erste /me auf
    *  der eigenen Bestands-Welt darf den laufenden Server nicht anfassen).
    *  Daten bleiben immer im Volume. */
-  async function wendeBenutzerAn(userId: string): Promise<void> {
+  // Serialisiert (Scan 2026-10-08): zwei schnelle /me-Antworten hintereinander
+  // dürfen nicht zwei Weltwechsel ineinander verschränken.
+  let weltwechsel: Promise<void> = Promise.resolve();
+  function wendeBenutzerAn(userId: string): Promise<void> {
+    const lauf = weltwechsel.then(() => wendeBenutzerAnJetzt(userId));
+    weltwechsel = lauf.catch(() => {});
+    return lauf;
+  }
+  async function wendeBenutzerAnJetzt(userId: string): Promise<void> {
     const legacy = loadCreds(hostStore);
     const gehoertLegacy = String(legacy?.ownerId ?? '') === userId;
     const alteWelt = aktiveContainerWelt;
     const neueWelt: string | null = gehoertLegacy ? null : `u${userId}`;
     if (weltUser === userId && aktiveContainerWelt === neueWelt) return;
     if (neueWelt !== aktiveContainerWelt) {
+      // Eine noch laufende Start-Sequenz der ALTEN Welt erst abwarten — sonst
+      // sähe der Lauf-Check „läuft nicht", die alte Welt käme danach hoch und
+      // die neue scheiterte an belegten Ports. `hl.stop()` setzt die Phase
+      // zugleich auf idle (die UI zeigte sonst die alte Welt als live).
+      await hl.warteAufStart();
       const lief = await manager.isContainerRunning().catch(() => false);
-      if (lief) await manager.stop().catch(() => {});
+      if (lief) await hl.stop();
     }
     weltUser = userId;
     storeSet('pulse.host.weltUser', userId);
@@ -684,7 +724,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
         onProgress,
       });
     },
-    stopBackend: () => manager.stop(),
+    // Router-Freigaben (NAT-PMP/PCP) mit abbauen: vorher stoppte der Stopp
+    // nur die Erneuerung, die Ports blieben bis zu 1 h offen (Scan 2026-10-08).
+    stopBackend: async () => {
+      await manager.stop();
+      await loescheMappings().catch(() => {});
+    },
     checkReachability: async () => {
       // Test-Seam: Diagnose überspringen (E2E electron-apphost.spec + Maschinen,
       // deren Firewall die STUN/UDP-Probe blockt und die Diagnose 'unknown' liefert).
@@ -701,7 +746,46 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     relayUrl: () => (creds?.relaySubdomain ? `https://${creds.relaySubdomain}` : null),
   };
   const hl = new HostLifecycle(deps, SERVER_MODE ? { holePunch: true } : {});
+  // Solange der Server live ist, darf der Rechner nicht von selbst in den
+  // Ruhezustand gehen (GNOME/KDE-Auto-Suspend am Netzteil): sonst ist der
+  // Server offline, während die App „live" zeigt (Linux-Scan 2026-10-08).
+  // Nur im Server-Modus, und nur gegen das AUTOMATISCHE Schlafen — ein
+  // bewusstes Zuklappen oder „Bereitschaft" bleibt dem Nutzer.
+  let schlafSperre: number | null = null;
+  // Öffentliche IP ↔ LiveKit (oeffentlicheIp.ts): Heimanschlüsse haben keine
+  // feste IP. LiveKit bekommt die Adresse fest vorgegeben (sonst bekommt
+  // Firefox im selben Heimnetz keinen Medienweg) und folgt ihr deshalb nicht
+  // selbst — der Abgleich hier zieht sie nach und startet bei einem Wechsel
+  // NUR LiveKit neu. Takt: alle 2 Minuten, kurz nach jedem Live-Gehen und
+  // nach dem Aufwachen (nach einem Ruhezustand ist ein Wechsel am
+  // wahrscheinlichsten).
+  let ipAbgleichLaeuft = false;
+  const ipAbgleich = async (): Promise<void> => {
+    if (!SERVER_MODE || ipAbgleichLaeuft || hl.getStatus().phase !== 'live') return;
+    ipAbgleichLaeuft = true;
+    try {
+      const r = await manager.abgleichOeffentlicheIp();
+      if (r === 'gesetzt') console.warn('[host] öffentliche IP gewechselt — LiveKit-Adresse nachgezogen');
+    } catch (err) {
+      console.warn('[host] IP-Abgleich fehlgeschlagen:', (err as Error).message);
+    } finally {
+      ipAbgleichLaeuft = false;
+    }
+  };
+  if (SERVER_MODE) {
+    setInterval(() => { void ipAbgleich(); }, 120_000).unref();
+    powerMonitor.on('resume', () => { setTimeout(() => { void ipAbgleich(); }, 10_000); });
+  }
   hl.onPhase((e) => {
+    if (SERVER_MODE) {
+      if (e.phase === 'live') setTimeout(() => { void ipAbgleich(); }, 15_000);
+      if (e.phase === 'live' && schlafSperre === null) {
+        schlafSperre = powerSaveBlocker.start('prevent-app-suspension');
+      } else if (e.phase !== 'live' && e.phase !== 'preparing' && schlafSperre !== null) {
+        powerSaveBlocker.stop(schlafSperre);
+        schlafSperre = null;
+      }
+    }
     getWin()?.webContents.send('host:phase', e);
     // Jeder 'live'-Übergang (Start ODER Boot-Zustands-Abgleich) startet den
     // Cloud-Status-Poll; das Flag darin verhindert Doppel-Läufe.
@@ -783,7 +867,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   const osApplyAutostart = (enabled: boolean): { ok: boolean } =>
     applyAutostart(enabled, {
       platform: process.platform,
-      setLoginItems: (openAtLogin) => app.setLoginItemSettings({ openAtLogin }),
+      // `args` wirkt nur unter Windows (Run-Key-Zeile) — ohne den Schalter
+      // erkannte die App dort nie, dass sie per Autostart kam.
+      setLoginItems: (openAtLogin) =>
+        app.setLoginItemSettings({ openAtLogin, args: ['--autostarted'] }),
       flatpak: inFlatpak(),
       execPath: process.execPath,
       home: os.homedir(),
@@ -800,6 +887,15 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     // dann Ablöse-Check, dann Update-Check.
     void (async () => {
       await syncLifecycleFromContainer();
+      // Eingerichtete, angemeldete Welt startet beim Boot von selbst (Scan
+      // 2026-10-08): nativ gibt es kein `--restart unless-stopped`, und der
+      // einzige Startweg war bisher der `host:me`-Abgleich — der braucht die
+      // Cloud. Beim Windows-Login per Autostart ist das Netz oft noch nicht
+      // da, der Server blieb dann aus. Abgemeldet (keine Tokens) bleibt die
+      // Welt aus — „Abmelden stoppt die Welt" gilt über den Neustart hinweg.
+      if (creds && loadAuth(hostStore) && hl.getStatus().phase === 'idle') {
+        await hl.start().catch(() => {});
+      }
       await checkSupersedeOnce();
       await maybeUpdateContainer();
     })();
@@ -831,6 +927,35 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!localSenderOnly(e)) return;
     return hl.stop();
   });
+  // Server-Name (2026-10-08): der Betreiber benennt seinen Server hier statt
+  // nur unter /app/admin — der chat-gateway meldet ihn der Cloud, und die
+  // Server-Leiste aller Mitglieder zeigt ihn statt der Relay-Adresse.
+  const serverNameAntwort = async (name?: string) => {
+    try {
+      return { ok: true, name: await manager.serverName(name) };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  };
+  ipcMain.handle('host:serverName', async (e) => {
+    if (!localSenderOnly(e)) return { ok: false, error: 'forbidden' };
+    return serverNameAntwort();
+  });
+  ipcMain.handle('host:setServerName', async (e, name: unknown) => {
+    if (!localSenderOnly(e)) return { ok: false, error: 'forbidden' };
+    if (typeof name !== 'string' || name.trim().length > SERVERNAME_MAX) {
+      return { ok: false, error: `Höchstens ${SERVERNAME_MAX} Zeichen.` };
+    }
+    return serverNameAntwort(name.trim());
+  });
+  // „Server-App beenden"-Knopf in server.html — derselbe Weg wie der Tray-
+  // Eintrag „Beenden". Nötig, weil GNOME ohne AppIndicator-Erweiterung kein
+  // Tray-Symbol zeigt: das Fenster-X versteckt nur, die App war dort sonst
+  // gar nicht zu beenden (Linux-Scan 2026-10-08).
+  ipcMain.handle('host:quit', (e) => {
+    if (!localSenderOnly(e)) return;
+    quitApp();
+  });
   ipcMain.handle('host:status', () => hl.getStatus());
   // server.html ruft das bei jedem UI-Refresh — Zustands-Abgleich ist ein
   // No-Op außerhalb 'idle', also billig genug für jeden Aufruf.
@@ -847,7 +972,8 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:runtime', () => manager.runtimeAvailable());
   // Windows-Erststart-Assistent: WSL2 mit UAC-Elevation installieren. Nach
   // Erfolg ist meist ein Neustart nötig — die Karte erklärt das.
-  ipcMain.handle('host:setupWindows', async (e) => (localSenderOnly(e) ? { ok: await installWsl() } : { ok: false }));
+  ipcMain.handle('host:setupWindows', async (e) =>
+    (localSenderOnly(e) ? await installWslErgebnis() : { ok: false, neustartNoetig: false, abgebrochen: false }));
   ipcMain.handle('host:pair', async (e, token: unknown) => {
     if (!localSenderOnly(e)) return { paired: false, error: 'forbidden' };
     if (typeof token !== 'string' || !token) return { paired: false, error: 'invalid token' };
@@ -893,7 +1019,9 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     // nach der falschen Session → "bitte zuerst einloggen" trotz Login.
     const provisionOrigin = realmOrigin();
     const result = await provision(provisionOrigin, { confirmTakeover }, () => getAccessToken(provisionOrigin));
-    console.log('[provision] fertig:', JSON.stringify(result).slice(0, 200));
+    // Nur das Ergebnis, nie `result` selbst: bei Erfolg trägt es die
+    // vollständigen Zugangsdaten (client_secret, Tunnel-Token).
+    console.log('[provision] fertig:', result.ok ? `ok, Instanz ${result.creds.instanceId}` : 'nicht ok');
     if (result.ok) {
       setCreds(result.creds);
       // Bestands-Welt bleibt am Legacy-Schlüssel (suffix-lose Namen); jedes
@@ -903,7 +1031,13 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       saveCredsFuer(hostStore, String(result.creds.ownerId), result.creds);
       weltUser = String(result.creds.ownerId);
       storeSet('pulse.host.weltUser', weltUser);
-      setzeContainerWelt(legacyOwner === weltUser ? null : `u${weltUser}`);
+      // Container- UND native Welt plus der Merker, welche Welt der Manager
+      // sieht — sonst startete nativ ein „Einrichten" vor dem ersten /me in
+      // das Datenverzeichnis der Legacy-Welt (Scan 2026-10-08).
+      const neueWelt = legacyOwner === weltUser ? null : `u${weltUser}`;
+      setzeContainerWelt(neueWelt);
+      setzeNativeWelt(neueWelt);
+      aktiveContainerWelt = neueWelt;
       return { ok: true };
     }
     // Übernahme-Frage ist kein Fehler — Provisionierung pausiert nur, bis der
@@ -989,11 +1123,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       await session.defaultSession.clearStorageData({ origin, storages: ['cookies', 'localstorage'] });
     } catch { /* best effort */ }
     // Benutzer-Welt stoppen (Daten bleiben im Volume) — der nächste Login
-    // startet die Welt des jeweiligen Kontos. Der Stopp geht bewusst AM
-    // Lifecycle vorbei (Logout navigiert sofort weiter) — deshalb hier den
-    // Zustand selbst geradeziehen, sonst hängt die UI auf 'live'.
-    await manager.stop().catch(() => {});
-    await syncLifecycleFromContainer().catch(() => {});
+    // startet die Welt des jeweiligen Kontos. Über den Lifecycle, damit die
+    // Phase auf 'idle' fällt: `syncLifecycleFromContainer` kann nur auf
+    // 'live' heben, nie senken — die UI blieb vorher nach dem Abmelden auf
+    // 'live' stehen und der Cloud-Status-Poll lief weiter.
+    await hl.stop();
     const win = getWin();
     if (win && !win.isDestroyed()) {
       await win.loadURL(new URL('/login', origin).href);
@@ -1012,7 +1146,11 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     return osApplyAutostart(on);
   });
   // "Deine Daten"-Karte: belegte Volume-Größe + Datum des letzten Exports.
-  ipcMain.handle('host:dataInfo', async () => {
+  ipcMain.handle('host:dataInfo', async (e) => {
+    // Dasselbe Gate wie host:refresh (Linux-Scan 2026-10-08): der Aufruf
+    // startet bis zu zwei Wegwerf-Container (`du -sk /data`) — die in der
+    // Login-Phase geladene Cloud-Seite soll ihn nicht in Schleife treten.
+    if (!localSenderOnly(e)) return { sizeBytes: null, lastBackupAt: null, lastAutoBackupAt: null };
     const lastBackupAt = (storeGet('pulse.host.lastBackupAt') as number | undefined) ?? null;
     let sizeBytes: number | null = null;
     let lastAutoBackup: number | null = null;
@@ -1059,12 +1197,21 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
         S('Server-App neu installieren.', 'Reinstall the server app.'),
       );
     } else {
+      // „Installiert, aber nicht benutzbar" (Docker-Dienst aus, kein Recht an
+      // docker.sock, Podman ohne subuid) bekommt seinen eigenen Grund —
+      // vorher stand hier „nicht gefunden", obwohl das Programm da war.
+      const problem = manager instanceof ContainerBackendManager
+        ? await manager.runtimeProblem().catch(() => null)
+        : null;
       push(
-        'runtime', S('Container-Runtime', 'Container runtime'), !!rt,
-        S('Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
+        'runtime', S('Container-Runtime', 'Container runtime'), !!rt && !problem,
+        problem ?? S('Docker oder Podman wurde auf diesem Gerät nicht gefunden.',
           'Docker or Podman was not found on this device.'),
-        S('Docker installieren und die Server-App neu starten.',
-          'Install Docker and restart the server app.'),
+        problem
+          ? S('Den genannten Grund beheben und die Server-App neu starten.',
+            'Fix the reason above and restart the server app.')
+          : S('Podman (empfohlen) oder Docker installieren und die Server-App neu starten.',
+            'Install Podman (recommended) or Docker and restart the server app.'),
       );
     }
     const laeuft = rt ? await manager.isContainerRunning().catch(() => false) : false;
@@ -1081,11 +1228,17 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (rt && laeuft) {
       // host-Networking (Windows: Container in der podman-VM) bindet 8080 an
       // die VM-IP; sonst am veröffentlichten 127.0.0.1-Port — wie in start().
+      // Nativ: Caddys Desktop-Port. `httpHealth` wirft nie, sondern liefert
+      // false — das frühere `.then(() => true)` machte das Glied deshalb
+      // IMMER grün (Scan 2026-10-08), und nativ fragte es obendrein den
+      // Container-Port ab, auf dem dort niemand lauscht.
       const vmIp = rt.kind === 'podman' && process.platform === 'win32'
         ? await manager.vmIp().catch(() => null)
         : null;
-      healthOk = await httpHealth(`http://${vmIp ?? '127.0.0.1'}:${vmIp ? 8080 : HOST_HTTP_PORT}/api/chat/health`)
-        .then(() => true).catch(() => false);
+      const url = rt.kind === 'native'
+        ? `http://127.0.0.1:${NATIVE_PORTS.caddyDesktop}/api/chat/health`
+        : `http://${vmIp ?? '127.0.0.1'}:${vmIp ? 8080 : HOST_HTTP_PORT}/api/chat/health`;
+      healthOk = await httpHealth(url);
     }
     push(
       'health', S('Innere Gesundheit', 'Inner health'), healthOk,
@@ -1099,12 +1252,57 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       : NATIVE_BACKEND && laeuft
         ? await (manager as NativeBackendManager).dataInfo().then((i) => i.lastAutoBackupAt).catch(() => null)
         : null;
+    // Windows-Container-Betrieb: der Medienweg hängt an den Host-Relays in die
+    // VM. Ein Relay ohne gebundene Ports (Port belegt, VM-IP gewechselt) war
+    // bislang in keinem Glied zu sehen (Scan 2026-10-08).
+    if (rt?.kind === 'podman' && process.platform === 'win32' && laeuft
+      && manager instanceof ContainerBackendManager) {
+      await manager.ensureRelay().catch(() => {});
+      const z = manager.relayZustand();
+      push(
+        'relays', S('Medien-Weiterleitung', 'Media forwarding'),
+        z.mirrored || z.udpPorts.length > 0,
+        S('Die Weiterleitung für Sprache und Bild in die Server-VM steht nicht.',
+          'Forwarding of voice and video into the server VM is not up.'),
+        S('Server stoppen und starten. Bleibt es rot: prüfen, ob ein anderes Programm die Ports 7882–7892 belegt.',
+          'Stop and start the server. If it stays red: check whether another program uses ports 7882–7892.'),
+        z.mirrored
+          ? S('WSL im Mirrored-Modus — keine Weiterleitung nötig.', 'WSL in mirrored mode — no forwarding needed.')
+          : `VM ${z.vmIp ?? '?'} · UDP ${z.udpPorts.join(', ') || '—'} · TCP ${z.tcpPorts.join(', ') || '—'}`,
+      );
+    }
+    // Linux + Docker-Bridge: LiveKit sieht im Container nur 172.17.x und per
+    // STUN die öffentliche Adresse, nicht die LAN-Adresse dieses Rechners —
+    // und kann in der Bridge keine zusätzliche ankündigen (mediatransportutil:
+    // NodeIP wird bei use_external_ip von STUN überschrieben). Geräte im
+    // selben WLAN brauchen dann Hairpin-NAT am Router oder einen Browser, der
+    // seine echten Adressen zeigt. Unter rootless Podman/pasta sieht der
+    // Container die LAN-Adresse selbst — dort trägt der Weg (Linux-E2E).
+    if (rt?.kind === 'docker' && process.platform === 'linux' && laeuft) {
+      push(
+        'heimnetz-sprache', S('Sprache im Heimnetz', 'Voice on the home network'), false,
+        S('Mit Docker kennt der Sprachserver die Adresse dieses Rechners im Heimnetz nicht. Geräte im selben WLAN kommen je nach Router und Browser nicht in den Sprachkanal; Gäste aus dem Internet sind nicht betroffen. Streams sind nicht betroffen.',
+          'With Docker the voice server does not know this computer\'s home-network address. Devices on the same Wi-Fi may fail to join voice, depending on router and browser; guests from the internet are not affected. Streams are not affected.'),
+        S('Wenn Geräte im WLAN nicht in den Sprachkanal kommen: den Server mit Podman statt Docker betreiben. Ein Wechsel geht derzeit nur über Export, Neueinrichtung und Import der Daten.',
+          'If devices on the Wi-Fi cannot join voice: run the server with Podman instead of Docker. Switching currently requires exporting, setting up again and importing your data.'),
+      );
+    }
+    // Nativ (Windows) gibt es keinen Backup-Dienst (`components.ts`) — der
+    // Container-Text „sichert täglich selbst" wäre dort eine falsche
+    // Beruhigung (Scan 2026-10-08). Stattdessen der Handgriff, der wirklich
+    // sichert: der Export.
     push(
       'backup', S('Automatisches Backup', 'Automatic backup'), !!backup,
-      S('Es gibt noch keinen automatischen Datenbank-Snapshot.',
-        'There is no automatic database snapshot yet.'),
-      S('Nichts zu tun — der Backup-Service sichert täglich selbst; nach der Erstinstallation dauert es bis zum ersten Lauf.',
-        'Nothing to do — the backup service backs up daily on its own; after first setup the first run takes a while.'),
+      NATIVE_BACKEND
+        ? S('Auf diesem Gerät läuft keine automatische Sicherung.',
+          'No automatic backup runs on this device.')
+        : S('Es gibt noch keinen automatischen Datenbank-Snapshot.',
+          'There is no automatic database snapshot yet.'),
+      NATIVE_BACKEND
+        ? S('Regelmäßig unter „Deine Daten" mit „Alles exportieren" eine Sicherung anlegen und sie außerhalb dieses Geräts aufbewahren.',
+          'Use "Export everything" under "Your data" regularly and keep the file off this device.')
+        : S('Nichts zu tun — der Backup-Service sichert täglich selbst; nach der Erstinstallation dauert es bis zum ersten Lauf.',
+          'Nothing to do — the backup service backs up daily on its own; after first setup the first run takes a while.'),
     );
 
     // Medien: Signalweg zu LiveKit + WHIP/WHEP-Rundtrip (nur mit laufendem
@@ -1139,7 +1337,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
             'Check again. If it stays red: stop and start the server.'),
           einzelheit: err.message,
         } as ProbeSchritt));
-        push('medien', S('Streams (Senden + Empfangen)', 'Streams (send + receive)'), medien.ok,
+        // „Signalweg", nicht „Senden + Empfangen": die Probe prüft WHIP/WHEP-
+        // Signalisierung über HTTP, kein ICE — ob UDP-Medien durch eine
+        // Firewall kommen, sieht sie nicht (Linux-Scan 2026-10-08).
+        push('medien', S('Streams (Signalweg)', 'Streams (signaling)'), medien.ok,
           medien.was_ist, medien.was_tun, medien.einzelheit);
       }
     }
@@ -1172,15 +1373,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // Operation ausführen, IMMER wieder hochfahren, wenn er vorher lief — auch
   // nach einem Fehler. Schritte gehen als host:exportStep-Events an die Karte.
   const step = (s: string): void => getWin()?.webContents.send('host:exportStep', s);
-  const withContainerStopped = async <T>(op: () => Promise<T>): Promise<T> => {
-    const wasRunning = await manager.isContainerRunning().catch(() => false);
-    try {
-      if (wasRunning) { step('stopping'); await manager.stop(); }
-      return await op();
-    } finally {
-      if (wasRunning) { step('restarting'); await hl.start().catch(() => {}); }
-    }
-  };
+  // Über den Lebenszyklus (Linux-Scan 2026-10-08): vorher hielt dieser Weg
+  // ihn nicht an — ein fälliges Update oder ein `host:me`-Start konnte mitten
+  // in einen bis zu 60-minütigen Import laufen und Postgres auf einem Volume
+  // starten, das gerade getauscht wird.
+  const withContainerStopped = <T>(op: () => Promise<T>): Promise<T> =>
+    hl.pausiertFuer(() => manager.isContainerRunning(), () => op(), step);
 
   ipcMain.handle('host:exportData', async (e) => {
     if (!localSenderOnly(e) || !creds) return { ok: false, error: 'forbidden' };
@@ -1226,7 +1424,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       step('importing');
       if (rt.kind === 'native') {
         const r = await (manager as NativeBackendManager).importData(sel.filePaths[0]);
-        return r.ok; // gleiche boolesche Semantik wie importVolume
+        // Das ganze Ergebnis, nicht `r.ok`: server.js liest `r.ok` und
+        // `r.error` — mit dem nackten Boolean meldete ein ERFOLGREICHER
+        // nativer Import „Import fehlgeschlagen: unbekannt" (Scan 2026-10-08).
+        return r;
       }
       return importVolume(rt, resolveImage().image, sel.filePaths[0]);
     });
@@ -1256,8 +1457,23 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     });
   });
 
-  // Lebenszyklus: beim echten Beenden den Stack sauber stoppen.
-  app.on('before-quit', () => { void manager.stop(); });
+  // Lebenszyklus: beim echten Beenden den Stack sauber stoppen — über den
+  // gebündelten before-quit-Handler unten, der darauf WARTET. Ein eigenes
+  // `void manager.stop()` hier lief gegen `app.quit()` und verlor: nativ
+  // blieben Postgres und die Python-Dienste als Waisen stehen (Windows beendet
+  // Kinder nicht mit dem Elternteil), und der nächste NSIS-Update scheiterte
+  // an den gesperrten Dateien (Scan 2026-10-08).
+  hostBackendStoppen = async (anlass) => {
+    // Container-Weg: nur ein bewusstes Beenden stoppt den Container. Endet die
+    // App, weil das System herunterfährt oder die Sitzung endet, bleibt er
+    // stehen — ein `docker stop` hier markierte ihn als „vom Nutzer gestoppt",
+    // und `--restart unless-stopped` brachte ihn nach dem Neustart NICHT
+    // wieder (Linux-Scan 2026-10-08). Nativ stirbt der Prozessbaum ohnehin
+    // mit der Sitzung — dort immer geordnet stoppen (Postgres-Checkpoint).
+    if (anlass === 'system' && !NATIVE_BACKEND) return;
+    await manager.stop();
+    await loescheMappings().catch(() => {});
+  };
 }
 
 // ── Sidecar bridge (E1b) ────────────────────────────────────────────────
@@ -1834,14 +2050,14 @@ const ALLOWED_STORE_KEYS = new Set([
   // die Creds über store:set überschreiben — unnötiges Schreib-Surface.
 ]);
 
-/** Schlüssel, die der Renderer NIE lesen darf (③c-Sicherheitsinvariante).
- *  `pulse.host.creds` enthält `client_secret` + `relay_tunnel_token` im Klartext.
- *  Diese leben ausschließlich im Main-Prozess; der Renderer bekommt nur den
- *  sanitisierten Status über `host:getPairing`. Die store:read-Kanäle
- *  (get/getAll/getAllSync) MÜSSEN diesen Schlüssel ausblenden — sonst läge er
- *  über `window.pulse.store.get(...)` und passiv via `getAllSync()` (serversStore
- *  beim Boot) offen. (Schreibseitig ist der Key gar nicht erst in der Allowlist.) */
-const RENDERER_BLOCKED_STORE_KEYS = new Set(['pulse.host.creds', 'pulse.host.auth']);
+/* Schlüssel, die der Renderer NIE lesen darf (③c-Sicherheitsinvariante):
+ * `istRendererGesperrt` (storeSchluessel.ts) sperrt den ganzen Namensraum
+ * `pulse.host.*` — Zugangsdaten (`client_secret`, `relay_tunnel_token`, auch je
+ * Benutzer-Welt unter `pulse.host.creds.<userId>`) und der Cloud-Login leben
+ * ausschließlich im Main-Prozess; der Renderer bekommt nur den bereinigten
+ * Status über `host:getPairing`. Bis zum Scan vom 2026-10-08 stand hier eine
+ * Liste zweier exakter Namen — der Welt-Schlüssel mit Suffix fiel durch und
+ * war über `store:get` lesbar. */
 
 /** Kopie ohne die renderer-gesperrten Schlüssel — für die store:getAll(Sync)-Kanäle.
  *
@@ -1854,7 +2070,7 @@ const RENDERER_BLOCKED_STORE_KEYS = new Set(['pulse.host.creds', 'pulse.host.aut
 function stripBlockedKeys(all: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(all)) {
-    if (RENDERER_BLOCKED_STORE_KEYS.has(k)) continue;
+    if (istRendererGesperrt(k)) continue;
     if (!ALLOWED_STORE_KEYS.has(k)) continue;
     out[k] = v;
   }
@@ -1863,7 +2079,7 @@ function stripBlockedKeys(all: Record<string, unknown>): Record<string, unknown>
 
 function wireStore(): void {
   ipcMain.handle('store:get', (_e, key: string) => {
-    if (RENDERER_BLOCKED_STORE_KEYS.has(key)) {
+    if (typeof key !== 'string' || istRendererGesperrt(key)) {
       console.warn('[store] store:get rejected blocked key:', key);
       return undefined;
     }
@@ -1880,7 +2096,7 @@ function wireStore(): void {
       // gefiltert weggeworfen (zweiter Bughunt-Lauf 2026-09-23: libsecret ist
       // ein synchroner DBus-Aufruf; der Renderer soll einen hängenden Keyring
       // nicht blockieren können, und der Klartext braucht hier niemand).
-      return stripBlockedKeys(storeGetAll(RENDERER_BLOCKED_STORE_KEYS));
+      return stripBlockedKeys(storeGetAll(istRendererGesperrt));
     } catch (e) {
       console.error('[store] store:getAll failed:', e);
       return {};
@@ -1894,7 +2110,7 @@ function wireStore(): void {
   // sync IPC form; fired exactly once per launch.
   ipcMain.on('store:getAllSync', (e) => {
     try {
-      e.returnValue = stripBlockedKeys(storeGetAll(RENDERER_BLOCKED_STORE_KEYS));
+      e.returnValue = stripBlockedKeys(storeGetAll(istRendererGesperrt));
     } catch (err) {
       console.error('[store] store:getAllSync failed:', err);
       e.returnValue = {};
@@ -1987,6 +2203,25 @@ function wirePermissionGate(): void {
   // (electron.d.ts): `navigator.permissions.query` und die synchronen Checks
   // (pointerLock, clipboard-sanitized-write) laufen über DIESEN Handler — ohne
   // ihn galt dort weiterhin Electron-Default statt der Allowlist.
+  session.defaultSession.setPermissionCheckHandler(
+    (_webContents, permission, requestingOrigin) => erlaubt(permission, requestingOrigin),
+  );
+}
+
+/** Berechtigungs-Gate der Server-App (Scan 2026-10-08). `bootServer` rief
+ *  bisher gar keines auf — ohne Handler genehmigt Electron jede Anfrage
+ *  still, die in der Login-Phase geladene Cloud-Seite hätte also etwa
+ *  Kamera und Mikrofon ohne Rückfrage bekommen. Die Server-App braucht
+ *  keine davon; einzig server.html (file:) kopiert die Serveradresse in die
+ *  Zwischenablage. */
+function wireServerPermissionGate(): void {
+  const erlaubt = (permission: string, quelle: string | null | undefined): boolean =>
+    permission === 'clipboard-sanitized-write' && (quelle?.startsWith('file:') ?? false);
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback, details) => {
+      callback(erlaubt(permission, details?.requestingUrl ?? webContents?.getURL() ?? null));
+    }
+  );
   session.defaultSession.setPermissionCheckHandler(
     (_webContents, permission, requestingOrigin) => erlaubt(permission, requestingOrigin),
   );
@@ -2256,6 +2491,7 @@ async function bootServer(): Promise<void> {
   // App vergisst ihr Pairing bei jedem Neustart und landet wieder im Login.
   initStore();
   wireStore();
+  wireServerPermissionGate();
 
   // Auto-Update im Hintergrund wie der Client (Entscheid auf main seit dem
   // Splash-Rückbau): Fenster startet sofort, `startUpdater` lädt Updates still
@@ -2304,8 +2540,30 @@ async function bootServer(): Promise<void> {
 
   // Tray-Host war evtl. noch nicht da, als das Symbol registriert wurde
   // (Autostart mitten im Session-Hochlauf): einmalig neu registrieren, damit
-  // das Symbol nicht verloren bleibt.
-  setTimeout(() => recreateTray(), 20_000);
+  // das Symbol nicht verloren bleibt. NUR dann: Chromium meldet ein
+  // abgebautes Symbol nicht bei der Leiste ab — lief der Host schon, stand
+  // danach ein zweites, totes Symbol daneben (Linux-Test 2026-10-08, niri:
+  // StatusNotifierItem/1 und /2 aus demselben Prozess). Deshalb nur nach
+  // Autostart und nur, wenn beim Start KEIN Tray-Host auf dem Bus war.
+  if (process.platform === 'linux' && process.argv.includes('--autostarted')) {
+    void trayHostDa().then((da) => {
+      if (!da) setTimeout(() => recreateTray(), 20_000);
+    });
+  }
+}
+
+/** Läuft ein StatusNotifierWatcher (Tray-Host) auf dem Session-Bus? Electron
+ *  hat dafür keine API; `gdbus` liegt in der Flatpak-Runtime wie auf jedem
+ *  GLib-Desktop. Scheitert die Abfrage, gilt der Host als fehlend — dann
+ *  greift der alte Weg (Neuregistrierung), lieber ein Geist als kein Symbol. */
+function trayHostDa(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile('gdbus', [
+      'call', '--session', '--dest', 'org.freedesktop.DBus',
+      '--object-path', '/org/freedesktop/DBus',
+      '--method', 'org.freedesktop.DBus.NameHasOwner', 'org.kde.StatusNotifierWatcher',
+    ], { timeout: 3_000 }, (err, stdout) => resolve(!err && /true/.test(String(stdout))));
+  });
 }
 
 app.whenReady().then(() => void (SERVER_MODE ? bootServer() : bootClient()));
@@ -2333,6 +2591,12 @@ let didShutdownSidecar = false;
 // Initial ein no-op — sobald der Timer wirklich laeuft, wird die Funktion
 // in `bootClient` ueberschrieben.
 let stopUpdater: () => void = () => undefined;
+/** Vom Server-Modus gesetzt (wireHost): stoppt den lokalen Server-Stack. */
+let hostBackendStoppen: (anlass: 'nutzer' | 'system') => Promise<void> = async () => undefined;
+/** Backstop für den Server-Stopp. Großzügiger als der Sidecar-Backstop:
+ *  Postgres fährt beim geordneten Stopp einen Checkpoint, und ein hart
+ *  abgeschossenes Postgres braucht beim nächsten Start eine Recovery. */
+const HOST_STOPP_BACKSTOP_MS = 20_000;
 app.on('before-quit', (event) => {
   isQuitting = true;
   stopUpdater();
@@ -2344,7 +2608,10 @@ app.on('before-quit', (event) => {
     // playerManager (nativer HQ-Player) haengt hier mit dran statt an einem
     // eigenen before-quit-Listener — sonst koennte die Bound-Race oben schon
     // abgelaufen sein, bevor der Player-Prozess sein SIGTERM verarbeitet hat.
-    Promise.all([...allSidecars().map((s) => s.shutdown()), playerManager.shutdown()]),
+    Promise.all([
+      ...allSidecars().map((s) => s.shutdown()),
+      playerManager.shutdown(),
+    ]),
     // Bughunt Runde 44: 3 s Backstop — kuerzer als die Shutdown-Leiter der
     // Kinder (Sidecar 4.5 s bis SIGKILL, Player aehnlich). Hielt ein Kind
     // SIGTERM nicht stand, gewann der Backstop, `app.quit()` lief fertig,
@@ -2358,5 +2625,14 @@ app.on('before-quit', (event) => {
         r();
       }, 3_000)
     ),
-  ]).then(done, done);
+  ])
+    .then(() =>
+      Promise.race([
+        hostBackendStoppen(nutzerBeendet ? 'nutzer' : 'system').catch((err) => {
+          console.error('[host] Stopp beim Beenden fehlgeschlagen:', err);
+        }),
+        new Promise<void>((r) => setTimeout(r, HOST_STOPP_BACKSTOP_MS)),
+      ])
+    )
+    .then(done, done);
 });

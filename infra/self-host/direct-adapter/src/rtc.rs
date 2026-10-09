@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use tokio::net::UdpSocket;
+use tokio::sync::watch;
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::{API, APIBuilder};
 use webrtc::ice::mdns::MulticastDnsMode;
@@ -62,14 +63,34 @@ fn is_gatherable_ip(ip: IpAddr) -> bool {
     !v4.is_loopback() && !v4.is_unspecified()
 }
 
+/// Filter für die von der Server-App INJIZIERTEN Host-LAN-IPs
+/// (`PULSE_DIRECT_EXTRA_HOST_IPS`). Bewusst NICHT `is_useful_candidate_ip`:
+/// dessen Bereichsregeln (172.16/12, 100.64/10) raten bei selbst gegatherten
+/// Container-Adressen, ob es eine Bridge ist. Die Server-App kennt dagegen den
+/// Interface-NAMEN und sortiert Bridges dort aus (`hostNetz.ts`,
+/// VIRTUELLE_BRUECKE); ein echtes LAN in 172.16–31 oder ein Tailnet-Adapter
+/// muss hier durch. Übrig bleibt nur, was nie ein Weg von außen sein kann.
+fn is_injectable_host_ip(v4: std::net::Ipv4Addr) -> bool {
+    !(v4.is_loopback()
+        || v4.is_unspecified()
+        || v4.is_link_local()
+        || v4.is_multicast()
+        || v4.is_broadcast())
+}
+
 pub struct RtcFactory {
     api: API,
     certificate: RTCCertificate,
     stun_urls: Vec<String>,
-    public_ip: IpAddr,
-    /// LAN-IPs des VM-Hosts (Win/Mac podman machine) — als Host-Kandidaten in
-    /// jede Answer injiziert (`sdp::inject_extra_hosts`); ohne sie enthielte
-    /// die Answer im VM-Fall gar keine Kandidaten (ip_filter verwirft alles).
+    /// Die per STUN ermittelte Außenadresse, laufend nachgeführt vom
+    /// Herzschlag in main.rs (Sender dort). Bis 2026-10-08 ein fester Wert vom
+    /// Start: nach einer Zwangstrennung (neue Heim-IP) trug jede Answer die
+    /// alte Adresse als srflx, während das Telefonbuch schon die neue kannte.
+    public_ip: watch::Receiver<IpAddr>,
+    /// Host-LAN-IPs von der Server-App (alle Plattformen, s. config.rs) — als
+    /// Host-Kandidaten in jede Answer injiziert (`sdp::inject_extra_hosts`);
+    /// ohne sie enthielte die Answer im VM-Fall und unter der Docker-Bridge
+    /// gar keine Host-Kandidaten (`strip_unusable_hosts` wirft sie aus).
     extra_host_ips: Vec<std::net::Ipv4Addr>,
     /// Der gemuxte UDP-Port — Ziel-Port der injizierten Host-Kandidaten
     /// (podman published ihn 1:1 auf dem VM-Host).
@@ -77,22 +98,23 @@ pub struct RtcFactory {
 }
 
 impl RtcFactory {
-    /// `public_ip`: die per STUN ermittelte Außenadresse. Sie wird der Answer
-    /// als srflx-Kandidat angehängt (`sdp::inject_srflx`) — der Mux-Pfad von
-    /// webrtc-rs gathert selbst keinen srflx, ohne diesen Schritt sähe ein
-    /// Client im Internet nur unerreichbare LAN-Adressen.
+    /// `public_ip`: die per STUN ermittelte Außenadresse, je Answer frisch
+    /// gelesen. Sie wird der Answer als srflx-Kandidat angehängt
+    /// (`sdp::inject_srflx`) — der Mux-Pfad von webrtc-rs gathert selbst
+    /// keinen srflx, ohne diesen Schritt sähe ein Client im Internet nur
+    /// unerreichbare LAN-Adressen.
     pub fn new(
         socket: UdpSocket,
         certificate: RTCCertificate,
         stun_servers: &[String],
-        public_ip: IpAddr,
+        public_ip: watch::Receiver<IpAddr>,
         mut extra_host_ips: Vec<std::net::Ipv4Addr>,
         mux_port: u16,
     ) -> Self {
-        // Defense-in-Depth: für injizierte Kandidaten gilt derselbe Filter wie
-        // fürs Gathering — ein Bug im Zulieferer (Server-App) darf keine
-        // Loopback-/Bridge-Adressen in die Answer drücken.
-        extra_host_ips.retain(|ip| is_useful_candidate_ip(IpAddr::V4(*ip)));
+        // Defense-in-Depth gegen einen Bug im Zulieferer (Server-App): keine
+        // Loopback-/Link-local-Adressen in die Answer. Bridges sortiert die
+        // Server-App selbst aus (s. `is_injectable_host_ip`).
+        extra_host_ips.retain(|ip| is_injectable_host_ip(*ip));
         let mut se = SettingEngine::default();
         // mDNS-Fernkandidaten AUSWERFEN (Linux-E2E 2026-09-29): Chrome bietet
         // Host-Kandidaten als <uuid>.local an. Der Agent löst den Namen per
@@ -156,7 +178,12 @@ impl RtcFactory {
         let usable = crate::sdp::strip_unusable_hosts(&local.sdp, is_useful_candidate_ip);
         let with_hosts =
             crate::sdp::inject_extra_hosts(&usable, &self.extra_host_ips, self.mux_port);
-        Ok(crate::sdp::inject_srflx(&with_hosts, self.public_ip))
+        Ok(crate::sdp::inject_srflx(&with_hosts, self.aktuelle_public_ip()))
+    }
+
+    /// Der jüngste Wert des Herzschlags (oder der vom Start).
+    fn aktuelle_public_ip(&self) -> IpAddr {
+        *self.public_ip.borrow()
     }
 }
 
@@ -276,5 +303,46 @@ mod tests {
         assert!(!is_useful_candidate_ip("10.255.255.254".parse().unwrap()));
         // Echtes 10/8-LAN bleibt brauchbar (manche Heimnetze fahren 10.x).
         assert!(is_useful_candidate_ip("10.0.0.5".parse().unwrap()));
+    }
+
+    /// Injizierte Host-LAN-IPs: die Server-App hat Bridges schon am
+    /// Interface-Namen aussortiert — ein echtes LAN in 172.16/12 und ein
+    /// Tailnet-Adapter müssen durch, Loopback/Link-local nicht.
+    #[test]
+    fn injizierte_ips_behalten_172er_lan_und_tailnet() {
+        for ok in ["172.20.1.9", "172.16.0.10", "100.77.12.9", "192.168.178.87"] {
+            assert!(is_injectable_host_ip(ok.parse().unwrap()), "{ok} muss durch");
+        }
+        for weg in ["127.0.0.1", "0.0.0.0", "169.254.3.4", "224.0.0.1", "255.255.255.255"] {
+            assert!(!is_injectable_host_ip(weg.parse().unwrap()), "{weg} muss raus");
+        }
+    }
+
+    async fn fabrik(
+        public_ip: watch::Receiver<IpAddr>,
+        extra: Vec<std::net::Ipv4Addr>,
+    ) -> RtcFactory {
+        let socket = UdpSocket::bind(("127.0.0.1", 0)).await.unwrap();
+        let cert = RTCCertificate::from_key_pair(rcgen::KeyPair::generate().unwrap()).unwrap();
+        RtcFactory::new(socket, cert, &[], public_ip, extra, 7900)
+    }
+
+    /// Befund 2026-10-08: die Fabrik muss den Wert lesen, den der Herzschlag
+    /// ZULETZT gemeldet hat, nicht den vom Start.
+    #[tokio::test]
+    async fn fabrik_sieht_neue_oeffentliche_ip_vom_herzschlag() {
+        let (tx, rx) = watch::channel::<IpAddr>("46.128.100.64".parse().unwrap());
+        let f = fabrik(rx, vec![]).await;
+        assert_eq!(f.aktuelle_public_ip(), "46.128.100.64".parse::<IpAddr>().unwrap());
+        tx.send_replace("84.10.20.30".parse().unwrap());
+        assert_eq!(f.aktuelle_public_ip(), "84.10.20.30".parse::<IpAddr>().unwrap());
+    }
+
+    #[tokio::test]
+    async fn fabrik_behaelt_injiziertes_172er_lan() {
+        let (_tx, rx) = watch::channel::<IpAddr>("46.128.100.64".parse().unwrap());
+        let extra = vec!["172.20.1.9".parse().unwrap(), "127.0.0.1".parse().unwrap()];
+        let f = fabrik(rx, extra).await;
+        assert_eq!(f.extra_host_ips, vec!["172.20.1.9".parse::<std::net::Ipv4Addr>().unwrap()]);
     }
 }

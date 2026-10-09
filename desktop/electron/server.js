@@ -24,6 +24,11 @@ const UI_EN = {
   'Bereit.': 'Ready.',
   'Server läuft.': 'Server is running.',
   'Server wird gestoppt …': 'Server is stopping …',
+  'Pause: ': 'Paused: ',
+  'Gespeichert — Mitglieder sehen den Namen gleich.': 'Saved — members will see the name shortly.',
+  'Nicht gespeichert: ': 'Not saved: ',
+  'unbekannt': 'unknown',
+  'Update gescheitert — alte Fassung wird wiederhergestellt …': 'Update failed — restoring the previous version …',
   'Server wird gestartet …': 'Server is starting …',
   'Einrichten …': 'Setting up …',
   'Bereit zum Einrichten.': 'Ready to set up.',
@@ -48,6 +53,9 @@ const UI_EN = {
   'Einrichtung fehlgeschlagen: ': 'Setup failed: ',
   'Verbinden fehlgeschlagen: ': 'Pairing failed: ',
   'Start fehlgeschlagen: ': 'Start failed: ',
+  'Die Windows-Abfrage wurde abgebrochen — WSL2 ist nicht installiert.': 'The Windows prompt was cancelled — WSL2 is not installed.',
+  'WSL2 ist installiert. Bitte Windows neu starten und danach den Server starten.': 'WSL2 is installed. Please restart Windows, then start the server.',
+  'WSL2 ließ sich nicht installieren.': 'WSL2 could not be installed.',
   'Export fehlgeschlagen: ': 'Export failed: ',
   'Backup gespeichert.': 'Backup saved.',
   'Backup importiert.': 'Backup imported.',
@@ -99,7 +107,15 @@ function setStatus(phase, detail) {
   if (phase === 'preparing' && detail && detail.step) {
     // 'update' kommt vom 24h-Update-Check des Main-Prozesses — eigener Text
     // statt eines generischen Neustarts.
-    text = detail.step === 'update' ? ui('Update wird installiert …') : text + ' (' + detail.step + ')';
+    text = detail.step === 'update' ? ui('Update wird installiert …')
+      : detail.step === 'rollback' ? ui('Update gescheitert — alte Fassung wird wiederhergestellt …')
+        : text + ' (' + detail.step + ')';
+  }
+  // Klartext-Grund aus dem Backend (belegter Port, fehlendes Docker-Recht …)
+  // — vorher stand hier nur „Pause — bitte erneut versuchen.", und der Grund
+  // lag allein im Log. Kommt aus dem Main-Prozess, textContent = kein HTML.
+  if (phase === 'something-paused' && detail && detail.fehler) {
+    text = ui('Pause: ') + detail.fehler;
   }
   $('statustext').textContent = text;
   // Live zeigt immer den Einladungs-Wegweiser + Cloud-Status; die kopierbare
@@ -315,6 +331,21 @@ async function doImport() {
   }
 }
 
+// Den Namen EINMAL je Live-Gang laden — sonst überschriebe jeder Refresh,
+// was der Nutzer gerade tippt.
+let serverNameGeladen = false;
+async function ladeServerName() {
+  if (serverNameGeladen || !host.serverName) return;
+  serverNameGeladen = true;
+  const r = await host.serverName().catch(() => null);
+  if (r && r.ok) $('serverName').value = r.name || '';
+  else serverNameGeladen = false; // Server noch nicht bereit → nächster Refresh
+}
+function serverNameText(text, warn = false) {
+  $('serverNameHint').textContent = text;
+  $('serverNameHint').classList.toggle('warn', warn);
+}
+
 async function refresh() {
   if (!host) { $('statustext').textContent = ui('Fehler: Host-Bridge nicht verfügbar.'); $('dot').className = 'dot err'; return; }
   // Zustands-Abgleich zuerst: hebt die Phase auf 'live', falls der
@@ -330,7 +361,7 @@ async function refresh() {
   const phase = st.phase || 'idle';
   // Übergang in 'live' → Daten-Info ungültig machen (Größe/Backup-Zeit sind
   // genau dann neu zu messen; s. Kommentar an dataInfoLoaded).
-  if (phase === 'live' && letzteGesehenePhase !== 'live') dataInfoLoaded = false;
+  if (phase === 'live' && letzteGesehenePhase !== 'live') { dataInfoLoaded = false; serverNameGeladen = false; }
   letzteGesehenePhase = phase;
   setStatus(phase, st.detail);
   const running = ['preparing', 'going-live', 'live'].includes(phase);
@@ -339,6 +370,8 @@ async function refresh() {
   $('setupRow').classList.toggle('hidden', paired || running || superseded);
   $('btnStartRow').classList.toggle('hidden', !paired || running || superseded);
   $('btnStopRow').classList.toggle('hidden', phase !== 'live');
+  $('nameRow').classList.toggle('hidden', phase !== 'live' || !host.serverName);
+  if (phase === 'live') ladeServerName();
   // Token-Fallback nur, wenn automatische Provisionierung fehl schlug.
   $('pairRow').classList.toggle('hidden', paired || !provisionFailed || superseded);
   $('btnPairRow').classList.toggle('hidden', paired || !provisionFailed || superseded);
@@ -442,7 +475,18 @@ function bind() {
       $('btnStart').disabled = true;
       const wsl = await host.setupWindows().catch(() => null);
       $('btnStart').disabled = false; refresh();
-      if (!wsl || wsl.ok !== true) return;
+      // Abbruch und Neustart-Bedarf benennen statt still zurückzukehren
+      // (Scan 2026-10-08: ein abgebrochenes UAC galt vorher als Erfolg).
+      if (wsl && wsl.neustartNoetig) {
+        alert(ui('WSL2 ist installiert. Bitte Windows neu starten und danach den Server starten.'));
+        return;
+      }
+      if (!wsl || wsl.ok !== true) {
+        alert(ui(wsl && wsl.abgebrochen
+          ? 'Die Windows-Abfrage wurde abgebrochen — WSL2 ist nicht installiert.'
+          : 'WSL2 ließ sich nicht installieren.'));
+        return;
+      }
     }
     $('btnStart').disabled = true;
     await host.start({}).catch((e) => alert(ui('Start fehlgeschlagen: ') + e.message));
@@ -464,6 +508,22 @@ function bind() {
   // "Abmelden": Session-Cookie löschen + zurück zum Login (Main-Prozess
   // navigiert das Fenster). Danach kann sich ein anderer Account anmelden;
   // diese server.html wird dabei verlassen, daher kein Button-Reset im Erfolg.
+  $('btnServerName').onclick = async () => {
+    $('btnServerName').disabled = true;
+    const r = await host.setServerName($('serverName').value).catch((e) => ({ ok: false, error: e.message }));
+    $('btnServerName').disabled = false;
+    if (r && r.ok) {
+      $('serverName').value = r.name || '';
+      serverNameText(ui('Gespeichert — Mitglieder sehen den Namen gleich.'));
+    } else {
+      serverNameText(ui('Nicht gespeichert: ') + ((r && r.error) || ui('unbekannt')), true);
+    }
+  };
+  $('btnQuit').onclick = async () => {
+    $('btnQuit').disabled = true;
+    $('statustext').textContent = ui('Server wird gestoppt …');
+    await host.quit().catch(() => { $('btnQuit').disabled = false; });
+  };
   $('btnLogout').onclick = async () => {
     $('btnLogout').disabled = true;
     await host.logout().catch(() => { $('btnLogout').disabled = false; });
@@ -574,6 +634,11 @@ if (SPRACHE !== 'de') {
     'Verbindungen': 'Connections',
     'Verbindung prüfen': 'Check connection',
     'Abmelden': 'Sign out',
+    'Server-App beenden': 'Quit server app',
+    'Server-Name': 'Server name',
+    'Speichern': 'Save',
+    'So heißt dein Server bei allen, die beigetreten sind. Leer lassen zeigt die Adresse.': 'This is what everyone who joined sees. Leave empty to show the address.',
+    'Stoppt auch den Server. Das Fenster zu schließen lässt ihn weiterlaufen.': 'Also stops the server. Closing the window keeps it running.',
     'Anmelden': 'Sign in',
     'Server aufgeben …': 'Shut down server …',
     'Server übernehmen?': 'Take over server?',

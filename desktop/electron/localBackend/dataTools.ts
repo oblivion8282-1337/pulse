@@ -22,7 +22,7 @@
 
 import { rmSync } from 'node:fs';
 
-import { containerName, datenVolume } from './containerBackendManager.ts';
+import { containerName, datenVolume } from './containerWelt.ts';
 import { rtExec, rtExecFromFile, rtExecToFile, type ContainerRuntime } from './containerRuntime.ts';
 
 /** Erste Zahl aus `du -sk`-Ausgabe ("12345\t/data") → Bytes, sonst null. */
@@ -80,11 +80,33 @@ export async function lastAutoBackupAt(
  *  tar streamt aus der Quelldatei in die stdin eines Wegwerf-Containers
  *  (rtExecFromFile — gleicher Grund wie beim Export: Portal-/Sandbox-Pfade
  *  sieht nur der Electron-Prozess, und `podman volume import` gäbe es unter
- *  Docker ohnehin nicht). VOR dem Entpacken wird /data geleert — ein Restore
- *  über einen Bestand hinweg würde sonst alte DB-Dateien mit importierten
- *  mischen (Postgres-Datadir = Korruption). busybox-kompatibel: `find
- *  -mindepth 1 -delete` räumt auch dotfiles. Der Aufrufer (main.ts) stoppt/
- *  startet den Container drumherum. */
+ *  Docker ohnehin nicht). Der alte Bestand darf nicht mit dem importierten
+ *  gemischt werden (Postgres-Datadir = Korruption), deshalb ersetzt der
+ *  Import ihn ganz — aber erst NACH einem geprüften Entpacken
+ *  (`IMPORT_SKRIPT`). Der Aufrufer (main.ts) stoppt/startet den Container
+ *  drumherum. */
+/** Shell-Ablauf des Imports im Wegwerf-Container (busybox-kompatibel).
+ *
+ *  Scan 2026-10-08: die frühere Fassung leerte /data VOR dem Entpacken — eine
+ *  falsche Datei, ein kaputtes Archiv oder ein voller Datenträger hinterließ
+ *  ein leeres Volume, und main.ts startete danach einen leeren Server unter
+ *  denselben Zugangsdaten. Jetzt: erst in einen Nachbarordner entpacken, das
+ *  Postgres-Datadir als Echtheitszeichen verlangen, erst dann den Bestand
+ *  ersetzen. Preis: während des Imports liegt der Bestand doppelt im Volume.
+ *  Scheitert ein Schritt vor dem Ersetzen, bleibt der alte Stand unberührt
+ *  (`set -e` + `trap` räumen den Nachbarordner weg). */
+export const IMPORT_SKRIPT = [
+  'set -e',
+  'Z=/data/.pulse-import',
+  'trap \'rm -rf "$Z"\' EXIT',
+  'rm -rf "$Z"',
+  'mkdir "$Z"',
+  'tar -xf - -C "$Z"',
+  'test -f "$Z/pg/PG_VERSION" || { echo "kein Pulse-Backup (pg/PG_VERSION fehlt)" >&2; exit 3; }',
+  'find /data -mindepth 1 -maxdepth 1 ! -name .pulse-import -exec rm -rf {} +',
+  'find "$Z" -mindepth 1 -maxdepth 1 -exec mv {} /data/ \\;',
+].join('\n');
+
 export async function importVolume(
   rt: ContainerRuntime,
   image: string,
@@ -95,13 +117,14 @@ export async function importVolume(
       rt,
       [
         'run', '--rm', '-i', '--entrypoint', 'sh', '-v', `${datenVolume()}:/data`, image,
-        '-c', 'find /data -mindepth 1 -delete && tar -xf - -C /data',
+        '-c', IMPORT_SKRIPT,
       ],
       sourcePath,
       { timeoutMs: 60 * 60_000 },
     );
     if (r.code === 0) return { ok: true };
-    return { ok: false, error: `Import fehlgeschlagen (exit ${r.code})` };
+    if (r.code === 3) return { ok: false, error: 'Die Datei ist kein Pulse-Backup — die Daten sind unverändert.' };
+    return { ok: false, error: `Import fehlgeschlagen (exit ${r.code}) — die Daten sind unverändert.` };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

@@ -42,6 +42,7 @@ from dcc_chat_gateway.routes import (
     health,
     instance_membership,
     internal,
+    internal_instance_name,
     invites,
     kopplung,
     kopplung_umzug,
@@ -205,6 +206,7 @@ router.include_router(guild_limits.router)
 router.include_router(mention_search.router)
 router.include_router(users.router)
 router.include_router(internal.router)
+router.include_router(internal_instance_name.router)
 router.include_router(ws.router)
 
 __all__ = ["router"]

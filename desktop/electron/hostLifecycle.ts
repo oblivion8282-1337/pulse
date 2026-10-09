@@ -21,7 +21,13 @@ export interface HostPhaseEvent {
   phase: HostPhase;
   /** step: Fortschritts-Schritt innerhalb von 'preparing' (login/pull/run/health)
    *  — der erste Pull lädt mehrere hundert MB, die UI soll das benennen können. */
-  detail?: { relayUrl?: string; ports?: number[]; step?: string; reason?: SupersededReason };
+  detail?: {
+    relayUrl?: string; ports?: number[]; step?: string; reason?: SupersededReason;
+    /** 'something-paused': Klartext-Grund aus dem Backend (belegter Port,
+     *  fehlendes Docker-Recht, gescheitertes Update …) — vorher landete er
+     *  nur in console.error, die UI sagte bloß „Pause". */
+    fehler?: string;
+  };
 }
 
 export type ReachVerdict = 'reachable' | 'needs-forwarding' | 'cgnat' | 'unknown';
@@ -59,6 +65,15 @@ export class HostLifecycle {
   private _cbs: Array<(e: HostPhaseEvent) => void> = [];
   private readonly deps: HostDeps;
   private readonly opts: { holePunch?: boolean };
+  /** Der gerade laufende exklusive Ablauf — Start, Update-Recreate oder
+   *  Export/Import (Single-Flight, Scan 2026-10-08). Ohne ihn startete ein
+   *  Kontowechsel (`wendeBenutzerAn` → `start()`) und der fast gleichzeitige
+   *  `host:me`-Abgleich den Server zweimal — nativ liefen dann zwei Postgres
+   *  auf demselben Datenverzeichnis. Linux-Scan: das tägliche Update und ein
+   *  Import liefen an der Sperre vorbei — ein Abmelden während des Updates
+   *  hinterließ einen laufenden Server, ein Start mitten im Import ein
+   *  Postgres auf einem Volume, das gerade getauscht wird. */
+  private _laufend: Promise<void> | null = null;
   constructor(
     deps: HostDeps,
     /** holePunch: Server-App — LiveKit/MediaMTX löst die Medien-Verbindung per
@@ -88,7 +103,34 @@ export class HostLifecycle {
     this._emit('live', { relayUrl: this.deps.relayUrl() ?? undefined });
   }
 
-  async start(): Promise<void> {
+  /** Startet die Sequenz — oder hängt sich an den schon laufenden Ablauf an. */
+  start(): Promise<void> {
+    return this._laufend ?? this._exklusiv(() => this._starte());
+  }
+
+  private _exklusiv(fn: () => Promise<void>): Promise<void> {
+    const lauf = fn().finally(() => {
+      if (this._laufend === lauf) this._laufend = null;
+    });
+    this._laufend = lauf;
+    return lauf;
+  }
+
+  /** Klartext-Grund für die UI, gekürzt — Backend-Fehler können lange
+   *  stderr-Auszüge tragen. */
+  private _pause(err: unknown, wo: string): void {
+    const text = err instanceof Error ? err.message : String(err);
+    console.error(`[host] ${wo}:`, text);
+    this._emit('something-paused', { fehler: text.slice(0, 300) });
+  }
+
+  /** Wartet eine laufende Start-Sequenz ab (No-Op ohne). Für Aufrufer, die den
+   *  Backend-Zustand erst NACH einem laufenden Start beurteilen dürfen. */
+  async warteAufStart(): Promise<void> {
+    await this._laufend?.catch(() => {});
+  }
+
+  private async _starte(): Promise<void> {
     try {
       const pre = (await this.deps.checkPrereqs?.()) ?? 'ok';
       if (pre !== 'ok') {
@@ -126,12 +168,14 @@ export class HostLifecycle {
           return;
       }
     } catch (err) {
-      console.error('[host] Startfehler:', (err as Error).message);
-      this._emit('something-paused');
+      this._pause(err, 'Startfehler');
     }
   }
 
   async stop(): Promise<void> {
+    // Erst die laufende Sequenz abwarten: ein Stopp mitten im Start ließe den
+    // Rest der Sequenz danach weiterlaufen und den Server wieder hochfahren.
+    await this.warteAufStart();
     try { await this.deps.stopBackend(); } catch { /* best-effort */ }
     this._emit('idle');
   }
@@ -143,7 +187,12 @@ export class HostLifecycle {
    *  wenn wir noch bei 'idle' stehen, sonst würde eine laufende Sequenz oder
    *  ein bereits erkannter 'superseded'-Zustand überschrieben. */
   markLive(relayUrl: string | null): void {
-    if (this._last.phase !== 'idle') return;
+    // Auch aus 'something-paused': scheiterte der Start, weil der Docker-
+    // Daemon beim Login noch nicht lief, und kam der Container danach per
+    // Restart-Policy doch hoch, blieb die UI sonst für immer auf „Pause"
+    // (Linux-Scan 2026-10-08). Eine laufende Sequenz schützt `_laufend`.
+    if (this._laufend) return;
+    if (this._last.phase !== 'idle' && this._last.phase !== 'something-paused') return;
     this._emit('live', { relayUrl: relayUrl ?? undefined });
   }
 
@@ -169,14 +218,43 @@ export class HostLifecycle {
    *  das /data-Volume bleibt). Nur aus 'live' heraus; der 'update'-Step vor
    *  dem eigentlichen Ablauf lässt die UI "Update wird installiert …" zeigen
    *  statt eines generischen Neustarts. */
-  async applyUpdate(): Promise<void> {
-    if (this._last.phase !== 'live') return;
-    this._emit('preparing', { step: 'update' });
-    try {
-      await this._runBackend();
-    } catch (err) {
-      console.error('[host] Update-Fehler:', (err as Error).message);
-      this._emit('something-paused');
-    }
+  applyUpdate(): Promise<void> {
+    if (this._last.phase !== 'live' || this._laufend) return Promise.resolve();
+    return this._exklusiv(async () => {
+      this._emit('preparing', { step: 'update' });
+      try {
+        await this._runBackend();
+      } catch (err) {
+        this._pause(err, 'Update-Fehler');
+      }
+    });
+  }
+
+  /** Export/Import: Backend anhalten (falls es lief), `op` ausführen, danach
+   *  wieder starten — als exklusiver Ablauf, damit weder ein Start noch ein
+   *  Update dazwischenkommt. Ein `stop()` währenddessen wartet bis zum Ende
+   *  und gewinnt dann: der Server bleibt aus. */
+  async pausiertFuer<T>(
+    laeuft: () => Promise<boolean>,
+    op: (schritt: (s: 'stopping' | 'restarting') => void) => Promise<T>,
+    schritt: (s: 'stopping' | 'restarting') => void = () => {},
+  ): Promise<T> {
+    await this.warteAufStart();
+    let ergebnis!: T;
+    let fehler: unknown = null;
+    await this._exklusiv(async () => {
+      const lief = await laeuft().catch(() => false);
+      try {
+        if (lief) { schritt('stopping'); await this.deps.stopBackend(); }
+        ergebnis = await op(schritt);
+      } catch (err) {
+        fehler = err;
+      }
+      // Der Neustart gehört IN den exklusiven Ablauf: draußen liefe er
+      // parallel zu einem `stop()`, das gerade auf das Ende gewartet hat.
+      if (lief) { schritt('restarting'); await this._starte(); }
+    });
+    if (fehler !== null) throw fehler;
+    return ergebnis;
   }
 }

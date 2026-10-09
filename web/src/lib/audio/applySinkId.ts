@@ -2,14 +2,15 @@
  * Shared `setSinkId` wrapper for every audible sink this app opens outside of
  * LiveKit's own track playback: the two `AudioContext`s (HQ stream via
  * `stream/volumeBoost.ts`, voice channel via `voice/audioElements.ts`) and the
- * `<audio>` elements that back them up. Not supported everywhere
- * (Firefox/Safari/iOS) — silently no-ops there, and on an empty `deviceId`
- * (= "keep the OS default").
+ * media elements that back them up — muted ones included, because they still
+ * tell Chromium's echo canceller which device to listen to (see `anchor` in
+ * `voice/audioElements.ts`). Not supported everywhere (Firefox/Safari/iOS) —
+ * silently no-ops there, and on an empty `deviceId` (= "keep the OS default").
  */
 type SinkCapable = { setSinkId?: (id: string) => Promise<void> };
 
 export async function applySinkId(
-  target: AudioContext | HTMLAudioElement,
+  target: AudioContext | HTMLMediaElement,
   deviceId: string
 ): Promise<void> {
   if (!deviceId) return;

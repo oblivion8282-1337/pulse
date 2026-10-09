@@ -145,6 +145,12 @@ pub fn inject_srflx(sdp: &str, public_ip: IpAddr) -> String {
     let IpAddr::V4(public_v4) = public_ip else {
         return sdp.to_string(); // IPv6-Außenadressen: kein NAT, kein srflx nötig
     };
+    if public_v4.is_unspecified() {
+        // Start ohne STUN-Antwort (main.rs, fail-open): bis der Herzschlag
+        // eine Adresse liefert, gibt es keinen srflx — 0.0.0.0 wäre ein
+        // Kandidat, an den kein Client senden kann.
+        return sdp.to_string();
+    }
     let public = public_v4.to_string();
 
     let mut out: Vec<String> = Vec::with_capacity(sdp.lines().count() + 2);
@@ -192,6 +198,11 @@ mod tests {
     use super::*;
 
     const SDP: &str = "v=0\r\na=candidate:111 1 udp 2130706431 192.168.178.87 7900 typ host\r\na=candidate:111 2 udp 2130706431 192.168.178.87 7900 typ host\r\na=end-of-candidates\r\n";
+
+    #[test]
+    fn kein_srflx_ohne_bekannte_aussenadresse() {
+        assert_eq!(inject_srflx(SDP, "0.0.0.0".parse().unwrap()), SDP);
+    }
 
     #[test]
     fn appends_srflx_for_each_component() {

@@ -39,6 +39,7 @@ async def _broadcast(request: Request, payload: dict) -> None:
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.instance_name import melde_im_hintergrund, normalisiere, permissions_event
 from dcc_chat_gateway.models import (
     AdminAuditLog,
     Channel,
@@ -213,7 +214,7 @@ async def patch_permissions(
 
     # Instanzweiter Anzeigename: Leerstring → NULL (zurücksetzen); None = unverändert.
     if payload.instance_name is not None:
-        new_name = payload.instance_name.strip() or None
+        new_name = normalisiere(payload.instance_name)
         if new_name != row.instance_name:
             changes["instance_name"] = {"from": row.instance_name, "to": new_name}
             row.instance_name = new_name
@@ -270,35 +271,11 @@ async def patch_permissions(
         await session.refresh(row)
         # Push the new flags out so connected clients can re-gate their
         # create-guild / create-invite buttons without a page reload.
-        from dcc_shared.events import PermissionsUpdatedEvent
-
-        await _broadcast(
-            request,
-            PermissionsUpdatedEvent(
-                allow_guild_creation=row.allow_guild_creation,
-                allow_member_invites=row.allow_member_invites,
-                # Nur mitschicken, wenn der Name sich änderte: "" = zurückgesetzt
-                # (Adresse zeigen), None = Feld unverändert. So aktualisieren
-                # verbundene Mitglieder den Server-Namen sofort, ohne Reload.
-                instance_name=(
-                    (row.instance_name or "") if "instance_name" in changes else None
-                ),
-                guild_sound_max_size_bytes=row.guild_sound_max_size_bytes,
-                hq_bitrate_min_kbps=row.hq_bitrate_min_kbps,
-                hq_bitrate_max_kbps=row.hq_bitrate_max_kbps,
-                hq_fps_min=row.hq_fps_min,
-                hq_fps_max=row.hq_fps_max,
-                hq_resolution_max=row.hq_resolution_max,
-                ns_bitrate_min_kbps=row.ns_bitrate_min_kbps,
-                ns_bitrate_max_kbps=row.ns_bitrate_max_kbps,
-                ns_fps_min=row.ns_fps_min,
-                ns_fps_max=row.ns_fps_max,
-                ns_resolution_max=row.ns_resolution_max,
-                cam_resolution_max=row.cam_resolution_max,
-                cam_fps_max=row.cam_fps_max,
-                voice_bitrate_max_kbps=row.voice_bitrate_max_kbps,
-            ),
-        )
+        await _broadcast(request, permissions_event(row, "instance_name" in changes))
+        # Der Name muss auch in die Cloud — die Server-Leiste der Mitglieder
+        # wird aus /me/instances gebaut (instance_name.py).
+        if "instance_name" in changes:
+            melde_im_hintergrund(row.instance_name)
     return row
 
 

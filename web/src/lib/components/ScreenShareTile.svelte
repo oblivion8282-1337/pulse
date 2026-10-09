@@ -7,7 +7,7 @@
   Fenster mounten — selber JS-Context, Track bleibt direkt nutzbar).
 -->
 <script lang="ts">
-  import { onDestroy, mount, unmount } from 'svelte';
+  import { onDestroy, mount, unmount, untrack } from 'svelte';
   import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
   import { ReceiveStatsReader, type ReceiveStats } from '$lib/voice/screenShareStats';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -19,6 +19,7 @@
   import ScreenShareDocPipView from '$lib/stream/components/ScreenShareDocPipView.svelte';
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import { userCache } from '$lib/stores/users.svelte';
+  import { settings } from '$lib/stores/settings.svelte';
   import { getDocPip, docPipSupported, adoptDocStyles } from '$lib/stream/docpip';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { toast } from 'svelte-sonner';
@@ -203,6 +204,10 @@
     if (!boost) {
       boost = new VolumeBoost();
       boost.onStateChange = (s) => { localBlocked = s; };
+      // Vor dem attach, damit der Kontext gleich auf dem richtigen Gerät
+      // entsteht. `untrack`: ein Gerätewechsel soll nicht diesen ganzen
+      // Effekt neu fahren, dem folgt der Effekt darunter.
+      boost.setOutputDevice(untrack(() => settings.audio.outputDeviceId));
     }
     // Audio doppelt-spielt sonst (einmal via Element, einmal via AudioContext).
     // Klappt das Boost-Attach nicht, unmuten — Slider operiert dann auf
@@ -222,6 +227,16 @@
       if (!boosted) localBlocked = true;
     });
     return () => { at.detach(el); };
+  });
+
+  // Hörbarer Ton der Freigabe auf das gewählte Ausgabegerät — wie die
+  // Sprachstimmen und der HQ-Stream. Lief bis dahin immer auf dem
+  // Systemstandard. Das Element darüber stellt LiveKit selbst um.
+  $effect(() => {
+    // Vor dem `?.` lesen: bei `boost === null` wertete `?.` das Argument gar
+    // nicht aus, und der Effekt abonnierte die Einstellung nie.
+    const id = settings.audio.outputDeviceId;
+    boost?.setOutputDevice(id);
   });
 
   function handleVolume(e: Event | number) {

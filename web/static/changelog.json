@@ -2,6 +2,30 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-10-09.1",
+      "date": "2026-10-09",
+      "style": "Sachlich",
+      "title": "Schneller live",
+      "items": [
+        "Nach dem Start einer Bildschirmübertragung bist du wieder sofort live. Zuletzt konnte das bis zu einer halben Minute dauern."
+      ]
+    },
+    {
+      "id": "2026-10-08.1",
+      "date": "2026-10-08",
+      "style": "Sachlich",
+      "title": "Heim-Server: Namen, saubere Liste und viele Stabilitätskorrekturen",
+      "intro": "Wer einen eigenen Pulse Server auf dem Rechner betreibt, bekommt diesmal eine ganze Reihe Verbesserungen — sichtbar in der Server-Liste und unter der Haube auf Linux und Windows.",
+      "items": [
+        "Server-Namen: Ein Heim-Server erscheint in der Liste jetzt unter seinem Namen statt unter einer langen Adresse. Der Name lässt sich direkt in der Server-App oder unter Administration ändern und ist bei allen Mitgliedern sofort zu sehen.",
+        "Gestoppte Server verschwinden: Ist ein Heim-Server aus, steht er nicht mehr in der Liste — und taucht wieder auf, sobald er läuft.",
+        "Daten-Export: Unter Linux und macOS schrieb der Export seit dem 21. September leere Dateien. Das ist behoben — bitte nach dem Update einmal neu exportieren.",
+        "Zuverlässigerer Betrieb: Der Server startet nach einem Neustart des Rechners von selbst, ein fehlgeschlagenes Update stellt die vorige Fassung wieder her, ein fehlgeschlagener Import lässt die Daten unverändert, und Fehler wie ein belegter Port werden im Klartext angezeigt.",
+        "Sprache: Beitritte aus dem eigenen Heimnetz klappen zuverlässiger, und wechselt die IP-Adresse des Anschlusses, zieht der Server sie selbst nach.",
+        "Server-App: neuer Knopf „Server-App beenden“, kein doppeltes Symbol mehr in der Leiste, und der Rechner geht nicht mehr von selbst schlafen, solange der Server läuft."
+      ]
+    },
+    {
       "id": "2026-10-06.1",
       "date": "2026-10-06",
       "style": "Sachlich",

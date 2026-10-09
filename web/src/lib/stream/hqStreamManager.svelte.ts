@@ -161,6 +161,10 @@ export class ManagedHqStream {
   // ---- Video-Anbindung (Bild) --------------------------------------------
   attachVideo(el: HTMLVideoElement): void {
     this.#videoEl = el;
+    // Stumm, aber der Strom trägt Ton: das Element meldet Chromiums
+    // Echo-Unterdrückung ein Ausgabegerät und muss deshalb demselben folgen
+    // wie der hörbare Weg (Begründung: `anchor` in `voice/audioElements.ts`).
+    if (this.#outputDeviceId) void applySinkId(el, this.#outputDeviceId);
     if (this.stream) {
       el.srcObject = this.stream;
       el.muted = true; // Ton läuft über den Web-Audio-Graphen, nie übers Video.
@@ -321,6 +325,7 @@ export class ManagedHqStream {
     this.#outputDeviceId = deviceId;
     this.#boost.setOutputDevice(deviceId);
     if (this.#audioEl) void applySinkId(this.#audioEl, deviceId);
+    if (this.#videoEl) void applySinkId(this.#videoEl, deviceId);
   }
 
   // ---- Audio-Senke --------------------------------------------------------
