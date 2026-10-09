@@ -58,6 +58,12 @@ interface AudioNodeBundle {
  * +12 dB only compensated the Chromium level loss through
  * MediaStreamAudioSourceNode, which isn't in play here).
  */
+/** Name eines abgelehnten Promise, robust gegen alles, was kein Error ist. */
+function fehlerName(e: unknown): string {
+  const n = (e as { name?: unknown } | null)?.name;
+  return typeof n === 'string' && n ? n : 'unbekannt';
+}
+
 export class RemoteAudioElements {
   /** Mobile devices play through the <audio> element; desktop uses Web Audio. */
   #mobile = isMobile();
@@ -125,8 +131,10 @@ export class RemoteAudioElements {
 
   /** Called when a remote audio track is subscribed. `onBlocked` fires if
    *  playback can't start (autoplay policy: a suspended AudioContext on desktop,
-   *  or a rejected `<audio>.play()` on mobile). */
-  attach(track: RemoteAudioTrack, userId: string, onBlocked: () => void): void {
+   *  or a rejected `<audio>.play()` on mobile). Der Grund reist MIT — ohne ihn
+   *  war am Geraet nicht zu unterscheiden, ob WebKit wirklich sperrt oder ob
+   *  nur zwei Wiedergabe-Anstoesse einander ueberholt haben. */
+  attach(track: RemoteAudioTrack, userId: string, onBlocked: (grund: string) => void): void {
     const sid = track.sid;
     if (!sid) return;
     if (this.#nodes.has(sid)) return;
@@ -158,7 +166,7 @@ export class RemoteAudioElements {
       this.#nodes.set(sid, node);
       this.#indexUser(userId, sid);
       const p = anchor.play();
-      if (p) void p.catch(() => onBlocked());
+      if (p) void p.catch((fehler: unknown) => this.#wiedergabeFehlschlag(anchor, fehler, onBlocked));
       return;
     }
 
@@ -175,8 +183,41 @@ export class RemoteAudioElements {
     if (this.#spatialMode !== 'off' && !this.#spatial) void this.setSpatialMode(this.#spatialMode);
 
     if (ctx.state === 'suspended') {
-      void ctx.resume().then(() => { if (ctx.state !== 'running') onBlocked(); }).catch(() => onBlocked());
+      void ctx
+        .resume()
+        .then(() => {
+          if (ctx.state !== 'running') onBlocked('AudioContext bleibt suspended');
+        })
+        .catch((e: unknown) => onBlocked(`AudioContext.resume: ${fehlerName(e)}`));
     }
+  }
+
+  /**
+   * Eine abgelehnte `play()` deuten — und nur im echten Fall sperren.
+   *
+   * **Bis zum 2026-10-10 galt JEDE Ablehnung als Autoplay-Sperre**, und die
+   * Oberflaeche sagte dazu „Dein Browser blockiert die automatische
+   * Wiedergabe". Das traf oft nicht zu: wir setzen `autoplay = true` UND rufen
+   * `play()`, und wenn die implizite Wiedergabe und dieser Ruf einander
+   * ueberholen, wirft WebKit regulaer `AbortError`. Eine Sperre ist allein
+   * `NotAllowedError`.
+   *
+   * Alles andere bekommt genau einen zweiten Anlauf — die Ueberholung ist
+   * voruebergehend. Erst wenn auch der scheitert, gilt es als Sperre, und der
+   * NAME reist mit, damit die naechste Fehlersuche nicht wieder bei null
+   * anfaengt.
+   */
+  #wiedergabeFehlschlag(
+    anchor: HTMLAudioElement,
+    fehler: unknown,
+    onBlocked: (grund: string) => void,
+  ): void {
+    const name = fehlerName(fehler);
+    if (name === 'NotAllowedError') {
+      onBlocked(name);
+      return;
+    }
+    void anchor.play().catch((zweiter: unknown) => onBlocked(`${name} → ${fehlerName(zweiter)}`));
   }
 
   detach(sid: string): void {

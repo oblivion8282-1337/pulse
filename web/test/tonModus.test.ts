@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { zielModus } from '../src/lib/platform/tonModus.ts';
+import { audioSessionTyp, zielModus } from '../src/lib/platform/tonModus.ts';
 
 test('nichts laeuft -> Session aus', () => {
 	assert.equal(zielModus(false, 0), 'aus');
@@ -29,4 +29,18 @@ test('Sprachkanal verlassen waehrend ein Stream laeuft -> wiedergabe, nicht aus'
 
 test('letzter Stream endet ohne Sprachkanal -> aus', () => {
 	assert.equal(zielModus(false, 0), 'aus');
+});
+
+test('Voice meldet WebKit play-and-record — nur das traegt ein Mikrofon', () => {
+	assert.equal(audioSessionTyp('voice'), 'play-and-record');
+});
+
+test('reine Wiedergabe meldet playback — geht am Klingelton-Schalter vorbei', () => {
+	assert.equal(audioSessionTyp('wiedergabe'), 'playback');
+});
+
+test('ohne Ton KEINE Aussage: auto, nicht ambient', () => {
+	// `ambient` waere eine Behauptung (mischbar, stummschaltbar). Ohne
+	// Verbraucher wollen wir die Vorgabe zurueckgeben, nicht etwas Falsches.
+	assert.equal(audioSessionTyp('aus'), 'auto');
 });

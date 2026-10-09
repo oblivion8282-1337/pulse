@@ -58,6 +58,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { istAblehnung, standMerken } from '$lib/platform/berechtigung.svelte';
 import { isMobile } from '$lib/platform/runtime';
+import { melde } from '$lib/diagnose/app-diagnose';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
 import { tonSystemFilterBeobachten, tonSystemFiltert, tonVoice } from '$lib/platform/iosTon';
 import { filterziel } from './filterwahl';
@@ -1459,8 +1460,16 @@ class VoiceRoom {
             this.#audioEls.attach(
               track as RemoteAudioTrack,
               userIdFromIdentity(p.identity) ?? p.identity,
-              () => {
+              (grund) => {
                 this.audioBlocked = true;
+                // Ins Kaefer-Gedaechtnis, nicht nur in die Konsole: am Telefon
+                // ist die Konsole nur ueber ein Kabel und Safari erreichbar,
+                // und genau dort faellt dieser Fehler an. Ohne Beleg blieb
+                // „Audio ist stummgeschaltet" eine Behauptung ohne Ursache.
+                melde('voice', 'audio_wiedergabe_abgelehnt', grund, {
+                  kanal: this.channelId ?? '',
+                  sender: p.identity,
+                });
               }
             );
             // Parallel speaking-detector tap on the same raw track — independent

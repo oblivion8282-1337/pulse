@@ -25,3 +25,32 @@ export function zielModus(voiceAktiv: boolean, anzahlWiedergaben: number): TonMo
   if (anzahlWiedergaben > 0) return 'wiedergabe';
   return 'aus';
 }
+
+/** Was wir WebKit sagen — die Werte der W3C Audio Session API. */
+export type AudioSessionTyp = 'play-and-record' | 'playback' | 'auto';
+
+/**
+ * Derselbe Entschluss, an die zweite Partei gerichtet.
+ *
+ * **Warum es eine zweite Partei gibt.** In einer WebView gehoert die
+ * AVAudioSession nicht uns, sondern WebKit: es waehlt Kategorie und Modus
+ * danach, was die Seite gerade tut (offenes Mikrofon → PlayAndRecord). Unser
+ * `AudioSessionPlugin` stellt dieselbe Session daneben ein — zwei Parteien,
+ * ein Geraet, und bis zum 2026-10-10 ohne jede Absprache: `navigator
+ * .audioSession` kam im ganzen Projekt nicht vor. Diese Schnittstelle IST die
+ * Absprache; sie ist der vorgesehene Weg, WebKit die Absicht zu nennen, und
+ * kein Umweg um eine Regel herum.
+ *
+ * Was daran haengt (Safari ab iOS 17): ob der Ton am Klingelton-Schalter
+ * vorbeigeht, und ob die Seite als aktive Audio-Sitzung gilt — Letzteres
+ * entscheidet mit, ob WebKit sie im Hintergrund weiterlaufen laesst.
+ *
+ * `auto` ist bewusst nicht `ambient`: ohne Ton wollen wir keine Aussage
+ * treffen, sondern die Vorgabe zurueckgeben — eine falsche Aussage waere
+ * schlechter als keine.
+ */
+export function audioSessionTyp(modus: TonModus): AudioSessionTyp {
+  if (modus === 'voice') return 'play-and-record';
+  if (modus === 'wiedergabe') return 'playback';
+  return 'auto';
+}

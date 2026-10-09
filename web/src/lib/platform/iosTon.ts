@@ -7,7 +7,7 @@ import {
   iosWegWechsel,
   iosVoiceAktiv
 } from './iosAudioSession';
-import { zielModus, type TonModus } from './tonModus';
+import { audioSessionTyp, zielModus, type AudioSessionTyp, type TonModus } from './tonModus';
 
 /**
  * Der eine Ort, der die iOS-Audio-Session schaltet.
@@ -95,9 +95,45 @@ export function tonSystemFiltert(): boolean {
   return systemFiltert;
 }
 
+/** Zuletzt an WebKit gemeldeter Typ — eigener Merker, weil der Web-Teil
+ *  auch dort gilt, wo der native gar nicht laeuft (Safari am iPhone). */
+let webTyp: AudioSessionTyp | null = null;
+
+/**
+ * WebKit die Absicht nennen (W3C Audio Session API).
+ *
+ * **Absichtlich VOR dem Capacitor-Gate und ohne es.** Die Schnittstelle ist
+ * Web-Standard, kein Huellen-Zusatz: sie wirkt in Safari am iPhone genauso
+ * wie in unserer App, und beide haben dasselbe Problem — WebKit waehlt die
+ * AVAudioSession nach dem, was es auf der Seite sieht, und weiss ohne diese
+ * Zeile nichts von unserer Absicht. Fehlt die Schnittstelle (Chromium, Safari
+ * vor iOS 17), geschieht nichts; das ist der richtige Rueckfall, denn dort
+ * gibt es auch keine Session zu beeinflussen.
+ *
+ * Der Merker ist von `angewandt` getrennt: dieses wird beim Wiederherstellen
+ * nach einer Unterbrechung absichtlich auf `aus` zurueckgesetzt, damit die
+ * NATIVE Einrichtung erneut laeuft — die Absichtserklaerung an WebKit muss
+ * deswegen aber nicht neu geschrieben werden.
+ */
+function webAudioSession(ziel: TonModus): void {
+  const typ = audioSessionTyp(ziel);
+  if (typ === webTyp) return;
+  if (typeof navigator === 'undefined') return;
+  const nav = navigator as Navigator & { audioSession?: { type: string } };
+  if (!nav.audioSession) return;
+  try {
+    nav.audioSession.type = typ;
+    webTyp = typ;
+  } catch {
+    // Ein nicht angenommener Wert darf nichts weiter nach sich ziehen; den
+    // Merker NICHT setzen, damit der naechste Anlauf es erneut versucht.
+  }
+}
+
 async function anwenden(): Promise<void> {
-  if (!isCapacitorIOS()) return;
   const ziel = zielModus(voiceQuellen.size > 0, wiedergaben.size);
+  webAudioSession(ziel);
+  if (!isCapacitorIOS()) return;
   if (ziel === angewandt) return;
   angewandt = ziel;
   const vorher = systemFiltert;
@@ -209,6 +245,7 @@ export function tonZuruecksetzen(): void {
   voiceQuellen.clear();
   wiedergaben.clear();
   angewandt = 'aus';
+  webTyp = null;
 }
 
 /** Der zuletzt angewandte Modus — für Anzeige und Tests. */
