@@ -268,9 +268,11 @@ _idle_streak = 0
 
 
 def _poll_interval(idle_streak: int, base_s: float, *, wach: bool = False) -> float:
-    """Schneller Takt solange etwas passiert oder ein Publisher angekündigt ist,
-    gedehnter im gesicherten Leerlauf."""
-    if wach or idle_streak < _IDLE_BACKOFF_AFTER_POLLS:
+    """Höchstens Halbsekundentakt, solange ein angekündigter Stream noch nicht gesehen
+    wurde; schneller Takt, solange etwas passiert; gedehnt im gesicherten Leerlauf."""
+    if wach:
+        return min(base_s, weckruf.WACH_TAKT_S)
+    if idle_streak < _IDLE_BACKOFF_AFTER_POLLS:
         return base_s
     return _IDLE_POLL_INTERVAL_S
 
@@ -351,6 +353,7 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
                 publishers[cid].discard((uid, slot))
         publishers = {cid: prs for cid, prs in publishers.items() if prs}
 
+    weckruf.gesehen((cid, uid, slot) for cid, prs in publishers.items() for uid, slot in prs)
     known = await _list_known_channels(redis)
 
     # Leerlauf-Buchführung für den Backoff im Loop (siehe _poll_interval):

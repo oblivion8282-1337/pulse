@@ -83,12 +83,14 @@ async def test_stream_token_weckt_den_poller(client, auth_signer, redis, monkeyp
     bis zu 30 s später als live (Regression aus dem Leerlauf-Backoff)."""
     from dcc_media_svc import weckruf
 
-    monkeypatch.setattr(weckruf, "_wach_bis", 0.0)
+    monkeypatch.setattr(weckruf, "_erwartet", {})
     assert not weckruf.ist_wach()
     access = auth_signer.issue_access(4242, "alice")
-    r = await client.post(f"/channels/{_unique_cid()}/stream-token", json={}, headers=_auth(access))
+    cid = _unique_cid()
+    r = await client.post(f"/channels/{cid}/stream-token", json={"slot": 1}, headers=_auth(access))
     assert r.status_code == 200, r.text
-    assert weckruf.ist_wach()
+    # Angekündigt ist genau dieser Stream: Kanal, Nutzer, Platz.
+    assert list(weckruf._erwartet) == [(cid, "4242", "1")]
     await redis.delete(TOKEN_KEY.format(token=r.json()["token"]))
 
 
