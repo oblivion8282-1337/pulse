@@ -71,6 +71,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { isMobile } from '$lib/platform/runtime';
 import { setVoiceActive, maybeSendAudioDiagnostic, setMicService } from '$lib/platform/audioRoute';
+import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
 import { sidecar } from '$lib/stream/sidecar';
 import { runningStreamSlots } from '$lib/stream/state.svelte';
 
@@ -628,6 +629,11 @@ class VoiceRoom {
     this.#audioDiagTimer = setTimeout(() => {
       this.#audioDiagTimer = null;
       void maybeSendAudioDiagnostic();
+      // Route-UI nachziehen: war BT schon VOR dem Join verbunden, gibt es
+      // kein Geräte-Add (keinen routesChanged-Push), und die Mount-Abfrage
+      // lief vor der ersten Weg-Wahl des nativen Motors — das Icon blieb
+      // sonst bis zum nächsten Popup-Öffnen auf Lautsprecher.
+      void audioRouteState.aktualisieren();
     }, 2500);
     // Mobile: hold the screen awake so auto-lock can't suspend the mic, and watch
     // for foreground returns to recover a mic the OS muted while backgrounded.

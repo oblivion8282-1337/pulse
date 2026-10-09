@@ -1,4 +1,10 @@
-import { listAudioRoutes, setAudioRoute, type AudioRoute, type AudioRouteList } from './audioRoute';
+import {
+  listAudioRoutes,
+  onRoutesChanged,
+  setAudioRoute,
+  type AudioRoute,
+  type AudioRouteList
+} from './audioRoute';
 
 /**
  * Geteilter, reaktiver Stand der Audio-Ausgabe-Routen — EINE Quelle für alle
@@ -15,10 +21,12 @@ import { listAudioRoutes, setAudioRoute, type AudioRoute, type AudioRouteList } 
 class AudioRouteState {
   liste = $state<AudioRouteList | null>(null);
   #hanger: (() => void) | null = null;
+  #pusher = false;
 
   async aktualisieren(): Promise<void> {
     this.liste = await listAudioRoutes();
     this.#devicechangeHaken();
+    this.#pushHaken();
   }
 
   async festenWegWaehlen(route: AudioRoute): Promise<void> {
@@ -35,18 +43,30 @@ class AudioRouteState {
    *  registriert, refresh gedrosselt (Geräte-Events kommen gebündelt). */
   #devicechangeHaken(): void {
     if (this.#hanger || typeof navigator === 'undefined' || !navigator.mediaDevices) return;
-    let offen = false;
-    const hanger = () => {
-      if (offen) return;
-      offen = true;
-      setTimeout(() => {
-        offen = false;
-        void this.aktualisieren();
-      }, 300);
-    };
-    navigator.mediaDevices.addEventListener?.('devicechange', hanger);
-    this.#hanger = hanger;
+    this.#hanger = () => this.#gedrosselt();
+    navigator.mediaDevices.addEventListener?.('devicechange', this.#hanger);
   }
+
+  /** Nativer Push (AudioRoute-Plugin): Geräte-Callback im APK feuert
+   *  "routesChanged". Nötig, weil das WebView-devicechange auf dem nativen
+   *  Voice-Pfad NICHT feuert — sonst zeigte das Route-Icon einen BT-Wechsel
+   *  erst nach dem nächsten Popup-Öffnen (Nutzerbefund 2026-10-09). */
+  #pushHaken(): void {
+    if (this.#pusher) return;
+    this.#pusher = true;
+    void onRoutesChanged(() => this.#gedrosselt());
+  }
+
+  #gedrosselt(): void {
+    if (this.#offen) return;
+    this.#offen = true;
+    setTimeout(() => {
+      this.#offen = false;
+      void this.aktualisieren();
+    }, 300);
+  }
+
+  #offen = false;
 }
 
 export const audioRouteState = new AudioRouteState();

@@ -1,6 +1,7 @@
 package com.howispulse.app;
 
 import android.content.Context;
+import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.Build;
@@ -26,6 +27,33 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  */
 @CapacitorPlugin(name = "AudioRoute")
 public class AudioRoutePlugin extends Plugin {
+
+    private AudioDeviceCallback pushCallback;
+
+    /**
+     * Geräte-Push: BT/Headset verbindet oder trennt sich → "routesChanged" an
+     * die WebView. Der Web-Store hängt sonst nur an navigator.devicechange,
+     * und das feuert auf dem nativen Voice-Pfad nicht — das Route-Icon
+     * zeigte den Wechsel erst nach dem nächsten Popup-Öffnen.
+     */
+    @Override
+    public void load() {
+        AudioManager am = (AudioManager) getActivity()
+                .getSystemService(Context.AUDIO_SERVICE);
+        if (am == null) return;
+        pushCallback = new AudioDeviceCallback() {
+            @Override
+            public void onAudioDevicesAdded(AudioDeviceInfo[] addedDevices) {
+                notifyListeners("routesChanged", new JSObject());
+            }
+
+            @Override
+            public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) {
+                notifyListeners("routesChanged", new JSObject());
+            }
+        };
+        am.registerAudioDeviceCallback(pushCallback, null);
+    }
 
     @PluginMethod
     public void setRoute(PluginCall call) {
@@ -70,9 +98,10 @@ public class AudioRoutePlugin extends Plugin {
             call.reject("audio router unavailable");
             return;
         }
+        String[] cur = aktuellerWeg(r);
         JSObject ret = new JSObject();
-        ret.put("current", r.routeName());
-        ret.put("currentDeviceId", r.getRouteDeviceId());
+        ret.put("current", cur[0]);
+        ret.put("currentDeviceId", Integer.parseInt(cur[1]));
         JSArray devices = new JSArray();
         for (AudioDeviceInfo d : r.listSelectableDevices()) {
             JSObject o = new JSObject();
@@ -83,6 +112,39 @@ public class AudioRoutePlugin extends Plugin {
         }
         ret.put("devices", devices);
         call.resolve(ret);
+    }
+
+    /**
+     * Die AKTUELLE Ausgabewahl als {name, deviceId}: Auf dem nativen
+     * Voice-Pfad besitzt das SDK Modus und Weg — der SpeakerphoneRouter wird
+     * nicht bedient und sein Stand bleibt auf der letzten Web-Pfad-Wahl
+     * stehen ("auto"), obwohl z. B. BT-SCO längst spielt. Solange der Motor
+     * verbunden ist, gilt darum das live CommunicationDevice des AudioManager
+     * (API ≥ S; die Kernprobe-Geräte sind alle ≥ 31); außerhalb des Calls
+     * weiter der Router.
+     */
+    private String[] aktuellerWeg(SpeakerphoneRouter r) {
+        String current = r.routeName();
+        String deviceId = String.valueOf(r.getRouteDeviceId());
+        if (!VoiceEngine.isConnected()) return new String[] {current, deviceId};
+        AudioManager am = (AudioManager) getActivity()
+                .getSystemService(Context.AUDIO_SERVICE);
+        AudioDeviceInfo live = (am != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                ? am.getCommunicationDevice() : null;
+        if (live != null) {
+            int t = live.getType();
+            if (t == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+                current = "speaker";
+                deviceId = "0";
+            } else if (t == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) {
+                current = "earpiece";
+                deviceId = "0";
+            } else {
+                current = "device";
+                deviceId = String.valueOf(live.getId());
+            }
+        }
+        return new String[] {current, deviceId};
     }
 
     /**
@@ -114,7 +176,7 @@ public class AudioRoutePlugin extends Plugin {
     public void getRoute(PluginCall call) {
         SpeakerphoneRouter r = router();
         JSObject ret = new JSObject();
-        ret.put("route", r == null ? "auto" : r.routeName());
+        ret.put("route", r == null ? "auto" : aktuellerWeg(r)[0]);
         call.resolve(ret);
     }
 

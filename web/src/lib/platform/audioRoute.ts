@@ -18,7 +18,7 @@ import { errText } from '$lib/utils/errText';
  * das Ergebnis (Mode, Communication-Device, SCO-Status) für die „im Auto zu
  * leise"-Diagnose. Nur unter Capacitor-Android aktiv, sonst No-op.
  */
-import { registerPlugin } from '@capacitor/core';
+import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import { request } from '$lib/api/client';
 import { isCapacitorAndroid } from './runtime';
 
@@ -71,6 +71,13 @@ interface AudioRoutePlugin {
    *  besitzt den Audio-Modus selbst, der Router darf nicht angerufen werden). */
   setMicService(opts: { active: boolean }): Promise<void>;
   snapshot(): Promise<AudioDiagnostic>;
+  /** "routesChanged" — nativer Push, wenn sich Ausgabegeräte ändern (BT
+   *  verbindet/trennt sich). APK >= 2026-10-09; alte APKs feuern nie →
+   *  harmlos (Version-Skew, §5.3). */
+  addListener(
+    eventName: 'routesChanged',
+    listenerFunc: () => void
+  ): Promise<PluginListenerHandle> & PluginListenerHandle;
 }
 
 const plugin = registerPlugin<AudioRoutePlugin>('AudioRoute');
@@ -145,6 +152,19 @@ export async function getAudioRoute(): Promise<AudioRoute> {
     return (await plugin.getRoute()).route;
   } catch {
     return 'auto';
+  }
+}
+
+/** Subscribe to native output-device changes (BT/headset connects or
+ *  disconnects). No-op outside the Android wrapper — und auf alten APKs
+ *  (< 2026-10-09) wird nie gefeuert; der devicechange-Fallback im Store
+ *  bleibt dann der einzige Weg. */
+export async function onRoutesChanged(cb: () => void): Promise<void> {
+  if (!isCapacitorAndroid()) return;
+  try {
+    await plugin.addListener('routesChanged', cb);
+  } catch (e) {
+    console.warn('[audioRoute] routesChanged subscribe failed', e);
   }
 }
 
