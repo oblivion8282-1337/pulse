@@ -76,6 +76,50 @@ def test_poll_interval_backs_off_after_idle_streak():
     assert _poller._poll_interval(5, 3.0) == 3.0
     assert _poller._poll_interval(10, 3.0) == 30.0
     assert _poller._poll_interval(50, 3.0) == _poller._IDLE_POLL_INTERVAL_S == 30.0
+    # Nach einem ausgegebenen Sende-Token bleibt der Takt schnell, auch wenn
+    # der Leerlauf-Streak längst über der Schwelle steht.
+    assert _poller._poll_interval(50, 3.0, wach=True) == 3.0
+
+
+@pytest.mark.asyncio
+async def test_wecken_unterbricht_den_gedehnten_leerlauf_takt(monkeypatch):
+    """Ein neuer Stream darf nicht auf den 30-s-Leerlauftakt warten: der Poller
+    ist der einzige, der einen Publisher als live meldet. Steht er im gedehnten
+    Takt, muss ``wecken()`` (vom Sende-Token-Ausgeben gerufen) den Schlaf
+    sofort beenden — sonst sieht der Streamer sich bis zu 30 s nicht live."""
+    import asyncio
+
+    import dcc_media_svc.poller as _poller
+    from dcc_media_svc import weckruf
+
+    durchlaeufe = 0
+    gelaufen = asyncio.Event()
+
+    async def _zaehlen(_redis, _client):
+        nonlocal durchlaeufe
+        durchlaeufe += 1
+        gelaufen.set()
+
+    monkeypatch.setattr(_poller, "reconcile_once", _zaehlen)
+    monkeypatch.setattr(_poller, "_idle_streak", 50)
+    monkeypatch.setattr(weckruf, "_wach_bis", 0.0)
+    stop = asyncio.Event()
+    task = asyncio.create_task(_poller.run_poller(None, stop_event=stop))
+    try:
+        await asyncio.wait_for(gelaufen.wait(), timeout=2)
+        assert durchlaeufe == 1
+        gelaufen.clear()
+        # Der Poller schläft jetzt 30 s — ohne Weckruf käme hier nichts.
+        weckruf.wecken()
+        await asyncio.wait_for(gelaufen.wait(), timeout=1)
+        assert durchlaeufe == 2
+        # Und er bleibt danach im schnellen Takt, bis der Publisher erscheint.
+        assert weckruf.ist_wach()
+        assert _poller._poll_interval(_poller._idle_streak, 3.0, wach=weckruf.ist_wach()) == 3.0
+    finally:
+        stop.set()
+        await asyncio.wait_for(task, timeout=2)
+    assert weckruf._ereignis is None
 
 
 @pytest.mark.asyncio
