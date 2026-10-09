@@ -161,8 +161,10 @@ unerreichbar.
   Versprechen, und ein stiller Wechsel der Signatur-Identität würde die
   TCC-Erlaubnis entwerten — also genau den Fehler zurückbringen, gegen den das
   Skript gebaut ist.
-- Wurde das alte Zertifikat bei Apple **widerrufen**, ist das `.p12` in den
-  GitHub-Secrets (`CSC_LINK`/`CSC_KEY_PASSWORD`, s. `mac-build.yml`) ungültig
-  und der nächste signierte Mac-Release schlägt dort fehl. Reparatur: das neue
-  Zertifikat samt privatem Schlüssel als `.p12` exportieren und beide Secrets
-  neu setzen. Ungeprüft — der Widerruf ist nicht nachgesehen worden.
+- **Das alte Zertifikat wurde NICHT widerrufen** (vom Eigentümer bestätigt),
+  es läuft bis zum 17.09.2031. Das `.p12` in den GitHub-Secrets
+  (`CSC_LINK`/`CSC_KEY_PASSWORD`, s. `mac-build.yml`) bleibt damit gültig und
+  der signierte Mac-Release in CI unverändert lauffähig — die Neuausstellung
+  hat an der Auslieferung nichts geändert. Beim Widerruf wäre das anders: dann
+  müsste das neue Zertifikat samt privatem Schlüssel als `.p12` exportiert und
+  beide Secrets neu gesetzt werden.
