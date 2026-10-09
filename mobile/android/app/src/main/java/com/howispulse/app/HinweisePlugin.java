@@ -131,6 +131,12 @@ public class HinweisePlugin extends Plugin {
         final String avatarUrl = call.getString("avatar", "");
         final String ziel = call.getString("ziel", "");
         final int anzahl = call.getInt("anzahl", 1);
+        final String chatName = call.getString("chatName", "");
+        // Lese-Aktion: token/pfad/basis nur im Extra-Bundle der Aktion —
+        // sie landen nicht im Notification-Text.
+        final String token = call.getString("token", "");
+        final String lesePfad = call.getString("lesePfad", "");
+        final String basis = call.getString("basis", "");
         NotificationManager nm = (NotificationManager) ctx
                 .getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) {
@@ -156,6 +162,9 @@ public class HinweisePlugin extends Plugin {
                         .setKey(absender).build();
                 NotificationCompat.MessagingStyle style = new NotificationCompat.MessagingStyle(
                         new Person.Builder().setName("Du").build());
+                // Konversationstitel nur bei Gruppen (WhatsApp-Stil: Gruppenname
+                // als Überschrift, DMs ohne Titel).
+                if (!chatName.isEmpty()) style.setConversationTitle(chatName);
                 style.addMessage(new NotificationCompat.MessagingStyle.Message(
                         text, System.currentTimeMillis(), sender));
                 Intent rein = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
@@ -163,20 +172,39 @@ public class HinweisePlugin extends Plugin {
                 PendingIntent intent = PendingIntent.getActivity(ctx,
                         (chatId + ziel).hashCode(), rein,
                         PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-            NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.stat_notify_chat)
-                    .setStyle(style)
-                    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                    .setAutoCancel(true)
-                    .setContentIntent(intent)
-                    .setNumber(anzahl)
-                    .setGroup("chat-" + chatId)
-                    // Pulse-Optik: Akzentfarbe der App (Tint des Icons).
-                    .setColor(0xFF2563EB)
-                    .setWhen(System.currentTimeMillis())
-                    .setShowWhen(true);
-            if (avatar != null) b.setLargeIcon(avatar);
-                nmF.notify(chatId.isEmpty() ? mid.hashCode() : chatId.hashCode(), b.build());
+                NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+                        .setSmallIcon(android.R.drawable.stat_notify_chat)
+                        .setStyle(style)
+                        .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                        .setAutoCancel(true)
+                        .setContentIntent(intent)
+                        .setNumber(anzahl)
+                        .setGroup("chat-" + chatId)
+                        // Pulse-Optik: Akzentfarbe der App (Tint des Icons).
+                        .setColor(0xFF2563EB)
+                        .setWhen(System.currentTimeMillis())
+                        .setShowWhen(true);
+                if (avatar != null) b.setLargeIcon(avatar);
+
+                // Aktion „Als gelesen markieren" (keine Antwort-Aktion —
+                // Produktwunsch): der Receiver macht den Lesestand-PUT
+                // nativ, denn die WebView wäre im Hintergrund gefroren.
+                int nid = chatId.isEmpty() ? mid.hashCode() : chatId.hashCode();
+                if (!token.isEmpty() && !lesePfad.isEmpty() && !basis.isEmpty()) {
+                    Intent lese = new Intent(ctx, HinweiseAktionReceiver.class);
+                    lese.setAction("als_gelesen");
+                    lese.putExtra("basis", basis);
+                    lese.putExtra("pfad", lesePfad);
+                    lese.putExtra("token", token);
+                    lese.putExtra("mid", mid);
+                    lese.putExtra("nid", nid);
+                    PendingIntent leseIntent = PendingIntent.getBroadcast(ctx,
+                            ("lese" + chatId).hashCode(), lese,
+                            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                    b.addAction(new NotificationCompat.Action.Builder(
+                            0, "Als gelesen markieren", leseIntent).build());
+                }
+                nmF.notify(nid, b.build());
                 Log.i("Hinweise", "nachricht gepostet: chat=" + chatId + " absender=" + absender);
             } catch (Exception e) {
                 Log.e("Hinweise", "nachricht FEHLGESCHLAGEN", e);

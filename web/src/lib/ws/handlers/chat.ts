@@ -311,7 +311,8 @@ export function register(ctx: HandlerContext): void {
           channelId: evt.channel_id,
           messageId: evt.message_id,
           guildId: null,
-          iconUrl: absoluteAvatarUrl(cached?.avatar_url)
+          iconUrl: absoluteAvatarUrl(cached?.avatar_url),
+          lesePfad: `/dm-channels/${evt.channel_id}/lesestand`
         });
         if (!isRecentMention(evt.message_id) && !isDnd()) {
           sounds.play('notification.dm');

@@ -12,7 +12,8 @@ interface HinweisePlugin {
   zeigen(opts: { titel: string; text: string; id: string }): Promise<void>;
   erlaubt(): Promise<{ erlaubt: boolean }>;
   anfordern(): Promise<void>;
-  /** WhatsApp-Stil: MessagingStyle je Chat + Avatar + Badge + Deep-Link. */
+  /** WhatsApp-Stil: MessagingStyle je Chat + Avatar + Badge + Deep-Link
+   *  + Lese-Aktion (token/lesePfad/basis). */
   nachricht(opts: {
     chatId: string;
     absender: string;
@@ -21,6 +22,10 @@ interface HinweisePlugin {
     avatar?: string;
     ziel?: string;
     anzahl?: number;
+    chatName?: string;
+    token?: string;
+    lesePfad?: string;
+    basis?: string;
   }): Promise<void>;
   zielUrl(): Promise<{ url: string | null }>;
 }
@@ -48,7 +53,8 @@ export async function zeigeHinweis(titel: string, text: string, id: string): Pro
 }
 
 /** Chat-Benachrichtigung (WhatsApp-Stil): gruppiert je chatId, mit
- *  Kontaktbild/Zeitstempel/Badge; beim Tippen navigiert das Web zu ziel. */
+ *  Kontaktbild/Zeitstempel/Badge; beim Tippen navigiert das Web zu ziel;
+ *  lesePfad + token treiben die Aktion „Als gelesen markieren" nativ. */
 export async function zeigeChatNachricht(opts: {
   chatId: string;
   absender: string;
@@ -57,11 +63,34 @@ export async function zeigeChatNachricht(opts: {
   avatar?: string;
   ziel?: string;
   anzahl?: number;
+  chatName?: string;
+  /** Mark-as-read-Pfad relativ zur Gateway-Basis; ohne Wert keine Aktion. */
+  lesePfad?: string;
 }): Promise<void> {
   if (!isCapacitorAndroid()) return;
   try {
     console.log('[hinweise] zeige:', opts.absender, '| chat', opts.chatId, '| vis', document.visibilityState);
-    if (await darf()) await plugin.nachricht(opts);
+    if (await darf()) {
+      let token: string | undefined;
+      try {
+        token = (await import('$lib/api/storage')).loadTokens()?.access_token;
+      } catch {
+        /* ohne Token fällt nur die Lese-Aktion weg */
+      }
+      await plugin.nachricht({
+        chatId: opts.chatId,
+        absender: opts.absender,
+        text: opts.text,
+        id: opts.id,
+        avatar: opts.avatar,
+        ziel: opts.ziel,
+        anzahl: opts.anzahl,
+        chatName: opts.chatName,
+        token,
+        lesePfad: opts.lesePfad,
+        basis: location.origin + '/api/chat'
+      });
+    }
   } catch (e) {
     console.warn('[hinweise] nachricht fehlgeschlagen', e);
   }

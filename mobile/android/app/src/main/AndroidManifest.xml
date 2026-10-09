@@ -83,6 +83,10 @@
         <receiver
             android:name=".CallForegroundService$AktionsEmpfaenger"
             android:exported="false" />
+        <!-- Chat-Benachrichtigung: Aktion „Als gelesen markieren“ (HinweisePlugin). -->
+        <receiver
+            android:name=".HinweiseAktionReceiver"
+            android:exported="false" />
     </application>
 
     <!-- Permissions -->

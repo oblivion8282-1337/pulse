@@ -43,6 +43,11 @@ export type InPageNotifyInput = {
    *  used by friend events that route to /app/friends. */
   targetUrl?: string;
   iconUrl?: string | null;
+  /** Mark-as-read-Pfad (APK-Aktion „Als gelesen markieren"), z. B.
+   *  '/dm-channels/<id>/lesestand'. Ohne Wert keine Aktion. */
+  lesePfad?: string;
+  /** Konversationstitel für Gruppen (MessagingStyle-Titel); DMs ohne. */
+  chatName?: string;
 };
 
 function buildTargetUrl(input: InPageNotifyInput): string {
@@ -150,7 +155,8 @@ export function fireInPageNotification(input: InPageNotifyInput): void {
     // das native Hinweise-Plugin (MessagingStyle je Chat, Kontaktbild,
     // Badge; Ziel-Navigation macht das Plugin per zielUrl-Handshake).
     // absender = der präfixierte Titel (originPrefix gegen Imitation, siehe
-    // oben). Bewusst KEINE Antwort-Aktion — Produktwunsch Michael.
+    // oben). Bewusst KEINE Antwort-Aktion — Produktwunsch Michael; dafür
+    // „Als gelesen markieren" (lesePfad + Token für den nativen PUT).
     void zeigeChatNachricht({
       chatId: input.channelId ?? input.targetUrl ?? 'freunde',
       absender: title,
@@ -158,7 +164,9 @@ export function fireInPageNotification(input: InPageNotifyInput): void {
       id: input.messageId ?? '',
       avatar: absoluteAvatarUrl(input.iconUrl),
       ziel: buildTargetUrl(input),
-      anzahl: 1
+      anzahl: 1,
+      chatName: input.chatName,
+      lesePfad: input.lesePfad
     });
     return;
   }

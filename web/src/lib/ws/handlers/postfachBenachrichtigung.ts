@@ -63,7 +63,14 @@ export function meldeNeueZustellung(nachricht: Message, gruppenName: string | nu
     channelId: nachricht.channel_id,
     messageId: nachricht.id,
     guildId: null,
-    iconUrl: absoluteAvatarUrl(cached?.avatar_url)
+    iconUrl: absoluteAvatarUrl(cached?.avatar_url),
+    // Gruppen: Gruppenname als Konversationstitel (MessagingStyle) +
+    // Lese-Aktion über den Gruppen-Lesestand; DMs analog über den
+    // DM-Lesestand.
+    chatName: gruppenName ?? undefined,
+    lesePfad: gruppenName
+      ? `/gruppen/${nachricht.channel_id}/lesestand`
+      : `/dm-channels/${nachricht.channel_id}/lesestand`
   });
   if (!isDnd()) sounds.play('notification.dm');
 }
