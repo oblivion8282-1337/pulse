@@ -300,14 +300,28 @@ export class ManagedHqStream {
     this.setVolume(next);
   }
 
+  /**
+   * „Ton aktivieren" auf der Kachel.
+   *
+   * **Beide Startversuche werden noch in der Klick-Aufgabe abgesetzt.** WebKit
+   * verwirft die Nutzeraktivierung ueber ein `await` hinweg, und sie gilt fuer
+   * `AudioContext.resume()` genauso wie fuer `<audio>.play()`. Die vorige
+   * Fassung wartete erst auf den Kontext und spielte das Element danach: im
+   * Haupt-Zweig (Web-Audio-Graph) fiel das nicht auf, weil `#audioEl` dort gar
+   * nicht existiert — im RUECKFALL-Zweig aber, und dort ist das Element der
+   * einzige hoerbare Weg. Gleiche Fehlerklasse wie in
+   * `components/ScreenShareTile.svelte` und `voice/livekit.svelte.ts`.
+   */
   async enableAudio(): Promise<void> {
-    try {
-      await this.#boost.resume();
-      await this.#audioEl?.play();
-      this.audioBlocked = this.#boost.suspended;
-    } catch {
-      /* still blocked */
-    }
+    const kontext = this.#boost.resume().catch(() => undefined);
+    const element = (this.#audioEl?.play() ?? Promise.resolve())
+      .then(() => true)
+      .catch(() => false);
+    await kontext;
+    const elementSpielt = await element;
+    // Welcher Weg hoerbar ist, entscheidet, woran die Sperre haengt: mit
+    // Graph der Kontext, ohne ihn das Element (s. `#bindStream`).
+    this.audioBlocked = this.#audioEl ? !elementSpielt : this.#boost.suspended;
   }
 
   #applyVolume(): void {
@@ -376,7 +390,13 @@ export class ManagedHqStream {
       const el = this.#ensureAudioEl();
       el.srcObject = stream;
       el.muted = false;
-      void el.play().catch(() => {});
+      void el.play().catch(() => {
+        // Ohne Web-Audio-Graph IST dieses Element der hoerbare Weg, und eine
+        // abgelehnte Wiedergabe muss sichtbar werden. Vorher stand hier ein
+        // leeres `catch`: auf WebKit blieb die Kachel damit stumm, ohne Knopf
+        // und ohne Hinweis — `audioBlocked` wurde nur im Graph-Zweig gesetzt.
+        this.audioBlocked = true;
+      });
     }
     if (this.#videoEl) {
       this.#videoEl.srcObject = stream;
