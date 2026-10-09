@@ -180,11 +180,40 @@ public class HinweisePlugin extends Plugin {
                         .setContentIntent(intent)
                         .setNumber(anzahl)
                         .setGroup("chat-" + chatId)
+                        // Conversation-Behandlung (Android 11+): mit Shortcut +
+                        // Kategorie + Person rendert OneUI den Kontakt-Avatar
+                        // statt des App-Symbols im kompakten Banner.
+                        .setShortcutId(chatId)
+                        .addPerson(sender)
                         // Pulse-Optik: Akzentfarbe der App (Tint des Icons).
                         .setColor(0xFF2563EB)
                         .setWhen(System.currentTimeMillis())
                         .setShowWhen(true);
                 if (avatar != null) b.setLargeIcon(avatar);
+
+                // Lang-lebiger Shortcut je Chat — Grundlage dafür, dass Android
+                // die Meldung als Konversation rendert (Kontakt-Avatar statt
+                // App-Symbol im kompakten Banner) und sie im Conversations-
+                // Bereich landet. Die Konversations-Kategorie + Person sind
+                // Pflicht für die Conversation-Behandlung (OneUI!).
+                if (!chatId.isEmpty()) {
+                    androidx.core.graphics.drawable.IconCompat kurzBild = avatar != null
+                            ? androidx.core.graphics.drawable.IconCompat.createWithBitmap(avatar)
+                            : androidx.core.graphics.drawable.IconCompat.createWithResource(
+                                    ctx, android.R.drawable.stat_notify_chat);
+                    androidx.core.content.pm.ShortcutInfoCompat shortcut =
+                            new androidx.core.content.pm.ShortcutInfoCompat.Builder(ctx, chatId)
+                                    .setShortLabel(chatName.isEmpty() ? absender : chatName)
+                                    .setIcon(kurzBild)
+                                    .setPerson(sender)
+                                    .setCategories(java.util.Collections.singleton(
+                                            "android.shortcut.conversation"))
+                                    .setIntent(new Intent(Intent.ACTION_VIEW)
+                                            .setData(android.net.Uri.parse("pulse://chat/" + chatId)))
+                                    .setLongLived(true)
+                                    .build();
+                    androidx.core.content.pm.ShortcutManagerCompat.pushDynamicShortcut(ctx, shortcut);
+                }
 
                 // Aktion „Als gelesen markieren" (keine Antwort-Aktion —
                 // Produktwunsch): der Receiver macht den Lesestand-PUT
