@@ -15,7 +15,7 @@
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
 
-import { fireInPageNotification, isDnd } from '$lib/notifications/inPage';
+import { fireInPageNotification, isDnd, absoluteAvatarUrl } from '$lib/notifications/inPage';
 import { m } from '$lib/paraglide/messages.js';
 import { sichtschutzAktiv } from '$lib/remote/sichtschutz';
 import { sounds } from '$lib/sounds/engine';
@@ -62,7 +62,8 @@ export function meldeNeueZustellung(nachricht: Message, gruppenName: string | nu
         : m.chat_handler_dm_notification_body()),
     channelId: nachricht.channel_id,
     messageId: nachricht.id,
-    guildId: null
+    guildId: null,
+    iconUrl: absoluteAvatarUrl(cached?.avatar_url)
   });
   if (!isDnd()) sounds.play('notification.dm');
 }

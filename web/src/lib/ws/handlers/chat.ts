@@ -24,7 +24,7 @@ import { typing } from '$lib/stores/typing.svelte';
 import { userCache } from '$lib/stores/users.svelte';
 import { dispatchingUserId } from '$lib/stores/currentServerUser';
 import { guilds } from '$lib/stores/guilds.svelte';
-import { fireInPageNotification, isDnd } from '$lib/notifications/inPage';
+import { fireInPageNotification, isDnd, absoluteAvatarUrl } from '$lib/notifications/inPage';
 import { sichtschutzAktiv } from '$lib/remote/sichtschutz';
 import { viewport } from '$lib/stores/viewport.svelte';
 import { sounds } from '$lib/sounds/engine';
@@ -310,7 +310,8 @@ export function register(ctx: HandlerContext): void {
           body: m.chat_handler_dm_notification_body(),
           channelId: evt.channel_id,
           messageId: evt.message_id,
-          guildId: null
+          guildId: null,
+          iconUrl: absoluteAvatarUrl(cached?.avatar_url)
         });
         if (!isRecentMention(evt.message_id) && !isDnd()) {
           sounds.play('notification.dm');

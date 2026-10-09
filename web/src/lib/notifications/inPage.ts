@@ -122,6 +122,14 @@ function shouldFire(input: InPageNotifyInput): boolean {
  * relevant sub-toggle is off. Browser-path also no-ops when the OS
  * permission isn't `granted` — the SW push remains the only fallback there.
  */
+/** Avatar-Pfad (same-origin relativ) → absolute URL für den nativen
+ *  Bitmap-Lader der Notification; ohne Wert undefined. */
+export function absoluteAvatarUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith('http')) return url;
+  return location.origin + url;
+}
+
 export function fireInPageNotification(input: InPageNotifyInput): void {
   if (typeof document === 'undefined') return;
   if (!shouldFire(input)) return;
@@ -139,15 +147,16 @@ export function fireInPageNotification(input: InPageNotifyInput): void {
 
   if (isCapacitorAndroid()) {
     // APK: der WebView kennt kein `new Notification()` — WhatsApp-Stil über
-    // das native Hinweise-Plugin (MessagingStyle je Chat, Avatar, Badge;
-    // Ziel-Navigation macht das Plugin per zielUrl-Handshake). absender = der
-    // präfixierte Titel (originPrefix gegen Imitation, siehe oben).
+    // das native Hinweise-Plugin (MessagingStyle je Chat, Kontaktbild,
+    // Badge; Ziel-Navigation macht das Plugin per zielUrl-Handshake).
+    // absender = der präfixierte Titel (originPrefix gegen Imitation, siehe
+    // oben). Bewusst KEINE Antwort-Aktion — Produktwunsch Michael.
     void zeigeChatNachricht({
       chatId: input.channelId ?? input.targetUrl ?? 'freunde',
       absender: title,
       text: input.body,
       id: input.messageId ?? '',
-      avatar: input.iconUrl ?? undefined,
+      avatar: absoluteAvatarUrl(input.iconUrl),
       ziel: buildTargetUrl(input),
       anzahl: 1
     });

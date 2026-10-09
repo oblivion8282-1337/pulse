@@ -163,16 +163,19 @@ public class HinweisePlugin extends Plugin {
                 PendingIntent intent = PendingIntent.getActivity(ctx,
                         (chatId + ziel).hashCode(), rein,
                         PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-                NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
-                        .setSmallIcon(android.R.drawable.stat_notify_chat)
-                        .setStyle(style)
-                        .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                        .setAutoCancel(true)
-                        .setContentIntent(intent)
-                        .setNumber(anzahl)
-                        .setGroup("chat-" + chatId)
-                        .setWhen(System.currentTimeMillis())
-                        .setShowWhen(true);
+            NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setStyle(style)
+                    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                    .setAutoCancel(true)
+                    .setContentIntent(intent)
+                    .setNumber(anzahl)
+                    .setGroup("chat-" + chatId)
+                    // Pulse-Optik: Akzentfarbe der App (Tint des Icons).
+                    .setColor(0xFF2563EB)
+                    .setWhen(System.currentTimeMillis())
+                    .setShowWhen(true);
+            if (avatar != null) b.setLargeIcon(avatar);
                 nmF.notify(chatId.isEmpty() ? mid.hashCode() : chatId.hashCode(), b.build());
                 Log.i("Hinweise", "nachricht gepostet: chat=" + chatId + " absender=" + absender);
             } catch (Exception e) {
