@@ -13,6 +13,7 @@
   import FlagIcon from '@lucide/svelte/icons/flag';
   import PinIcon from '@lucide/svelte/icons/pin';
   import PinOffIcon from '@lucide/svelte/icons/pin-off';
+  import InfoIcon from '@lucide/svelte/icons/info';
   import EmojiPicker from './EmojiPicker.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import MenuRow from '$lib/components/menu/MenuRow.svelte';
@@ -29,7 +30,8 @@
     onDelete,
     onReact,
     onReport,
-    onTogglePin
+    onTogglePin,
+    onInfo
   }: {
     open?: boolean;
     canEdit: boolean;
@@ -43,6 +45,8 @@
     onReact?: (emoji: string) => void;
     onReport?: () => void;
     onTogglePin?: () => void;
+    /** Wer hat gelesen? Nur an eigenen Gruppennachrichten gesetzt. */
+    onInfo?: () => void;
   } = $props();
 
   // Hand-picked frequent reactions — the full grid is one tap away.
@@ -138,6 +142,15 @@
           <PinIcon class="text-text-muted size-5 shrink-0" />
           {m.message_action_sheet_pin()}
         {/if}
+      </MenuRow>
+    {/if}
+
+    {#if onInfo}
+      <!-- Wie Melden: das Blatt bleibt hinter dem Dialog offen und schliesst
+           erst mit ihm (`MessageItem`, bits-ui-Overlay-Race). -->
+      <MenuRow density="comfortable" data-testid="sheet-action-info" onclick={() => onInfo?.()}>
+        <InfoIcon class="text-text-muted size-5 shrink-0" />
+        {m.message_actions_info()}
       </MenuRow>
     {/if}
 

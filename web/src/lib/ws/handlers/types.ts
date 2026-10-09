@@ -188,16 +188,18 @@ export type ServerEvent =
     }
   | {
       // Quittung eines Empfangsgeräts (WhatsApp „doppelter grauer Haken"):
-      // die Umschläge dieses Kanals sind dort abgeholt und gesichert. Geht
-      // an den Absender.
+      // die EIGENEN Nachrichten sind dort bis `zugestellt_bis` (kanonische
+      // ID) abgeholt und gesichert. Geht an den Absender.
       op: 'zustellung_bestaetigt';
       channel_id: string;
       user_id: string;
+      zugestellt_bis: string;
     }
   | {
-      // Serverseitiger Lesefortschritt (P0.2) — an beide Teilnehmer: der
-      // Partner baut Lese-Häkchen, die anderen Geräte des Lesenden
-      // löschen ihre Ungelesen-Zähler. Numerisch-opake ID.
+      // Serverseitiger Lesefortschritt (P0.2) — an den Lesenden (seine
+      // anderen Geräte löschen ihre Zähler) und, bei beidseitig
+      // eingeschalteten Lesebestätigungen, an den Partner (Lese-Häkchen).
+      // Numerisch-opake ID.
       op: 'dm_lesestand';
       channel_id: string;
       user_id: string;

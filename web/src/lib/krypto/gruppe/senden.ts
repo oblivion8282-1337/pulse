@@ -97,6 +97,18 @@ function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
 }
 
+/** Die Nachricht hat niemanden erreicht: lokal verwahren und als „nicht
+ *  zugestellt" kennzeichnen (`Message.nicht_zugestellt`) — die Anzeige zeigt
+ *  dann ein Warnzeichen statt des grauen Hakens, der „gesendet" behauptete. */
+async function nurLokalVerwahren(
+  kanalId: string,
+  nachricht: Message
+): Promise<{ art: 'lokal_ohne_zustellung'; nachricht: Message }> {
+  const verwahrt: Message = { ...nachricht, nicht_zugestellt: true };
+  await verlaufSpeichernPflicht(kanalId, [verwahrt]).catch((err) => verlaufZustand.melde(err));
+  return { art: 'lokal_ohne_zustellung', nachricht: verwahrt };
+}
+
 export async function sendeInGruppe(
   kanalId: string,
   klartext: string,
@@ -211,11 +223,9 @@ export async function sendeInGruppe(
       // Kein Mitglied hat ein veroeffentlichtes Geraet — es gibt niemanden,
       // an den zugestellt werden koennte. Ein Einliefern ohne Empfaenger
       // wuerde der Server ohnehin ablehnen (`empfaenger` min_length=1).
-      // Die Nachricht bleibt trotzdem lokal verwahrt (s. Schritt 6b).
-      await verlaufSpeichernPflicht(kanalId, [nachricht]).catch((err) =>
-        verlaufZustand.melde(err)
-      );
-      return { art: 'lokal_ohne_zustellung', nachricht };
+      // Die Nachricht bleibt trotzdem lokal verwahrt (s. Schritt 6b) — mit
+      // Merkmal, sonst traegt sie den normalen „gesendet"-Haken.
+      return nurLokalVerwahren(kanalId, nachricht);
     }
 
     // Schritt 7. Zwei Aufteilungen, zwei verschiedene Server-Grenzen:
@@ -265,10 +275,7 @@ export async function sendeInGruppe(
       // (z. B. kein Mitglied mit einem Buendel) — dann bleibt die
       // Nachricht lokal verwahrt (s. Schritt 6b).
       if (nachrichtFehler) throw nachrichtFehler;
-      await verlaufSpeichernPflicht(kanalId, [nachricht]).catch((err) =>
-        verlaufZustand.melde(err)
-      );
-      return { art: 'lokal_ohne_zustellung', nachricht };
+      return nurLokalVerwahren(kanalId, nachricht);
     }
 
     // Schritt 8 — jetzt erst gilt der Schluessel als verteilt, und nur an die

@@ -9,6 +9,7 @@
   import FlagIcon from '@lucide/svelte/icons/flag';
   import PinIcon from '@lucide/svelte/icons/pin';
   import PinOffIcon from '@lucide/svelte/icons/pin-off';
+  import InfoIcon from '@lucide/svelte/icons/info';
   import EmojiPicker from './EmojiPicker.svelte';
   // align="end": der Button sitzt am rechten Nachrichtenrand — der Picker
   // öffnet nach links, nicht (wie im Composer) nach rechts.
@@ -25,7 +26,8 @@
     onDelete,
     onReact,
     onReport,
-    onTogglePin
+    onTogglePin,
+    onInfo
   }: {
     canEdit: boolean;
     canDelete: boolean;
@@ -38,6 +40,8 @@
     onReact?: (emoji: string) => void;
     onReport?: () => void;
     onTogglePin?: () => void;
+    /** Wer hat gelesen? Nur an eigenen Gruppennachrichten gesetzt. */
+    onInfo?: () => void;
   } = $props();
 
   let pickerOpen = $state(false);
@@ -113,6 +117,19 @@
       {:else}
         <PinIcon class="size-4" />
       {/if}
+    </Button>
+  {/if}
+
+  {#if onInfo}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      title={m.message_actions_info()}
+      aria-label={m.message_actions_info()}
+      data-testid="message-action-info"
+      onclick={onInfo}
+    >
+      <InfoIcon class="size-4" />
     </Button>
   {/if}
 

@@ -20,7 +20,8 @@
   import type { Message } from '$lib/api/types';
   import PinIcon from '@lucide/svelte/icons/pin';
   import { m } from '$lib/paraglide/messages.js';
-	import { auth } from '$lib/stores/auth.svelte';
+  import Haekchen from './Haekchen.svelte';
+  import type { HaekchenStufe } from '$lib/nachrichten/haekchen';
 
   let {
     message,
@@ -28,9 +29,7 @@
     authorStyle = '',
     url,
     time,
-    pending = false,
-    leseBestaetigt = undefined,
-    zugestellt = undefined,
+    haekchen = null,
     isContinuation = false,
     highlight = false,
     onLongPress,
@@ -46,13 +45,10 @@
     authorStyle?: string;
     url: string | null;
     time: string;
-    /** WhatsApp-Treppe (Befund 05.10.): Uhr = nicht zugestellt, einfach
-     *  grau = gesendet, doppelt grau = angekommen, doppelt blau = alle
-     *  haben gelesen. Nur für eigene Nachrichten in DMs/privaten Gruppen
-     *  gesetzt; Community-Kanäle tragen keine Haken. */
-    pending?: boolean;
-    leseBestaetigt?: boolean;
-    zugestellt?: boolean;
+    /** WhatsApp-Treppe (`nachrichten/haekchen.ts`) — nur für eigene
+     *  Nachrichten in DMs/privaten Gruppen gesetzt; Community-Kanäle tragen
+     *  keine Haken (null). */
+    haekchen?: HaekchenStufe | null;
     isContinuation?: boolean;
     highlight?: boolean;
     onLongPress: () => void;
@@ -65,9 +61,6 @@
 
   /** Angepinnt → dezente Tönung + Nadel neben der Uhrzeit. */
   const pinned = $derived(!!message.pinned_at);
-  /** Eigene Nachricht? Bestimmt, ob die Haken-Treppe überhaupt erscheint
-   *  (nur der Absender sieht Zustände — WhatsApp-Semantik). */
-  const eigen = $derived(message.author_id === auth.user?.id);
 </script>
 
 <!--
@@ -91,23 +84,8 @@
   use:longpress={{ onLongPress }}
 >
   {#snippet haeckel()}
-  {#if eigen && pending}
-    <svg viewBox="0 0 12 12" class="text-text-muted inline size-3 align-baseline opacity-70" aria-label={m.message_lesebestaetigung_gesendet()} role="img">
-      <circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4" />
-      <path d="M6 3.4v2.8l1.9 1.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-    </svg>
-  {:else if eigen && (leseBestaetigt !== undefined || zugestellt !== undefined)}
-    <svg
-      viewBox="0 0 18 12"
-      class="mr-1 inline size-3.5 align-baseline {leseBestaetigt ? 'text-[#53bdeb] opacity-100' : 'text-text-muted opacity-70'}"
-      aria-label={leseBestaetigt ? m.message_lesebestaetigung_gelesen() : m.message_lesebestaetigung_gesendet()}
-      role="img"
-    >
-      <path d="M1 6.5 4.5 10 10.5 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-      {#if leseBestaetigt || zugestellt}
-        <path d="M6.9 9 8 10.3 15.4 2.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-      {/if}
-    </svg>
+  {#if haekchen}
+    <Haekchen stufe={haekchen} />
   {/if}
 {/snippet}
 {#if isContinuation}
