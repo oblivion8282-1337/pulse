@@ -393,14 +393,16 @@ bleibt im Anruf-Regler; Regler hat pro Weg eigene Indizes.
 
 **Offen (nächste Session):**
 
-- **dm_bump erreicht den Handy-Socket nicht**: Server fan-out grün
-  (publish_guild_event → GUILD_EVENTS_CHANNEL, DmBumpEvent gegencheckt),
-  Handy-WS authentifiziert (ready-Frame, richtige user_id), CDP-Sniffer
-  sieht den Frame trotzdem nicht. Nächster Hebel: `_ws_user`-Registration
-  + GUILD_EVENTS-Listener-Loop für diesen Socket verifizieren. Wichtig
-  für den Test: DMs real aus dem Composer schicken — HTTP-POST-Test-DMs
-  (mein Werkzeug heute) laufen über denselben publish, sind also gleich-
-  wertig; Composer-DMs mit E2EE additionally.
+- **GELÖST (00:14) — Popup für echte DMs**: die Kette hängt an einer
+  HMR-Mischinstanz des Hinweise-Wrappers: das modulare `let anfragt` war
+  in der Laufzeit „not defined“ (ReferenceError), der Wrapper-Catch
+  verschluckte still jede Meldung. Fix: `darf()` ist stateless — fragt
+  jedes Mal `plugin.erlaubt()` (Bridge-Call, billig) statt Seitenleben-
+  Cache. Zusätzlich Log-Spur `[hinweise] zeige:` pro Meldung. Der früher
+  vermutete „dm_bump kommt nicht am Socket an“-Befund war ein Artefakt:
+  ein Service Worker servierte der Seite alte vite-Module über Hard-
+  Reloads hinweg (SW im APK-Dev-Szenario sinnlos+gefährlich; Prod-PWA
+  behält ihn, ein Aus-Schalter fürs APK-Dev ist ein Thema).
 - **Screen-off-Popups mit Inhalt**: WebView friert ein (WS + Plugin-Calls
   stocken, CDP-Timeouts) — braucht FCM mit Inhalt. DMs sind E2EE →
   serverseitig unmöglich (Design, bewusst inhaltsfrei); Erwähnungen in

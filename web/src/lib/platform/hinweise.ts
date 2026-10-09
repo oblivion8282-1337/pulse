@@ -27,20 +27,15 @@ interface HinweisePlugin {
 
 const plugin = registerPlugin<HinweisePlugin>('Hinweise');
 
-/** Einmal pro Seitenleben gefragt — die erste Nachricht zeigt den
- *  System-Dialog statt des Popups, danach laufen die Popups frei. */
-let angefragt = false;
-
+/** Bewusst OHNE Seitenleben-Cache: ein modulares `let anfragt` knallte in
+ *  der Laufzeit als "not defined" (HMR-Mischinstanz, Nutzerbefund
+ *  2026-10-09) und verschluckte still alle Meldungen. Jeder Aufruf fragt
+ *  die native Wahrheit — der Bridge-Call ist billig. */
 async function darf(): Promise<boolean> {
-  if (!anfragt) {
-    anfragt = true;
-    const stand = await plugin.erlaubt();
-    if (!stand.erlaubt) {
-      await plugin.anfordern();
-      return false;
-    }
-  }
-  return true;
+  const stand = await plugin.erlaubt();
+  if (stand.erlaubt) return true;
+  await plugin.anfordern();
+  return false;
 }
 
 export async function zeigeHinweis(titel: string, text: string, id: string): Promise<void> {
@@ -65,6 +60,7 @@ export async function zeigeChatNachricht(opts: {
 }): Promise<void> {
   if (!isCapacitorAndroid()) return;
   try {
+    console.log('[hinweise] zeige:', opts.absender, '| chat', opts.chatId, '| vis', document.visibilityState);
     if (await darf()) await plugin.nachricht(opts);
   } catch (e) {
     console.warn('[hinweise] nachricht fehlgeschlagen', e);
