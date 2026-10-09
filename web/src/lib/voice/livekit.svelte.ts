@@ -463,7 +463,15 @@ class VoiceRoom {
     // mode switch a head start before any track exists. No-op off Capacitor-Android;
     // cleared again in #teardown on leave.
     await setVoiceActive(true);
-    await tonVoice('sprachkanal', true);
+    // **Bewusst NICHT abgewartet** (zurueckgenommen am 2026-10-10). Die
+    // Reihenfolge nach LiveKits Regel ist richtig gedacht — Session fertig,
+    // dann Mikrofon —, aber dahinter steht `AVAudioSession.setActive`, und
+    // das blockiert den Hauptthread, auf dem auch die Oberflaeche laeuft.
+    // Am Geraet fror die App daraufhin ein: nichts mehr anklickbar. Ein
+    // Vorsprung, der die App anhaelt, ist keiner. Wer das wieder angeht,
+    // braucht einen Weg, der den Hauptthread nicht haelt — nicht bloss ein
+    // `await` mehr.
+    void tonVoice('sprachkanal', true);
 
     // Aufgelegt, waehrend der Ruf-Modus gesetzt wurde — gar nicht erst
     // verbinden. Ohne diesen Wachposten baut der Handschlag den Raum noch
