@@ -26,10 +26,10 @@
 // MediaMTX' auth-hook ebenfalls (`localhost:8005` — der native Prozess IST der
 // Host, der Kommentar im Template gilt unverändert). Docker bleibt für das,
 // was es gut kann: die drei zustandslosen Infra-Container (Postgres, Redis,
-// MinIO) im Bridge-Netz.
+// Garage) im Bridge-Netz.
 //
 //   Rollenverteilung auf Windows:
-//     Docker Desktop : postgres :5434, redis :6380, minio :9000/9001
+//     Docker Desktop : postgres :5434, redis :6380, garage :9000
 //     nativ          : livekit :7880-7892, mediamtx :1936/8889/8890/8189/9997
 //     uv             : auth :8001, chat :8002, voice :8003, media :8004, hook :8005
 //     node           : vite :5173, electron
@@ -435,10 +435,10 @@ function lanIp() {
 // --- Docker / Migrationen --------------------------------------------------------
 
 async function containersUp(env) {
-  info('Container starten (Postgres + Redis + MinIO)');
+  info('Container starten (Postgres + Redis + Garage)');
   // Explizite Dienstliste statt --profile voice: LiveKit läuft hier nativ, der
   // profile-gestaffelte Container aus docker-compose.yml würde nur Port-Konflikte bauen.
-  const res = spawnSync(dockerCmd, ['compose', 'up', '-d', 'postgres', 'redis', 'minio', 'minio-init'], {
+  const res = spawnSync(dockerCmd, ['compose', 'up', '-d', 'postgres', 'redis', 'garage'], {
     cwd: REPO,
     encoding: 'utf8',
     shell: WIN,
@@ -458,6 +458,26 @@ async function containersUp(env) {
     );
     if (probe.status === 0) {
       ok('Container up (Postgres healthy)');
+      // Garage-Bootstrap (Layout + Bucket + S3-Key, idempotent) — das dxflrs-
+      // Image hat keine Shell, darum host-seitig per exec (22080a45, gleiches
+      // Muster wie dev-up.fish). Fehler sind kein die: der Stack läuft auch
+      // ohne Bucket, der nächste Lauf wiederholt den Bootstrap.
+      const gk = spawnSync('sh', ['scripts/dev-garage-init.sh'], {
+        cwd: REPO,
+        encoding: 'utf8',
+        shell: WIN,
+        // Git Bash (MSYS) wandelt Slash-Argumente wie `/garage` in
+        // Windows-Pfade (C:/Program Files/Git/garage) — der Bootstrap fände
+        // den Daemon nie. Die Variable schaltet die Konvertierung für den
+        // ganzen Skriptbaum ab; unter Linux unbekannt und harmlos.
+        env: { ...process.env, MSYS_NO_PATHCONV: '1' }
+      });
+      if (gk.status !== 0) {
+        warn('Garage-Bootstrap scheiterte — Anhaenge sind erst nach erneutem Start nutzbar');
+        if (gk.stderr) console.error(gk.stderr.toString().trim());
+      } else {
+        ok('Garage-Bootstrap (Bucket + Key)');
+      }
       return;
     }
     await new Promise((r) => setTimeout(r, 500));
@@ -518,9 +538,9 @@ function down() {
   // per Port geht es nicht (Electron horcht auf keinem). Best-effort über den
   // Fenster-Titel geht nicht ohne mehr Aufwand; wer Electron mit startet,
   // schließt es einfach — Strg+C räumt den Baum über den Task-Exit mit auf.
-  info('Container stoppen (Postgres / Redis / MinIO)');
+  info('Container stoppen (Postgres / Redis / Garage)');
   if (findDocker()) {
-    spawnSync(dockerCmd, ['compose', 'stop', 'postgres', 'redis', 'minio', 'minio-init'], {
+    spawnSync(dockerCmd, ['compose', 'stop', 'postgres', 'redis', 'garage'], {
       cwd: REPO,
       stdio: 'ignore',
       shell: WIN,
@@ -686,6 +706,17 @@ async function main() {
   containersUp(freshEnv);
   runMigrations(freshEnv);
 
+  // Garage-S3-Credentials (GK…-Key aus .garage-dev-credentials, von
+  // dev-garage-init.sh erzeugt) gegen die minioadmin-Defaults der config.py
+  // tauschen — Garage erzwingt das GK-Format (22080a45, wie dev-up.fish
+  // exportiert). Fehlt die Datei, bleiben die Defaults und Anhaenge bleiben
+  // tot — derselbe warn-Kompromiss wie beim Bootstrap oben.
+  let s3Env = {};
+  const gkCreds = readEnvFile(path.join(REPO, '.garage-dev-credentials'));
+  if (gkCreds.GARAGE_S3_KEY && gkCreds.GARAGE_S3_SECRET) {
+    s3Env = { S3_ACCESS_KEY: gkCreds.GARAGE_S3_KEY, S3_SECRET_KEY: gkCreds.GARAGE_S3_SECRET };
+  }
+
   // --- Uvicorns ---
   info('Alte Dienst-Instanzen stoppen (damit --reload sauber neu startet)');
   freePorts([8001, 8002, 8003, 8004, 8005]);
@@ -732,7 +763,7 @@ async function main() {
       CHAT_GATEWAY_URL: 'http://127.0.0.1:8002'
     }],
     ['chat-gateway', 'dcc_chat_gateway.app:app', ['--port', '8002', '--ws-max-size', '65536'], {
-      ...pgEnv, ...commonEnv, ...internalEnv, ...uploadEnv,
+      ...pgEnv, ...commonEnv, ...internalEnv, ...uploadEnv, ...s3Env,
       MEDIA_SVC_URL: 'http://127.0.0.1:8004'
     }],
     ['voice-signaling', 'dcc_voice_signaling.app:app', ['--port', '8003'], {
@@ -825,7 +856,7 @@ async function main() {
       '═══════════════════════════════════════════════',
       `  Oberfläche:   http://127.0.0.1:${vitePort}   (lokal, mit HMR)`,
       `  Backend:      lokal — auth :8001, chat :8002, voice :8003, media :8004, hook :8005`,
-      `  Infra:        postgres :${pgEnv.POSTGRES_PORT}  redis :6380  minio :9000  livekit :7880  mediamtx :8889`,
+      `  Infra:        postgres :${pgEnv.POSTGRES_PORT}  redis :6380  garage :9000  livekit :7880  mediamtx :8889`,
       '',
       `  Handy im LAN: PULSE_WEB_HOST=0.0.0.0 setzen, dann http://${lan}:${vitePort} vom Handy`,
       '                (Streaming klappt vom Handy; Voice bräuchte echte LiveKit-Keys — Dev-Keys gelten nur lokal)',

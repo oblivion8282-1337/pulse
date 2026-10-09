@@ -49,7 +49,9 @@ docker compose exec -T garage /garage bucket create pulse-attachments 2>/dev/nul
 
 # --- S3-Key ---------------------------------------------------------------
 if [ -f "$CREDS_FILE" ] && grep -q '^GARAGE_S3_KEY=' "$CREDS_FILE"; then
-  . "$CREDS_FILE"
+  # "./" ist Pflicht: `.` ohne Slash im Dateinamen durchsucht im POSIX-Modus
+  # nur den PATH (kein cwd-Fallback) — jeder ZWEITE Lauf schlug sonst fehl.
+  . "./$CREDS_FILE"
 else
   erstellung=$(docker compose exec -T garage /garage key create pulse 2>/dev/null)
   GARAGE_S3_KEY=$(printf '%s\n' "$erstellung" | awk '/^Key ID:/ {print $3}')
