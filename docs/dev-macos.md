@@ -91,3 +91,54 @@ Repo-Dev-Schlüsseln keine nicht-lokale URL annimmt.
 
 Fürs Testen über mehrere Geräte bleibt der Remote-Dev-Stack
 (`infra/dev-remote/README.md`).
+
+## „Stream wurde vom System gestoppt" — die Signatur, nicht Pulse
+
+**Symptom:** Übertragen startet, die Verbindung steht (`[whip] ice Connected`,
+`[whip] peer Connected`), und Sekunden später:
+
+```
+[capture] Bild-Aufnahme von macOS beendet: Stream wurde vom System gestoppt
+[capture] Ton-Aufnahme von macOS beendet: Stream wurde vom System gestoppt
+[whip] peer Closed: Verbindung verloren
+```
+
+Für den Nutzer sieht das aus wie „der Stream startet nicht". Es ist aber kein
+Fehler in Pulse: im Dev-Betrieb sind Electron und der Sidecar nur **adhoc**
+signiert (`Signature=adhoc`, `TeamIdentifier=not set`). macOS kann eine
+TCC-Erlaubnis dann an keine Identität binden und bindet sie an den
+INHALTS-HASH — die Erlaubnis sieht erteilt aus und das System beendet die
+Aufnahme trotzdem, spätestens nach dem nächsten `cargo build`.
+
+**Abhilfe:**
+
+```bash
+bash scripts/mac-dev-signieren.sh
+tccutil reset ScreenCapture com.github.Electron
+# Dev-App neu starten, beim ersten Übertragen die Aufnahme erlauben
+```
+
+**Nach jedem `cargo build --release` des Sidecars erneut signieren** — der Bau
+schreibt das Binary neu, und danach ist es wieder adhoc. Dasselbe nach einem
+`pnpm install` (ersetzt das Electron in `node_modules`).
+
+### Die Falle im Schlüsselbund (2026-10-09)
+
+Das Skript bevorzugt bewusst die Identität aus dem **Anmelde**-Schlüsselbund,
+nicht die „bessere" Developer ID. Grund: auf dieser Maschine liegt das
+Developer-ID-Zertifikat in einem eigenen `pulse-build.keychain-db`, der im
+Suchpfad VOR dem Anmelde-Schlüsselbund steht, **gesperrt** ist und ein eigenes
+Passwort hat — nicht das Anmeldepasswort. Wer „Developer ID" bevorzugt, greift
+dorthin und scheitert mit `errSecInternalComponent`. Das sieht nach einem
+Zertifikatsproblem aus und ist ein Schlüsselbund-Problem.
+
+Für den Zweck hier ist das ohne Belang: gebraucht wird nur eine STABILE
+Identität, damit TCC daran binden kann, und das leistet „Apple Development"
+genauso. „Developer ID" gehört zur Auslieferung, und die macht
+`electron-builder` in `mac-build.yml`.
+
+**Offen und nicht dringend, aber nicht vergessen:** der private Schlüssel des
+Developer-ID-Zertifikats liegt allein in diesem gesperrten Schlüsselbund. Für
+einen signierten Mac-Release braucht man ihn — also entweder das Passwort
+wiederfinden (Passwort-Verwaltung) oder das Zertifikat bei Apple neu
+ausstellen. **Den Schlüsselbund nicht löschen**, solange beides offen ist.
