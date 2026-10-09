@@ -71,6 +71,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AnrufPlugin.class);
         registerPlugin(VideoCapturePlugin.class);
         registerPlugin(VoicePlugin.class);
+        registerPlugin(HinweisePlugin.class);
         super.onCreate(savedInstanceState);
         // Bughunt Runde 45: Capacitor setzt KEINEN DownloadListener — ein
         // Android-WebView wirft Downloads STILLWEGE weg (Blob-URLs aus
@@ -100,6 +101,7 @@ public class MainActivity extends BridgeActivity {
         // hochkant — das Web gibt die Sperre frei, sobald ein Stream läuft.
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT);
         shareAusIntent(getIntent());
+        hinweisZiel(getIntent());
     }
 
     @Override
@@ -108,6 +110,16 @@ public class MainActivity extends BridgeActivity {
         setIntent(intent);
         // singleTask: ein Share in die laufende App kommt hier an.
         shareAusIntent(intent);
+        hinweisZiel(intent);
+    }
+
+    /** Tipp auf eine Chat-Benachrichtigung (HinweisePlugin): das SPA-Ziel
+     *  (z. B. '/app/@me/<id>') landet im Plugin, das Web holt es per
+     *  zielUrl() ab und navigiert. */
+    private void hinweisZiel(Intent intent) {
+        if (intent == null) return;
+        String ziel = intent.getStringExtra("pulse_ziel");
+        if (ziel != null && !ziel.isEmpty()) HinweisePlugin.setzeZielUrl(ziel);
     }
 
     /** ACTION_SEND (Übergabe P1.8, Share-Target): EXTRA_TEXT und/oder

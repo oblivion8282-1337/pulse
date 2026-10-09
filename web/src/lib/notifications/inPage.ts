@@ -14,9 +14,11 @@
  */
 
 import { goto } from '$app/navigation';
-import { isElectron } from '$lib/platform/runtime';
+import { isElectron, isCapacitorAndroid } from '$lib/platform/runtime';
+import { zeigeChatNachricht } from '$lib/platform/hinweise';
 import { settings } from '$lib/stores/settings.svelte';
 import { presence } from '$lib/stores/presence.svelte';
+import { voiceState } from '$lib/voice/state.svelte';
 import { dispatchingServerId } from '$lib/ws/gateway-connection';
 import { serversStore } from '$lib/api/servers.svelte';
 import { sichtschutzAktiv } from '$lib/remote/sichtschutz';
@@ -123,13 +125,34 @@ function shouldFire(input: InPageNotifyInput): boolean {
 export function fireInPageNotification(input: InPageNotifyInput): void {
   if (typeof document === 'undefined') return;
   if (!shouldFire(input)) return;
+  // Im Sprachkanal (APK) poppt es auch bei sichtbarer App: der Nutzer redet
+  // und schaut nicht aufs Chat-Fenster (Discord-Verhalten). Überall sonst
+  // gilt: nur im Hintergrund/ohne Fokus.
+  const imSprachkanal = isCapacitorAndroid() && voiceState.connected;
   const inBackground =
-    document.visibilityState === 'hidden' || !document.hasFocus();
+    imSprachkanal || document.visibilityState === 'hidden' || !document.hasFocus();
   if (!inBackground) return;
 
   // Attribute third-party (self-host) notifications so the title can't
   // impersonate Pulse Cloud — see originPrefix().
   const title = originPrefix() + input.title;
+
+  if (isCapacitorAndroid()) {
+    // APK: der WebView kennt kein `new Notification()` — WhatsApp-Stil über
+    // das native Hinweise-Plugin (MessagingStyle je Chat, Avatar, Badge;
+    // Ziel-Navigation macht das Plugin per zielUrl-Handshake). absender = der
+    // präfixierte Titel (originPrefix gegen Imitation, siehe oben).
+    void zeigeChatNachricht({
+      chatId: input.channelId ?? input.targetUrl ?? 'freunde',
+      absender: title,
+      text: input.body,
+      id: input.messageId ?? '',
+      avatar: input.iconUrl ?? undefined,
+      ziel: buildTargetUrl(input),
+      anzahl: 1
+    });
+    return;
+  }
 
   if (isElectron()) {
     // Electron: hand off to the main process IPC bridge. `notify` may be
