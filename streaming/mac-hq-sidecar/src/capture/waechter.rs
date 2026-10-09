@@ -65,10 +65,19 @@ define_class!(
     unsafe impl SCStreamDelegate for StreamWaechter {
         #[unsafe(method(stream:didStopWithError:))]
         fn stream_did_stop(&self, _stream: &SCStream, error: &NSError) {
+            // Domain UND Code gehoeren mit in die Zeile. Der lokalisierte
+            // Text ist ein Sammelbegriff: `Stream wurde vom System gestoppt`
+            // steht gleichermassen fuer eine Speicherwarnung, einen
+            // verschwundenen Bildschirm und einen Entzug der Berechtigung. Am
+            // 2026-10-09 kostete genau das eine lange Fehlersuche — die
+            // Ursache (`replayd` beendet bei Speicherdruck ALLE Stroeme) war
+            // allein im System-Log zu finden, nicht in unserem.
             let grund = format!(
-                "{}-Aufnahme von macOS beendet: {}",
+                "{}-Aufnahme von macOS beendet: {} [{} {}]",
                 self.ivars().art,
-                error.localizedDescription()
+                error.localizedDescription(),
+                error.domain(),
+                error.code()
             );
             eprintln!("[capture] {grund}");
             // **Nur den ERSTEN Grund behalten.** Endet der Bild-Strom, zieht

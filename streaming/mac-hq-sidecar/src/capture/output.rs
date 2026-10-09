@@ -82,6 +82,22 @@ impl FrameOutput {
     }
 
     fn handle_video(&self, sample_buffer: &CMSampleBuffer) {
+        // Schneller Ausstieg ohne Senke — Gegenstueck zum `handle_audio` unten.
+        // Der TON-Strom registriert diesen Abnehmer seit dem 2026-10-09 auch
+        // fuer `Screen` (s. `mod.rs`), und dort ist `video_post` immer `None`:
+        // seine 2x2-Bilder werden gebraucht, damit ScreenCaptureKit den Strom
+        // ueberhaupt annimmt, abgeholt werden sie nie. Ohne diesen Ausstieg
+        // baute jede Sekunde ein `Frame` samt Puffer-Retain, nur um gleich
+        // darauf verworfen zu werden.
+        if self
+            .ivars()
+            .video_post
+            .lock()
+            .map(|p| p.is_none())
+            .unwrap_or(true)
+        {
+            return;
+        }
         // SAFETY: a screen sample buffer is backed by a CVPixelBuffer. We retain
         // it and hand it on **without locking or copying** — the IOSurface stays
         // on the GPU and the encoder wraps it as a VideoToolbox hw-frame.
