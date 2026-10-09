@@ -135,6 +135,9 @@
         <Input
           id="reg-username"
           type="text"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck={false}
           bind:value={username}
           required
           minlength={3}

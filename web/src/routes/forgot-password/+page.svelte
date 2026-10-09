@@ -85,10 +85,16 @@
           >
             {m.forgot_password_email_or_username_label()}
           </FieldLabel>
+          <!-- Wie beim Anmeldefeld: iOS schreibt den ersten Buchstaben sonst
+               gross und unterringelt den Namen. `type="email"`-Felder brauchen
+               das nicht, dort laesst WebKit beides von selbst weg. -->
           <Input
             id="forgot-identifier"
             type="text"
             autocomplete="username"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck={false}
             bind:value={emailOrUsername}
             required
             data-testid="forgot-identifier"

@@ -316,6 +316,9 @@
       <Label for="profile-username">{m.settings_profile_username_label()}</Label>
       <Input
         id="profile-username"
+        autocapitalize="none"
+        autocorrect="off"
+        spellcheck={false}
         bind:value={username}
         placeholder={initial.username}
         maxlength={32}

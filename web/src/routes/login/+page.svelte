@@ -287,10 +287,19 @@
           >
             {m.login_label_identifier()}
           </FieldLabel>
+          <!-- autocapitalize/autocorrect/spellcheck aus: iOS schreibt sonst den
+               ersten Buchstaben gross (aus "dev" wird "Dev") und unterringelt
+               den Namen. Die Anmeldung selbst vertraegt das seit dem
+               2026-09-21 (`func.lower(User.username)`, auth routes.py), es
+               sieht nur falsch aus — und bei der E-Mail-Variante waere eine
+               Autokorrektur echter Schaden. -->
           <Input
             id="login-identifier"
             type="text"
             autocomplete="username"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck={false}
             bind:value={emailOrUsername}
             required
             data-testid="login-identifier"
