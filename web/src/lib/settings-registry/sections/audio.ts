@@ -42,6 +42,35 @@ export type AudioSettings = {
    * einen Bericht, dass WebRTC-Engines auf dieser Route verstummen. Stille
    * ist für eine Sprach-App der schlimmste Fehlschlag; die Vorgabe wechselt,
    * wenn sie an einem Gerät gemessen ist.
+   *
+   * **Und seit dem 2026-10-10 ist eine zweite Hürde gemessen, die VOR der
+   * ersten liegt: dieser Schalter würde heute doppelt filtern.**
+   *
+   * Am Gerät mitgeschnitten (`idevicesyslog`, Sprachkanal, ohne Kopfhörer):
+   * das Mikrofon nimmt NICHT unsere App-Session auf, sondern die der
+   * WebView — `CMSUtility_SetIsRecording: Client sid:0x…, com.apple.WebKit,
+   * 'prim' has started recording`. Der systemweite Modus war dabei
+   * `VideoChat` (405 Treffer), und Apples Verarbeitung lief sichtbar:
+   * 655× `AUVoiceIO`, 594× `EchoCancellation`. Unser Plugin setzt sein
+   * `voiceChat` auf einer Session, die gar nichts aufnimmt.
+   *
+   * Heute stimmt das Ergebnis trotzdem — beide Modi schalten Apples
+   * Verarbeitung ein, `systemFiltert` trifft also zu. **Zufällig, nicht
+   * ursächlich.** Mit diesem Schalter AN bräche der Zufall:
+   *
+   * 1. Unser Plugin stellt auf `default` um und meldet „Apple filtert nicht".
+   * 2. `voice/filterwahl.ts` schaltet daraufhin RNNoise dazu.
+   * 3. WebKit lässt seine Session unverändert im Sprach-Modus — Apple
+   *    filtert weiter.
+   * 4. Zwei Rauschunterdrückungen in Reihe: abgeschnittene Wortanfänge,
+   *    blecherner Klang. Genau der Fehler, gegen den `filterwahl.ts`
+   *    geschrieben wurde.
+   *
+   * **Wer diesen Schalter einschalten will, muss also zuerst WebKits Session
+   * erreichen** — und der einzige Hebel dafür ist `navigator.audioSession`
+   * (`platform/iosTon.ts`, dort hinter `WEB_AUDIO_SESSION_AN` abgeschaltet,
+   * weil ein erster Versuch die App aufhängte). Vorher ist der Schalter nicht
+   * „fertig und nur noch ungemessen", sondern nachweislich schädlich.
    */
   bluetoothHq: boolean;
   noiseGateThresholdDb: number;

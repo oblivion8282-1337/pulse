@@ -13,7 +13,16 @@
  * Die Regel dreht sich also nicht um „iOS ja/nein", sondern um die FRAGE
  * „filtert das System schon?". Das weiss nur die Hülle, und sie sagt es: der
  * Modus kommt aus `setVoiceActive` zurück (`voiceChat` = System filtert,
- * `default` = nicht). Damit stimmt die Rechnung auch auf der
+ * `default` = nicht).
+ *
+ * **Achtung, diese Auskunft beschreibt die falsche Session** (am Gerät
+ * gemessen am 2026-10-10, Zahlen an `settings-registry/sections/audio.ts`
+ * bei `bluetoothHq`): das Mikrofon nimmt die Session der WebView auf, nicht
+ * die unserer Hülle. Heute stimmt das Ergebnis dennoch, weil beide Modi
+ * Apples Verarbeitung einschalten — ein Zufallstreffer. Er hält genau so
+ * lange, wie `bluetoothHq` aus bleibt; mit dem Schalter AN läge hier „Apple
+ * filtert nicht" vor, während Apple weiter filtert, und die Rechnung unten
+ * schaltete RNNoise obendrauf. Damit stimmt die Rechnung auch auf der
  * Hochqualitäts-Route über Bluetooth, wo Apples Verarbeitung ausgeschaltet
  * ist und RNNoise gebraucht wird.
  *

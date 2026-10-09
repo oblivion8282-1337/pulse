@@ -135,6 +135,17 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Richtet die Sprach-Session für den aktuellen Weg ein und liefert den
     /// gewählten Modus (`voiceChat` oder `default`).
+    /// **Diese Session nimmt das Mikrofon NICHT auf.** Am 2026-10-10 am Gerät
+    /// mitgeschnitten: aufgenommen wird auf der Session der WebView
+    /// (`com.apple.WebKit`, `has started recording`), der systemweite Modus
+    /// war `VideoChat`. Was hier gesetzt wird, beschreibt also eine zweite,
+    /// tonlose Session — und der zurückgelieferte Modus, an dem die eigene
+    /// Rauschunterdrückung hängt, beschreibt sie mit.
+    ///
+    /// Heute geht das gut, weil `voiceChat` und `VideoChat` beide Apples
+    /// Verarbeitung einschalten. Es bricht, sobald `hqFunk` auf `default`
+    /// stellt — die volle Herleitung steht an der Einstellung `bluetoothHq`
+    /// (`web/src/lib/settings-registry/sections/audio.ts`).
     private func voiceEinrichten(_ session: AVAudioSession, hqFunk: Bool) throws -> String {
         // `.allowBluetoothHFP` (früher `.allowBluetooth`) — der neue Name sagt,
         // was die Option wirklich tut: sie ERLAUBT das Hands-Free-Profil, und
