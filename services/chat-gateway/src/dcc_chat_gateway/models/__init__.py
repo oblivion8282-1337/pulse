@@ -13,7 +13,7 @@ from dcc_chat_gateway.models.ablage_laufwerk import (
 )
 from dcc_chat_gateway.models.ablage_pulse import AblagePulseLaufwerk, AblagePulseObjekt
 from dcc_chat_gateway.models.ablage_zwischenlager import AblageZwischenlagerDatei
-from dcc_chat_gateway.models.private_gruppen import GruppenLesestand
+from dcc_chat_gateway.models.private_gruppen import GruppenLesestand, Zustellstand
 from dcc_chat_gateway.models.anrufe import (
     ART_DM,
     ART_GRUPPE,
@@ -169,4 +169,5 @@ __all__ = [
     "UserPreference",
     "UserPrivacy",
     "WebPushSubscription",
+    "Zustellstand",
 ]
