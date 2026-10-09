@@ -173,6 +173,14 @@ class VoiceRoom {
 
   /** True when the browser blocked audio playback (autoplay policy). */
   audioBlocked = $state(false);
+  /** WARUM die Wiedergabe nicht anlief — roh, so wie WebKit es nennt.
+   *
+   *  Steht in der Überlagerung mit drin, weil der Käfer-Dialog (das eigentliche
+   *  Diagnose-Gedächtnis) auf dem Handy nicht erreichbar ist: er hängt an
+   *  `UserFooter` → `SidebarFooter`, und die ist auf Mobil ausgeblendet. Eine
+   *  Diagnose, an die man dort nicht herankommt, wo der Fehler auftritt, ist
+   *  keine. Leer, solange nichts abgelehnt wurde. */
+  audioBlockGrund = $state('');
 
   /** 0..1 instantaneous level of the local microphone (for the meter). */
   localMicLevel = $state(0);
@@ -1462,6 +1470,7 @@ class VoiceRoom {
               userIdFromIdentity(p.identity) ?? p.identity,
               (grund) => {
                 this.audioBlocked = true;
+                this.audioBlockGrund = grund;
                 // Ins Kaefer-Gedaechtnis, nicht nur in die Konsole: am Telefon
                 // ist die Konsole nur ueber ein Kabel und Safari erreichbar,
                 // und genau dort faellt dieser Fehler an. Ohne Beleg blieb

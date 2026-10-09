@@ -256,6 +256,15 @@ import { errText } from '$lib/utils/errText';
         <VolumeXIcon class="text-text-muted size-10" />
         <p class="text-text-bright text-sm font-medium">{m.voice_channel_view_audio_blocked_title()}</p>
         <p class="text-text-muted text-xs">{m.voice_channel_view_audio_blocked_hint()}</p>
+        <!-- Der rohe Grund, solange es einen gibt. Absichtlich unübersetzt: es
+             ist WebKits eigener Fehlername, und der ist der einzige Hinweis,
+             der am Gerät überhaupt ankommt — der Käfer-Dialog hängt an der auf
+             Mobil ausgeblendeten Seitenleiste. -->
+        {#if voice.audioBlockGrund}
+          <p class="text-text-muted/70 font-mono text-[10px]" data-testid="audio-blocked-grund">
+            {voice.audioBlockGrund}
+          </p>
+        {/if}
         <Button onclick={() => void voice.unblockAudio()} data-testid="audio-unblock-btn">
           {m.voice_channel_view_audio_enable()}
         </Button>
