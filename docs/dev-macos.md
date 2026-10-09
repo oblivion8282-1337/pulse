@@ -122,23 +122,47 @@ tccutil reset ScreenCapture com.github.Electron
 schreibt das Binary neu, und danach ist es wieder adhoc. Dasselbe nach einem
 `pnpm install` (ersetzt das Electron in `node_modules`).
 
-### Die Falle im Schlüsselbund (2026-10-09)
+### Die Falle im Schlüsselbund (2026-10-09, am selben Tag aufgelöst)
 
-Das Skript bevorzugt bewusst die Identität aus dem **Anmelde**-Schlüsselbund,
-nicht die „bessere" Developer ID. Grund: auf dieser Maschine liegt das
-Developer-ID-Zertifikat in einem eigenen `pulse-build.keychain-db`, der im
-Suchpfad VOR dem Anmelde-Schlüsselbund steht, **gesperrt** ist und ein eigenes
-Passwort hat — nicht das Anmeldepasswort. Wer „Developer ID" bevorzugt, greift
-dorthin und scheitert mit `errSecInternalComponent`. Das sieht nach einem
-Zertifikatsproblem aus und ist ein Schlüsselbund-Problem.
+Das Skript nimmt eine Identität aus dem **Anmelde**-Schlüsselbund und
+bevorzugt dort ausdrücklich „Apple Development". Gebraucht wird hier nur eine
+STABILE Identität, damit TCC die Erlaubnis an sie binden kann statt an einen
+Inhalts-Hash — das leistet „Apple Development" genauso wie „Developer ID".
+„Developer ID" gehört zur Auslieferung, und die macht `electron-builder` in
+`mac-build.yml`.
 
-Für den Zweck hier ist das ohne Belang: gebraucht wird nur eine STABILE
-Identität, damit TCC daran binden kann, und das leistet „Apple Development"
-genauso. „Developer ID" gehört zur Auslieferung, und die macht
-`electron-builder` in `mac-build.yml`.
+**Was an diesem Tag schiefging.** Das Developer-ID-Zertifikat lag in einem
+eigenen `pulse-build.keychain-db`, der im Suchpfad VOR dem
+Anmelde-Schlüsselbund stand, **gesperrt** war und ein eigenes Passwort hatte —
+nicht das Anmeldepasswort. Zwei Folgen, beide irreführend: ein Skript, das
+„Developer ID" bevorzugt, griff dorthin und scheiterte mit
+`errSecInternalComponent` (sieht nach einem Zertifikatsproblem aus, ist ein
+Schlüsselbund-Problem); und **jedes** `security`- oder `codesign`-Kommando lief
+den Suchpfad ab und riss ein Passwortfenster auf, in dem das Anmeldepasswort
+grundsätzlich nicht passen konnte.
 
-**Offen und nicht dringend, aber nicht vergessen:** der private Schlüssel des
-Developer-ID-Zertifikats liegt allein in diesem gesperrten Schlüsselbund. Für
-einen signierten Mac-Release braucht man ihn — also entweder das Passwort
-wiederfinden (Passwort-Verwaltung) oder das Zertifikat bei Apple neu
-ausstellen. **Den Schlüsselbund nicht löschen**, solange beides offen ist.
+**Wie es ausging.** Ein neues Developer-ID-Zertifikat in Xcode ausgestellt
+(Einstellungen → Accounts → Manage Certificates → + → Developer ID
+Application) — der frische private Schlüssel landet dabei im
+Anmelde-Schlüsselbund —, und `pulse-build` aus dem Suchpfad genommen:
+
+```bash
+security list-keychains -s ~/Library/Keychains/login.keychain-db /Library/Keychains/System.keychain
+```
+
+Die Datei bleibt liegen; der alte Schlüssel ist nicht gelöscht, nur
+unerreichbar.
+
+**Zwei Dinge folgen daraus.**
+
+- Seither liegen ZWEI Identitäten im Anmelde-Schlüsselbund. Das Skript greift
+  deshalb nicht mehr blind die erste ab, sondern sucht „Apple Development"
+  gezielt: die Reihenfolge von `find-identity` ist Einfügereihenfolge, kein
+  Versprechen, und ein stiller Wechsel der Signatur-Identität würde die
+  TCC-Erlaubnis entwerten — also genau den Fehler zurückbringen, gegen den das
+  Skript gebaut ist.
+- Wurde das alte Zertifikat bei Apple **widerrufen**, ist das `.p12` in den
+  GitHub-Secrets (`CSC_LINK`/`CSC_KEY_PASSWORD`, s. `mac-build.yml`) ungültig
+  und der nächste signierte Mac-Release schlägt dort fehl. Reparatur: das neue
+  Zertifikat samt privatem Schlüssel als `.p12` exportieren und beide Secrets
+  neu setzen. Ungeprüft — der Widerruf ist nicht nachgesehen worden.

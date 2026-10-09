@@ -40,25 +40,39 @@ fi
 # ── Welche Identität, und warum NICHT die „bessere" ──────────────────────────
 # Gebraucht wird hier nur eines: eine STABILE Identität, damit TCC die
 # Erlaubnis an sie binden kann statt an einen Inhalts-Hash. Das leistet
-# „Apple Development" genauso wie „Developer ID Application".
+# „Apple Development" genauso wie „Developer ID Application". „Developer ID"
+# gehört zur AUSLIEFERUNG, und die macht `electron-builder` in `mac-build.yml`
+# — nicht dieses Skript.
 #
-# Bevorzugt wird deshalb bewusst die Identität aus dem ANMELDE-Schlüsselbund.
-# Grund (gefunden am 2026-10-09): auf dieser Maschine liegt das
-# Developer-ID-Zertifikat in einem eigenen `pulse-build.keychain-db`, der im
-# Suchpfad VOR dem Anmelde-Schlüsselbund steht, gesperrt ist und ein eigenes
-# Passwort hat — nicht das Anmeldepasswort. Ein Skript, das „Developer ID"
-# bevorzugt, greift dorthin und scheitert mit `errSecInternalComponent`; das
-# sieht nach einem Zertifikatsproblem aus und ist ein Schlüsselbund-Problem.
+# Gesucht wird deshalb im ANMELDE-Schlüsselbund, und dort gezielt nach
+# „Apple Development" statt blind nach der ersten Zeile. Grund: seit dem
+# 2026-10-09 liegen hier ZWEI Identitäten (das Developer-ID-Zertifikat wurde
+# in Xcode neu ausgestellt und landete damit ebenfalls im Anmelde-Bund). Die
+# Reihenfolge von `find-identity` ist Einfügereihenfolge, kein Versprechen —
+# ein `head -1` könnte nach einer Umsortierung still die andere Identität
+# nehmen, und ein Wechsel der Signatur-Identität entwertet genau die
+# TCC-Erlaubnis, um die es hier geht.
 #
-# „Developer ID" gehört zur AUSLIEFERUNG, und die macht `electron-builder` in
-# `mac-build.yml` — nicht dieses Skript. Überschreibbar mit
-# PULSE_SIGN_IDENTITY, wenn man es doch will (dann muss der Schlüsselbund mit
-# dem Zertifikat entsperrt sein).
+# Vorgeschichte, weil der Fehler nicht wie ein Schlüsselbund-Fehler aussieht:
+# davor lag das Developer-ID-Zertifikat in einem gesperrten, eigenen
+# `pulse-build.keychain-db` VOR dem Anmelde-Bund im Suchpfad. Wer „Developer
+# ID" bevorzugte, griff dorthin und scheiterte mit `errSecInternalComponent`.
+# Voll in `docs/dev-macos.md`.
+#
+# Überschreibbar mit PULSE_SIGN_IDENTITY (dann muss der Schlüsselbund mit dem
+# Zertifikat entsperrt sein).
 LOGIN_KC="$HOME/Library/Keychains/login.keychain-db"
 ID="${PULSE_SIGN_IDENTITY:-}"
 if [ -z "$ID" ]; then
-  ID=$(security find-identity -v -p codesigning "$LOGIN_KC" 2>/dev/null |
-    sed -n 's/.*"\([^"]*\)".*/\1/p' | head -1 || true)
+  VORHANDEN=$(security find-identity -v -p codesigning "$LOGIN_KC" 2>/dev/null |
+    sed -n 's/.*"\([^"]*\)".*/\1/p' || true)
+  ID=$(printf '%s\n' "$VORHANDEN" | grep -m1 '^Apple Development:' || true)
+  # Kein „Apple Development" vorhanden: jede stabile Identität ist besser als
+  # adhoc, also die erste nehmen — aber sichtbar, nicht stillschweigend.
+  if [ -z "$ID" ]; then
+    ID=$(printf '%s\n' "$VORHANDEN" | sed -n '1p' || true)
+    [ -n "$ID" ] && echo "⚠ Kein Apple-Development-Zertifikat im Anmelde-Schlüsselbund — nehme die erste Identität."
+  fi
 fi
 if [ -z "$ID" ]; then
   echo "✗ Keine Signatur-Identität im Anmelde-Schlüsselbund gefunden." >&2
