@@ -152,10 +152,9 @@ public class HinweisePlugin extends Plugin {
                         java.net.URL u = new java.net.URL(avatarUrl);
                         avatar = android.graphics.BitmapFactory.decodeStream(u.openConnection().getInputStream());
                     } catch (Exception e) {
-                        Log.w("Hinweise", "Avatar nicht ladbar — Standard-Kreis", e);
+                        Log.w("Hinweise", "Avatar nicht ladbar — Standard-Icon", e);
                     }
                 }
-                if (avatar != null) avatar = kreis(avatar);
 
                 Intent rein = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
                 if (!ziel.isEmpty()) rein.putExtra("pulse_ziel", ziel);
@@ -229,20 +228,6 @@ public class HinweisePlugin extends Plugin {
         });
         laden.start();
         call.resolve();
-    }
-
-    /** Kontaktbild als Kreis zuschneiden (RemoteViews kann nicht runden). */
-    private static android.graphics.Bitmap kreis(android.graphics.Bitmap src) {
-        if (src == null) return null;
-        int kante = Math.min(src.getWidth(), src.getHeight());
-        android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(
-                kante, kante, android.graphics.Bitmap.Config.ARGB_8888);
-        android.graphics.Canvas c = new android.graphics.Canvas(out);
-        android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        c.drawCircle(kante / 2f, kante / 2f, kante / 2f, p);
-        p.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN));
-        c.drawBitmap(src, (kante - src.getWidth()) / 2f, (kante - src.getHeight()) / 2f, p);
-        return out;
     }
 
     /** Web holt das beim letzten Tipp gesetzte SPA-Ziel (und räumt es ab). */
