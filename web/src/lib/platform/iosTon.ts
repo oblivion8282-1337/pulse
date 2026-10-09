@@ -115,7 +115,21 @@ let webTyp: AudioSessionTyp | null = null;
  * NATIVE Einrichtung erneut laeuft — die Absichtserklaerung an WebKit muss
  * deswegen aber nicht neu geschrieben werden.
  */
+/**
+ * **AUS, seit dem 2026-10-10 am Geraet.** Das Setzen des Typs liess die App
+ * haengen: `navigator.audioSession.type` konfiguriert die AVAudioSession, und
+ * unser `AudioSessionPlugin` tut dasselbe — beide gleichzeitig, auf derselben
+ * Session. Der Verdacht ist damit noch nicht bewiesen, aber eine haengende App
+ * ist nicht der Zustand, in dem man weitersucht.
+ *
+ * Die Abbildung bleibt stehen (samt Tests): die Luecke ist echt, WebKit kennt
+ * unsere Absicht weiterhin nicht. Was fehlt, ist das WIE — vermutlich nicht
+ * gleichzeitig mit dem nativen Einrichten, sondern davor und einmalig.
+ */
+const WEB_AUDIO_SESSION_AN = false;
+
 function webAudioSession(ziel: TonModus): void {
+  if (!WEB_AUDIO_SESSION_AN) return;
   const typ = audioSessionTyp(ziel);
   if (typ === webTyp) return;
   if (typeof navigator === 'undefined') return;
@@ -211,12 +225,24 @@ function unterbrechungenBeobachten(): void {
  * `kennung` unterscheidet die Verbraucher (`'sprachkanal'`, `'anruf'`). Ohne
  * sie würde der eine dem anderen die Session wegnehmen — Begründung an
  * `voiceQuellen`.
+ *
+ * **Gibt seit dem 2026-10-10 ein Promise zurück, und beim ANMELDEN muss darauf
+ * gewartet werden.** LiveKits eigene iOS-Dokumentation verlangt, dass die
+ * AVAudioSession mit `.playAndRecord`/`.voiceChat` eingerichtet UND aktiviert
+ * ist, BEVOR ein Mikrofon veröffentlicht wird. Vorher stiess diese Funktion
+ * die Einrichtung nur an (`void anwenden()`) und kehrte sofort zurück — das
+ * Veröffentlichen konnte sie überholen. Auf Android steht die Regel seit
+ * jeher daneben (`await setVoiceActive(true)`), mit derselben Begründung; die
+ * iOS-Hälfte fehlte schlicht.
+ *
+ * Beim ABMELDEN ist Warten unnötig: danach kommt keine Spur mehr, die zu früh
+ * sein könnte. Dort bleibt es bei `void` — wieder wie auf Android.
  */
-export function tonVoice(kennung: string, aktiv: boolean): void {
+export function tonVoice(kennung: string, aktiv: boolean): Promise<void> {
   unterbrechungenBeobachten();
   if (aktiv) voiceQuellen.add(kennung);
   else voiceQuellen.delete(kennung);
-  void anwenden();
+  return anwenden();
 }
 
 /**

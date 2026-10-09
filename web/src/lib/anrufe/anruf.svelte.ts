@@ -597,7 +597,7 @@ class AnrufStore {
       // Eigene Kennung, nicht `'sprachkanal'`: Anruf und Kanal laufen
       // unabhängig, und mit einer gemeinsamen Kennung nähme das Auflegen dem
       // Kanal die Session weg (s. `platform/iosTon.ts`).
-      tonVoice('anruf', true);
+      await tonVoice('anruf', true);
 
       await room.connect(resp.ws_url, resp.token);
       if (gen !== this.#abbauGen) {
@@ -659,7 +659,7 @@ class AnrufStore {
     // Android: Ruf-Modus + Mic-Dienst freigeben (No-op außerhalb des Wrappers) —
     // sonst bleibt das Telefon im Call-Modus hängen (falscher Lautstärkeregler).
     void setVoiceActive(false);
-    tonVoice('anruf', false);
+    void tonVoice('anruf', false);
   }
 }
 
