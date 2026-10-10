@@ -20,6 +20,7 @@ import { goto } from '$app/navigation';
 import { request } from '$lib/api/client';
 import { drafts } from '$lib/stores/drafts.svelte';
 import { isCapacitorAndroid, isCapacitorIOS } from './runtime';
+import { badgeNachziehen } from './badge';
 import { berechtigungsblatt } from './berechtigung.svelte';
 import type { Stand } from './berechtigungRegel';
 import { pushGeraetId } from './geraeteKennungPush';
@@ -178,9 +179,10 @@ function alsStand(receive: 'granted' | 'denied' | 'prompt'): Stand {
  * nicht wieder) steht in `berechtigungRegel.ts`.
  *
  * Mehrfache Aufrufe sind billig: liegt die Erlaubnis vor oder ist sie
- * verweigert, sagt die Regel schon „keine Erklärung" und `requestPermissions`
- * wird gar nicht erreicht. Still bei jedem Fehler — eine Mitteilungs-Erlaubnis
- * ist nichts, wofür man eine Fehlermeldung zeigt.
+ * verweigert, kehrt die Funktion vor jeder Frage zurück; fehlt der Anlass oder
+ * wurde die Erklärung schon weggetippt, sagt die Regel „nicht", und
+ * `requestPermissions` wird gar nicht erreicht. Still bei jedem Fehler — eine
+ * Mitteilungs-Erlaubnis ist nichts, wofür man eine Fehlermeldung zeigt.
  */
 export async function mitteilungenAnfragen(): Promise<void> {
   const fcm = plugin();
@@ -192,6 +194,9 @@ export async function mitteilungenAnfragen(): Promise<void> {
     if (!(await berechtigungsblatt.fragen('mitteilungen', stand))) return;
     const neu = await fcm.requestPermissions();
     if (neu.receive !== 'granted') return;
+    // Bis eben hat `badgeSetzen` nichts getan (es fragt nie selbst) — die
+    // Plakette jetzt nachziehen, nicht erst bei der nächsten Nachricht.
+    badgeNachziehen();
     await meldeAn(fcm);
   } catch {
     /* Kein Firebase-Setup / keine Session / offline — bewusst still. */

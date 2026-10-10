@@ -27,6 +27,7 @@ import { keypairStore } from '$lib/identity/keypair.svelte';
 import { idbIdentityLeeren } from '$lib/identity/idb-shared';
 import { clearLegacyStreamCredentials } from '$lib/stream/persistence';
 import { renewSession } from '$lib/api/cookie-client';
+import { badgeMeldungZuruecksetzen } from '$lib/platform/badgeMelden';
 
 const ACCESS_KEY = 'dcc.tokens.access';
 
@@ -257,6 +258,7 @@ class AuthStore {
       void import('$lib/platform/fcm').then((m) => m.abmeldeFcmToken());
       void import('$lib/platform/voipToken').then((m) => m.voipTokenAbmelden());
       void import('$lib/platform/schnellwahl').then((m) => m.schnellwahlLeeren());
+      badgeMeldungZuruecksetzen(); // Begründung in signOut()
       // Self-Host-Connections + Session-Tokens des Vorgängers schließen.
       for (const s of serversStore.servers) {
         if (s.isCloud) continue;
@@ -408,6 +410,9 @@ class AuthStore {
     void import('$lib/platform/fcm').then((m) => m.abmeldeFcmToken(pushBearer));
     void import('$lib/platform/voipToken').then((m) => m.voipTokenAbmelden(pushBearer));
     void import('$lib/platform/schnellwahl').then((m) => m.schnellwahlLeeren());
+    // Drosselstand ist ein Modul-Singleton: ohne Rücksetzen meldete der nächste
+    // Nutzer seine ungeladene 0 und löschte SEINEN Serverzähler (badgeDrossel.ts).
+    badgeMeldungZuruecksetzen();
     clearTokens();
     // Voice-Resume verwerfen — nach explizitem Logout darf der nächste Boot
     // nicht in den alten Channel zurückspringen.

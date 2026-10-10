@@ -1,11 +1,20 @@
 import { Badge } from '@capawesome/capacitor-badge';
+import { badgeAnwenden } from './badgeAnwenden';
 import { isCapacitorIOS } from './runtime';
+
+/** Zuletzt gewünschte Zahl — für `badgeNachziehen`. */
+let gewuenscht: number | null = null;
 
 /**
  * Ungelesene Nachrichten als Zahl auf dem App-Icon (iOS-Hülle).
  *
  * Quelle ist derselbe Stand wie der ●-Titelpunkt — dieselbe Rechnung, zwei
  * Oberflächen (Desktop-Browser: Titel; Handy-Hülle: Icon-Badge).
+ *
+ * **Fragt nie nach der Erlaubnis.** Ohne erteilte Mitteilungs-Erlaubnis tut
+ * der Aufruf nichts — das Plugin würde sonst den einmaligen System-Dialog
+ * öffnen, beim ersten Start und ohne Vorerklärung (Begründung in
+ * `badgeAnwenden.ts`).
  *
  * **Diese Funktion allein hält das Icon NICHT aktuell.** Im Hintergrund ist
  * die JS-Engine eingefroren, der `$effect` läuft also nicht — ein Push, der
@@ -19,17 +28,18 @@ import { isCapacitorIOS } from './runtime';
  */
 export async function badgeSetzen(anzahlNachrichten: number): Promise<void> {
   if (!isCapacitorIOS()) return;
+  gewuenscht = anzahlNachrichten;
   try {
-    // 0 räumt das Badge ab — `set({count: 0})` lässt auf manchen iOS-Fassungen
-    // eine leere Plakette stehen, `clear()` ist der dokumentierte Weg.
-    if (anzahlNachrichten > 0) {
-      await Badge.set({ count: anzahlNachrichten });
-    } else {
-      await Badge.clear();
-    }
+    await badgeAnwenden(Badge, anzahlNachrichten);
   } catch {
-    // Keine Mitteilungserlaubnis / kein Plugin — still. Die Erlaubnis kann
-    // nachträglich erteilt werden, der Resume-Refresh im App-Shell wiederholt
-    // den Versuch dann von selbst.
+    // Kein Plugin in dieser Hülle, oder es meldet einen Fehler — still.
   }
+}
+
+/** Die zuletzt gewünschte Zahl erneut anlegen. Gerufen, sobald die
+ *  Mitteilungs-Erlaubnis gerade erteilt wurde (`fcm.ts`): bis dahin hat
+ *  `badgeSetzen` nichts getan, und der `$effect` darüber läuft erst bei der
+ *  nächsten Änderung des Standes wieder. */
+export function badgeNachziehen(): void {
+  if (gewuenscht !== null) void badgeSetzen(gewuenscht);
 }

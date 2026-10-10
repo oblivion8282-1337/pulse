@@ -20,9 +20,10 @@
  *  2. **Nur in einer Hülle.** Im Browser ist die Berechtigung an die Seite
  *     gebunden und jederzeit über das Schloss in der Adresszeile umkehrbar;
  *     die Einmaligkeit, gegen die wir hier arbeiten, gibt es dort nicht.
- *  3. **Ein „später" genügt.** Wer die Erklärung einmal weggetippt hat, sieht
- *     sie nicht wieder — die Erlaubnis bleibt über die Einstellungen
- *     erreichbar.
+ *  3. **Ein „später" genügt — bei Mitteilungen.** Wer die Erklärung dort
+ *     einmal weggetippt hat, sieht sie nicht wieder — die Erlaubnis bleibt
+ *     über die Einstellungen erreichbar. Bei Kamera und Mikrofon bricht
+ *     „später" nur die Handlung ab (s. `ablehnungMerken`).
  *  4. **Mitteilungen brauchen einen ANLASS.** Kamera und Mikrofon werden von
  *     einer Handlung ausgelöst (Kachel öffnen, Sprachkanal betreten), die den
  *     Grund selbst erklärt. Mitteilungen nicht — deshalb hängen sie an einer
@@ -81,10 +82,35 @@ export function ablehnungMerken(art: Berechtigung): boolean {
   return art === 'mitteilungen';
 }
 
-export function vorerklaerungNoetig(lage: Lage): boolean {
-  if (!lage.inHuelle) return false;
-  if (lage.stand !== 'offen') return false;
-  if (lage.schonAbgelehnt) return false;
-  if (lage.art === 'mitteilungen') return lage.sendungen >= SENDUNGEN_BIS_ZUR_MITTEILUNGSFRAGE;
-  return true;
+/**
+ * Was vor dem System-Dialog geschieht.
+ *
+ * **Drei Ausgänge, nicht zwei.** Die erste Fassung kannte nur „Erklärung
+ * nötig: ja/nein", und der Aufrufer las „nein" als „ohne Erklärung
+ * weitermachen". Für Mitteilungen ist das genau verkehrt: „keine Erklärung,
+ * weil noch kein Anlass" und „keine Erklärung, weil schon ‚später' gesagt"
+ * heissen beide „jetzt NICHT fragen" — gelesen als „weiter" öffneten sie den
+ * System-Dialog ohne Blatt, also das, was dieser ganze Punkt verhindern
+ * soll (Bughunt 2026-10-11, T6).
+ */
+export type Vorgehen =
+  /** Ohne Blatt weitermachen: im Browser, oder die Lage ist schon entschieden
+   *  (`erteilt`/`verweigert` — der Dialog erscheint dann gar nicht mehr). */
+  | 'weiter'
+  /** Erst das Blatt, dann je nach Antwort der System-Dialog. */
+  | 'erklaeren'
+  /** Jetzt gar nicht fragen, auch nicht ohne Blatt: kein Anlass, oder die
+   *  Erklärung wurde schon mit „später" weggetippt. */
+  | 'nicht';
+
+export function vorgehenVorDemDialog(lage: Lage): Vorgehen {
+  if (!lage.inHuelle) return 'weiter';
+  if (lage.stand !== 'offen') return 'weiter';
+  // Nur dort, wo ein „später" überhaupt gemerkt wird — steht bei Kamera oder
+  // Mikrofon trotzdem ein Merker, darf er die Handlung nicht sperren.
+  if (lage.schonAbgelehnt && ablehnungMerken(lage.art)) return 'nicht';
+  if (lage.art === 'mitteilungen') {
+    return lage.sendungen >= SENDUNGEN_BIS_ZUR_MITTEILUNGSFRAGE ? 'erklaeren' : 'nicht';
+  }
+  return 'erklaeren';
 }
