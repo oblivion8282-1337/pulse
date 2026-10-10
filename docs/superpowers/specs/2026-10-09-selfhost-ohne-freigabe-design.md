@@ -92,7 +92,10 @@ Server `PULSE_INSTANCE_ID`, `PULSE_INSTANCE_OWNER_ID` (das bestätigende Konto),
 für den Besitzer, Sperre samt Sperr-Poller und die Prüfung von außen gelten
 unverändert. Der Server erscheint im Konto des Besitzers unter „Meine Server“
 und in der Leiste aller seiner Geräte (`hydrateFromBackend`; die Instanz zählt
-als eingerichtet, sobald die Zugangsdaten abgeholt sind).
+als eingerichtet, sobald die Zugangsdaten abgeholt sind). Schon offene Geräte
+erfahren es sofort: Nach dem Abholen schickt die Cloud dem Besitzer das
+Ereignis `instanz_verbunden` über `user:events` (derselbe Weg, über den bisher
+die Antrags-Entscheidung kam), und die App lädt ihre Server-Liste neu.
 
 **E4 — Start ohne Verbindung.** Pflicht für den Start ist nur
 `PULSE_HOSTNAME`. `PULSE_ADMIN_EMAIL` wird optional (fehlt sie, entfällt die
@@ -130,7 +133,9 @@ Konto oder einen fremden Server übernimmt man so nicht. Drei Gegenmittel:
    der Hinweis-Mail beim Ändern der E-Mail-Adresse,
    `routes_account_security.py`): Adresse des Servers, Zeitpunkt, „Warst du
    das nicht? Lösche den Server unter Meine Server.“ Ein Fehlschlag beim
-   Versand bricht das Verbinden nicht ab.
+   Versand bricht das Verbinden nicht ab. Wird dabei eine Adresse von einem
+   anderen Konto übernommen (E2), bekommt auch der bisherige Besitzer eine
+   Hinweis-Mail.
 3. **Löschen unter „Meine Server“** wirkt auch hier: Eintrag weg, Server aus
    allen Leisten, Zugangsdaten ungültig (Soft-Delete mit Sperrlisten-Eintrag
    wie heute).
