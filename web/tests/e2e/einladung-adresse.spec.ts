@@ -43,6 +43,7 @@ test.describe.serial('Öffentliche Adresse /c/<handle>', () => {
   let bobCtx: BrowserContext;
   let bob: Page;
   let guildId = '';
+  let kanalPfad = '';
 
   test.beforeAll(async ({ browser }) => {
     aliceCtx = await browser.newContext();
@@ -64,6 +65,7 @@ test.describe.serial('Öffentliche Adresse /c/<handle>', () => {
     await alice.getByTestId('create-guild-submit').click();
     await alice.waitForURL(/\/app\/guilds\/\d+\/channels\/\d+/);
     guildId = alice.url().match(/\/app\/guilds\/(\d+)/)![1];
+    kanalPfad = new URL(alice.url()).pathname;
 
     for (let versuch = 0; versuch < 4; versuch++) {
       await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
@@ -110,5 +112,25 @@ test.describe.serial('Öffentliche Adresse /c/<handle>', () => {
     await bob.goto(`${E2E_BASE_URL}/c/gibtesnicht99`);
     await expect(karte(bob, 'ungueltig')).toBeVisible({ timeout: 15_000 });
     await expect(karte(bob, 'fehler')).toHaveCount(0);
+  });
+
+  test('Klick auf den /c/-Link im Chat öffnet den Dialog, keinen neuen Tab', async () => {
+    // Bob ist seit dem Beitreten Mitglied (kein zweites Konto/zweiter Kanal
+    // nötig, um den Link zu sehen); der Dialog zeigt dann „schon Mitglied“.
+    const link = `${E2E_BASE_URL}/c/${HANDLE}`;
+    await alice.goto(kanalPfad);
+    await alice.getByTestId('message-input').click();
+    await alice.getByTestId('message-input').fill(`Komm vorbei: ${link}`);
+    await alice.getByTestId('message-input').press('Enter');
+
+    await bob.goto(kanalPfad);
+    const anker = bob.locator(`[data-testid=message-content] a[href="${link}"]`);
+    await expect(anker).toBeVisible({ timeout: 15_000 });
+    await anker.click();
+    await expect(bob).toHaveURL(/einladung_adresse=/);
+    await expect(bob.getByTestId('einladung-dialog').getByTestId('einladung-name')).toHaveText(NAME, {
+      timeout: 15_000
+    });
+    expect(bobCtx.pages()).toHaveLength(1);
   });
 });

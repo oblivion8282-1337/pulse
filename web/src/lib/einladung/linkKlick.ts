@@ -6,14 +6,14 @@
 // (klickAbfangen).
 import { goto } from '$app/navigation';
 import { CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
-import { einladungAusUrl, klickAbfangen, mitEinladung } from './einladungsLink';
+import { klickAbfangen, zielAusUrl, mitEinladung } from './einladungsLink';
 
 export function einladungsKlicksAbfangen(el: HTMLElement): () => void {
   const beiKlick = (ev: MouseEvent) => {
     if (!klickAbfangen(ev)) return;
     const a = (ev.target as Element | null)?.closest?.('a[href]');
     if (!(a instanceof HTMLAnchorElement) || !el.contains(a)) return;
-    const e = einladungAusUrl(a.href, CLOUD_HOSTNAME, window.location.host);
+    const e = zielAusUrl(a.href, CLOUD_HOSTNAME, window.location.host);
     if (!e) return;
     ev.preventDefault();
     void goto(mitEinladung(window.location.pathname + window.location.search, e), {
