@@ -35,3 +35,11 @@ async def test_vorschau_bremse_je_nutzer(client, _auth_signer):
     r = await client.get("/invites/gibtsnicht", headers=h)
     assert r.status_code == 429
     assert r.json()["detail"] == "rate limit exceeded"
+
+
+def test_ipv4_mapped_ipv6_wird_zu_ipv4():
+    a = bremsen_schluessel("::ffff:1.2.3.4")
+    b = bremsen_schluessel("::ffff:5.6.7.8")
+    assert a == "1.2.3.4"
+    assert b == "5.6.7.8"
+    assert a != b

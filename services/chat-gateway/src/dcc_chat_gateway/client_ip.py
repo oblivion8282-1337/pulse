@@ -84,6 +84,10 @@ def bremsen_schluessel(ip: str) -> str:
     except ValueError:
         return ip
     if addr.version == 6:
+        # IPv4-mapped (::ffff:a.b.c.d) ist in Wahrheit ein IPv4-Client; im /64
+        # fielen sonst alle solchen Clients in einen einzigen Eimer.
+        if addr.ipv4_mapped is not None:
+            return str(addr.ipv4_mapped)
         return str(ipaddress.ip_network(f"{ip}/64", strict=False))
     return ip
 
