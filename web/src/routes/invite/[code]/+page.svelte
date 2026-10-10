@@ -12,7 +12,7 @@
   Einladung (lib/einladung/gemerkt.ts), nicht über die Adresse.
 -->
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
@@ -103,10 +103,6 @@
 
   // Nur im Browser am Rechner — nie in der App selbst, nie an Handy/Tablet.
   const amRechnerImBrowser = $derived(!isElectron() && viewport.isDesktop);
-  const appKnopf = $derived(
-    amRechnerImBrowser &&
-      (zustand === 'einladung' || zustand === 'abgemeldet' || zustand === 'mitglied')
-  );
   function downloadUrlDiesesRechners(): string | null {
     if (isWindows()) return WINDOWS_INSTALLER_URL;
     if (isMac()) return MAC_DMG_URL;
@@ -114,20 +110,30 @@
     return null;
   }
   const downloadUrl = downloadUrlDiesesRechners();
+  const appKnopf = $derived(
+    amRechnerImBrowser &&
+      downloadUrl !== null &&
+      (zustand === 'einladung' || zustand === 'abgemeldet' || zustand === 'mitglied')
+  );
   /** Startversuch über ein verstecktes iframe statt `location.href`: ohne
    *  installierte App ersetzt ein Browser die Seite sonst ggf. durch eine
-   *  Fehlerseite, und der Hinweis „hier im Browser beitreten“ wäre weg. */
+   *  Fehlerseite, und der Hinweis „hier im Browser beitreten“ wäre weg.
+   *  Das iframe bleibt stehen (Firefox liest nach dem Berechtigungsdialog noch
+   *  dessen Fenster; ein früh entferntes bricht den Start ab). Höchstens eines
+   *  zugleich — das alte geht beim nächsten Klick, spätestens beim Verlassen. */
+  let appRahmen: HTMLIFrameElement | null = null;
   function inDerApp(): void {
     if (!einladung) return;
     const params = new URLSearchParams({ code: einladung.code });
     if (einladung.host) params.set('host', einladung.host);
-    const rahmen = document.createElement('iframe');
-    rahmen.style.display = 'none';
-    rahmen.src = `pulse://invite?${params.toString()}`;
-    document.body.appendChild(rahmen);
-    setTimeout(() => rahmen.remove(), 2000);
+    appRahmen?.remove();
+    appRahmen = document.createElement('iframe');
+    appRahmen.style.display = 'none';
+    appRahmen.src = `pulse://invite?${params.toString()}`;
+    document.body.appendChild(appRahmen);
     appGeoeffnet = true;
   }
+  onDestroy(() => appRahmen?.remove());
 
   async function beitreten(bestaetigt = false) {
     if (busy || !einladung) return;
