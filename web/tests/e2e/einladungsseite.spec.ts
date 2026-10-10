@@ -4,7 +4,18 @@
  * genau die Lücke, durch die die fehlende Route vier Monate unbemerkt blieb.
  */
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { E2E_BASE_URL } from './_ports';
+
+/** Die Content-Security-Policy, die Prod ausliefert (Repo-Fassung der nginx-Vorlage).
+ *  Der Vite-Dev-Server schickt sie an SvelteKit-Seiten NICHT mit — ohne diese Quelle
+ *  bliebe die Prüfung unten blind für eine fehlende Freigabe. */
+function prodCsp(): string {
+  const inc = readFileSync(new URL('../../../infra/prod/security-headers.inc', import.meta.url), 'utf8');
+  const treffer = inc.match(/add_header Content-Security-Policy "([^"]+)"/);
+  if (!treffer) throw new Error('CSP in security-headers.inc nicht gefunden');
+  return treffer[1];
+}
 
 const ts = Date.now();
 const ALICE = {
@@ -74,7 +85,11 @@ test.describe.serial('Einladungsseite', () => {
 
   test.beforeAll(async ({ browser }) => {
     aliceCtx = await browser.newContext();
-    bobCtx = await browser.newContext();
+    bobCtx = await browser.newContext({
+      // Ein Service Worker kann die Navigation bedienen, und Playwright-Routen sehen sie dann
+      // nicht — der App-Knopf-Test setzt die Prod-CSP über eine Route.
+      serviceWorkers: 'block'
+    });
     alice = await aliceCtx.newPage();
     bob = await bobCtx.newPage();
   });
@@ -122,11 +137,32 @@ test.describe.serial('Einladungsseite', () => {
   });
 
   test('Desktop-App-Knopf: die Seite bleibt stehen, der Hinweis erscheint', async () => {
+    const csp = prodCsp();
+    await bob.route(/\/invite\/[^/]+$/, async (route) => {
+      if (route.request().resourceType() !== 'document') return route.continue();
+      const antwort = await route.fetch();
+      await route.fulfill({
+        response: antwort,
+        headers: { ...antwort.headers(), 'content-security-policy': csp }
+      });
+    });
     await bob.goto(link1);
     await expect(karte(bob, 'mitglied')).toBeVisible({ timeout: 15_000 });
+    // Die CSP muss das versteckte iframe mit `pulse:` zulassen — sonst scheitert der
+    // Knopf in jedem Browser still (frame-src). Verletzungen vor dem Klick mitschreiben.
+    await bob.evaluate(() => {
+      const w = window as unknown as { __csp: string[] };
+      w.__csp = [];
+      document.addEventListener('securitypolicyviolation', (e) => w.__csp.push(e.violatedDirective));
+    });
     await bob.getByTestId('einladung-app').click();
     await expect(bob.getByText('Pulse wird geöffnet', { exact: false })).toBeVisible();
     await expect(bob).toHaveURL(/\/invite\//);
+    await expect(bob.locator('iframe[src^="pulse://invite?code="]')).toHaveCount(1);
+    // Verletzungen werden asynchron gemeldet — kurz warten, dann lesen.
+    await bob.waitForTimeout(500);
+    expect(await bob.evaluate(() => (window as unknown as { __csp: string[] }).__csp)).toEqual([]);
+    await bob.unroute(/\/invite\/[^/]+$/);
   });
 
   test('Unbekannter Code: gilt nicht mehr', async () => {
