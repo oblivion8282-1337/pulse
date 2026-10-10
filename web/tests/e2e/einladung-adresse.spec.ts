@@ -90,10 +90,10 @@ test.describe.serial('Öffentliche Adresse /c/<handle>', () => {
     await bobCtx.clearCookies();
   });
 
-  test('Abgemeldet: die Adresse zeigt die Karte mit dem Handle, Anmelden führt zurück', async () => {
+  test('Abgemeldet: die Adresse zeigt die Karte mit dem Community-Namen, Anmelden führt zurück', async () => {
     await bob.goto(`${E2E_BASE_URL}/c/${HANDLE}`);
     await expect(karte(bob, 'abgemeldet')).toBeVisible({ timeout: 15_000 });
-    await expect(bob.getByTestId('einladung-name')).toHaveText(HANDLE);
+    await expect(bob.getByTestId('einladung-name')).toHaveText(NAME);
     await bob.getByTestId('einladung-anmelden').click();
     await bob.waitForURL(/\/login/);
     await bob.getByTestId('login-identifier').fill(BOB.username);
@@ -106,6 +106,14 @@ test.describe.serial('Öffentliche Adresse /c/<handle>', () => {
     await dialog.getByTestId('einladung-beitreten').click();
     await bob.waitForURL(new RegExp(`/app/guilds/${guildId}/channels/`), { timeout: 20_000 });
     await expect(bob.getByTestId('einladung-dialog')).toHaveCount(0);
+  });
+
+  test('Abgemeldet: ein unbekannter Handle zeigt „gibt es nicht“', async () => {
+    const ctx = await bobCtx.browser()!.newContext();
+    const page = await ctx.newPage();
+    await page.goto(`${E2E_BASE_URL}/c/gibtesnicht98`);
+    await expect(karte(page, 'ungueltig')).toBeVisible({ timeout: 15_000 });
+    await ctx.close();
   });
 
   test('Angemeldet: ein unbekannter Handle zeigt „gibt es nicht“, keinen Netzfehler', async () => {
