@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from dcc_chat_gateway.client_ip import bremsen_schluessel
 
 
