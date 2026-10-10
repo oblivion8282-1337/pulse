@@ -4,21 +4,20 @@ import LiveKit
 /// Der Zustands- und Melde-Teil von `SpracheRaum` — was nach oben geht und in
 /// welcher Form.
 ///
-/// **Warum eine eigene Datei.** `SpracheRaum.swift` trägt die Steuerung
-/// (verbinden, Mikrofon, Ausgabe, Kamera) samt ihren teuer erkauften
-/// Begründungen; mit der Abbildung und der Diagnose zusammen lag die Datei über
-/// der Grössen-Policy (`PLAN.md` §12.1). Der Schnitt ist die natürliche Naht:
-/// hier steht nichts, was etwas tut, nur was etwas berichtet. Eine reine
-/// Verschiebung — Verhalten unverändert.
-///
-/// `private` ist in Swift DATEI-weit, nicht typweit: die verschobenen Glieder
-/// mussten dafür von `private` auf intern wechseln. Sie sind weiterhin nur
-/// innerhalb dieses Moduls sichtbar.
+/// Eigene Datei wegen der Grössen-Policy (`PLAN.md` §12.1): hier steht
+/// nichts, was etwas tut, nur was etwas berichtet. `private` ist in Swift
+/// DATEI-weit, deshalb sind die Glieder intern statt privat.
 extension SpracheRaum {
     func zustand() -> [String: Any] {
-        [
+        let session = AVAudioSession.sharedInstance()
+        return [
             "verbunden": raum?.connectionState == .connected,
             "kanalId": kanalId ?? "",
+            // Für den Abgleich nach einem Reload: die frische Oberfläche kennt
+            // den Kanalnamen nicht, und ohne die Sitzung könnte sie beim
+            // Verlassen nicht sagen, WELCHEN Raum sie meint.
+            "kanalName": kanalName,
+            "sitzung": sitzung,
             "teilnehmer": teilnehmerListe(),
             "mikro": raum?.localParticipant.isMicrophoneEnabled() ?? false,
             // Kamera- und Taub-Stand gehören in dasselbe Vollbild: nach einem
@@ -35,29 +34,23 @@ extension SpracheRaum {
             "mikrofonFehler": mikrofonFehler ?? NSNull(),
             "lautsprecher": AudioManager.shared.isSpeakerOutputPreferred,
             "route": routeJetzt(),
-            // **Kategorie und Optionen gehören in den Zustand, nicht in einen
-            // Einzelfall-Log.** Am 2026-10-10 schaltete die Hörmuschel im
-            // Prüfpfad, in der echten App aber nicht — und die Frage, WER
-            // die Session gerade anders eingestellt hat, war von aussen
-            // nicht zu beantworten. `.defaultToSpeaker` in den Optionen macht
-            // die Hörmuschel unerreichbar, ganz gleich wer es gesetzt hat.
-            "kategorie": AVAudioSession.sharedInstance().category.rawValue,
-            "modus": AVAudioSession.sharedInstance().mode.rawValue,
+            // **Kategorie und Optionen gehören in den Zustand.** Am 2026-10-10
+            // war von aussen nicht zu sagen, WER die Session umgestellt hatte;
+            // `.defaultToSpeaker` macht die Hörmuschel unerreichbar.
+            "kategorie": session.category.rawValue,
+            "modus": session.mode.rawValue,
             "optionen": optionenNamen(),
-            // „Spielt eine FREMDE App?" — und das Feld sagt genau das und
-            // nichts mehr. Am 2026-10-10 nachgemessen: es blieb `false`,
-            // waehrend WebKit die Session unseres EIGENEN Prozesses an sich
-            // zog. Es taugt also zum Ausschluss einer fremden App, nicht zum
-            // Erkennen der eigenen WebView; dafuer ist `eingaenge` da.
-            "fremdTon": AVAudioSession.sharedInstance().isOtherAudioPlaying,
+            // „Spielt eine FREMDE App?" — nur das: es blieb `false`, während
+            // WebKit unsere Session an sich zog (2026-10-10). Für die eigene
+            // WebView ist `eingaenge` da.
+            "fremdTon": session.isOtherAudioPlaying,
             // Laeuft die Audio-Maschine noch? Nach einer Unterbrechung steht
             // sie, und eine stehende Session bewegt keine Route.
             "engineLaeuft": AudioManager.shared.isEngineRunning,
             // Eingaenge als Anzeiger dafuer, ob die Session wirklich AKTIV
             // ist: eine nicht aktivierte `.playAndRecord`-Session fuehrt
             // keinen Eingang, und „aktiv?" fragt `AVAudioSession` nicht ab.
-            "eingaenge": AVAudioSession.sharedInstance().currentRoute.inputs
-                .map { $0.portType.rawValue }
+            "eingaenge": session.currentRoute.inputs.map { $0.portType.rawValue }
         ]
     }
 
@@ -102,15 +95,10 @@ extension SpracheRaum {
     /// (`VoiceParticipant` in `voice/livekit.svelte.ts`) — damit die 31
     /// Dateien, die ihn benutzen, unverändert bleiben.
     ///
-    /// **`micMuted` ist nachgeprüft, nicht angenommen.** Es kommt aus
-    /// `isMicrophoneEnabled()`, und das ist im SDK
-    /// `!(Mikrofon-Publikation?.isMuted ?? true)` — ein Teilnehmer OHNE
-    /// veröffentlichte Mikrofonspur gilt damit als stumm. Das ist richtig und
-    /// deckt sich mit dem Web-Weg, der dieselbe Eigenschaft liest: wer nicht
-    /// veröffentlicht, ist nicht zu hören, und genau das soll das Zeichen
-    /// sagen. Es gilt auch beim Beitritt für den Bruchteil einer Sekunde, bevor
-    /// die eigene Spur steht — deshalb schickt `beitreten` die Liste erst
-    /// NACH dem Veröffentlichen.
+    /// **`micMuted` ist nachgeprüft:** `isMicrophoneEnabled()` ist im SDK
+    /// `!(Mikrofon-Publikation?.isMuted ?? true)` — ohne veröffentlichte Spur
+    /// gilt man als stumm, wie im Web-Weg. Deshalb schickt `beitreten` die
+    /// Liste erst NACH dem Veröffentlichen.
     ///
     /// **`isSpeaking` kommt hier vom SERVER, im Web nicht.** Der Web-Weg
     /// rechnet es aus einem `AnalyserNode` über der abonnierten Spur, mit der
@@ -129,8 +117,7 @@ extension SpracheRaum {
         return [
             "identity": kennung,
             "name": hatNamen ? name : kennung,
-            // `user-<snowflake>` → die nackte Id, wie im Web.
-            "userId": kennung.hasPrefix("user-") ? String(kennung.dropFirst(5)) : NSNull(),
+            "userId": Self.nutzerId(aus: kennung) ?? NSNull(),
             "isLocal": lokal,
             "isSpeaking": p.isSpeaking,
             "audioLevel": Double(p.audioLevel),
@@ -138,6 +125,43 @@ extension SpracheRaum {
             "cameraOn": p.isCameraEnabled(),
             "connectionQuality": guete(p.connectionQuality)
         ]
+    }
+
+    /// `user-<snowflake>` oder `user-<snowflake>~<zufall>` → die nackte Id.
+    ///
+    /// **Dieselbe Regel wie `voice/identity.ts::userIdFromIdentity`**
+    /// (`^user-(\d+)(?:~[0-9a-f]+)?$`). Bis zum 2026-10-11 schnitt die Hülle
+    /// nur `user-` ab und liess den Sitzungs-Zusatz stehen, den jeder Beitritt
+    /// seit der Mehrgerät-Freischaltung trägt — `userId` war damit
+    /// `"123~ab12"`, und alles, was im Web an der Id hängt (Profil, Lautstärke
+    /// je Teilnehmer, Admin-Stummschaltung), fand niemanden.
+    static func nutzerId(aus kennung: String) -> String? {
+        guard kennung.hasPrefix("user-") else { return nil }
+        let teile = kennung.dropFirst(5).split(
+            separator: "~", maxSplits: 1, omittingEmptySubsequences: false)
+        let zahl = teile[0]
+        guard !zahl.isEmpty, zahl.allSatisfy({ ("0" ... "9").contains($0) }) else { return nil }
+        if teile.count == 2 {
+            let zusatz = teile[1]
+            guard !zusatz.isEmpty, zusatz.allSatisfy({ "0123456789abcdef".contains($0) })
+            else { return nil }
+        }
+        return String(zahl)
+    }
+
+    /// Der Verbindungszustand als schlichtes Wort — **an genau dieser Stelle**.
+    /// Bis zum 2026-10-11 ging `"\(state)"` hinüber, und LiveKits
+    /// `description` trägt einen Punkt (`.connected`): das Web prüfte auf
+    /// `connected`, ein Wiederaufbau wurde nie angezeigt (Bughunt G1). Das Web
+    /// liest tolerant (`voice/nativAbgleich.ts`) — ältere Hüllen schicken ihn.
+    static func verbindungsName(_ s: ConnectionState) -> String {
+        switch s {
+        case .disconnected: return "disconnected"
+        case .connecting: return "connecting"
+        case .reconnecting: return "reconnecting"
+        case .connected: return "connected"
+        case .disconnecting: return "disconnecting"
+        }
     }
 
     func guete(_ q: ConnectionQuality) -> String {
@@ -174,67 +198,66 @@ extension SpracheRaum {
 /// wechseln — die native Kanalansicht tut das nicht von hier aus, sondern
 /// beobachtet `Room` selbst als `ObservableObject` (SwiftUI liefert die
 /// Änderungen dann auf dem Hauptthread, s. `SpracheAnsicht.swift`).
+///
+/// **Jeder Haken prüft zuerst, ob `room` noch der laufende Raum ist.** Der
+/// Delegat ist für ALLE Räume dieselbe Instanz, und die Ereignisse eines
+/// gerade verlassenen Raums kommen verspätet (über LiveKits eigene
+/// Warteschlange). Ohne den Wächter meldete der alte Raum nach einem
+/// Kanalwechsel sein „getrennt" — an eine Oberfläche, die schon im neuen
+/// Kanal sitzt. Der Web-Weg hat denselben Wächter (`_active()` in
+/// `#wireEvents`).
 extension SpracheRaum: RoomDelegate {
     func room(_ room: Room, didUpdateConnectionState state: ConnectionState,
               from alt: ConnectionState) {
         NSLog("[PulseSprache] Verbindung %@ → %@", "\(alt)", "\(state)")
-        melde?("verbindung", ["zustand": "\(state)"])
+        guard room === raum else { return }
+        melde?("verbindung", ["zustand": Self.verbindungsName(state)])
         if state == .connected { schickeTeilnehmer() }
     }
 
     func room(_ room: Room, didDisconnectWithError error: LiveKitError?) {
         NSLog("[PulseSprache] getrennt: %@", error?.localizedDescription ?? "ohne Fehler")
+        guard room === raum else { return }
+        // Von aussen getrennt (Netz, Server, Rauswurf): die Hülle räumt den
+        // Raum selbst ab, auch die Ansicht (`raumAbgerissen`) — die Oberfläche
+        // kann gerade eingefroren sein und erst später davon erfahren.
+        raumAbgerissen(room)
         melde?("verbindung", ["zustand": "disconnected",
                               "fehler": error?.localizedDescription ?? NSNull()])
-        // **Der Raum ist weg, also muss die Ansicht weg.** Eine stehengebliebene
-        // Vollbild-Ansicht über einer getrennten Verbindung ist der eine
-        // Zustand, aus dem der Nutzer nicht mehr herausfindet: die Web-Leiste
-        // liegt darunter, und die Ansicht selbst hat keinen Auflegen-Knopf,
-        // weil es nichts mehr aufzulegen gibt. Gemeldet wird das Schliessen
-        // trotzdem — die Oberfläche soll ihren Griff „zurück in den Kanal"
-        // nicht anbieten, wenn kein Kanal mehr da ist.
-        Task { @MainActor in SpracheAnsichtHalter.geteilt.schliessen(melden: true) }
     }
 
     func room(_ room: Room, didFailToConnectWithError error: LiveKitError?) {
         NSLog("[PulseSprache] Verbinden fehlgeschlagen: %@",
               error?.localizedDescription ?? "unbekannt")
+        guard room === raum else { return }
         melde?("verbindung", ["zustand": "disconnected",
                               "fehler": error?.localizedDescription ?? "unbekannt"])
     }
 
     func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
+        guard room === raum else { return }
         schickeTeilnehmer()
     }
 
     func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
+        guard room === raum else { return }
         schickeTeilnehmer()
     }
 
     // MARK: - Was sonst noch eine neue Liste verlangt
     //
-    // **Die Haken hier sind der eigentliche Inhalt dieses Abschnitts, und sie
-    // haben am 2026-10-10 gefehlt.** Der Befund vom Gerät war „ich klicke auf
-    // stumm und sehe das Zeichen nicht" — die Oberfläche zeichnet die Kachel
-    // aus `voice.participants`, und die Liste kommt ausschliesslich aus dem
-    // `teilnehmer`-Ereignis. Alles, was ein Feld in `abbilden` ändern kann,
-    // MUSS deshalb hier durchlaufen. Vorher taten es nur Beitritt, Austritt
-    // und die Verbindungsaufnahme; Stummschalten — in beide Richtungen — kam
-    // nirgends an.
-    //
-    // Die native Ansicht braucht keinen dieser Haken: sie beobachtet `Room`
-    // und `Participant` direkt als `ObservableObject`. Nur das Web hängt an
-    // der Liste, und ein Wert, der im Web fehlt, fehlt still.
+    // **Alles, was ein Feld in `abbilden` ändern kann, MUSS hier durchlaufen**
+    // — die Web-Kachel zeichnet allein aus dem `teilnehmer`-Ereignis. Am
+    // 2026-10-10 fehlten diese Haken („ich klicke auf stumm und sehe das
+    // Zeichen nicht"). Die native Ansicht braucht sie nicht: sie beobachtet
+    // `Room` und `Participant` direkt.
 
-    /// **Der wichtigste Haken für das Stumm-Zeichen, und er deckt BEIDE
-    /// Richtungen ab.** Er trägt `participant: Participant`, nicht
-    /// `RemoteParticipant`: das SDK meldet hier auch die eigene Spur (der Weg
-    /// läuft über `TrackPublication.track(_:didUpdateIsMuted:)`, also über
-    /// jedes `mute()`/`unmute()` der lokalen Spur) und genauso die
-    /// Stummschaltung eines Fremden (über `RemoteTrackPublication`, ausgelöst
-    /// vom Signal des Servers).
+    /// **Der wichtigste Haken für das Stumm-Zeichen, in BEIDE Richtungen:**
+    /// `participant: Participant` meldet die eigene Spur (`mute()`/`unmute()`)
+    /// ebenso wie die Stummschaltung eines Fremden (Signal des Servers).
     func room(_ room: Room, participant: Participant, trackPublication: TrackPublication,
               didUpdateIsMuted isMuted: Bool) {
+        guard room === raum else { return }
         schickeTeilnehmer()
         if participant is LocalParticipant { schickeEigenen() }
     }
@@ -244,6 +267,7 @@ extension SpracheRaum: RoomDelegate {
     /// Beitritts stehen, in der Regel `unknown`.
     func room(_ room: Room, participant: Participant,
               didUpdateConnectionQuality quality: ConnectionQuality) {
+        guard room === raum else { return }
         schickeTeilnehmer()
     }
 
@@ -251,6 +275,7 @@ extension SpracheRaum: RoomDelegate {
     /// Namen sortiert wird — ein Grund mehr, die ganze Liste zu schicken statt
     /// Einzeländerungen.
     func room(_ room: Room, participant: Participant, didUpdateName name: String) {
+        guard room === raum else { return }
         schickeTeilnehmer()
     }
 
@@ -265,32 +290,31 @@ extension SpracheRaum: RoomDelegate {
     /// Zeichen ohne Bild oder ein Bild ohne Zeichen.
     func room(_ room: Room, participant: RemoteParticipant,
               didPublishTrack publication: RemoteTrackPublication) {
+        guard room === raum else { return }
         schickeTeilnehmer()
     }
 
     func room(_ room: Room, participant: RemoteParticipant,
               didUnpublishTrack publication: RemoteTrackPublication) {
+        guard room === raum else { return }
         schickeTeilnehmer()
     }
 
     func room(_ room: Room, participant: RemoteParticipant,
               didSubscribeTrack publication: RemoteTrackPublication) {
+        guard room === raum else { return }
         schickeTeilnehmer()
-        // **Taubstellen muss überleben, wer dazukommt.** Wer beitritt, WÄHREND
-        // man taubgestellt ist, wäre sonst genau der eine, den man hört: der
-        // Befehl hat seine Spur nie gesehen, weil sie es noch nicht gab.
+        // Jede neue Tonspur sofort auf ihren richtigen Wert (Taub, Regler je
+        // Teilnehmer, Gesamt) — s. `SpracheRaumTaub.swift`.
         if let ton = publication.track as? RemoteAudioTrack {
-            taubAufNeueSpur(ton)
+            spurStellen(ton, kennung: participant.identity?.stringValue ?? "")
         }
     }
 
     func room(_ room: Room, participant: RemoteParticipant,
               didUnsubscribeTrack publication: RemoteTrackPublication) {
+        guard room === raum else { return }
         schickeTeilnehmer()
-        // Die gemerkte Lautstärke gehört zu einer Spur, die es nicht mehr gibt.
-        // Bliebe sie stehen, bekäme eine spätere Spur mit derselben Kennung
-        // einen fremden Wert — und die Karte wüchse über die Sitzung.
-        spurVergessen(publication.sid.stringValue)
     }
 
     /// Die EIGENE Kamera: veröffentlichen und zurücknehmen laufen hier durch.
@@ -299,12 +323,14 @@ extension SpracheRaum: RoomDelegate {
     /// System entzogen, Spur gescheitert).
     func room(_ room: Room, participant: LocalParticipant,
               didPublishTrack publication: LocalTrackPublication) {
+        guard room === raum else { return }
         schickeTeilnehmer()
         schickeEigenen()
     }
 
     func room(_ room: Room, participant: LocalParticipant,
               didUnpublishTrack publication: LocalTrackPublication) {
+        guard room === raum else { return }
         schickeTeilnehmer()
         schickeEigenen()
     }
@@ -314,6 +340,7 @@ extension SpracheRaum: RoomDelegate {
     /// genau die Last, die am 2026-10-10 die App angehalten hat. Wer ihn
     /// braucht, zeichnet ihn nativ — das tut `SpracheKachel`.
     func room(_ room: Room, didUpdateSpeakingParticipants participants: [Participant]) {
+        guard room === raum else { return }
         melde?("sprechen", [
             "sprechen": participants.compactMap { $0.identity?.stringValue }
         ])

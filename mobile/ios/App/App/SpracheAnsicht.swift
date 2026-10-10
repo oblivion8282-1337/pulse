@@ -94,12 +94,18 @@ struct SpracheAnsicht: View {
         .padding(.top, 4)
     }
 
-    /// „Verbunden · 3 Teilnehmer" — und bei allem anderen der rohe Zustand des
-    /// SDK. Ein beschönigter Zwischenzustand wäre hier besonders teuer: wer die
-    /// Ansicht offen hat, hat keine andere Anzeige.
+    /// „Verbunden · 3 Teilnehmer", sonst der Zustand in Worten. Ein
+    /// beschönigter Zwischenzustand wäre hier besonders teuer: wer die Ansicht
+    /// offen hat, hat keine andere Anzeige. Bis zum 2026-10-11 stand hier der
+    /// rohe Wert des SDK (`.reconnecting`, Bughunt G1).
     private var zustandsZeile: String {
-        guard raum.connectionState == .connected else {
-            return "\(raum.connectionState)"
+        switch raum.connectionState {
+        case .connected: break
+        case .connecting: return NSLocalizedString("Verbinde …", comment: "Sprachkanal")
+        case .reconnecting:
+            return NSLocalizedString("Verbindung wird wiederhergestellt …", comment: "Sprachkanal")
+        case .disconnecting, .disconnected:
+            return NSLocalizedString("Getrennt", comment: "Sprachkanal")
         }
         let anzahl = raum.remoteParticipants.count + 1
         return anzahl == 1
@@ -129,7 +135,8 @@ struct SpracheAnsicht: View {
             LazyVGrid(columns: spalten, spacing: 10) {
                 ForEach(kachelListe) { k in
                     SpracheKachel(teilnehmer: k.teilnehmer, video: k.video,
-                                  istBildschirm: k.istBildschirm)
+                                  istBildschirm: k.istBildschirm,
+                                  umschalten: k.eigeneKamera ? kameraUmschalten : nil)
                 }
             }
             .padding(.horizontal, 12)
@@ -156,6 +163,23 @@ struct SpracheAnsicht: View {
         let teilnehmer: Participant
         let video: VideoTrack?
         let istBildschirm: Bool
+        /// Die eigene, laufende Kamera — nur sie bekommt den Wechsel-Knopf.
+        var eigeneKamera = false
+    }
+
+    /// Front ↔ Rück. Sitzt auf der eigenen Kachel statt in der Knopfreihe
+    /// (Begründung an `SpracheSteuerleiste`).
+    private func kameraUmschalten() {
+        let sprache = SpracheRaum.geteilt
+        Task {
+            do {
+                try await sprache.nacheinander {
+                    try await sprache.kameraSeite(front: !sprache.kameraVorn)
+                }
+            } catch {
+                await MainActor.run { fehler = error.localizedDescription }
+            }
+        }
     }
 
     /// **Die Reihenfolge wird festgelegt, nicht übernommen.** `remoteParticipants`
@@ -174,8 +198,10 @@ struct SpracheAnsicht: View {
         var ergebnis: [Eintrag] = []
         for p in leute {
             let kennung = p.identity?.stringValue ?? "?"
+            let video = p.firstCameraVideoTrack
             ergebnis.append(Eintrag(id: kennung + "|kamera", teilnehmer: p,
-                                    video: p.firstCameraVideoTrack, istBildschirm: false))
+                                    video: video, istBildschirm: false,
+                                    eigeneKamera: p is LocalParticipant && video != nil))
             if let schirm = p.firstScreenShareVideoTrack {
                 ergebnis.append(Eintrag(id: kennung + "|schirm", teilnehmer: p,
                                         video: schirm, istBildschirm: true))

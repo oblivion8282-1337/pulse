@@ -22,12 +22,18 @@ import UIKit
     extension SprachePlugin {
         static func probeAusStartargumenten() {
             guard let roh = UserDefaults.standard.string(forKey: "PulseSpracheProbe") else { return }
-            let teile = roh.split(separator: "|", maxSplits: 2).map(String.init)
+            let teile = roh.split(separator: "|", maxSplits: 3).map(String.init)
             guard teile.count >= 2 else {
-                NSLog("[PulseSprache] Probe: erwartet \"<wsUrl>|<token>[|<wartesekunden>]\"")
+                NSLog("[PulseSprache] Probe: erwartet \"<wsUrl>|<token>[|<wartesekunden>[|pruefen]]\"")
                 return
             }
             NSLog("[PulseSprache] Probe startet gegen %@", teile[0])
+            // `pruefen`: die Behebungen aus dem Bughunt vom 2026-10-11 der Reihe
+            // nach, mit Soll/Ist im Log (`pruefenDurchfahren` unten).
+            if teile.count > 3, teile[3] == "pruefen" {
+                Task { await pruefenDurchfahren(wsUrl: teile[0], token: teile[1]) }
+                return
+            }
             // **Jeder Schritt meldet sich einzeln, und ein Fehlschlag haelt die
             // folgenden nicht auf.** Der erste Anlauf brach am Mikrofon ab und
             // liess damit offen, ob der Rest — die Route, um die es geht —
@@ -114,8 +120,9 @@ import UIKit
                 // in der Web-Leiste tut, und der einzige Weg, ihn ohne
                 // angemeldete Oberfläche zu prüfen.
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
+                let offen = await MainActor.run { SpracheAnsichtHalter.geteilt.istOffenSynchron }
                 NSLog("[PulseSprache] Probe RUECKWEG: Ansicht offen=%@, erneut oeffnen",
-                      SpracheAnsichtHalter.geteilt.istOffenSynchron ? "ja" : "nein")
+                      offen ? "ja" : "nein")
                 await ansichtZeigen()
             }
         }
@@ -137,7 +144,7 @@ import UIKit
                             ueber: wurzel, raum: raum,
                             kanalName: SpracheRaum.geteilt.kanalName)
                     }
-                    let offen = SpracheAnsichtHalter.geteilt.istOffenSynchron
+                    let offen = await MainActor.run { SpracheAnsichtHalter.geteilt.istOffenSynchron }
                     NSLog("[PulseSprache] Probe ANSICHT offen=%@", offen ? "ja" : "nein")
                     return
                 }
@@ -160,7 +167,7 @@ import UIKit
         /// Probe läuft aus `didFinishLaunchingWithOptions`, also Sekunden vor
         /// der WebView; an dieser Stelle ist die Verdrahtung durch, und der
         /// vorhandene Empfänger wird weitergereicht statt ersetzt.
-        private static func ereignisseMitschneiden() {
+        static func ereignisseMitschneiden() {
             let vorher = SpracheRaum.geteilt.melde
             SpracheRaum.geteilt.melde = { name, nutzlast in
                 if name == "teilnehmer", let liste = nutzlast["liste"] as? [[String: Any]] {
@@ -206,7 +213,7 @@ import UIKit
             await lautstaerkenMelden("taub AUS")
         }
 
-        private static func lautstaerkenMelden(_ wann: String) async {
+        static func lautstaerkenMelden(_ wann: String) async {
             let werte = await SpracheRaum.geteilt.lautstaerkenLesen()
             if werte.isEmpty {
                 NSLog("[PulseSprache] Probe LAUTSTAERKE %@: KEINE fremde Tonspur"
@@ -238,6 +245,97 @@ import UIKit
                       let spricht = ($0["isSpeaking"] as? Bool ?? false) ? "SPRICHT" : "still"
                       return "\(name):\(stumm):\(kam):\(spricht):\(pegel)"
                   }.joined(separator: " "))
+        }
+    }
+
+    /// **Die Behebungen aus dem Bughunt vom 2026-10-11, an der WIRKUNG
+    /// geprüft** — Lautstärken an den Spuren, Ereignisse am Melde-Weg, nicht
+    /// an Merkern. Braucht einen zweiten Teilnehmer mit Tonspur im Raum (der
+    /// Simulator hat kein Mikrofon); ohne ihn sagt jede Lautstärke-Zeile
+    /// „nichts gemessen", und das ist dann keine Bestätigung.
+    ///
+    /// Jede Zeile trägt `SOLL` und `IST`; ausgewertet wird von aussen.
+    extension SprachePlugin {
+        static func pruefenDurchfahren(wsUrl: String, token: String) async {
+            let raum = SpracheRaum.geteilt
+            // Erst nach `SprachePlugin.load()` mitschneiden — das setzt `melde`
+            // selbst und überschriebe einen früheren Mitschnitt.
+            for _ in 0 ..< 40 where raum.wunschAnWeb == nil {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            ereignisseMitschneiden()
+            func beitritt(taub: Bool) async -> Bool {
+                do {
+                    try await raum.nacheinander {
+                        try await raum.beitreten(wsUrl: wsUrl, token: token, kanalId: "probe",
+                                                 kanalName: "Probe", stumm: true, taubStart: taub)
+                    }
+                    return true
+                } catch {
+                    NSLog("[PulseSprache] Pruefung BEITRITT fehlgeschlagen: %@",
+                          error.localizedDescription)
+                    return false
+                }
+            }
+            func warten(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
+
+            // E1, erste Hälfte: taub gestartet — die beim Beitritt abonnierten
+            // Spuren müssen schon stumm sein.
+            guard await beitritt(taub: true) else { return }
+            await warten(2)
+            await lautstaerkenMelden("E1a SOLL 0 (taub gestartet)")
+            await raum.taubStellen(false)
+            await lautstaerkenMelden("E1b SOLL 1 (taub zurueck)")
+
+            // M4: Lautstärke je Nutzer und gesamt, gedeckelt bei 1.
+            await raum.hoerwunschSetzen(je: ["123": 0.5], gesamt: 1)
+            await lautstaerkenMelden("M4a SOLL 0.5 (je 0.5)")
+            await raum.hoerwunschSetzen(je: nil, gesamt: 0.5)
+            await lautstaerkenMelden("M4b SOLL 0.25 (je 0.5, gesamt 0.5)")
+            await raum.hoerwunschSetzen(je: ["123": 4], gesamt: 2)
+            await lautstaerkenMelden("M4c SOLL 1 (gedeckelt)")
+            await raum.hoerwunschSetzen(je: [:], gesamt: 1)
+
+            // Sitzungs-Zusatz: `user-123~ab12` → `123`.
+            let ids = raum.teilnehmerListe().map { "\($0["identity"] ?? "?")=\($0["userId"] ?? "nil")" }
+            NSLog("[PulseSprache] Pruefung USERID SOLL user-123~…=123 IST %@",
+                  ids.joined(separator: " "))
+
+            // E1, der gemeldete Ablauf: taub → auflegen → ohne taub beitreten.
+            await raum.taubStellen(true)
+            await raum.verlassen()
+            await warten(Double(ProcessInfo.processInfo.environment["PRUEF_PAUSE"] ?? "") ?? 0.3)
+            guard await beitritt(taub: false) else { return }
+            await warten(2)
+            await lautstaerkenMelden("E1c SOLL 1 (taub ueberlebt das Auflegen nicht)")
+
+            // Wunsch ohne Zuhörer im Web: die Hülle handelt selbst.
+            try? await raum.wunsch(.taub, an: true)
+            await lautstaerkenMelden("WUNSCH SOLL 0 (taub ohne Web)")
+            try? await raum.wunsch(.taub, an: false)
+
+            // M6: ein Verlassen während des Aufbaus nimmt GENAU diesen Raum.
+            await raum.verlassen()
+            let aufbau = Task { await beitritt(taub: false) }
+            await warten(0.05)
+            await raum.verlassen()
+            let ok = await aufbau.value
+            NSLog("[PulseSprache] Pruefung M6 SOLL Beitritt=nein raum=nil IST Beitritt=%@ raum=%@",
+                  ok ? "ja" : "nein", raum.raum == nil ? "nil" : "STEHT")
+
+            // Verlassen mit fremder Sitzung tut nichts.
+            guard await beitritt(taub: false) else { return }
+            let s = raum.sitzung
+            await raum.verlassen(sitzung: s - 1)
+            NSLog("[PulseSprache] Pruefung SITZUNG SOLL steht IST %@",
+                  raum.raum == nil ? "WEG" : "steht")
+
+            // Auflegen ohne Zuhörer im Web: die Hülle legt selbst auf und meldet es.
+            try? await raum.wunsch(.auflegen, an: true)
+            await warten(1)
+            NSLog("[PulseSprache] Pruefung AUFLEGEN SOLL raum=nil IST %@",
+                  raum.raum == nil ? "nil" : "STEHT")
+            NSLog("[PulseSprache] Pruefung ENDE")
         }
     }
 #endif

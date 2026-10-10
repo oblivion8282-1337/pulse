@@ -1,50 +1,69 @@
 import LiveKit
 
-/// Die Mechanik hinter dem Taubstellen: die Lautstärken der fremden Tonspuren.
+/// Was die Oberfläche hören will. Die Lautstärke JEDER fremden Tonspur ergibt
+/// sich daraus und aus `taub` — sie wird ausgerechnet, nicht gemerkt.
+struct Hoerwunsch {
+    /// Faktor je Nutzer-Id (die nackte Snowflake, wie `settings.voice.userVolumes`
+    /// im Web). Fehlt ein Eintrag, gilt 1.
+    var je: [String: Double] = [:]
+    /// Gesamtlautstärke (`settings.voice.outputVolume`).
+    var gesamt: Double = 1
+}
+
+/// Die Mechanik hinter Taubstellen und Lautstärken: die `volume` der fremden
+/// Tonspuren.
 ///
-/// **Warum eine eigene Datei.** Der BEFEHL steht in `SpracheRaum.swift`
-/// (`taubStellen`), hier liegt nur, wie er wirkt — und das ist ein eigener
-/// Mechanismus mit einer eigenen Invariante: alles, was `lautstaerken` oder
-/// eine `volume`-Eigenschaft anfasst, läuft über `tonFaden`. Zusammen mit der
-/// Steuerung lag die Datei über der Grössen-Policy (`PLAN.md` §12.1).
+/// **Ausgerechnet statt gemerkt — und das ist die Behebung, nicht ein
+/// Umbau.** Bis zum 2026-10-11 merkte sich das Taubstellen den alten Wert
+/// jeder Spur und stellte ihn beim Zurücknehmen wieder her. Wurde dazwischen
+/// der Merker umgedreht, ohne die Spuren mitzuziehen (der Beitritt tat genau
+/// das), blieben Spuren auf 0 stehen — man hörte niemanden, und nichts zeigte
+/// es an (Bughunt 2026-10-11, E1). Jetzt hat jede Spur EINEN richtigen Wert,
+/// und jeder Anlass (Taub, Regler, neue Spur) setzt ihn neu. Einen falschen
+/// Zwischenstand, der hängen bleiben könnte, gibt es nicht mehr.
 ///
-/// `lautstaerken` und `tonFaden` sind deshalb am Typ und nicht `private`
-/// (Swift rechnet `private` DATEI-weit): **sie gehören dieser Datei, auch wenn
-/// sie dort nicht deklariert werden können** — Erweiterungen dürfen keine
-/// gespeicherten Eigenschaften tragen.
+/// **Die Lautstärke je Teilnehmer gab es nativ bis dahin gar nicht** (M4):
+/// die Regler gingen an `<audio>`-Elemente, die es auf diesem Weg nicht gibt.
+///
+/// Alles, was `hoerwunsch` oder eine `volume`-Eigenschaft anfasst, läuft über
+/// `tonFaden` — beides ist hier serialisiert.
 extension SpracheRaum {
-    /// Eine neu abonnierte Spur sofort auf 0, solange taubgestellt ist.
-    /// **Der Befehl allein genügt nicht:** wer beitritt, WÄHREND man taub ist,
-    /// wäre sonst genau der eine, den man hört.
-    func taubAufNeueSpur(_ spur: RemoteAudioTrack) {
-        guard taub else { return }
-        Task { await aufTonFaden { [weak self] in self?.anpassen([spur], taub: true) } }
+    /// **Gedeckelt bei 1, wie der Mobil-Web-Weg** (`audioElements.ts`,
+    /// `#elementVolume`): das SDK erlaubte bis 10, aber ohne den Begrenzer, den
+    /// der Rechner-Weg dahinter schaltet, wäre jede Verstärkung ungeschützt
+    /// gegen Übersteuern — und der Regler am Telefon geht ohnehin nur bis
+    /// 100 % (`VoiceUserVolumeControl.svelte`).
+    static func wirksameLautstaerke(taub: Bool, nutzer: Double?, gesamt: Double) -> Double {
+        if taub { return 0 }
+        return min(max((nutzer ?? 1) * gesamt, 0), 1)
     }
 
-    func spurVergessen(_ sid: String) {
-        Task { await aufTonFaden { [weak self] in self?.lautstaerken.removeValue(forKey: sid) } }
-    }
-
-    func lautstaerkenVergessen() {
-        Task { await aufTonFaden { [weak self] in self?.lautstaerken.removeAll() } }
-    }
-
-    func lautstaerkenAnwenden(_ taub: Bool) {
-        guard let r = raum else { return }
-        let spuren = r.remoteParticipants.values.flatMap { p in
-            p.audioTracks.compactMap { $0.track as? RemoteAudioTrack }
+    /// Neuen Wunsch übernehmen und auf alle Spuren anwenden. `nil` lässt den
+    /// bisherigen Teil stehen — eine ältere Oberfläche schickt nichts mit.
+    func hoerwunschSetzen(je: [String: Double]?, gesamt: Double?) async {
+        await aufTonFaden { [weak self] in
+            guard let self else { return }
+            if let je { hoerwunsch.je = je }
+            if let gesamt { hoerwunsch.gesamt = gesamt }
+            alleSpurenStellen()
         }
-        anpassen(spuren, taub: taub)
+    }
+
+    /// Nach einer Änderung von `taub`.
+    func lautstaerkenAnwenden() async {
+        await aufTonFaden { [weak self] in self?.alleSpurenStellen() }
+    }
+
+    /// Eine neu abonnierte Spur sofort richtig stellen. **Der Befehl allein
+    /// genügt nicht:** wer beitritt, WÄHREND man taub ist, wäre sonst genau
+    /// der eine, den man hört — der Befehl hat seine Spur nie gesehen.
+    func spurStellen(_ spur: RemoteAudioTrack, kennung: String) {
+        Task { await aufTonFaden { [weak self] in self?.stellen(spur, kennung: kennung) } }
     }
 
     /// **Diagnose, und eine, ohne die der Taub-Zustand nicht prüfbar wäre.**
-    /// Ob das Taubstellen gewirkt hat, steht nicht in einem Merker, sondern an
-    /// den Spuren — und ein Merker, der behauptet, was er nicht nachsieht, ist
-    /// genau die Sorte Beleg, die nichts belegt. Liefert die anliegende
-    /// Lautstärke je fremder Tonspur.
-    ///
-    /// Liest `volume` und blockiert deshalb — läuft über `tonFaden`, nie auf
-    /// dem Hauptthread.
+    /// Ob es gewirkt hat, steht nicht in einem Merker, sondern an den Spuren.
+    /// Liest `volume` und blockiert deshalb — läuft über `tonFaden`.
     func lautstaerkenLesen() async -> [String: Double] {
         var ergebnis: [String: Double] = [:]
         await aufTonFaden { [weak self] in
@@ -60,29 +79,32 @@ extension SpracheRaum {
         return ergebnis
     }
 
-    /// Läuft ausschliesslich auf `tonFaden` — dort liegt auch `lautstaerken`.
-    func anpassen(_ spuren: [RemoteAudioTrack], taub: Bool) {
-        for spur in spuren {
-            let schluessel = spur.sid?.stringValue ?? ""
-            if taub {
-                if lautstaerken[schluessel] == nil { lautstaerken[schluessel] = spur.volume }
-                spur.volume = 0
-            } else if let alt = lautstaerken.removeValue(forKey: schluessel) {
-                spur.volume = alt
+    /// Nur auf `tonFaden`.
+    private func alleSpurenStellen() {
+        guard let r = raum else { return }
+        for p in r.remoteParticipants.values {
+            let kennung = p.identity?.stringValue ?? ""
+            for pub in p.audioTracks {
+                if let spur = pub.track as? RemoteAudioTrack { stellen(spur, kennung: kennung) }
             }
         }
+    }
+
+    /// Nur auf `tonFaden`. `taub` wird hier gelesen, nicht mitgegeben: der
+    /// Befehl setzt es, BEVOR er diese Arbeit einreiht, also liegt hier immer
+    /// der neueste Stand an.
+    private func stellen(_ spur: RemoteAudioTrack, kennung: String) {
+        let nutzer = Self.nutzerId(aus: kennung).flatMap { hoerwunsch.je[$0] }
+        spur.volume = Self.wirksameLautstaerke(taub: taub, nutzer: nutzer,
+                                               gesamt: hoerwunsch.gesamt)
     }
 
     /// **Lesen und Schreiben von `volume` BLOCKIERT den rufenden Faden**, bis
     /// WebRTCs Signalisierungs-Faden es angewandt hat (Doc-Kommentar des SDK,
     /// `RemoteAudioTrack.volume`). Deshalb ein eigener Faden — und ein
     /// `withCheckedContinuation` statt eines `sync`: der Rufer WARTET, aber er
-    /// blockiert dabei nichts. Das ist hier der Unterschied, auf den es
-    /// ankommt, denn der Rufer ist Capacitors Brücke, und die ist EINE
-    /// serielle Warteschlange für alle Plugins.
-    ///
-    /// Der Faden ist zugleich der Schutz für `lautstaerken`: alles, was die
-    /// Karte anfasst, läuft hier durch, und sie ist serialisiert.
+    /// blockiert dabei nichts. Der Rufer kann Capacitors Brücke sein, und die
+    /// ist EINE serielle Warteschlange für alle Plugins.
     func aufTonFaden(_ arbeit: @escaping () -> Void) async {
         await withCheckedContinuation { fortsetzen in
             tonFaden.async {

@@ -20,6 +20,8 @@ struct SpracheKachel: View {
     @ObservedObject var teilnehmer: Participant
     let video: VideoTrack?
     let istBildschirm: Bool
+    /// Front/Rück-Wechsel — nur auf der eigenen Kamerakachel gesetzt.
+    var umschalten: (() -> Void)?
 
     var body: some View {
         ZStack {
@@ -29,6 +31,7 @@ struct SpracheKachel: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             ring
             VStack {
+                if let umschalten { wechselKnopf(umschalten) }
                 Spacer(minLength: 0)
                 fussZeile
             }
@@ -107,6 +110,26 @@ struct SpracheKachel: View {
     /// über die Kachel hinaus wachsen lassen.
     private var pegel: Double {
         min(max(Double(teilnehmer.audioLevel), 0), 1)
+    }
+
+    // MARK: - Kamera-Wechsel
+
+    /// 48 pt Trefferfläche (Regel aus `mobile-treffflaechen.spec.ts`), das
+    /// Zeichen darin kleiner.
+    private func wechselKnopf(_ tun: @escaping () -> Void) -> some View {
+        HStack {
+            Spacer(minLength: 0)
+            Button(action: tun) {
+                Image(systemName: "arrow.triangle.2.circlepath.camera")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(SpracheFarben.text)
+                    .frame(width: 36, height: 36)
+                    .background(Color.black.opacity(0.55), in: Circle())
+                    .frame(width: 48, height: 48)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(NSLocalizedString("Kamera wechseln", comment: "Sprachkanal"))
+        }
     }
 
     // MARK: - Fusszeile

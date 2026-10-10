@@ -26,6 +26,7 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "ansichtOeffnen", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "ansichtSchliessen", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "zustand", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "lautstaerken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addListener", returnType: CAPPluginReturnCallback),
         CAPPluginMethod(name: "removeAllListeners", returnType: CAPPluginReturnPromise)
     ]
@@ -39,6 +40,32 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
         SpracheAnsichtHalter.geteilt.geschlossen = { [weak self] in
             self?.notifyListeners("ansichtGeschlossen", data: [:])
         }
+        // Knöpfe der Ansicht, deren Regeln das Web kennt (`SpracheRaum.wunsch`).
+        // **`hasListeners` ist die Frage „hört die Oberfläche gerade zu?"** —
+        // Capacitor räumt alle Hörer bei jeder Navigation der WebView ab
+        // (`CapacitorBridge.reset`), ein Reload hinterlässt also keine toten.
+        SpracheRaum.geteilt.wunschAnWeb = { [weak self] wunsch, an in
+            guard let self, self.hasListeners("wunsch") else { return false }
+            self.notifyListeners("wunsch", data: ["aktion": wunsch.rawValue, "an": an])
+            return true
+        }
+    }
+
+    /// Einen Befehl in die Kette des Raums stellen (Begründung an
+    /// `SpracheRaum.nacheinander`) und mit dem Zustand danach beantworten.
+    /// **Laut scheitern:** ein verschluckter Fehlschlag ist hier der teuerste
+    /// Zustand — die Oberfläche hielte etwas für geschaltet, das es nicht ist.
+    private func befehl(_ call: CAPPluginCall, _ name: String,
+                        _ arbeit: @escaping () async throws -> Void) {
+        Task {
+            do {
+                try await SpracheRaum.geteilt.nacheinander(arbeit)
+                call.resolve(SpracheRaum.geteilt.zustand())
+            } catch {
+                NSLog("[PulseSprache] %@ FEHLER: %@", name, error.localizedDescription)
+                call.reject("sprache_\(name)_fehlgeschlagen", nil, error)
+            }
+        }
     }
 
     @objc func beitreten(_ call: CAPPluginCall) {
@@ -50,56 +77,60 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
         let kanalName = call.getString("kanalName") ?? ""
         let stumm = call.getBool("startStumm") ?? false
         let taub = call.getBool("startTaub") ?? false
-        // `Task`, weil die SDK-Rufe `async` sind. Die Brücken-Warteschlange
-        // wird dadurch NICHT gehalten — das ist hier wichtiger als sonst, denn
-        // ein Verbindungsaufbau dauert.
-        Task {
-            do {
-                try await SpracheRaum.geteilt.beitreten(
-                    wsUrl: wsUrl, token: token, kanalId: kanalId, kanalName: kanalName,
-                    stumm: stumm, taubStart: taub)
-                call.resolve(SpracheRaum.geteilt.zustand())
-            } catch {
-                // **Laut scheitern.** Ein verschluckter Fehlschlag hier ist
-                // der teuerste Zustand: die Oberfläche hielte sich für
-                // verbunden, und niemand hörte etwas.
-                NSLog("[PulseSprache] beitreten FEHLER: %@", error.localizedDescription)
-                call.reject("sprache_beitritt_fehlgeschlagen", nil, error)
-            }
+        let (je, gesamt) = Self.hoerwunsch(call)
+        // In der Kette: ein Mikrofon-Befehl, der während des Aufbaus kommt,
+        // wartet auf den Raum, statt auf dem alten oder keinem zu landen. Die
+        // Brücken-Warteschlange hält das NICHT — der Aufbau läuft im `Task`.
+        befehl(call, "beitritt") {
+            try await SpracheRaum.geteilt.beitreten(
+                wsUrl: wsUrl, token: token, kanalId: kanalId, kanalName: kanalName,
+                stumm: stumm, taubStart: taub, lautstaerken: je, gesamt: gesamt)
         }
     }
 
+    /// **Nicht in der Kette** — Auflegen darf nicht hinter einem hängenden
+    /// Verbindungsaufbau warten, und es bricht ihn ab. `sitzung` (optional):
+    /// nur verlassen, wenn genau dieser Beitritt noch läuft.
     @objc func verlassen(_ call: CAPPluginCall) {
+        let sitzung = call.getInt("sitzung")
         Task {
-            await SpracheRaum.geteilt.verlassen()
+            await SpracheRaum.geteilt.verlassen(sitzung: sitzung)
             call.resolve()
         }
     }
 
     @objc func mikrofon(_ call: CAPPluginCall) {
         let an = call.getBool("an") ?? true
-        Task {
-            do {
-                try await SpracheRaum.geteilt.mikrofon(an)
-                call.resolve(SpracheRaum.geteilt.zustand())
-            } catch {
-                NSLog("[PulseSprache] mikrofon FEHLER: %@", error.localizedDescription)
-                call.reject("sprache_mikrofon_fehlgeschlagen", nil, error)
-            }
-        }
+        befehl(call, "mikrofon") { try await SpracheRaum.geteilt.mikrofon(an) }
     }
 
-    /// Mithören aus. **Kein `throws`-Weg** — das Stellen einer Lautstärke kann
-    /// nicht scheitern, es gibt im schlechtesten Fall nur keine Spur, die
-    /// gestellt werden könnte.
+    /// Mithören aus. Kann nicht scheitern — im schlechtesten Fall gibt es
+    /// keine Spur, die gestellt werden könnte.
     @objc func taub(_ call: CAPPluginCall) {
         let an = call.getBool("an") ?? false
-        Task {
-            await SpracheRaum.geteilt.taubStellen(an)
-            call.resolve(SpracheRaum.geteilt.zustand())
+        befehl(call, "taub") { await SpracheRaum.geteilt.taubStellen(an) }
+    }
+
+    /// Lautstärke je Teilnehmer und gesamt — **immer die ganze Tabelle**, aus
+    /// demselben Grund wie die Teilnehmerliste: Teil-Updates bräuchten eine
+    /// Reihenfolge, die eine Brücke nicht zusagt. Der Entwurf (§4) nannte
+    /// `lautstaerke({identitaet, wert})`; der Schlüssel ist hier die Nutzer-Id,
+    /// weil die Einstellungen im Web so gespeichert sind.
+    @objc func lautstaerken(_ call: CAPPluginCall) {
+        let (je, gesamt) = Self.hoerwunsch(call)
+        befehl(call, "lautstaerken") {
+            await SpracheRaum.geteilt.hoerwunschSetzen(je: je, gesamt: gesamt)
         }
     }
 
+    private static func hoerwunsch(_ call: CAPPluginCall) -> ([String: Double]?, Double?) {
+        let je = call.getObject("lautstaerken")?.compactMapValues { wert -> Double? in
+            (wert as? NSNumber)?.doubleValue
+        }
+        return (je, call.getDouble("gesamt"))
+    }
+
+    /// Nicht in der Kette: ein Schalter am SDK, kein `await`, kein Rennen.
     @objc func ausgabe(_ call: CAPPluginCall) {
         SpracheRaum.geteilt.ausgabe(call.getString("weg") ?? "lautsprecher")
         call.resolve(SpracheRaum.geteilt.zustand())
@@ -107,31 +138,12 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func kamera(_ call: CAPPluginCall) {
         let an = call.getBool("an") ?? false
-        Task {
-            do {
-                try await SpracheRaum.geteilt.kamera(an)
-                call.resolve(SpracheRaum.geteilt.zustand())
-            } catch {
-                // Laut scheitern: eine verweigerte Kamera-Erlaubnis oder ein
-                // belegtes Gerät muss die Oberfläche erreichen, sonst sieht der
-                // Knopf geschaltet aus und es kommt kein Bild.
-                NSLog("[PulseSprache] kamera FEHLER: %@", error.localizedDescription)
-                call.reject("sprache_kamera_fehlgeschlagen", nil, error)
-            }
-        }
+        befehl(call, "kamera") { try await SpracheRaum.geteilt.kamera(an) }
     }
 
     @objc func kameraSeite(_ call: CAPPluginCall) {
         let front = call.getBool("front") ?? true
-        Task {
-            do {
-                try await SpracheRaum.geteilt.kameraSeite(front: front)
-                call.resolve(SpracheRaum.geteilt.zustand())
-            } catch {
-                NSLog("[PulseSprache] kameraSeite FEHLER: %@", error.localizedDescription)
-                call.reject("sprache_kameraseite_fehlgeschlagen", nil, error)
-            }
-        }
+        befehl(call, "kameraseite") { try await SpracheRaum.geteilt.kameraSeite(front: front) }
     }
 
     /// Die native Kanalansicht zeigen.
