@@ -178,7 +178,7 @@ export interface PulseNotifyApi {
  *  `code` is the invite code (alphanumeric, 6-64 chars). The frontend shows a
  *  disclaimer before touching the server. */
 export interface PulseInvitePayload {
-  /** FQDN des Self-Hosts; '' = Cloud-Einladung (schickt erst die Desktop-App mit Cloud-Deep-Links, Etappe 3 der Einladungsseite). */
+  /** FQDN des Self-Hosts; '' = Cloud-Einladung (ab Desktop 0.1.98). */
   hostname: string;
   code: string;
 }
