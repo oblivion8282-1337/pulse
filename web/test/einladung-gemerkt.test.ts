@@ -81,3 +81,13 @@ test('verwerfen löscht', () => {
   gemerkteEinladungVerwerfen(s);
   assert.equal(gemerkteEinladung(s, T0), null);
 });
+
+test('Adressen werden gemerkt; alte Einträge ohne Handle bleiben Einladungen', () => {
+  const s = speicher();
+  einladungMerken(s, { handle: 'designrunde', host: null }, T0);
+  assert.deepEqual(gemerkteEinladung(s, T0), { handle: 'designrunde', host: null });
+  s.daten.set(SPEICHER_SCHLUESSEL, JSON.stringify({ code: 'abc12345', host: null, gemerktAm: T0 }));
+  assert.deepEqual(gemerkteEinladung(s, T0), { code: 'abc12345', host: null });
+  s.daten.set(SPEICHER_SCHLUESSEL, JSON.stringify({ handle: 'Böse!', host: null, gemerktAm: T0 }));
+  assert.equal(gemerkteEinladung(s, T0), null);
+});

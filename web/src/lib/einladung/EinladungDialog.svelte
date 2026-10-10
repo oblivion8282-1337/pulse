@@ -19,7 +19,7 @@
     type EinladungCommunity,
     type EinladungZustand
   } from './EinladungKarte.svelte';
-  import { einladungAusParametern, ohneEinladung, type Einladung } from './einladungsLink';
+  import { einladungAusParametern, istAdresse, ohneEinladung, type Ziel } from './einladungsLink';
   import {
     EREIGNIS_GEMERKT,
     browserSpeicher,
@@ -30,13 +30,19 @@
   import { m } from '$lib/paraglide/messages.js';
 
   const ausUrl = $derived(einladungAusParametern(page.url.searchParams, CLOUD_HOSTNAME));
-  let ausSpeicher = $state<Einladung | null>(null);
+  let ausSpeicher = $state<Ziel | null>(null);
+
+  // Adresse und Code teilen sich keinen Schlüsselraum.
+  function zielSchluessel(z: Ziel | null): string | null {
+    if (!z) return null;
+    return `${istAdresse(z) ? `c/${z.handle}` : z.code}|${z.host ?? ''}`;
+  }
 
   function ausSpeicherLesen(): void {
     if (!auth.user || auth.user.email_verification_pending) return;
     const g = gemerkteEinladung(browserSpeicher(), Date.now());
     // Nur bei echter Änderung zuweisen: jede neue Objekt-Identität lüde neu.
-    if (g?.code !== ausSpeicher?.code || g?.host !== ausSpeicher?.host) ausSpeicher = g;
+    if (zielSchluessel(g) !== zielSchluessel(ausSpeicher)) ausSpeicher = g;
   }
 
   $effect(ausSpeicherLesen);
@@ -49,7 +55,7 @@
   });
 
   const offen = $derived(ausUrl !== null || ausSpeicher !== null);
-  const aktiv = $derived<Einladung | null>(ausUrl === 'kaputt' ? null : (ausUrl ?? ausSpeicher));
+  const aktiv = $derived<Ziel | null>(ausUrl === 'kaputt' ? null : (ausUrl ?? ausSpeicher));
 
   let zustand = $state<EinladungZustand>('laden');
   let community = $state<EinladungCommunity | null>(null);
@@ -59,7 +65,7 @@
   let rueckfrage = $state(false);
   let lauf = 0;
 
-  async function laden(e: Einladung | null) {
+  async function laden(e: Ziel | null) {
     const meiner = ++lauf;
     zustand = 'laden';
     community = null;
@@ -79,7 +85,7 @@
   // Stabiler Schlüssel statt Objekt: `aktiv` ist bei jeder URL-Änderung und
   // jeder Neuzuweisung von auth.user ein neues Objekt, die Einladung dieselbe.
   const schluessel = $derived(
-    aktiv ? `${aktiv.code}|${aktiv.host ?? ''}` : ausUrl === 'kaputt' ? 'kaputt' : null
+    aktiv ? zielSchluessel(aktiv) : ausUrl === 'kaputt' ? 'kaputt' : null
   );
 
   $effect(() => {

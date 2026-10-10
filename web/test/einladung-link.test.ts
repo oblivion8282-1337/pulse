@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   istGueltigerCode,
   istGueltigerHost,
+  istGueltigerHandle,
+  istAdresse,
   zielHost,
   einladungAusUrl,
   ersteEinladungImText,
@@ -202,4 +204,17 @@ test('Deep-Link-Wiederholung: dieselbe Einladung kurz hintereinander', () => {
   assert.equal(deepLinkWiederholung(v, 'abc12345|', 15_000), false);
   assert.equal(deepLinkWiederholung(v, 'xyz98765|', 10_500), false);
   assert.equal(deepLinkWiederholung(v, 'abc12345|', 9_000), false);
+});
+
+test('Handle-Form wie parseJoinInput', () => {
+  assert.equal(istGueltigerHandle('designrunde'), true);
+  assert.equal(istGueltigerHandle('a'), true);
+  assert.equal(istGueltigerHandle('-x'), false);
+  assert.equal(istGueltigerHandle('Gross'), false);
+  assert.equal(istGueltigerHandle('a'.repeat(33)), false);
+});
+
+test('istAdresse trennt Adresse und Einladung', () => {
+  assert.equal(istAdresse({ handle: 'x', host: null }), true);
+  assert.equal(istAdresse({ code: 'abc12345', host: null }), false);
 });

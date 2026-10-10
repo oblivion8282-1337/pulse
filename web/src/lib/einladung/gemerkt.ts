@@ -6,7 +6,7 @@
 // der Bestätigungslink wieder nach /app. Auf jedem dieser Wege ginge der
 // Zusammenhang verloren. Der Eintrag im Browser übersteht alle drei, und das
 // App-Layout greift ihn auf, sobald der Nutzer angemeldet und bestätigt ist.
-import { istGueltigerCode, istGueltigerHost, type Einladung } from './einladungsLink.ts';
+import { istGueltigerCode, istGueltigerHandle, istGueltigerHost, type Ziel } from './einladungsLink.ts';
 
 export const SPEICHER_SCHLUESSEL = 'pulse.einladung.gemerkt';
 export const HALTBARKEIT_MS = 24 * 60 * 60 * 1000;
@@ -27,10 +27,10 @@ export function browserSpeicher(): Speicher | null {
   }
 }
 
-export function einladungMerken(s: Speicher | null, e: Einladung, jetzt: number): void {
+export function einladungMerken(s: Speicher | null, z: Ziel, jetzt: number): void {
   if (!s) return;
   try {
-    s.setItem(SPEICHER_SCHLUESSEL, JSON.stringify({ code: e.code, host: e.host, gemerktAm: jetzt }));
+    s.setItem(SPEICHER_SCHLUESSEL, JSON.stringify({ ...z, gemerktAm: jetzt }));
   } catch {
     /* voll oder gesperrt — dann eben ohne Rückweg */
   }
@@ -47,7 +47,7 @@ export function gemerkteEinladungVerwerfen(s: Speicher | null): void {
 
 /** Die gemerkte Einladung, geprüft wie ein frischer Link. Alles Ungültige
  *  (kaputt, fremd, abgelaufen, aus der Zukunft) wird dabei gelöscht. */
-export function gemerkteEinladung(s: Speicher | null, jetzt: number): Einladung | null {
+export function gemerkteEinladung(s: Speicher | null, jetzt: number): Ziel | null {
   if (!s) return null;
   let roh: string | null;
   try {
@@ -61,7 +61,7 @@ export function gemerkteEinladung(s: Speicher | null, jetzt: number): Einladung 
   return e;
 }
 
-function lesen(roh: string, jetzt: number): Einladung | null {
+function lesen(roh: string, jetzt: number): Ziel | null {
   let d: unknown;
   try {
     d = JSON.parse(roh);
@@ -69,11 +69,13 @@ function lesen(roh: string, jetzt: number): Einladung | null {
     return null;
   }
   if (typeof d !== 'object' || d === null) return null;
-  const { code, host, gemerktAm } = d as Record<string, unknown>;
-  if (typeof code !== 'string' || !istGueltigerCode(code)) return null;
+  const { code, handle, host, gemerktAm } = d as Record<string, unknown>;
   if (host !== null && (typeof host !== 'string' || !istGueltigerHost(host))) return null;
   if (typeof gemerktAm !== 'number') return null;
   const alter = jetzt - gemerktAm;
   if (!(alter >= 0 && alter < HALTBARKEIT_MS)) return null;
-  return { code, host };
+  // Einträge aus Etappe 1 tragen nur `code` — sie bleiben Einladungen.
+  if (typeof handle === 'string') return istGueltigerHandle(handle) ? { handle, host } : null;
+  if (typeof code === 'string' && istGueltigerCode(code)) return { code, host };
+  return null;
 }
