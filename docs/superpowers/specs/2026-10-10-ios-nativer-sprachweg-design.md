@@ -136,6 +136,30 @@ Brücke mit Ereignissen nicht gibt.
 - Die Hülle führt die Session **allein**. Unser `AudioSessionPlugin` fasst sie
   im Sprach-Betrieb auf iOS nicht mehr an.
 - Lautsprecher ↔ Hörmuschel über `AudioManager.shared.isSpeakerOutputPreferred`.
+  **AM GERÄT NACHGEMESSEN, 2026-10-10** (iPhone 16 Pro, iOS 26.6.2, gegen den
+  Dev-Stack, nativer Prüfpfad ohne Oberfläche):
+
+  | Schritt | erreichte Route |
+  |---|---|
+  | verbunden, ohne Mikrofon | `Speaker` |
+  | Mikrofon an | `Speaker` |
+  | Ausgabe `hoermuschel` | **`Receiver`** |
+  | Ausgabe `lautsprecher` | `Speaker` |
+  | Ausgabe `hoermuschel` | **`Receiver`** |
+
+  **Die Hörmuschel ist damit erreichbar** — mitten im Gespräch, in beide
+  Richtungen, sofort. Genau das, was über WebKit unmöglich war.
+
+  **Mit einer Bedingung, und die ist wichtig für die Oberfläche:** ohne
+  veröffentlichte Aufnahme wirkt der Schalter NICHT. In einem ersten Lauf
+  wurde dreimal umgeschaltet, bevor das Mikrofon lief — die Route blieb jedes
+  Mal `Speaker`, und erst das `Mikrofon an` sprang auf `Receiver`. Der Grund
+  steht in LiveKits Dokumentation: das SDK wählt die Kategorie nach dem
+  Zustand der Audio-Maschine, `.playback` ohne Aufnahme und `.playAndRecord`
+  mit. Nur im zweiten Fall gibt es überhaupt eine Hörmuschel-Wahl. Im
+  Sprachkanal ist das unkritisch (Stummschalten beendet die Spur nicht), aber
+  wer reines Zuhören baut, muss es wissen.
+
   **Am Quelltext geprüft** (`Sources/LiveKit/Audio/Manager/AudioManager.swift`),
   Doc-Kommentar wörtlich: „Determines whether the device's built-in speaker or
   receiver is preferred for audio output. Defaults to `true` … Set to `false`

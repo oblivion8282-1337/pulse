@@ -133,17 +133,18 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
                     return
                 }
 
-                // Die Route in beide Richtungen und jedes Mal mitschreiben, WAS
-                // danach wirklich ausgegeben wird. Wunsch und Route zu
-                // verwechseln war der ganze Befund vom 2026-10-10.
-                for weg in ["hoermuschel", "lautsprecher", "hoermuschel"] {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    SpracheRaum.geteilt.ausgabe(weg)
-                }
-
-                // Zuletzt das Mikrofon, weil es im Simulator scheitern DARF:
-                // dort gibt es kein echtes Aufnahmegeraet.
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                // **Erst das Mikrofon, dann die Route — in dieser
+                // Reihenfolge, und das ist der Befund vom 2026-10-10.** Der
+                // SDK-Schalter wirkt nicht fuer sich: er greift, wenn das SDK
+                // die Session neu einrichtet, und das tut es beim
+                // Veroeffentlichen einer Aufnahme (Kategorie wechselt von
+                // `.playback` auf `.playAndRecord`). Vorher gemessen: drei
+                // Umschaltversuche ohne jede Wirkung, dann `Mikrofon an` —
+                // und die Route sprang auf `Receiver`.
+                //
+                // Die eigentliche Frage ist damit eine andere: traegt das
+                // Umschalten auch MITTEN im Gespraech, wenn die Aufnahme schon
+                // laeuft? Genau das misst die Reihenfolge hier.
                 do {
                     try await SpracheRaum.geteilt.mikrofon(true)
                     NSLog("[PulseSprache] Probe MIKROFON an, Route: %@",
@@ -151,6 +152,11 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
                 } catch {
                     NSLog("[PulseSprache] Probe MIKROFON fehlgeschlagen: %@",
                           error.localizedDescription)
+                }
+
+                for weg in ["hoermuschel", "lautsprecher", "hoermuschel"] {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    SpracheRaum.geteilt.ausgabe(weg)
                 }
             }
         }
