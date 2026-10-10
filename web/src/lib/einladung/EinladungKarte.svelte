@@ -87,7 +87,8 @@
         ? m.invite_embed_member_count_one({ count: 1 })
         : m.invite_embed_member_count({ count: community.mitglieder })
   );
-  // Im Dialog trägt `Dialog.Title` (sr-only) schon die Ebene 1.
+  // Im Dialog steht `Dialog.Title` (sr-only, bits-ui Ebene 2) darüber; die sichtbare
+  // Überschrift bleibt ein `h2` unter ihm, auf der Seite ist sie das `h1`.
   const ueberschrift = $derived(rahmen === 'dialog' ? 'h2' : 'h1');
   const zuPulseText = $derived(
     rahmen === 'dialog' ? m.invite_dialog_close_btn() : m.einladung_zu_pulse()

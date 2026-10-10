@@ -1,19 +1,25 @@
 <!--
-  Inline invite card rendered inside a message when the content contains an
-  `/invite/<code>` URL. Fetches the preview on mount and shows server name,
-  icon, member count, and a "Beitreten"-button.
-
-  ``host`` (bare FQDN) ist gesetzt, wenn der Link auf einen Self-Host zeigt.
-  Dann können wir die Preview NICHT inline laden — der Empfänger ist meist
-  noch kein Mitglied dieses Servers. Wir zeigen eine schlanke Karte und
-  rufen `joinGuildByInvite` direkt auf (Cert-Login-Flow).
+  Einladungskarte in einer Nachricht (`/invite/<code>`): lädt die Vorschau beim
+  Einhängen. ``host`` (bare FQDN) ist gesetzt, wenn der Link auf einen Self-Host
+  zeigt; dann gibt es nur eine schlanke Karte (der Empfänger ist meist noch
+  kein Mitglied) und der Beitritt läuft direkt über `joinGuildByInvite`.
 -->
+<script module lang="ts">
+  import { ApiError } from '$lib/api/client';
+  import type { InvitePreview } from '$lib/api/types';
+  import { erzeugeVorschauCache } from '$lib/einladung/vorschauCache';
+
+  // Modulweit geteilt: überlebt das Ab- und Wiederauftauchen der Karte in der
+  // virtualisierten Nachrichtenliste. Nur 404 gilt als dauerhaft.
+  const vorschaeuen = erzeugeVorschauCache<InvitePreview>(
+    (e) => e instanceof ApiError && e.status === 404
+  );
+</script>
+
 <script lang="ts">
   import { onMount } from 'svelte';
   import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
   import { chatApi } from '$lib/api/chat';
-  import { ApiError } from '$lib/api/client';
-  import type { InvitePreview } from '$lib/api/types';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -34,44 +40,37 @@
 
   let preview = $state<InvitePreview | null>(null);
   let invalid = $state(false);
-  // Vorschau nicht ladbar, Code aber nicht als ungültig belegt (429-Bremse, Netzfehler):
-  // Karte bleibt im schlanken Modus, der Beitritt selbst kann noch gelingen.
+  // Vorschau nicht ladbar, Code nicht als ungültig belegt (429, Netzfehler).
   let previewUnavailable = $state(false);
   let loading = $state(true);
   let joining = $state(false);
 
-  // „Beigetreten" wenn entweder der Beitritt über genau diesen Code erinnert ist
-  // (zuverlässig, überlebt verbrauchte/abgelaufene Previews + Reload) ODER wir
-  // die Community-Mitgliedschaft live sehen.
+  // „Beigetreten": Beitritt über genau diesen Code erinnert (überlebt Reload)
+  // ODER Mitgliedschaft live sichtbar.
   let alreadyMember = $derived(
     !!joinedInvites.guildIdFor(code) || (!!preview && !!guilds.byId[preview.guild.id])
   );
 
-  // icon_url durch guildIconSrc() schleusen (nur https:// oder /-relativ,
-  // Rest -> null/Initialen-Fallback) — konsistent mit GuildRail; Preview-
-  // Daten sind server-geliefert und sollen keine beliebigen URLs rendern.
-  // Page-Origin statt CLOUD_HOSTNAME: diese Preview kommt vom Page-Origin
-  // (Cloud-Pfad via chatApi), und im lokalen Dev bleibt so der Vite-Proxy
-  // statt Prod das Ziel relativer URLs.
+  // icon_url durch guildIconSrc() (nur https:// oder /-relativ, sonst
+  // Initialen) — wie GuildRail. Page-Origin statt CLOUD_HOSTNAME: die Preview
+  // kommt vom Page-Origin, im Dev bleibt so der Vite-Proxy das Ziel.
   let previewIconSrc = $derived(
     preview ? guildIconSrc(preview.guild.icon_url, window.location.origin) : null
   );
 
-  // Self-Host-Karte: Sind wir auf dem Ziel-Server schon Mitglied, können wir
-  // die Preview DORT laden und Mitgliedschaft prüfen → Button wird zu
-  // „Beigetreten" statt dauerhaft klickbar zu bleiben. Reaktiv: greift auch,
-  // sobald man dem Server über genau diese Karte beigetreten ist.
+  // Self-Host-Karte: Sind wir auf dem Ziel-Server schon Mitglied, laden wir
+  // die Preview DORT und der Button wird zu „Beigetreten" (reaktiv, auch nach
+  // einem Beitritt über genau diese Karte).
   let selfHostServer = $derived(host ? serversStore.findByHostname(host) : undefined);
   let selfHostPreview = $state<InvitePreview | null>(null);
-  // Der Ziel-Server hat den Code abgewiesen (404 = ungültig, abgelaufen oder
-  // verbraucht — `GET /invites/{code}` unterscheidet das nicht). Nur DIESER
-  // Fall macht die Karte tot; eine fehlende Session und Netzfehler lassen sie
-  // klickbar, weil der Beitritt selbst dann noch gelingen kann.
+  // Der Ziel-Server hat den Code abgewiesen (404: ungültig, abgelaufen oder
+  // verbraucht). Nur das macht die Karte tot; fehlende Session und Netzfehler
+  // lassen sie klickbar, der Beitritt kann noch gelingen.
   let selfHostInvalid = $state(false);
   // Dedupe pro Server-Zustand (NICHT reaktiv): Schlüssel enthält die Kennung,
-  // das erst nach erfolgreichem Cert-Login gesetzt wird — ein Fehlversuch im
-  // Provisional-Fenster (noch kein Token) blockiert so den Post-Join-Retry
-  // nicht, aber unabhängige Store-Writes feuern keine Request-Wiederholungen.
+  // die erst nach erfolgreichem Login gesetzt wird — ein Fehlversuch davor
+  // blockiert den Retry nach dem Beitritt nicht, fremde Store-Writes feuern
+  // aber keine Wiederholungen.
   const previewAttempted = new Set<string>();
 
   $effect(() => {
@@ -106,9 +105,9 @@
       // Host-loser Link = Cloud-Einladung → ausdrücklich die Cloud fragen,
       // nicht den aktiven Server (sonst „ungültig“ in einem Self-Host-Kanal).
       const cloudId = serversStore.cloudId();
-      preview = cloudId
-        ? await getInvitePreviewOn(code, { serverId: cloudId })
-        : await chatApi.getInvitePreview(code);
+      preview = await vorschaeuen.holen(code, () =>
+        cloudId ? getInvitePreviewOn(code, { serverId: cloudId }) : chatApi.getInvitePreview(code)
+      );
     } catch (e) {
       // Nur 404 belegt „ungültig“; eine Bremse (429) oder ein Netzfehler nicht.
       if (e instanceof ApiError && e.status === 404) invalid = true;
@@ -123,12 +122,10 @@
   let confirmHost = $state('');
   let pendingInput = $state('');
 
-  // Harte Reentrancy-Sperre (NICHT reaktiv): garantiert, dass nie zwei
-  // ``doJoin``-Flows gleichzeitig laufen. ``joining`` steuert nur die Button-
-  // Optik und wird im Cancel-Fall früh zurückgesetzt
-  // (Button wieder klickbar zum Retry) — ohne diese Sperre könnte ein Klick im
-  // Schließ-Animationsfenster des Self-Host-Confirm-Dialogs einen zweiten
-  // Cert-Login-Flow anstoßen.
+  // Harte Reentrancy-Sperre (NICHT reaktiv): nie zwei ``doJoin``-Flows
+  // gleichzeitig. ``joining`` steuert nur die Button-Optik und fällt im
+  // Cancel-Fall früh zurück; ohne die Sperre könnte ein Klick im Schließ-
+  // Animationsfenster des Confirm-Dialogs einen zweiten Login-Flow anstoßen.
   let busy = false;
 
   async function doJoin(input: string, confirmed: boolean) {
@@ -172,6 +169,28 @@
   }
 </script>
 
+{#snippet avatar(src: string | null, alt: string, fallback: string)}
+  <Avatar.Root class="size-10 shrink-0">
+    {#if src}
+      <Avatar.Image {src} {alt} />
+    {/if}
+    <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
+      {fallback}
+    </Avatar.Fallback>
+  </Avatar.Root>
+{/snippet}
+
+{#snippet beitreten(mitglied: boolean)}
+  <Button
+    size="sm"
+    onclick={handleJoin}
+    disabled={mitglied || joining}
+    data-testid="invite-embed-join-btn"
+  >
+    {mitglied ? m.invite_embed_joined() : joining ? '…' : m.invite_embed_join()}
+  </Button>
+{/snippet}
+
 <div
   class="mt-1 flex items-center gap-3 rounded-xl border border-border bg-bg-input px-4 py-3 max-w-sm"
   data-testid="invite-embed"
@@ -186,56 +205,27 @@
     </div>
     <div class="h-8 w-20 rounded-md bg-bg-hover animate-pulse shrink-0"></div>
   {:else if host && !selfHostInvalid}
-    <Avatar.Root class="size-10 shrink-0">
-      <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-        {anfangsBuchstabe(host)}
-      </Avatar.Fallback>
-    </Avatar.Root>
+    {@render avatar(null, host, anfangsBuchstabe(host))}
     <div class="min-w-0 flex-1">
       <p class="text-text-bright truncate text-sm font-semibold">
         {selfHostPreview?.guild.name ?? m.invite_embed_self_host_title()}
       </p>
       <p class="text-text-muted truncate text-xs" data-testid="invite-embed-host">{host}</p>
     </div>
-    <Button
-      size="sm"
-      onclick={handleJoin}
-      disabled={alreadyMemberSelfHost || joining}
-      data-testid="invite-embed-join-btn"
-    >
-      {alreadyMemberSelfHost ? m.invite_embed_joined() : joining ? '…' : m.invite_embed_join()}
-    </Button>
+    {@render beitreten(alreadyMemberSelfHost)}
   {:else if previewUnavailable && !invalid && !preview}
-    <Avatar.Root class="size-10 shrink-0">
-      <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-        ?
-      </Avatar.Fallback>
-    </Avatar.Root>
+    {@render avatar('/pulse-mark.svg', 'Pulse', 'P')}
     <div class="min-w-0 flex-1">
       <p class="text-text-bright truncate text-sm font-semibold">
-        {m.invite_embed_self_host_title()}
+        {m.invite_embed_unavailable_title()}
       </p>
     </div>
-    <Button
-      size="sm"
-      onclick={handleJoin}
-      disabled={alreadyMember || joining}
-      data-testid="invite-embed-join-btn"
-    >
-      {alreadyMember ? m.invite_embed_joined() : joining ? '…' : m.invite_embed_join()}
-    </Button>
+    {@render beitreten(alreadyMember)}
   {:else if invalid || selfHostInvalid || !preview}
     <div class="text-text-muted flex-1 text-sm">{m.invite_embed_invalid()}</div>
     <Button variant="outline" size="sm" disabled>{m.invite_embed_join()}</Button>
   {:else}
-    <Avatar.Root class="size-10 shrink-0">
-      {#if previewIconSrc}
-        <Avatar.Image src={previewIconSrc} alt={preview.guild.name} />
-      {/if}
-      <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-        {anfangsBuchstabe(preview.guild.name)}
-      </Avatar.Fallback>
-    </Avatar.Root>
+    {@render avatar(previewIconSrc, preview.guild.name, anfangsBuchstabe(preview.guild.name))}
     <div class="min-w-0 flex-1">
       <p class="text-text-bright truncate text-sm font-semibold" data-testid="invite-embed-guild-name">
         {preview.guild.name}
@@ -246,14 +236,7 @@
           : m.invite_embed_member_count({ count: preview.member_count })}
       </p>
     </div>
-    <Button
-      size="sm"
-      onclick={handleJoin}
-      disabled={alreadyMember || joining}
-      data-testid="invite-embed-join-btn"
-    >
-      {alreadyMember ? m.invite_embed_joined() : joining ? '…' : m.invite_embed_join()}
-    </Button>
+    {@render beitreten(alreadyMember)}
   {/if}
 </div>
 
