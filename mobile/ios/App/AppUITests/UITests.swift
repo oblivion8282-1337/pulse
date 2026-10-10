@@ -415,4 +415,42 @@ final class AppUITests: XCTestCase {
             print("=== MIKROFON-KNOPF NICHT GEFUNDEN ===")
         }
     }
+
+    /// **Tippt den Sprachkanal an und bleibt dann stehen — ohne zu urteilen.**
+    ///
+    /// Gebaut am 2026-10-10, als der Beitritt über die Oberfläche scheiterte
+    /// und die Ursache nicht zu fassen war: die anderen Läufe beenden die App
+    /// am Ende, und damit ist der Zustand weg, den man lesen müsste. Dieser
+    /// hält sie 90 s offen, sodass die Web-Konsole (`pymobiledevice3
+    /// webinspector`) danebenher nachsehen kann, was die Oberfläche meldet.
+    ///
+    /// Ohne Zusicherungen, mit Absicht: er soll nicht scheitern, er soll einen
+    /// Zustand stehen lassen.
+    func testBeitretenUndStehenbleiben() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let geladen = app.webViews.buttons["Nachricht senden"].firstMatch
+        _ = geladen.waitForExistence(timeout: 40)
+        let raeume = app.webViews.links["Räume"].firstMatch
+        if raeume.waitForExistence(timeout: 15) { raeume.tap() }
+        let community = elementMit(app, "dev-stack")
+        if community.waitForExistence(timeout: 20) { community.tap() }
+        Thread.sleep(forTimeInterval: 3)
+        let kanal = elementMit(app, "test-voice")
+        if kanal.waitForExistence(timeout: 20) {
+            kanal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            print("=== KANAL GETIPPT \(stempel()) ===")
+        } else {
+            print("=== KANAL NICHT GEFUNDEN \(stempel()) ===")
+        }
+        Thread.sleep(forTimeInterval: 15)
+        // **Den Baum ausgeben, nicht nur warten.** Was die Oberfläche nach dem
+        // Beitritt sagt, ist die Diagnose — eine Fehlermeldung im Kanal ist
+        // von aussen sonst nicht zu sehen, und die Web-Konsole ist während
+        // eines XCUITest-Laufs nicht erreichbar.
+        print("=== BAUM NACH TIPP \(stempel()) ===\n\(app.debugDescription)\n=== /BAUM ===")
+        Thread.sleep(forTimeInterval: 60)
+        print("=== ENDE \(stempel()) ===")
+    }
 }

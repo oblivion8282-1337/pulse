@@ -1,3 +1,5 @@
+import { registerPlugin } from '@capacitor/core';
+
 import { isCapacitorIOS } from './runtime';
 
 /**
@@ -70,11 +72,34 @@ interface SprachePlugin {
   ): Promise<{ remove: () => void }>;
 }
 
+/**
+ * **Über `registerPlugin`, nicht über `window.Capacitor.Plugins` — und das ist
+ * kein Geschmack, das hat die App zum Absturz gebracht.**
+ *
+ * Der erste Entwurf griff das rohe Objekt aus `Capacitor.Plugins`. Methoden
+ * gehen darüber durch, Ereignis-Hörer NICHT: `addListener` lief dort über den
+ * allgemeinen Brücken-Weg, der die Argumente der Reihe nach schickt statt als
+ * benanntes Feld. Nativ kam der Ruf ohne `eventName` an, und Capacitors
+ * `addEventListener` legt ihn als Schlüssel in ein `NSMutableDictionary` —
+ * mit `nil` wirft das eine NSException, und die reisst den ganzen Prozess
+ * mit. Am 2026-10-10 am Gerät: der Beitritt zum Sprachkanal beendete die App,
+ * ohne eine einzige Zeile im Web-Log, weil es kein JS-Fehler war. Sichtbar
+ * wurde es erst im Absturzbericht (`-[CAPPlugin addEventListener:listener:]`).
+ *
+ * Verräterisch war auch der Rückgabewert: `addListener` lieferte einen
+ * String statt eines Promise. Wer diesen Weg wieder angeht, prüft das zuerst.
+ *
+ * Der Rest des Projekts macht es längst so (`schnellwahl.ts`, `appSperre`,
+ * `iosWachhalten`, Anrufe).
+ */
+const nativ = registerPlugin<SprachePlugin>('SprachePlugin');
+
 function plugin(): SprachePlugin | null {
-  if (typeof window === 'undefined') return null;
-  const cap = (window as Window & { Capacitor?: { Plugins?: Record<string, unknown> } })
-    .Capacitor;
-  return (cap?.Plugins?.SprachePlugin as SprachePlugin | undefined) ?? null;
+  // **Der Guard ist Pflicht, nicht Vorsicht.** Ausserhalb der Hülle ist das
+  // ein Web-Stub, und dessen `addListener` WIRFT („not implemented on web") —
+  // im Browser riss das schon einmal den ganzen Start mit (Befund 2026-09-09
+  // an `anruf.svelte.ts`).
+  return isCapacitorIOS() ? nativ : null;
 }
 
 /**
@@ -87,7 +112,13 @@ function plugin(): SprachePlugin | null {
  * Weiche gäbe es dort gar keine Sprache mehr.
  */
 export function nativerSprachwegDa(): boolean {
-  return isCapacitorIOS() && plugin() !== null;
+  if (!isCapacitorIOS()) return false;
+  // `registerPlugin` liefert immer ein Objekt, auch für ein Plugin, das die
+  // Hülle gar nicht hat — die Frage ist also nicht, ob es da ist, sondern ob
+  // die Hülle es kennt.
+  const cap = (window as Window & { Capacitor?: { Plugins?: Record<string, unknown> } })
+    .Capacitor;
+  return cap?.Plugins?.SprachePlugin !== undefined;
 }
 
 export async function spracheBeitreten(
