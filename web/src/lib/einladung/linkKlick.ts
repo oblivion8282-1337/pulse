@@ -6,6 +6,7 @@
 // (klickAbfangen).
 import { goto } from '$app/navigation';
 import { CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
+import { merkeSelbstGeoeffnet } from './verlauf';
 import { klickAbfangen, zielAusUrl, mitEinladung } from './einladungsLink';
 
 export function einladungsKlicksAbfangen(el: HTMLElement): () => void {
@@ -16,10 +17,9 @@ export function einladungsKlicksAbfangen(el: HTMLElement): () => void {
     const e = zielAusUrl(a.href, CLOUD_HOSTNAME, window.location.host);
     if (!e) return;
     ev.preventDefault();
-    void goto(mitEinladung(window.location.pathname + window.location.search, e), {
-      noScroll: true,
-      keepFocus: true
-    });
+    const ziel = mitEinladung(window.location.pathname + window.location.search, e);
+    merkeSelbstGeoeffnet(ziel);
+    void goto(ziel, { noScroll: true, keepFocus: true });
   };
   el.addEventListener('click', beiKlick);
   return () => el.removeEventListener('click', beiKlick);

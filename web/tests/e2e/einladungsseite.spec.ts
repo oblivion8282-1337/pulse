@@ -198,6 +198,24 @@ test.describe.serial('Einladungsseite', () => {
     expect(bobCtx.pages()).toHaveLength(1);
   });
 
+  test('Dialog schließen und Zurück öffnet den Dialog nicht erneut', async () => {
+    // Leere Seite davor: so ist der Eintrag unter dem Dialog eindeutig erkennbar.
+    await bob.goto('about:blank');
+    await bob.goto(rundeUrl);
+    const anker = bob.locator(`[data-testid=message-content] a[href="${link2}"]`);
+    await expect(anker).toBeVisible({ timeout: 15_000 });
+    await anker.click();
+    await expect(bob.getByTestId('einladung-dialog')).toBeVisible();
+    await expect(bob).toHaveURL(/einladung=/);
+    await bob.keyboard.press('Escape');
+    await expect(bob.getByTestId('einladung-dialog')).toBeHidden();
+    await expect(bob).not.toHaveURL(/einladung=/);
+    // Der Eintrag, den das Öffnen angelegt hat, ist weg: ein Schritt zurück
+    // verlässt die Seite, statt auf einem toten Doppel oder dem Dialog zu landen.
+    await bob.goBack();
+    await expect.poll(() => bob.url()).toBe('about:blank');
+  });
+
   test('Angemeldet: Beitreten direkt auf der Seite', async () => {
     await bob.goto(link2);
     await expect(karte(bob, 'einladung')).toBeVisible({ timeout: 15_000 });

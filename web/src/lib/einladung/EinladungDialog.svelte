@@ -27,6 +27,7 @@
     gemerkteEinladung,
     gemerkteEinladungVerwerfen
   } from './gemerkt';
+  import { selbstGeoeffnet, vergissSelbstGeoeffnet } from './verlauf';
   import { einladungAnnehmen, fehlerMeldung, ladeEinladung } from './laden';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -101,7 +102,11 @@
 
   function schliessen() {
     erledigt();
-    if (ausUrl !== null) {
+    const gepusht = selbstGeoeffnet(page.url.pathname + page.url.search);
+    vergissSelbstGeoeffnet();
+    if (gepusht !== null) {
+      history.back();
+    } else if (ausUrl !== null) {
       void goto(ohneEinladung(page.url.pathname + page.url.search), {
         replaceState: true,
         noScroll: true,
@@ -117,13 +122,17 @@
     const ziel = aktiv;
     const r = await einladungAnnehmen(ziel, bestaetigt);
     busy = false;
-    if (r.art === 'ok') erledigt();
+    if (r.art === 'ok') {
+      vergissSelbstGeoeffnet();
+      erledigt();
+    }
     else if (r.art === 'rueckfrage') rueckfrage = true;
     else hinweis = fehlerMeldung(r.fehler, ziel.host);
   }
 
   function oeffnen() {
     if (!guildId) return;
+    vergissSelbstGeoeffnet();
     erledigt();
     void goto(`/app/guilds/${guildId}/channels/_`);
   }

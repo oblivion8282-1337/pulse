@@ -22,6 +22,7 @@ import {
   mitEinladung,
   zielHost
 } from './einladungsLink';
+import { merkeSelbstGeoeffnet, vergissSelbstGeoeffnet } from './verlauf';
 import { EREIGNIS_GEMERKT, browserSpeicher, einladungMerken } from './gemerkt';
 
 let zuletzt: { schluessel: string; zeit: number } | null = null;
@@ -39,7 +40,10 @@ export function einladungAusDeepLink(data: { hostname: string; code: string }): 
   if (weg === 'dialog') {
     // Steht schon eine Einladung in der Adresse, ersetzen statt anhängen.
     const schonOffen = new URLSearchParams(window.location.search).has('einladung');
-    void goto(mitEinladung(window.location.pathname + window.location.search, e), {
+    const ziel = mitEinladung(window.location.pathname + window.location.search, e);
+    if (schonOffen) vergissSelbstGeoeffnet();
+    else merkeSelbstGeoeffnet(ziel);
+    void goto(ziel, {
       replaceState: schonOffen,
       noScroll: true,
       keepFocus: true
