@@ -14,6 +14,7 @@ import {
 } from '../src/lib/einladung/einladungsLink.ts';
 
 const CLOUD = 'https://howispulse.com';
+const SEITE = 'howispulse.com';
 
 test('Code-Form wie im Desktop-Deep-Link', () => {
   assert.equal(istGueltigerCode('abc12345'), true);
@@ -51,55 +52,87 @@ test('zielHost: Schreibweisen und Cloud', () => {
 });
 
 test('einladungAusUrl: Cloud, Self-Host, host an beliebiger Stelle', () => {
-  assert.deepEqual(einladungAusUrl('https://howispulse.com/invite/abc12345', CLOUD), {
+  assert.deepEqual(einladungAusUrl('https://howispulse.com/invite/abc12345', CLOUD, SEITE), {
     code: 'abc12345',
     host: null
   });
   assert.deepEqual(
-    einladungAusUrl('https://howispulse.com/invite/abc12345?host=pulse.example.de', CLOUD),
+    einladungAusUrl('https://howispulse.com/invite/abc12345?host=pulse.example.de', CLOUD, SEITE),
     { code: 'abc12345', host: 'pulse.example.de' }
   );
   assert.deepEqual(
-    einladungAusUrl('https://howispulse.com/invite/abc12345?ref=x&host=pulse.example.de', CLOUD),
+    einladungAusUrl('https://howispulse.com/invite/abc12345?ref=x&host=pulse.example.de', CLOUD, SEITE),
     { code: 'abc12345', host: 'pulse.example.de' }
   );
-  assert.deepEqual(einladungAusUrl('http://127.0.0.1:5173/invite/abc12345', CLOUD), {
+  assert.deepEqual(einladungAusUrl('http://127.0.0.1:5173/invite/abc12345', CLOUD, '127.0.0.1:5173'), {
     code: 'abc12345',
     host: null
   });
   assert.equal(
     einladungAusUrl(
-      'https://howispulse.com/invite/abc12345?host=evil.example%5C%40victim.example',
-      CLOUD
-    ),
+      'https://howispulse.com/invite/abc12345?host=evil.example%5C%40victim.example', CLOUD, SEITE),
     null
   );
-  assert.equal(einladungAusUrl('https://howispulse.com/c/designrunde', CLOUD), null);
-  assert.equal(einladungAusUrl('https://howispulse.com/invite/abc12345/mehr', CLOUD), null);
-  assert.equal(einladungAusUrl('javascript:alert(1)//invite/abc12345', CLOUD), null);
-  assert.equal(einladungAusUrl('kein link', CLOUD), null);
+  assert.equal(einladungAusUrl('https://howispulse.com/c/designrunde', CLOUD, SEITE), null);
+  assert.equal(einladungAusUrl('https://howispulse.com/invite/abc12345/mehr', CLOUD, SEITE), null);
+  assert.equal(einladungAusUrl('javascript:alert(1)//invite/abc12345', CLOUD, SEITE), null);
+  assert.equal(einladungAusUrl('kein link', CLOUD, SEITE), null);
+});
+
+test('einladungAusUrl: fremde /invite/-Links gehören nicht Pulse', () => {
+  for (const u of [
+    'https://discord.com/invite/python',
+    'https://app.revolt.chat/invite/Testers',
+    'https://example.org/invite/my-team-2026'
+  ]) {
+    assert.equal(einladungAusUrl(u, CLOUD, SEITE), null, u);
+  }
+});
+
+test('einladungAusUrl: der Seiten-Host zählt, mit Port genau', () => {
+  assert.deepEqual(
+    einladungAusUrl('http://127.0.0.1:5173/invite/abc12345', CLOUD, '127.0.0.1:5173'),
+    { code: 'abc12345', host: null }
+  );
+  assert.equal(einladungAusUrl('http://127.0.0.1:5174/invite/abc12345', CLOUD, '127.0.0.1:5173'), null);
+  assert.deepEqual(
+    einladungAusUrl('https://HowIsPulse.com/invite/abc12345', 'howispulse.com', '127.0.0.1:5173'),
+    { code: 'abc12345', host: null }
+  );
+});
+
+test('ersteEinladungImText überspringt fremde Einladungslinks', () => {
+  assert.equal(
+    ersteEinladungImText(
+      'https://discord.com/invite/python und https://howispulse.com/invite/zzz99999',
+      CLOUD,
+      SEITE
+    )?.einladung.code,
+    'zzz99999'
+  );
+  assert.equal(ersteEinladungImText('https://discord.com/invite/python', CLOUD, SEITE), null);
 });
 
 test('ersteEinladungImText: Satzzeichen, Klammern, mehrere Links', () => {
   assert.equal(
-    ersteEinladungImText('Kommst du? https://howispulse.com/invite/abc12345.', CLOUD)?.einladung
+    ersteEinladungImText('Kommst du? https://howispulse.com/invite/abc12345.', CLOUD, SEITE)?.einladung
       .code,
     'abc12345'
   );
   assert.equal(
-    ersteEinladungImText('(https://howispulse.com/invite/abc12345)', CLOUD)?.einladung.code,
+    ersteEinladungImText('(https://howispulse.com/invite/abc12345)', CLOUD, SEITE)?.einladung.code,
     'abc12345'
   );
   assert.equal(
-    ersteEinladungImText('https://example.org/x https://howispulse.com/invite/zzz99999', CLOUD)
+    ersteEinladungImText('https://example.org/x https://howispulse.com/invite/zzz99999', CLOUD, SEITE)
       ?.einladung.code,
     'zzz99999'
   );
   assert.equal(
-    ersteEinladungImText('  https://howispulse.com/invite/abc12345  ', CLOUD)?.roh,
+    ersteEinladungImText('  https://howispulse.com/invite/abc12345  ', CLOUD, SEITE)?.roh,
     'https://howispulse.com/invite/abc12345'
   );
-  assert.equal(ersteEinladungImText('nur Text', CLOUD), null);
+  assert.equal(ersteEinladungImText('nur Text', CLOUD, SEITE), null);
 });
 
 test('mitEinladung / ohneEinladung lassen den Rest der Adresse stehen', () => {

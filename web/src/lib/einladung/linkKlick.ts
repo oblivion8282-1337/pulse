@@ -13,7 +13,7 @@ export function einladungsKlicksAbfangen(el: HTMLElement): () => void {
     if (!klickAbfangen(ev)) return;
     const a = (ev.target as Element | null)?.closest?.('a[href]');
     if (!(a instanceof HTMLAnchorElement) || !el.contains(a)) return;
-    const e = einladungAusUrl(a.href, CLOUD_HOSTNAME);
+    const e = einladungAusUrl(a.href, CLOUD_HOSTNAME, window.location.host);
     if (!e) return;
     ev.preventDefault();
     void goto(mitEinladung(window.location.pathname + window.location.search, e), {

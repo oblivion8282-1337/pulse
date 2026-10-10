@@ -117,7 +117,7 @@
   // Einladungs-Karte: erste gültige Einladung im Text (einladungsLink.ts —
   // derselbe Leser wie Beitrittsfeld, Seite und Dialog; `host=` an jeder
   // Stelle, Satzzeichen am Linkende werden abgeschnitten).
-  const inviteTreffer = $derived(ersteEinladungImText(message.content, CLOUD_HOSTNAME));
+  const inviteTreffer = $derived(ersteEinladungImText(message.content, CLOUD_HOSTNAME, window.location.host));
   const inviteCode = $derived(inviteTreffer?.einladung.code ?? null);
   const inviteHost = $derived(inviteTreffer?.einladung.host ?? null);
   // Rohtext ausblenden, wenn die Nachricht NUR aus dem Link besteht.

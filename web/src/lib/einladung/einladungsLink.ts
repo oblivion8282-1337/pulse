@@ -44,9 +44,14 @@ export function zielHost(roh: string | null, cloudHost: string): string | null |
   return istGueltigerHost(h) ? h : undefined;
 }
 
-/** `…/invite/<code>[?…host=<fqdn>…]` aus einer absoluten URL. Der Origin
- *  zählt nicht: ein Cloud-Link bleibt ein Cloud-Link, wer ihn auch postet. */
-export function einladungAusUrl(url: string, cloudHost: string): Einladung | null {
+/** `…/invite/<code>[?…host=<fqdn>…]` aus einer absoluten URL. Nur Links auf
+ *  die Cloud oder auf die laufende App (`seitenHost`, inkl. Port) zählen —
+ *  `discord.com/invite/…` und Ähnliches gehören nicht Pulse. */
+export function einladungAusUrl(
+  url: string,
+  cloudHost: string,
+  seitenHost: string
+): Einladung | null {
   let u: URL;
   try {
     u = new URL(url);
@@ -54,6 +59,8 @@ export function einladungAusUrl(url: string, cloudHost: string): Einladung | nul
     return null;
   }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const h = u.host.toLowerCase();
+  if (h !== nackt(cloudHost) && h !== seitenHost.trim().toLowerCase()) return null;
   const m = u.pathname.match(/^\/invite\/([^/]+)\/?$/);
   if (!m || !istGueltigerCode(m[1])) return null;
   const host = zielHost(u.searchParams.get('host'), cloudHost);
@@ -69,11 +76,12 @@ const NACHLAUF_RE = /[.,;:!?)\]}'"»]+$/;
  *  Nachricht. `roh` ist der Link ohne angeklebte Satzzeichen. */
 export function ersteEinladungImText(
   text: string,
-  cloudHost: string
+  cloudHost: string,
+  seitenHost: string
 ): { einladung: Einladung; roh: string } | null {
   for (const treffer of text.match(LINK_RE) ?? []) {
     const roh = treffer.replace(NACHLAUF_RE, '');
-    const einladung = einladungAusUrl(roh, cloudHost);
+    const einladung = einladungAusUrl(roh, cloudHost, seitenHost);
     if (einladung) return { einladung, roh };
   }
   return null;

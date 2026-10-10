@@ -23,7 +23,7 @@
     type EinladungCommunity,
     type EinladungZustand
   } from '$lib/einladung/EinladungKarte.svelte';
-  import { einladungAusUrl, type Einladung } from '$lib/einladung/einladungsLink';
+  import { einladungAusUrl, zielHost, type Einladung } from '$lib/einladung/einladungsLink';
   import {
     browserSpeicher,
     einladungMerken,
@@ -37,7 +37,7 @@
   } from '$lib/einladung/laden';
   import { m } from '$lib/paraglide/messages.js';
 
-  const einladung = $derived(einladungAusUrl(page.url.href, CLOUD_HOSTNAME));
+  const einladung = $derived(einladungAusUrl(page.url.href, CLOUD_HOSTNAME, page.url.host));
 
   let zustand = $state<EinladungZustand>('laden');
   let community = $state<EinladungCommunity | null>(null);
@@ -59,6 +59,11 @@
     if (meiner !== lauf) return;
     if (!e) {
       zustand = 'ungueltig';
+      // Ein abgewiesener ?host= ist kein abgelaufener Link.
+      hinweis =
+        zielHost(page.url.searchParams.get('host'), CLOUD_HOSTNAME) === undefined
+          ? m.einladung_host_ungueltig()
+          : null;
       return;
     }
     // Unbestätigte Konten sperrt der chat-gateway komplett (403) — gar nicht erst fragen.
