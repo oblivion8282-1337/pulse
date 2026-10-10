@@ -1,7 +1,8 @@
 # Self-Host ohne Freigabe
 
 Fassung 2 vom 2026-10-10 (Fassung 1 vom 2026-10-09, Unterschiede in
-Abschnitt 9). Vom Eigentümer im Gespräch entschieden. Skizzen der Oberfläche
+Abschnitt 9). Vom Eigentümer im Gespräch entschieden und am 2026-10-10
+freigegeben, einschließlich der Grenzen in E8 und der Namen in Abschnitt 5. Skizzen der Oberfläche
 und des Ablaufs: https://claude.ai/artifact/RUbfNR22z4nj3KmHwRCwjA. Die
 Übersicht zu Fassung 1 (https://claude.ai/artifact/5PJFE2VeBMrxLXPeeqr9Zt) ist
 in den Teilen Einrichtungscode und Adresse im Ticket überholt.
@@ -44,14 +45,19 @@ Cloud-Eigentümers.
 Authorization Grant“ (RFC 8628; so verbinden sich auch GitHub CLI und
 Tailscale):
 
-1. Der Server fragt bei der Cloud anonym einen Gerätecode für seine Adresse an
-   (`POST /selfhost/verbinden/start`, Feld `hostname`). Antwort: eine geheime
-   Abholkennung für den Server, ein kurzer Anzeigecode (`XXXX-XXXX`,
+1. Der Server erzeugt selbst eine geheime Abholkennung und legt deren
+   SHA-256 als Nachweis unter `/.well-known/pulse-verbinden` ab (E2). Dann
+   fragt er bei der Cloud anonym einen Gerätecode an
+   (`POST /selfhost/verbinden/start`, Felder `hostname` und `nachweis`). Die
+   Cloud prüft den Nachweis sofort, damit ein nicht erreichbarer Server keinen
+   Code verbraucht. Antwort: ein kurzer Anzeigecode (`XXXX-XXXX`,
    Crockford-Base32), der Link zur Bestätigungsseite, Gültigkeit 15 Minuten,
-   Abfrage-Abstand 5 Sekunden.
+   Abfrage-Abstand 5 Sekunden. Die Cloud hält den Vorgang 15 Minuten in Redis
+   und speichert die Abholkennung nie, nur ihren Hash.
 2. Der Betreiber öffnet den Link im Browser, meldet sich bei Pulse an (wie
    gewohnt, mit Zwei-Faktor-Anmeldung) und bestätigt (E5).
-3. Die Cloud prüft, dass unter der Adresse wirklich dieser Server läuft (E2),
+3. Die Cloud prüft erneut, dass unter der Adresse wirklich dieser Server
+   läuft (E2),
    legt den Eintrag in `auth.registered_instances` an (`registered_by` = das
    bestätigende Konto, `origin = 'vps'`, `ohne_freigabe = true`) samt
    Besitzer-Mitgliedschaft und gibt die Zugangsdaten zur Abholung frei.
@@ -65,10 +71,9 @@ Passkeys funktionieren dort nicht, das Passwort öffnet das ganze Konto und
 landete auf einem fremden Rechner, und ein Anmeldeweg für Skripte wäre eine
 neue Angriffsfläche.
 
-**E2 — Nachweis, dass der Server unter der Adresse läuft.** Vor dem Eintragen
-ruft die Cloud `https://<hostname>/.well-known/pulse-verbinden` ab und
-erwartet dort einen Wert, der aus der Abholkennung abgeleitet ist (SHA-256,
-nicht die Kennung selbst). Nur der Server, der den Gerätecode angefragt hat,
+**E2 — Nachweis, dass der Server unter der Adresse läuft.** Beim Anfragen und
+vor dem Eintragen ruft die Cloud `https://<hostname>/.well-known/pulse-verbinden`
+ab und erwartet dort den SHA-256 der Abholkennung (nicht die Kennung selbst). Nur der Server, der den Gerätecode angefragt hat,
 kennt ihn. Das schließt aus, dass jemand eine fremde Adresse für sich
 einträgt und sie damit blockiert, und es macht einen Besitzerwechsel einfach:
 Ist die Adresse schon eingetragen, gewinnt, wer sie nachweislich gerade
@@ -126,11 +131,12 @@ keine Worker-IDs mehr (Spalten nullable), auch neue Heim-Server.
 
 **E8 — Grenzen.** Gerätecode 15 Minuten, einmal einlösbar. Anfragen je IP
 gebremst, Bestätigen je Konto gebremst. Höchstens 10 verbundene gemietete
-Server je Konto (Vorschlag, offen). Heim-Server bleibt bei einem je Konto
-(offen). `self_host_enabled` wird zum Riegel „darf Server verbinden“
-(Vorgabe an): Er ist der Hebel gegen ein Konto, das nach einer Sperre immer
-neue Server verbindet. Der Schalter in der Nutzerliste bleibt deshalb,
-umbenannt.
+Server je Konto. Heim-Server bleibt bei einem je Konto. Neue Spalte
+`users.server_verbinden_gesperrt` (Vorgabe aus) als Hebel gegen ein Konto, das
+nach einer Sperre immer neue Server verbindet; der Schalter in der Nutzerliste
+heißt „Darf Server verbinden“. `self_host_enabled` behält seine heutige
+Bedeutung für den Server-App-Weg und wird dafür nicht umgedeutet (es ist
+heute eine Freischaltung mit Vorgabe aus, kein Riegel).
 
 **E9 — Öffentliches Image unter der Organisation `oblivion-pictures`.** Das
 Repo zieht nach `github.com/oblivion-pictures/pulse` (Organisation am
@@ -190,6 +196,8 @@ der Server erscheint in der Leiste. Unverändert gegenüber heute.
     heute.
   - **„Auf einem gemieteten Server“:** Installationsbefehl zum Kopieren und
     der Satz „Der Installer verbindet den Server am Ende mit deinem Konto.“
+  - **„Von Pulse gehostet“:** ausgegraut mit „Bald“, wie heute im
+    Antragsformular.
 - **„Meine Server“:** Eintrag im Konto-Menü (unten links) und im Du-Bereich,
   nur sichtbar, wenn das Konto mindestens einen eigenen Server hat. Dahinter
   die Liste mit Diagnose und Löschen (heute `MyInstances`). Die Route
@@ -198,8 +206,8 @@ der Server erscheint in der Leiste. Unverändert gegenüber heute.
 - **Admin-Bereich der Cloud:** Reiter „Anträge“ heißt „Server“, ohne Zähler;
   der Unterreiter „Ausstehend“ entfällt; Einträge aus E1 tragen den Vermerk
   „ohne Freigabe“; „Secret rotieren“ nur bei freigegebenen Einträgen.
-  Nutzerliste: Abzeichen „Hosting“ entfällt, der Schalter heißt „Darf Server
-  verbinden“ (E8).
+  Nutzerliste: Abzeichen „Hosting“ und der Schalter „Selbst-Hosting erlauben“
+  entfallen, neu ist der Schalter „Darf Server verbinden“ (E8).
 
 ## 6. Bestand am 2026-10-09 (Cloud-Datenbank, nur gelesen)
 
