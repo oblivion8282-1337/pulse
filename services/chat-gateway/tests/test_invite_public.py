@@ -118,3 +118,21 @@ async def test_bremse_pro_code(client, monkeypatch):
     for _ in range(60):
         assert (await client.get("/invites/gleich01/public-preview")).status_code == 404
     assert (await client.get("/invites/gleich01/public-preview")).status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_bremse_buendelt_ipv6_nach_64(client, monkeypatch):
+    # Gleiche /64, wechselnde Hostteile: ein gemeinsamer Eimer.
+    adressen = iter(f"2001:db8:1:2::{i:x}" for i in range(1, 200))
+    monkeypatch.setattr(invite_public, "client_ip", lambda _req: next(adressen))
+    for i in range(30):
+        assert (await client.get(f"/invites/v6a{i:04d}/public-preview")).status_code == 404
+    assert (await client.get("/invites/v6a9999/public-preview")).status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_bremse_trennt_verschiedene_ipv6_64(client, monkeypatch):
+    adressen = iter(f"2001:db8:1:{i:x}::1" for i in range(1, 200))
+    monkeypatch.setattr(invite_public, "client_ip", lambda _req: next(adressen))
+    for i in range(31):
+        assert (await client.get(f"/invites/v6b{i:04d}/public-preview")).status_code == 404

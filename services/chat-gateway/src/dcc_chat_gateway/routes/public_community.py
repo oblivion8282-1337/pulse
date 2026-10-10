@@ -52,6 +52,7 @@ from dcc_chat_gateway.schemas import (
     PublicCommunityJoinOut,
     PublicCommunityPreviewOut,
 )
+from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.security import CurrentUser
 
 router = APIRouter()
@@ -159,6 +160,9 @@ async def preview_public_community(
     current: CurrentUser,
 ):
     """Minimal preview of a public community. Private/unknown → 404."""
+    # Bremse vor dem DB-Zugriff: sonst lässt sich der Handle-Raum abtasten.
+    if not ratelimit_check("community_preview", current.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded")
     guild = await _public_guild_or_404(session, handle)
     return PublicCommunityPreviewOut(
         guild=InviteGuildOut(id=guild.id, name=guild.name, icon_url=guild.icon_url),

@@ -505,3 +505,13 @@ async def test_nicht_oeffentlich_stellen_raeumt_die_listung(client, _auth_signer
     await client.patch(f"/guilds/{g['id']}", json={"is_public": False}, headers=auth(t))
     s = (await client.get(f"/guilds/{g['id']}/settings", headers=auth(t))).json()
     assert s["listed"] is False
+
+
+@pytest.mark.asyncio
+async def test_angemeldete_vorschau_ist_je_nutzer_gebremst(client, _auth_signer):
+    t, _ = await _register_user(_auth_signer)
+    for _ in range(120):
+        assert (await client.get("/c/gibtesnicht", headers=auth(t))).status_code == 404
+    r = await client.get("/c/gibtesnicht", headers=auth(t))
+    assert r.status_code == 429
+    assert r.json()["detail"] == "rate limit exceeded"

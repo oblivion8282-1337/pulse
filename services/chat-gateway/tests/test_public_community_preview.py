@@ -16,6 +16,9 @@ from dcc_chat_gateway.routes import public_community_preview
 from sqlalchemy import update
 
 
+pytestmark = pytest.mark.usefixtures("cloud_mode")
+
+
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -87,3 +90,13 @@ async def test_bremse_pro_handle(client, monkeypatch):
     for _ in range(60):
         assert (await client.get("/c/gleich01/public-preview")).status_code == 404
     assert (await client.get("/c/gleich01/public-preview")).status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_self_host_antwortet_404(client, _auth_signer, session_factory, _isolate_chat_settings):
+    await _community(client, _auth_signer, session_factory, "offen")
+    assert (await client.get("/c/offen/public-preview")).status_code == 200
+    _isolate_chat_settings.pulse_instance_mode = "self-host"
+    r = await client.get("/c/offen/public-preview")
+    assert r.status_code == 404
+    assert r.json()["detail"] == "community not found"
