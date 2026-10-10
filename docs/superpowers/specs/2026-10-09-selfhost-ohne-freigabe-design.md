@@ -289,8 +289,8 @@ deshalb:
   weil verbundene Server Zugangsdaten haben.
 
 Der Plan `docs/superpowers/plans/2026-10-09-selfhost-ohne-freigabe.md` folgt
-Fassung 1. Etappe 0 gilt mit dem neuen Organisationsnamen weiter, die Etappen
-1 bis 5 werden nach dieser Fassung neu geschrieben.
+seit dem 2026-10-10 dieser Fassung (Etappen 0 bis 6); der Plan zu Fassung 1
+steht in der Git-Geschichte der Datei.
 
 ## 10. Prüfplan
 
