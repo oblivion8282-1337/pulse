@@ -607,6 +607,18 @@ export const chatApi = {
       route,
     );
   },
+  /** Anonyme Vorschau einer öffentlichen Adresse /c/<handle> (Name, Bild,
+   *  Mitgliederzahl). 404 für jedes „nein“, 429 bei Bremse. */
+  getPublicCommunityPublicPreview(
+    handle: string,
+    route: { serverId?: string } = {},
+  ): Promise<PublicInvitePreview> {
+    return request<PublicInvitePreview>(
+      `/c/${encodeURIComponent(handle)}/public-preview`,
+      { auth: false },
+      route,
+    );
+  },
   /** Öffentlicher Community-Beitritt. Idempotent; 404 wenn nicht public, 403 gebannt. */
   joinPublicCommunity(
     handle: string,

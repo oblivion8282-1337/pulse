@@ -5,7 +5,7 @@
 // Server: ist gerade ein Self-Host aktiv, kennt der den Cloud-Code nicht und
 // meldete fälschlich „ungültig“.
 import { ApiError } from '$lib/api/client';
-import { chatApi, type PublicCommunityPreview } from '$lib/api/chat';
+import { chatApi, type PublicInvitePreview } from '$lib/api/chat';
 import { getInvitePreviewOn, SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
 import type { InvitePreview } from '$lib/api/types';
 import { serversStore } from '$lib/api/servers.svelte';
@@ -69,7 +69,7 @@ function cloudVorschau(code: string): Promise<InvitePreview> {
   return cloudId ? getInvitePreviewOn(code, { serverId: cloudId }) : chatApi.getInvitePreview(code);
 }
 
-function adressVorschau(p: PublicCommunityPreview): EinladungCommunity {
+function adressVorschau(p: PublicInvitePreview): EinladungCommunity {
   return {
     name: p.guild.name,
     iconUrl: guildIconSrc(p.guild.icon_url, window.location.origin),
@@ -77,22 +77,38 @@ function adressVorschau(p: PublicCommunityPreview): EinladungCommunity {
   };
 }
 
-/** Öffentliche Adresse `/c/<handle>`. Self-Host-Adressen fragen wir vor der
- *  Zustimmung nicht (Spec, Sicherheit 2). Die Vorschau verlangt eine Anmeldung
- *  (Backend: `CurrentUser`) — Abgemeldete bekommen die Karte ohne Namen, ohne
- *  dass ein Aufruf ins Leere (401) geht. */
-async function ladeAdresse(a: Adresse, angemeldet: boolean): Promise<GeladeneEinladung> {
-  if (a.host) return { zustand: angemeldet ? 'einladung' : 'abgemeldet', ...LEER };
-  // Der Handle steht ohnehin in der Adresse; so sieht auch ein Abgemeldeter,
-  // welche Community gemeint ist.
-  if (!angemeldet) {
+/** Abgemeldet: anonyme Vorschau (Name, Bild, Mitglieder). 404 ist endgültig;
+ *  Bremse oder Netz dürfen das Anmelden nicht blockieren — dann zeigt die
+ *  Karte nur den Handle aus der Adresse. */
+async function ladeAdresseAbgemeldet(handle: string): Promise<GeladeneEinladung> {
+  try {
+    const cloudId = serversStore.cloudId();
+    const p = await chatApi.getPublicCommunityPublicPreview(
+      handle,
+      cloudId ? { serverId: cloudId } : {}
+    );
     return {
       zustand: 'abgemeldet',
-      community: { name: a.handle, iconUrl: null, mitglieder: null },
+      community: adressVorschau(p),
+      guildId: null,
+      fehler: null
+    };
+  } catch (err) {
+    if (fehlerAus(err) === 'ungueltig') return { zustand: 'ungueltig', ...LEER };
+    return {
+      zustand: 'abgemeldet',
+      community: { name: handle, iconUrl: null, mitglieder: null },
       guildId: null,
       fehler: null
     };
   }
+}
+
+/** Öffentliche Adresse `/c/<handle>`. Self-Host-Adressen fragen wir vor der
+ *  Zustimmung nicht (Spec, Sicherheit 2). */
+async function ladeAdresse(a: Adresse, angemeldet: boolean): Promise<GeladeneEinladung> {
+  if (a.host) return { zustand: angemeldet ? 'einladung' : 'abgemeldet', ...LEER };
+  if (!angemeldet) return ladeAdresseAbgemeldet(a.handle);
   try {
     const cloudId = serversStore.cloudId();
     const p = await chatApi.getPublicCommunityPreview(
