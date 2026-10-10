@@ -54,25 +54,16 @@ const wiedergaben = new Set<string>();
 let angewandt: TonModus = 'aus';
 
 /**
- * Filtert das Betriebssystem im Sendeweg? In der iOS-Hülle: ja, immer.
+ * Filtert das Betriebssystem gerade im Sendeweg?
  *
- * **Früher kam dieser Wert aus der Antwort unseres Plugins** — es meldete
- * zurück, welchen Modus es gesetzt hatte. Am 2026-10-10 am Gerät gemessen:
- * das ist die falsche Quelle. Das Mikrofon nimmt die Session der WebView auf
- * (`com.apple.WebKit`, `has started recording`), nicht unsere; der
- * systemweite Modus war `VideoChat`, und Apples Verarbeitung lief sichtbar
- * (655× `AUVoiceIO`, 594× `EchoCancellation`). Unser Plugin stellte eine
- * Session ein, die gar nichts aufnimmt.
- *
- * WebKit öffnet das Mikrofon IMMER in einem Sprach-Modus — es gibt dort
- * nichts zu unterscheiden. Damit ist die Antwort eine Eigenschaft der
- * Plattform und keine Rückmeldung: in der Hülle filtert Apple, überall sonst
- * nicht. Die ganze Herleitung steht an der Einstellung `bluetoothHq`
- * (`settings-registry/sections/audio.ts`).
- *
- * Folge: der frühere Beobachter auf Änderungen dieses Werts ist entfallen —
- * ein konstanter Wert ändert sich nicht.
+ * Das ist nicht dasselbe wie „Voice-Modus läuft": die Hülle richtet die
+ * Session nach dem AUSGABEWEG ein, und auf der Hochqualitäts-Route über
+ * Bluetooth (`mode: .default`) filtert Apple NICHT. Nur die Hülle weiss das,
+ * deshalb kommt der Wert von dort zurück.
  */
+let systemFiltert = false;
+/** Wer auf einen Wechsel reagieren muss — heute der Sendefilter. */
+const filterHoerer = new Set<() => void>();
 
 /** Will der Nutzer die Hochqualitäts-Route über Bluetooth? Wird von aussen
  *  gesetzt (Einstellung), damit dieses Modul nichts über Einstellungen
@@ -89,53 +80,19 @@ export function tonHqFunkSetzen(an: boolean): void {
 }
 
 /**
- * **TESTLAUF 2026-10-10 — auf `false` zurück, sobald gehört.**
+ * Auf Wechsel des System-Filters hören. Rückgabe meldet ab.
  *
- * Läuft auf iOS unsere eigene Sendekette (RNNoise) statt Apples Verarbeitung?
- *
- * Der Anlass ist ein Hörbefund: die Stimme vom iPhone klingt dumpf. Verdacht
- * ist Apples Sprachverarbeitung — ein Telefonie-Prozessor, der für schnelle,
- * zuverlässige Echo-Auslöschung die Höhen opfert.
- *
- * **Das Paket ist unteilbar.** Apples Rauschunterdrückung steckt in derselben
- * Einheit wie die Echo-Auslöschung; wer die eine abschaltet, schaltet beide
- * ab. Dieser Schalter tut deshalb ZWEIERLEI: er lässt `filterwahl.ts` wieder
- * RNNoise aufbauen UND erzwingt `echoCancellation: false` in den
- * Aufnahme-Vorgaben (`voice/livekit.svelte.ts`).
- *
- * **Nur mit Kopfhörern brauchbar.** Ohne sie hört das Gegenüber sich selbst —
- * Echo kann zuverlässig nur das Betriebssystem auslöschen, weil nur es weiss,
- * was der Lautsprecher gerade ausgibt.
- *
- * Fällt der Hörtest gut aus, wird daraus keine Einstellung, sondern eine
- * Entscheidung nach Ausgabeweg (Kopfhörer → eigene Kette, Lautsprecher →
- * Apples Paket). Dafür fehlt der App heute die Kenntnis des Wegs; die kennt
- * nur die Hülle und müsste sie mitschicken.
+ * Gebraucht, weil der Wechsel NICHT von einer Nutzeraktion kommt: es genügt,
+ * die AirPods einzusetzen. Ohne diesen Weg liefe danach entweder zweimal
+ * gefiltert oder gar nicht.
  */
-export const IOS_EIGENE_SENDEKETTE = false;
-// **Zweiter Testlauf beendet, 2026-10-10 — der Klang war besser, der Preis zu
-// hoch.** Mit `true` klang die Stimme deutlich offener (bestaetigt), aber auf
-// dem iPhone kam KEIN Ton mehr an: weder ueber Lautsprecher noch ueber die
-// Hoermuschel. Zurueck auf `false` war der Ton sofort wieder da — eine
-// Variable, ein Ergebnis.
-//
-// Die Erklaerung liegt beim Paket: `echoCancellation: false` nimmt WebKit den
-// Anlass, seine Session fuer Sprache einzurichten, und mit ihr offenbar den
-// Wiedergabeweg. Wer das noch einmal angeht, prueft ZUERST, ob die Wiedergabe
-// ueberhaupt ueberlebt — der Klanggewinn ist wertlos, wenn man nichts hoert.
-//
-// NICHT die Ursache war unsere Session-Einrichtung: sie steht weiterhin auf
-// `false` (s. `EIGENE_SESSION_EINRICHTEN`), und die Wiedergabe laeuft.
-// **Zweiter Testlauf, 2026-10-10.** Der erste brach ab, bevor etwas zu hoeren
-// war: mit `true` kam das iPhone nicht mehr in den Sprachkanal (Token erteilt,
-// dann `participant_connection_aborted`). Ursache war nicht der Klang, sondern
-// dass der Aufbau von RNNoise im Verbindungsweg ABGEWARTET wurde. Das ist
-// seither unkritisch — `#filterOhneBlockade` in `voice/livekit.svelte.ts` gibt
-// ihm eine Frist und geht danach weiter. Erst damit laesst sich die eigentliche
-// Frage ueberhaupt hoeren.
+export function tonSystemFilterBeobachten(cb: () => void): () => void {
+  filterHoerer.add(cb);
+  return () => filterHoerer.delete(cb);
+}
 
 export function tonSystemFiltert(): boolean {
-  return isCapacitorIOS() && !IOS_EIGENE_SENDEKETTE;
+  return systemFiltert;
 }
 
 /** Zuletzt an WebKit gemeldeter Typ — eigener Merker, weil der Web-Teil
@@ -165,26 +122,9 @@ let webTyp: AudioSessionTyp | null = null;
  * Session. Der Verdacht ist damit noch nicht bewiesen, aber eine haengende App
  * ist nicht der Zustand, in dem man weitersucht.
  *
- * **Am 2026-10-10 gemessen, nachdem die Rueckkopplung behoben war** — der
- * erste Fehlschlag war also nicht zwangslaeufig der Schnittstelle
- * anzulasten. Ergebnis trotzdem negativ:
- *
- * - Kosten: die Kategorie-Wechsel kehrten zurueck, Spitzen von 9 pro
- *   Sekunde, wo es mit abgeschaltetem Schalter NULL in 45 s waren. Die
- *   Schnittstelle ist damit eine dritte Partei im Streit um dieselbe
- *   Session, nicht dessen Schlichtung.
- * - Nutzen: keiner messbar. Die Modus-Verteilung blieb im selben
- *   Verhaeltnis (videochat rund 70 % von default, in beiden Laeufen),
- *   WebKit reagierte auf die Ansage also nicht erkennbar.
- *
- * Grenzen der Messung, damit niemand mehr hineinliest als drin steht: je ein
- * Lauf, unterschiedlich lange gesprochen, und 219 Kabelabrisse im zweiten.
- * Die Kostenseite ist dennoch unzweideutig (0 gegen Spitzen von 9/s).
- *
  * Die Abbildung bleibt stehen (samt Tests): die Luecke ist echt, WebKit kennt
- * unsere Absicht weiterhin nicht. Was fehlt, ist das WIE — und nach dieser
- * Messung ist die naechste Frage nicht „wie setzen wir den Typ", sondern ob
- * unsere Huelle ueberhaupt noch eine eigene Session einrichten sollte.
+ * unsere Absicht weiterhin nicht. Was fehlt, ist das WIE — vermutlich nicht
+ * gleichzeitig mit dem nativen Einrichten, sondern davor und einmalig.
  */
 const WEB_AUDIO_SESSION_AN = false;
 
@@ -229,56 +169,30 @@ const EIGENE_FOLGE_MS = 1500;
 const WEG_RUHE_MS = 400;
 let wegGriff: ReturnType<typeof setTimeout> | null = null;
 
-/**
- * **Richtet die Hülle noch eine eigene Audio-Session ein? Nein — seit dem
- * 2026-10-10, und das ist der Kern der Sache.**
- *
- * In einer WebView gehört der Ton WebKit. Am Gerät gemessen: das Mikrofon
- * hängt an dessen Session, unsere führt keinen Ton. Zwei Sessions auf einem
- * Gerät überschreiben sich aber gegenseitig — im Mitschnitt standen
- * 4–10 Kategorie-Wechsel pro Sekunde, über 850.000 Protokollzeilen allein
- * aus `audiomxd` in Minuten, eine eingefrorene Oberfläche und ein Mikrofon,
- * das nicht reagierte. Drei Fehler, eine Ursache.
- *
- * Was WebKit von sich aus richtig macht, sobald ein Mikrofon offen ist:
- * `PlayAndRecord`, Sprach-Modus mit Apples Echo- und Rauschunterdrückung,
- * Lautsprecher als Vorgabe, 48 kHz. Genau das, was wir mühsam nachbauten.
- *
- * Was NUR nativ geht, bleibt und ist davon unberührt: die Ausgabe-Wahl über
- * Apples eigenen Dialog (`AVRoutePickerView`), die Sperrbildschirm-Anzeige,
- * und das Mithören von Unterbrechungen und Routenwechseln. Das sind
- * Benachrichtigungen und Bedienelemente — dafür braucht niemand eine eigene
- * Session.
- *
- * Der Schalter bleibt als Rückweg stehen. Was beim Einschalten zu erwarten
- * ist, steht oben; wer ihn umlegt, misst zuerst (`idevicesyslog`, Zeilen mit
- * `cmsSetCategoryOnPVMAndAudioDevice` zählen).
- *
- * **Offen und ungeprüft:** ob nach einer Unterbrechung (Telefonanruf, Siri)
- * WebKit seine Session von selbst zurückholt. Früher tat das unser Plugin für
- * seine eigene — die niemand hörte. Der Beobachter dafür läuft weiter und
- * ruft hier herein; mit abgeschaltetem Einrichten bleibt das wirkungslos.
- */
-const EIGENE_SESSION_EINRICHTEN = false;
-
 async function anwenden(): Promise<void> {
   const ziel = zielModus(voiceQuellen.size > 0, wiedergaben.size);
   webAudioSession(ziel);
   if (!isCapacitorIOS()) return;
   if (ziel === angewandt) return;
   angewandt = ziel;
-  if (!EIGENE_SESSION_EINRICHTEN) return;
   // VOR dem nativen Ruf setzen, nicht erst danach: die Routenwechsel
   // entstehen WÄHREND er läuft.
   zuletztAngewandt = Date.now();
+  const vorher = systemFiltert;
   if (ziel === 'voice') {
-    await iosVoiceAktiv(true, hqFunk);
+    systemFiltert = (await iosVoiceAktiv(true, hqFunk)) === 'voiceChat';
   } else if (ziel === 'wiedergabe') {
     await iosPlaybackModus();
+    systemFiltert = false;
   } else {
     await iosVoiceAktiv(false);
+    systemFiltert = false;
   }
   zuletztAngewandt = Date.now();
+  if (systemFiltert !== vorher) {
+    // Kopie, weil ein Hörer sich im Ruf abmelden darf.
+    for (const h of [...filterHoerer]) h();
+  }
 }
 
 /**

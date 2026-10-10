@@ -32,43 +32,6 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "airplayWaehler", returnType: CAPPluginReturnPromise)
     ]
 
-    /// Welchen Ausgang der Nutzer gewaehlt hat — und warum das gemerkt werden
-    /// MUSS, statt ihn nur einmal zu setzen.
-    ///
-    /// **`overrideOutputAudioPort(.none)` heisst nicht „Hoermuschel".** Es
-    /// heisst „keine Uebersteuerung, nimm die Vorgabe der Kategorie" — und die
-    /// Vorgabe war hier `.defaultToSpeaker`. Lautsprecher → `.none` →
-    /// Lautsprecher: die Hoermuschel war ueber diesen Weg prinzipiell
-    /// unerreichbar. Am 2026-10-10 am Geraet belegt, und zwar an einem
-    /// Negativbefund: bei jedem Tippen stand im Geraetelog KEIN Routenwechsel.
-    /// Der Ruf scheiterte nicht, er gelang und aenderte nichts.
-    ///
-    /// **Und ein einmaliges Setzen genuegt nicht.** `setCategory` nimmt jede
-    /// Uebersteuerung zurueck, und die Session wird bei jedem Routenwechsel neu
-    /// eingerichtet (`iosTon.ts`). Ein eben gesetzter Wunsch waere also
-    /// Sekundenbruchteile spaeter wieder weg — wer nur die Vorgabe korrigiert,
-    /// dreht den Fehler bloss auf die andere Seite.
-    ///
-    /// Deshalb ueberlebt der Wunsch hier und wird nach JEDEM Einrichten erneut
-    /// angewandt (`ausgabeDurchsetzen`).
-    private enum Ausgabewunsch { case offen, lautsprecher, hoermuschel }
-    private var ausgabewunsch: Ausgabewunsch = .offen
-    /// Letzter `hqFunk`-Wert, damit `routeSetzen` die Kategorie mit denselben
-    /// Vorgaben neu setzen kann wie `setVoiceActive`.
-    private var letzterHqFunk = false
-
-    /// Den gemerkten Ausgabewunsch anwenden. Nach jedem `setCategory` noetig.
-    /// Bewusst ohne `throws`: ein gescheitertes Durchsetzen darf das Einrichten
-    /// der Session nicht abbrechen — ohne Wunsch (`.offen`) gibt es ohnehin
-    /// nichts zu tun.
-    private func ausgabeDurchsetzen(_ session: AVAudioSession) {
-        switch ausgabewunsch {
-        case .lautsprecher: try? session.overrideOutputAudioPort(.speaker)
-        case .hoermuschel: try? session.overrideOutputAudioPort(.none)
-        case .offen: break
-        }
-    }
-
     /// Beobachter werden EINMAL gesetzt, beim ersten Laden des Plugins.
     /// `load()` ist Capacitors Haken dafür; ein Aufruf aus `setVoiceActive`
     /// würde sie bei jedem Betreten erneut anhängen.
@@ -147,17 +110,12 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         // WebRTC-Engines auf dieser Route VERSTUMMEN, und Stille ist für eine
         // Sprach-App der schlimmste Fehlschlag. Siehe `modus` in der Antwort.
         let hqFunk = call.getBool("hqFunk") ?? false
-        letzterHqFunk = hqFunk
         let session = AVAudioSession.sharedInstance()
         let callkit = Anrufverwaltung.geteilt.callkitAktiv
         do {
             if aktiv {
                 let modus = try voiceEinrichten(session, hqFunk: hqFunk)
                 if !callkit { try session.setActive(true) }
-                // Erst JETZT durchsetzen: `overrideOutputAudioPort` verlangt
-                // eine aktive Session, und `setCategory` oben hat jede
-                // vorherige Uebersteuerung geloescht.
-                ausgabeDurchsetzen(session)
                 // Der Modus geht ZURÜCK ans Web, weil daran die eigene
                 // Rauschunterdrückung hängt: bei `voiceChat` filtert Apple
                 // schon, bei `default` nicht. Zweimal filtern verdirbt die
@@ -177,17 +135,6 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Richtet die Sprach-Session für den aktuellen Weg ein und liefert den
     /// gewählten Modus (`voiceChat` oder `default`).
-    /// **Diese Session nimmt das Mikrofon NICHT auf.** Am 2026-10-10 am Gerät
-    /// mitgeschnitten: aufgenommen wird auf der Session der WebView
-    /// (`com.apple.WebKit`, `has started recording`), der systemweite Modus
-    /// war `VideoChat`. Was hier gesetzt wird, beschreibt also eine zweite,
-    /// tonlose Session — und der zurückgelieferte Modus, an dem die eigene
-    /// Rauschunterdrückung hängt, beschreibt sie mit.
-    ///
-    /// Heute geht das gut, weil `voiceChat` und `VideoChat` beide Apples
-    /// Verarbeitung einschalten. Es bricht, sobald `hqFunk` auf `default`
-    /// stellt — die volle Herleitung steht an der Einstellung `bluetoothHq`
-    /// (`web/src/lib/settings-registry/sections/audio.ts`).
     private func voiceEinrichten(_ session: AVAudioSession, hqFunk: Bool) throws -> String {
         // `.allowBluetoothHFP` (früher `.allowBluetooth`) — der neue Name sagt,
         // was die Option wirklich tut: sie ERLAUBT das Hands-Free-Profil, und
@@ -195,13 +142,8 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         // ins Schmalband. Sie bleibt trotzdem drin: ohne sie gibt es mit einem
         // Bluetooth-Kopfhörer gar kein Mikrofon.
         var optionen: AVAudioSession.CategoryOptions = [
-            .allowBluetoothHFP, .allowBluetoothA2DP
+            .allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker
         ]
-        // `.defaultToSpeaker` NUR, wenn die Hoermuschel nicht gewuenscht ist:
-        // es ist die Vorgabe, auf die `overrideOutputAudioPort(.none)`
-        // zurueckfaellt — mit ihr drin ist die Hoermuschel unerreichbar
-        // (s. `ausgabewunsch`).
-        if ausgabewunsch != .hoermuschel { optionen.insert(.defaultToSpeaker) }
         wuenscheSetzen(session)
 
         // Hochqualitäts-Bluetooth gibt es erst ab iOS 26, nur für Kopfhörer,
@@ -282,21 +224,12 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         let session = AVAudioSession.sharedInstance()
         do {
             switch id {
-            case "speaker", "earpiece":
-                ausgabewunsch = (id == "speaker") ? .lautsprecher : .hoermuschel
-                // `try?`, nicht `try`: der EINGANG ist fuer die Ausgabe-Wahl
-                // belanglos, und ein Fehlschlag hier darf sie nicht aufhalten
-                // — vorher endete der ganze Ruf im `catch`, ohne dass je
-                // uebersteuert wurde.
-                try? session.setPreferredInput(nil)
-                // Die Kategorie muss zum Wunsch passen, BEVOR uebersteuert
-                // wird: `.defaultToSpeaker` ist genau das, worauf `.none`
-                // zurueckfaellt. Nur im Sprach-Betrieb — in `.playback` ist
-                // eine Uebersteuerung ungueltig.
-                if session.category == .playAndRecord {
-                    _ = try? voiceEinrichten(session, hqFunk: letzterHqFunk)
-                }
-                ausgabeDurchsetzen(session)
+            case "speaker":
+                try session.setPreferredInput(nil)
+                try session.overrideOutputAudioPort(.speaker)
+            case "earpiece":
+                try session.setPreferredInput(nil)
+                try session.overrideOutputAudioPort(.none)
             default:
                 guard let eingang = (session.availableInputs ?? []).first(where: { $0.uid == id })
                 else {
@@ -309,16 +242,9 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
                 // `.speaker` schlägt jede Eingangswahl und das Headset bliebe
                 // stumm, obwohl es gewählt ist.
                 try session.overrideOutputAudioPort(.none)
-                ausgabewunsch = .offen
                 try session.setPreferredInput(eingang)
             }
-            // **Den erreichten Ausgang zurueckgeben, nicht nur „ok".** Vorher
-            // sahen Erfolg und Wirkungslosigkeit auf der Web-Seite identisch
-            // aus — genau daran scheiterte die Fehlersuche am 2026-10-10.
-            call.resolve([
-                "aktuell": session.currentRoute.outputs.first?.portType.rawValue ?? "",
-                "aktuellName": session.currentRoute.outputs.first?.portName ?? ""
-            ])
+            call.resolve()
         } catch {
             call.reject("audio_session_error", nil, error)
         }

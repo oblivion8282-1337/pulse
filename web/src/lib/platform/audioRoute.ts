@@ -102,12 +102,7 @@ export async function setAudioRoute(
   if (isCapacitorIOS()) {
     // Auf iOS gibt es nur die beiden Übersteuerungen; `auto` heisst dort
     // „nicht übersteuern", und das ist die Hörmuschel-Seite.
-    if (route) {
-      const ok = await iosTonWegSetzen(route === 'earpiece' ? 'earpiece' : 'speaker');
-      // Ergebnis NICHT wegwerfen — der Android-Zweig unten meldet seit jeher,
-      // der iOS-Zweig war der einzige voellig stumme.
-      if (!ok) console.warn('[audioRoute] iOS-Ausgabewahl ohne Wirkung:', route);
-    }
+    if (route) await iosTonWegSetzen(route === 'earpiece' ? 'earpiece' : 'speaker');
     return;
   }
   if (!isCapacitorAndroid()) return;

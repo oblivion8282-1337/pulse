@@ -40,7 +40,7 @@ interface AudioSessionPlugin {
   setVoiceActive(options: { aktiv: boolean; hqFunk: boolean }): Promise<{ modus: string }>;
   setPlaybackMode(): Promise<void>;
   routen(): Promise<TonWege>;
-  routeSetzen(options: { id: string }): Promise<{ aktuell?: string; aktuellName?: string }>;
+  routeSetzen(options: { id: string }): Promise<void>;
   jetztLaeuft(options: { titel: string; zeile2: string }): Promise<void>;
   jetztLaeuftAus(): Promise<void>;
   airplayWaehler(): Promise<void>;
@@ -112,37 +112,15 @@ export async function iosTonWege(): Promise<TonWege | null> {
   return p.routen().catch(() => null);
 }
 
-/**
- * Einen Ausgabeweg erzwingen. `false`, wenn er nicht (mehr) da ist.
- *
- * **Der Fehlschlag wird gemeldet, nicht verschluckt.** Hier stand ein nacktes
- * `.catch(() => false)`, und der Rufer warf das Ergebnis ebenfalls weg
- * (`platform/audioRoute.ts`). Eine wirkungslose Ausgabe-Wahl sah dadurch
- * genauso aus wie eine erfolgreiche — am 2026-10-10 kostete das eine lange
- * Fehlersuche am Geraet, weil nirgends eine Spur entstand. Die Konsole ist
- * am Telefon zwar nur ueber Kabel und Safari erreichbar, aber eine erreichbare
- * Spur ist besser als keine.
- *
- * Die Huelle liefert seither den ERREICHTEN Ausgang zurueck; er wird
- * mitgeloggt, damit „gesetzt" und „gewirkt" unterscheidbar bleiben.
- */
+/** Einen Ausgabeweg erzwingen. `false`, wenn er nicht (mehr) da ist. */
 export async function iosTonWegSetzen(id: string): Promise<boolean> {
   if (!isCapacitorIOS()) return false;
   const p = plugin();
-  if (!p) {
-    console.warn('[iosTon] routeSetzen: Plugin nicht erreichbar', id);
-    return false;
-  }
-  try {
-    const antwort = (await p.routeSetzen({ id })) as
-      | { aktuell?: string; aktuellName?: string }
-      | undefined;
-    console.info('[iosTon] Ausgabe gewaehlt:', id, '→', antwort?.aktuell ?? '(unbekannt)');
-    return true;
-  } catch (e) {
-    console.warn('[iosTon] routeSetzen fehlgeschlagen:', id, e);
-    return false;
-  }
+  if (!p) return false;
+  return p
+    .routeSetzen({ id })
+    .then(() => true)
+    .catch(() => false);
 }
 
 /** Unterbrechungen melden (Telefonanruf, Siri, Wecker). Rueckgabe = Abriss. */
