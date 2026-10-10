@@ -155,6 +155,7 @@ public class HinweisePlugin extends Plugin {
                         Log.w("Hinweise", "Avatar nicht ladbar — Standard-Icon", e);
                     }
                 }
+                android.graphics.Bitmap rund = kreis(avatar);
 
                 Intent rein = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
                 if (!ziel.isEmpty()) rein.putExtra("pulse_ziel", ziel);
@@ -184,6 +185,19 @@ public class HinweisePlugin extends Plugin {
                 rv.setViewVisibility(R.id.notif_gelesen,
                         leseAktion ? android.view.View.VISIBLE : android.view.View.GONE);
 
+                // Kompakt + Heads-up: WhatsApp-Zeile (Kontaktbild-Kreis links,
+                // Name fett, Nachricht darunter) — „Pulse“ zeichnet der
+                // System-Header automatisch über der Zeile.
+                android.widget.RemoteViews banner = new android.widget.RemoteViews(
+                        ctx.getPackageName(), R.layout.notif_banner);
+                banner.setTextViewText(R.id.notif_banner_name, absender);
+                banner.setTextViewText(R.id.notif_banner_text, text);
+                if (rund != null) {
+                    banner.setImageViewBitmap(R.id.notif_banner_bild, rund);
+                } else {
+                    banner.setImageViewResource(R.id.notif_banner_bild, android.R.drawable.ic_menu_report_image);
+                }
+
                 NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
                         .setSmallIcon(android.R.drawable.stat_notify_chat)
                         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -197,9 +211,11 @@ public class HinweisePlugin extends Plugin {
                         .setShortcutId(chatId)
                         // Pulse-Optik: Akzentfarbe der App (Tint des Icons).
                         .setColor(0xFF2563EB)
-                        .setCustomContentView(rv)
+                        .setCustomContentView(banner)
+                        .setCustomHeadsUpContentView(banner)
+                        // Aufgeklappt: das große Chat-Layout (Voll-Avatar
+                        // links, Lese-Leiste unten).
                         .setCustomBigContentView(rv)
-                        .setCustomHeadsUpContentView(rv)
                         .setWhen(System.currentTimeMillis())
                         .setShowWhen(true);
 
@@ -238,6 +254,20 @@ public class HinweisePlugin extends Plugin {
         zielUrlWartend = null;
         r.put("url", url);
         call.resolve(r);
+    }
+
+    /** Kontaktbild als Kreis zuschneiden (Banner-/Konversations-Look). */
+    private static android.graphics.Bitmap kreis(android.graphics.Bitmap src) {
+        if (src == null) return null;
+        int kante = Math.min(src.getWidth(), src.getHeight());
+        android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(
+                kante, kante, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas c = new android.graphics.Canvas(out);
+        android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        c.drawCircle(kante / 2f, kante / 2f, kante / 2f, p);
+        p.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN));
+        c.drawBitmap(src, (kante - src.getWidth()) / 2f, (kante - src.getHeight()) / 2f, p);
+        return out;
     }
 
     /** Web fragt vor dem ersten Zustellversuch — ohne die Methode wirft der
