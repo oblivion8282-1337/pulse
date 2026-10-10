@@ -167,8 +167,9 @@ export default defineConfig({
       // Server braucht beide Ausnahmen (Vite-HMR) plus die localhost-Einträge
       // für MediaMTX-WHEP (8889) und MinIO (9000), deshalb lebt die großzügige
       // Variante genau hier — nur im Dev wirksam, nie im Build.
+      // pulse: in frame-src: der Knopf der Einladungsseite startet die Desktop-App über ein verstecktes iframe (pulse://invite?…).
       'Content-Security-Policy':
-        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://www.youtube.com https://www.youtube-nocookie.com https://embed.twitch.tv; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https: http://localhost:* http://127.0.0.1:* stun: turn:; font-src 'self' data:; media-src 'self' blob: https: http://localhost:* http://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://www.youtube.com https://www.youtube-nocookie.com https://embed.twitch.tv; frame-src 'self' pulse: https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https: http://localhost:* http://127.0.0.1:* stun: turn:; font-src 'self' data:; media-src 'self' blob: https: http://localhost:* http://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
     },
     fs: {
       // Task 0 (Etappe B2) mass nur den Prod-Build nach, und bettete das
