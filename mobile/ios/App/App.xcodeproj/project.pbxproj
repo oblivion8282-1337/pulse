@@ -21,6 +21,8 @@
 		A1B2C3D4E5F60718000000C1 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000C2 /* GoogleService-Info.plist */; };
 		A1B2C3D4E5F60718000000C5 /* pulse-push.caf in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000C6 /* pulse-push.caf */; };
 		A1B2C3D4E5F60718000000C7 /* AudioSessionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000C8 /* AudioSessionPlugin.swift */; };
+		A1B2C3D4E5F6071800000173 /* SprachePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000174 /* SprachePlugin.swift */; };
+		A1B2C3D4E5F6071800000171 /* SpracheRaum.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000172 /* SpracheRaum.swift */; };
 		A1B2C3D4E5F6071800000151 /* AudioSessionJetztLaeuft.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000152 /* AudioSessionJetztLaeuft.swift */; };
 		A1B2C3D4E5F6071800000141 /* AudioSessionAusgabe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000142 /* AudioSessionAusgabe.swift */; };
 		A1B2C3D4E5F60718000000D1 /* ReviewPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000000D2 /* ReviewPlugin.swift */; };
@@ -53,6 +55,8 @@
 		A1B2C3D4E5F60718000000C4 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = App.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718000000C6 /* pulse-push.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = pulse-push.caf; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718000000C8 /* AudioSessionPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionPlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6071800000174 /* SprachePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SprachePlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6071800000172 /* SpracheRaum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpracheRaum.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000152 /* AudioSessionJetztLaeuft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionJetztLaeuft.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000142 /* AudioSessionAusgabe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionAusgabe.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718000000D2 /* ReviewPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewPlugin.swift; sourceTree = "<group>"; };
@@ -117,6 +121,8 @@
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				A1B2C3D4E5F60718000000C8 /* AudioSessionPlugin.swift */,
+				A1B2C3D4E5F6071800000174 /* SprachePlugin.swift */,
+				A1B2C3D4E5F6071800000172 /* SpracheRaum.swift */,
 				A1B2C3D4E5F6071800000152 /* AudioSessionJetztLaeuft.swift */,
 				A1B2C3D4E5F6071800000142 /* AudioSessionAusgabe.swift */,
 				A1B2C3D4E5F60718000000D2 /* ReviewPlugin.swift */,
@@ -159,6 +165,7 @@
 			name = App;
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
+				A1B2C3D4E5F6071800000162 /* LiveKit */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -231,6 +238,7 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
+				A1B2C3D4E5F6071800000161 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -269,6 +277,8 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A1B2C3D4E5F60718000000C7 /* AudioSessionPlugin.swift in Sources */,
+				A1B2C3D4E5F6071800000173 /* SprachePlugin.swift in Sources */,
+				A1B2C3D4E5F6071800000171 /* SpracheRaum.swift in Sources */,
 				A1B2C3D4E5F6071800000151 /* AudioSessionJetztLaeuft.swift in Sources */,
 				A1B2C3D4E5F6071800000141 /* AudioSessionAusgabe.swift in Sources */,
 				A1B2C3D4E5F60718000000D1 /* ReviewPlugin.swift in Sources */,
@@ -540,6 +550,17 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A1B2C3D4E5F6071800000161 /* XCRemoteSwiftPackageReference "client-sdk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/client-sdk-swift.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.17.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCLocalSwiftPackageReference section */
 		D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -552,6 +573,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;
 			productName = "CapApp-SPM";
+		};
+		A1B2C3D4E5F6071800000162 /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F6071800000161 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
+			productName = LiveKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

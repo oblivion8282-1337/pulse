@@ -21,6 +21,7 @@ import { errText } from '$lib/utils/errText';
 import { registerPlugin } from '@capacitor/core';
 import { request } from '$lib/api/client';
 import { isCapacitorAndroid, isCapacitorIOS } from './runtime';
+import { nativerSprachwegDa, spracheAusgabe } from './iosSprache';
 import { iosAirplayWaehler, iosTonWege, iosTonWegSetzen } from './iosAudioSession';
 
 export type AudioRoute = 'auto' | 'speaker' | 'earpiece';
@@ -100,9 +101,19 @@ export async function setAudioRoute(
   deviceId?: number
 ): Promise<void> {
   if (isCapacitorIOS()) {
-    // Auf iOS gibt es nur die beiden Übersteuerungen; `auto` heisst dort
-    // „nicht übersteuern", und das ist die Hörmuschel-Seite.
-    if (route) await iosTonWegSetzen(route === 'earpiece' ? 'earpiece' : 'speaker');
+    if (!route) return;
+    // **Läuft der Sprachkanal nativ, gehört die Route der Hülle.** Der alte
+    // Weg drehte unsere eigene Session, und die war nie die, die den Ton
+    // abspielte — deshalb liess sich die Hörmuschel nie wählen (gemessen
+    // 2026-10-10). Nativ ist sie es, und der SDK-Schalter trägt.
+    if (nativerSprachwegDa()) {
+      await spracheAusgabe(route === 'earpiece' ? 'hoermuschel' : 'lautsprecher');
+      return;
+    }
+    // Ohne nativen Raum (ältere App-Fassung, oder nur Stream-Ton): der alte
+    // Weg. Er bewegt die Systemroute nicht, solange WebKit abspielt — das ist
+    // bekannt und der Grund für den Umbau.
+    await iosTonWegSetzen(route === 'earpiece' ? 'earpiece' : 'speaker');
     return;
   }
   if (!isCapacitorAndroid()) return;

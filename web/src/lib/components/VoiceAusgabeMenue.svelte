@@ -28,6 +28,7 @@
   import { airplayMoeglich, airplayOeffnen, type AudioRoute } from '$lib/platform/audioRoute';
   import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
   import { isCapacitorIOS } from '$lib/platform/runtime';
+  import { nativerSprachwegDa } from '$lib/platform/iosSprache';
 
   let { btnCls, iconCls }: { btnCls: string; iconCls: string } = $props();
 
@@ -84,7 +85,14 @@
    * verschweigen. Er kommt zurück, sobald der Sprachton nicht mehr von WebKit
    * abgespielt wird; eine Abkürzung aus dem Web heraus gibt es nicht.
    */
-  const hoermuschelMoeglich = !isCapacitorIOS();
+  /**
+   * **Seit dem nativen Sprachweg kommt der Eintrag auf iOS zurück** — aber nur
+   * dort, wo die Hülle ihn auch einlösen kann. Web und App werden getrennt
+   * ausgeliefert: ein Telefon mit älterem Binary bekommt diese Oberfläche,
+   * ohne das Plugin zu haben, und dort wäre der Eintrag wieder das, was er
+   * bis zum 2026-10-10 war — ein Knopf, der nichts tut.
+   */
+  const hoermuschelMoeglich = !isCapacitorIOS() || nativerSprachwegDa();
 </script>
 
 <div class="relative">

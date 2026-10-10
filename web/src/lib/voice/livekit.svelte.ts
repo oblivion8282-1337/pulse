@@ -58,6 +58,15 @@ import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { istAblehnung, standMerken } from '$lib/platform/berechtigung.svelte';
 import { isMobile } from '$lib/platform/runtime';
+import {
+  nativerSprachwegDa,
+  spracheAusgabe,
+  spracheBeitreten,
+  spracheBeobachten,
+  spracheMikrofon,
+  spracheVerlassen,
+  type NativerTeilnehmer
+} from '$lib/platform/iosSprache';
 import { melde } from '$lib/diagnose/app-diagnose';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
 import { tonSystemFilterBeobachten, tonSystemFiltert, tonVoice } from '$lib/platform/iosTon';
@@ -140,6 +149,9 @@ class VoiceRoom {
   joinStartedAt = 0;
 
   participants = $state<VoiceParticipant[]>([]);
+
+  /** Abmelder der nativen Ereignisse (iOS). `null`, solange der Web-Weg läuft. */
+  #nativAbmelden: (() => void) | null = null;
 
   /** Local mic on/off (publish state) + "Deafen" (locally mute all remote
    *  audio). Die Signale leben in `voiceState` ($lib/voice/state.svelte), damit
@@ -448,6 +460,19 @@ class VoiceRoom {
     // a Room. The newer connect owns the UI state from here.
     if (gen !== this.#connectGen) return;
 
+    // **iOS: ab hier übernimmt die Hülle.** Alles darunter baut auf einem
+    // JS-`Room` auf, den es auf dem nativen Weg nicht gibt. Die Weiche sitzt
+    // bewusst NACH dem Token-Abruf: die Anmeldung bleibt im Web, nativ
+    // bekommt nur `wsUrl` und `token` gereicht.
+    if (nativerSprachwegDa()) {
+      // `this.micEnabled` wird erst weiter unten gesetzt und trägt hier noch
+      // den Stand des vorigen Kanals. Die Absicht steht in `opts`.
+      await this.#nativVerbinden(resp.ws_url, resp.token, channelId, gen, {
+        stumm: Boolean(opts.startMuted || opts.startDeafened) || this.pttMode
+      });
+      return;
+    }
+
     const room = new Room(this.#roomOptions());
     this.#room = room;
     this.#applyPlaybackSettings();
@@ -649,6 +674,88 @@ class VoiceRoom {
   }
 
   /**
+   * Der native Weg auf iOS — die Hülle hält den Raum, dieser Store spiegelt.
+   *
+   * **Was diese Etappe absichtlich NOCH NICHT tut:** Kamera, Bildschirm-
+   * freigaben, Geräteliste, Pegel und Selbst-Mithören. Die gehören zur
+   * nativen Kanalansicht (Etappe 3 im Entwurf) und sind hier bewusst leer
+   * statt halb — ein halb gefülltes Feld sähe aus wie ein Fehler, ein leeres
+   * wie der Bauzustand, der es ist.
+   *
+   * Was es tut: verbinden, Mikrofon veröffentlichen, Teilnehmer spiegeln,
+   * Ausgabe schalten. Damit ist die Frage beantwortet, um die es geht.
+   */
+  async #nativVerbinden(
+    wsUrl: string,
+    token: string,
+    channelId: string,
+    gen: number,
+    opts: { stumm: boolean }
+  ): Promise<void> {
+    this.#nativAbmelden?.();
+    this.#nativAbmelden = spracheBeobachten({
+      verbindung: (e) => {
+        if (e.zustand === 'connected') this.state = ConnectionState.Connected;
+        else if (e.zustand === 'disconnected') {
+          this.state = ConnectionState.Disconnected;
+          if (e.fehler) this.error = e.fehler;
+        }
+      },
+      teilnehmer: (liste) => this.#nativTeilnehmer(liste),
+      sprechen: (identitaeten) => {
+        const sprechend = new Set(identitaeten);
+        this.participants = this.participants.map((p) => ({
+          ...p,
+          isSpeaking: sprechend.has(p.identity)
+        }));
+        this.localSpeaking = this.participants.some((p) => p.isLocal && p.isSpeaking);
+      },
+      eigenerZustand: (e) => {
+        this.micEnabled = e.mikro;
+      }
+    });
+
+    try {
+      const zustand = await spracheBeitreten(wsUrl, token, channelId, opts.stumm);
+      // Überholt, während die Hülle verband — den frisch gebauten Raum wieder
+      // abräumen, sonst bliebe er neben dem neueren stehen.
+      if (gen !== this.#connectGen) {
+        await spracheVerlassen();
+        return;
+      }
+      this.state = ConnectionState.Connected;
+      this.micEnabled = zustand.mikro;
+      this.#nativTeilnehmer(zustand.teilnehmer);
+    } catch (e) {
+      if (gen !== this.#connectGen) return;
+      this.state = ConnectionState.Disconnected;
+      this.channelId = null;
+      this.channelName = null;
+      this.error = e instanceof Error ? e.message : m.livekit_token_request_failed();
+      this.#nativAbmelden?.();
+      this.#nativAbmelden = null;
+      return;
+    }
+
+    this.#ensureWakeLock();
+    sounds.play('voice.self_join', { guildId: guilds.guildIdForChannel(channelId) });
+  }
+
+  #nativTeilnehmer(liste: NativerTeilnehmer[]): void {
+    this.participants = liste.map((t) => ({
+      identity: t.identity,
+      name: t.name,
+      userId: t.userId,
+      isLocal: t.isLocal,
+      isSpeaking: t.isSpeaking,
+      audioLevel: t.audioLevel,
+      micMuted: t.micMuted,
+      cameraOn: t.cameraOn,
+      connectionQuality: t.connectionQuality as VoiceParticipant['connectionQuality']
+    }));
+  }
+
+  /**
    * Tear down the LiveKit room. Pass `reason: 'user'` for an *explicit*
    * leave (PhoneOff click, channel switch) — this is the only path that
    * also ends any watch party the local user is hosting in the channel.
@@ -661,6 +768,15 @@ class VoiceRoom {
     // Wachposten vorbei.
     this.#abbruchGen = this.#connectGen;
     this.#connectGen++;
+    // iOS, nativer Weg: erst die Hülle trennen, dann die gemeinsame
+    // Aufräumarbeit unten durchlaufen lassen (`#room` ist dort ohnehin leer).
+    if (this.#nativAbmelden) {
+      this.#nativAbmelden();
+      this.#nativAbmelden = null;
+      await spracheVerlassen().catch(() => undefined);
+      this.participants = [];
+      this.localSpeaking = false;
+    }
     const room = this.#room;
     if (!room) {
       // Aufgelegt, bevor der Raum ueberhaupt stand (der Token-Abruf laeuft
@@ -725,6 +841,18 @@ class VoiceRoom {
   }
 
   async setMicEnabled(on: boolean): Promise<void> {
+    // iOS, nativer Weg: die Spur gehört der Hülle, nicht einem JS-Raum.
+    if (this.#nativAbmelden) {
+      this.micEnabled = on;
+      const z = await spracheMikrofon(on).catch((e: unknown) => {
+        // Nicht schlucken: ein stumm gebliebenes Mikrofon, das die Oberfläche
+        // für offen hält, ist der teuerste Zustand dieser ganzen Baustelle.
+        console.error('[Sprache] Mikrofon schalten fehlgeschlagen', e);
+        return null;
+      });
+      if (z) this.micEnabled = z.mikro;
+      return;
+    }
     const room = this.#room;
     if (!room) return;
     // Optimistic UI: micEnabled synchron vor dem await setzen, sonst blitzt

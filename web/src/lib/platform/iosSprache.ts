@@ -1,0 +1,146 @@
+import { isCapacitorIOS } from './runtime';
+
+/**
+ * Nativer Sprach-Raum auf iOS (Hülle: `SprachePlugin.swift`).
+ *
+ * **Warum es ihn gibt.** Den Sprachton spielt sonst WebKits eigener Prozess
+ * ab, und dessen Audio-Session fordert den Lautsprecher und ist nicht
+ * mischbar — die Hörmuschel ist aus dem Web heraus unerreichbar, und jedes
+ * Drehen an der eigenen Session unterbricht nur WebKit. Beides am 2026-10-10
+ * am Gerät gemessen; voller Befund und Zuschnitt im Entwurf
+ * `docs/superpowers/specs/2026-10-10-ios-nativer-sprachweg-design.md`.
+ *
+ * **Die Anmeldung bleibt hier.** Das Token holt weiter der Klient und reicht
+ * es hinüber; die Hülle kennt weder Konten noch Sitzungen.
+ *
+ * Alles andere (Browser, Electron, Android) sieht davon nichts — die Funktion
+ * `nativerSprachwegDa()` ist dort `false`, und der bestehende Weg bleibt.
+ */
+
+/** Teilnehmer in genau der Form, die `voice/livekit.svelte.ts` schon kennt. */
+export interface NativerTeilnehmer {
+  identity: string;
+  name: string;
+  userId: string | null;
+  isLocal: boolean;
+  isSpeaking: boolean;
+  audioLevel: number;
+  micMuted: boolean;
+  cameraOn: boolean;
+  connectionQuality: string;
+}
+
+export interface NativerZustand {
+  verbunden: boolean;
+  kanalId: string;
+  teilnehmer: NativerTeilnehmer[];
+  mikro: boolean;
+  lautsprecher: boolean;
+  /** Was die Session WIRKLICH ausgibt (`Speaker`, `Receiver`, …) — nicht, was
+   *  gewünscht wurde. Genau dieser Unterschied war der Befund vom 2026-10-10. */
+  route: string;
+}
+
+interface SprachePlugin {
+  beitreten(o: {
+    wsUrl: string;
+    token: string;
+    kanalId: string;
+    startStumm: boolean;
+  }): Promise<NativerZustand>;
+  verlassen(): Promise<void>;
+  mikrofon(o: { an: boolean }): Promise<NativerZustand>;
+  ausgabe(o: { weg: 'lautsprecher' | 'hoermuschel' }): Promise<NativerZustand>;
+  zustand(): Promise<NativerZustand>;
+  addListener(
+    name: 'verbindung',
+    cb: (e: { zustand: string; fehler?: string }) => void
+  ): Promise<{ remove: () => void }>;
+  addListener(
+    name: 'teilnehmer',
+    cb: (e: { liste: NativerTeilnehmer[] }) => void
+  ): Promise<{ remove: () => void }>;
+  addListener(
+    name: 'sprechen',
+    cb: (e: { sprechen: string[] }) => void
+  ): Promise<{ remove: () => void }>;
+  addListener(
+    name: 'eigenerZustand',
+    cb: (e: { mikro: boolean; lautsprecher: boolean; route: string }) => void
+  ): Promise<{ remove: () => void }>;
+}
+
+function plugin(): SprachePlugin | null {
+  if (typeof window === 'undefined') return null;
+  const cap = (window as Window & { Capacitor?: { Plugins?: Record<string, unknown> } })
+    .Capacitor;
+  return (cap?.Plugins?.SprachePlugin as SprachePlugin | undefined) ?? null;
+}
+
+/**
+ * Trägt diese App den nativen Weg?
+ *
+ * **Die Prüfung auf das Plugin ist nicht Zierde, sondern Pflicht.** Web und
+ * Hülle werden getrennt ausgeliefert: die Oberfläche kommt bei jedem Start
+ * frisch vom Server, die App nur über den Store. Ein Telefon mit älterem
+ * Binary bekommt diese Datei also, ohne das Plugin zu haben — ohne diese
+ * Weiche gäbe es dort gar keine Sprache mehr.
+ */
+export function nativerSprachwegDa(): boolean {
+  return isCapacitorIOS() && plugin() !== null;
+}
+
+export async function spracheBeitreten(
+  wsUrl: string,
+  token: string,
+  kanalId: string,
+  startStumm: boolean
+): Promise<NativerZustand> {
+  const p = plugin();
+  if (!p) throw new Error('SprachePlugin fehlt');
+  return p.beitreten({ wsUrl, token, kanalId, startStumm });
+}
+
+export async function spracheVerlassen(): Promise<void> {
+  await plugin()?.verlassen();
+}
+
+export async function spracheMikrofon(an: boolean): Promise<NativerZustand | null> {
+  const p = plugin();
+  if (!p) return null;
+  return p.mikrofon({ an });
+}
+
+export async function spracheAusgabe(
+  weg: 'lautsprecher' | 'hoermuschel'
+): Promise<NativerZustand | null> {
+  const p = plugin();
+  if (!p) return null;
+  return p.ausgabe({ weg });
+}
+
+export async function spracheZustand(): Promise<NativerZustand | null> {
+  const p = plugin();
+  if (!p) return null;
+  return p.zustand();
+}
+
+/** Alle Ereignisse der Hülle anmelden. Gibt den Abmelder zurück. */
+export function spracheBeobachten(h: {
+  verbindung: (e: { zustand: string; fehler?: string }) => void;
+  teilnehmer: (liste: NativerTeilnehmer[]) => void;
+  sprechen: (identitaeten: string[]) => void;
+  eigenerZustand: (e: { mikro: boolean; lautsprecher: boolean; route: string }) => void;
+}): () => void {
+  const p = plugin();
+  if (!p) return () => undefined;
+  const griffe = [
+    p.addListener('verbindung', h.verbindung),
+    p.addListener('teilnehmer', (e) => h.teilnehmer(e.liste)),
+    p.addListener('sprechen', (e) => h.sprechen(e.sprechen)),
+    p.addListener('eigenerZustand', h.eigenerZustand)
+  ];
+  return () => {
+    for (const g of griffe) void g.then((x) => x.remove()).catch(() => undefined);
+  };
+}

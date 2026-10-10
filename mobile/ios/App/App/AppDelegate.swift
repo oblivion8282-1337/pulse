@@ -170,6 +170,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // irgendeine WebView existiert — ein Capacitor-Plugin gibt es dann
         // noch nicht. Begründung im Kopf von `AnrufPlugin.swift`.
         Anrufverwaltung.geteilt.starten()
+        #if DEBUG
+            // Prüfpfad für den nativen Sprachweg — tut nichts ohne das
+            // Startargument, und existiert in Release-Bauten gar nicht.
+            // Begründung im Kopf von `SprachePlugin.swift`.
+            SprachePlugin.probeAusStartargumenten()
+        #endif
         // Schnellwahl beim KALTSTART: iOS legt die Wahl in die
         // `launchOptions` und ruft `performActionFor` dann NICHT. Wer nur den
         // einen Weg verdrahtet, hat eine Schnellwahl, die aus dem laufenden
