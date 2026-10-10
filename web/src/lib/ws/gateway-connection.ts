@@ -392,6 +392,12 @@ export class GatewayConnection {
     this.wantConnected = true;
     if (this.ws && this.ws.readyState <= 1) return;
     if (this.connectPromise) return this.connectPromise;
+    // Ein Socket im Abbau wird nicht übernommen, sondern abgehängt. Sonst
+    // bliebe er `this.ws`, bis `_dial` den Nachfolger einträgt: ein `close`
+    // davor bildete seinen Code über den laufenden Aufbau ab und plante eine
+    // Wiederwahl daneben, eins danach fände einen fremden Socket vor — und
+    // die close-Hörer erführen den Abriss nie (s. `_abhaengen`).
+    if (this.ws) this._abhaengen(this.ws);
     this._readyPromise = new Promise((resolve) => {
       this._readyResolve = resolve;
     });
@@ -607,6 +613,11 @@ export class GatewayConnection {
         resolve();
       });
       ws.addEventListener('message', (event) => {
+        // Nur der AKTUELLE Socket spricht in die Stores. Ein abgehängter
+        // (disconnect(), oder ein neuerer hat übernommen — s. `_abhaengen`)
+        // liefert sonst doppelte ready/message/dm_bump; der Direktweg
+        // (`DirectWebSocket`) reicht auch im Abbau noch Rahmen durch.
+        if (this.ws !== ws) return;
         let evt: ServerEvent;
         try {
           evt = JSON.parse(event.data) as ServerEvent;
@@ -688,34 +699,62 @@ export class GatewayConnection {
         this._dispatch(evt);
       });
       ws.addEventListener('close', (event) => {
-        this.ws = null;
-        this._stopHeartbeat();
-        this._stopTokenErneuerung();
-        // Bughunt Runde 43: auch den Gapfill-Fallback-Timer killen — er war
-        // der eine Lifecycle-Timer, der weder im close noch in disconnect()
-        // aufgeräumt wurde und nach einem open-ohne-hello gegen die
-        // bekannte-tote Verbindung einen REST-Burst losschickte.
-        this._stopGapfillTimer();
-        this._stopWachFrist();
-        // Vor jeder Zustands-Abbildung und vor dem Reconnect: die Hörer sollen
-        // den Abriss erfahren, egal ob danach neu gewählt wird oder nicht.
-        // Kopie, weil ein Hörer sich im Ruf abmelden darf.
-        for (const h of [...this.closeHooks]) h();
-        // Only map the close code (and potentially overwrite the state) when
-        // the disconnect was NOT intentional. disconnect() already sets state
-        // to 'idle' synchronously before ws.close(); letting _mapCloseCode run
-        // afterwards would overwrite that with 'closed' (or another code-
-        // derived value), leaving the state wrong after a clean disconnect.
-        if (this.wantConnected) this._mapCloseCode(event.code);
-        // Reject the _dial promise if the socket never opened, then fall
-        // through to schedule a reconnect regardless (wantConnected check
-        // below). These two paths are intentionally not mutually exclusive:
-        // we want the promise to reject *and* a retry to be scheduled.
+        // Das _dial-Versprechen gehört zu DIESEM Socket — es wird abgelehnt,
+        // auch wenn er längst abgehängt ist.
         if (!opened) reject(new Error('ws closed before open'));
+        // Ein schon abgehängter Socket fasst nichts mehr an: weder `this.ws`
+        // noch Zeitgeber, Zustand oder Wiederwahl gehören noch ihm. Vorher
+        // nullte das späte close eines alten Sockets den NEUEN, stoppte dessen
+        // Herzschlag und plante einen dritten — der zweite blieb verwaist
+        // offen und dispatchte weiter (Bughunt 2026-10-11, T7).
+        if (!this._abhaengen(ws)) return;
+        // Nur ein UNGEWOLLTER Abriss bildet seinen Code ab und wählt neu. Das
+        // close nach disconnect() kommt hier schon nicht mehr an (abgehängt,
+        // s. oben); die Weiche hält jeden anderen Weg ab, der `wantConnected`
+        // schon abgeschaltet hat — `_mapCloseCode` überschriebe sonst dessen
+        // Zustand. Zweimal gefragt statt einmal: `_mapCloseCode` schaltet es
+        // bei MFA und unbestätigter E-Mail selbst ab, dann ohne Wiederwahl.
+        if (this.wantConnected) this._mapCloseCode(event.code);
         if (this.wantConnected) this._scheduleReconnect();
       });
       ws.addEventListener('error', () => { /* Browser feuert direkt close. */ });
     });
+  }
+
+  /**
+   * Den Socket von der Verbindung lösen — genau einmal je Socket, und nur,
+   * solange er der aktuelle ist. `false` heisst: war er nicht (mehr).
+   *
+   * Drei Wege führen hierher: sein eigenes `close`, `disconnect()` und
+   * `connect()` neben einem Socket im Abbau — so verbindet die Weck-Prüfung
+   * sofort neu, ohne auf das `close` zu warten (`wachentscheid.ts`). Der
+   * Abbau kann dauern — auf totem Netz kommt die Antwort auf den
+   * Schliess-Handschlag nie, und wie lange WebKit dann in CLOSING bleibt,
+   * ist ungemessen —, und sein `close` kommt womöglich erst, wenn der
+   * Nachfolger längst steht. Deshalb hängt alles, was dem Socket gehört, an
+   * dieser einen Stelle, und das späte `close` findet hier nur noch einen
+   * fremden Socket vor.
+   *
+   * Die close-Hörer laufen HIER, nicht erst beim `close`-Ereignis: für sie
+   * zählt, dass die Verbindung den Socket verloren hat. Kämen sie erst mit
+   * dem späten `close`, sähe die Fernsteuer-Wacht (`remote/wachten.ts`) den
+   * Abriss nach dem `ready` des Nachfolgers und reklamierte ihre Sitzung
+   * nicht — so steht es dort im Code, gemessen ist es nicht.
+   */
+  private _abhaengen(ws: SocketLike): boolean {
+    if (this.ws !== ws) return false;
+    this.ws = null;
+    this._stopHeartbeat();
+    this._stopTokenErneuerung();
+    // Bughunt Runde 43: auch den Gapfill-Fallback-Timer killen — er war
+    // der eine Lifecycle-Timer, der weder im close noch in disconnect()
+    // aufgeräumt wurde und nach einem open-ohne-hello gegen die
+    // bekannte-tote Verbindung einen REST-Burst losschickte.
+    this._stopGapfillTimer();
+    this._stopWachFrist();
+    // Kopie, weil ein Hörer sich im Ruf abmelden darf.
+    for (const h of [...this.closeHooks]) h();
+    return true;
   }
 
   private _mapCloseCode(code: number): void {
@@ -1088,9 +1127,10 @@ export class GatewayConnection {
     this._stopGapfillTimer();
     this._stopWachFrist();
     this._stopReconnect();
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+    const ws = this.ws;
+    if (ws) {
+      this._abhaengen(ws);
+      ws.close();
     }
     this.subs.clear();
     this.watchJoins.clear();

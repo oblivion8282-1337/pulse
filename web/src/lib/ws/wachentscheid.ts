@@ -61,7 +61,9 @@ export function wachEntscheid(lage: Wachlage): Wachbefund {
   if (!lage.gewuenscht) return 'nichts';
   if (lage.seitLetzterPruefungMs < MINDESTABSTAND_MS) return 'nichts';
   // Kein Socket, oder einer im Abbau: der Abbau endet in `close` und damit im
-  // gestaffelten Reconnect — darauf warten wir nicht.
+  // gestaffelten Reconnect — darauf warten wir nicht. Die Verbindung hängt
+  // den alten Socket dafür ab, und sein spätes `close` fasst den neuen nicht
+  // mehr an (`gateway-connection.ts::_abhaengen`).
   if (lage.bereit === null || lage.bereit === SCHLIESST || lage.bereit === GESCHLOSSEN) {
     return 'sofort-verbinden';
   }
