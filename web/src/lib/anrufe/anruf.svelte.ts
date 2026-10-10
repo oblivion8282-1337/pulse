@@ -597,10 +597,13 @@ class AnrufStore {
       // Eigene Kennung, nicht `'sprachkanal'`: Anruf und Kanal laufen
       // unabhängig, und mit einer gemeinsamen Kennung nähme das Auflegen dem
       // Kanal die Session weg (s. `platform/iosTon.ts`).
-      // Nicht abgewartet — gleiche Begruendung wie im Sprachkanal
-      // (`voice/livekit.svelte.ts`): der native `setActive` blockiert den
-      // Hauptthread und fror die App ein.
-      void tonVoice('anruf', true);
+      //
+      // Abgewartet — dieselbe Regel wie im Sprachkanal: Session fertig, dann
+      // Mikrofon. Hier stand bis zum 2026-10-10 das Gegenteil, mit der
+      // Begruendung, der native `setActive` halte den Hauptthread; am Geraet
+      // nachgemessen stimmt das nicht (die Zahlen und die wirkliche Ursache
+      // stehen bei der Schwesterstelle in `voice/livekit.svelte.ts`).
+      await tonVoice('anruf', true);
 
       await room.connect(resp.ws_url, resp.token);
       if (gen !== this.#abbauGen) {

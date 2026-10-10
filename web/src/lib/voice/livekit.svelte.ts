@@ -463,15 +463,27 @@ class VoiceRoom {
     // mode switch a head start before any track exists. No-op off Capacitor-Android;
     // cleared again in #teardown on leave.
     await setVoiceActive(true);
-    // **Bewusst NICHT abgewartet** (zurueckgenommen am 2026-10-10). Die
-    // Reihenfolge nach LiveKits Regel ist richtig gedacht — Session fertig,
-    // dann Mikrofon —, aber dahinter steht `AVAudioSession.setActive`, und
-    // das blockiert den Hauptthread, auf dem auch die Oberflaeche laeuft.
-    // Am Geraet fror die App daraufhin ein: nichts mehr anklickbar. Ein
-    // Vorsprung, der die App anhaelt, ist keiner. Wer das wieder angeht,
-    // braucht einen Weg, der den Hauptthread nicht haelt — nicht bloss ein
-    // `await` mehr.
-    void tonVoice('sprachkanal', true);
+    // iOS: dieselbe Regel wie oben fuer Android — LiveKit verlangt eine
+    // eingerichtete UND aktive `AVAudioSession`, bevor ein Mikrofon
+    // veroeffentlicht wird (`platform/iosTon.ts`).
+    //
+    // **Hier stand bis zum 2026-10-10 eine falsche Begruendung**, und sie
+    // kostete einen Tag: `AVAudioSession.setActive` blockiere den
+    // Hauptthread, deshalb duerfe nicht gewartet werden. Am Geraet
+    // nachgemessen trifft das nicht zu — Capacitor arbeitet Plugin-Rufe auf
+    // einer eigenen SERIELLEN Warteschlange ab (`DispatchQueue(label:
+    // "bridge")`, `CapacitorBridge.swift`), und jede einzelne Messung meldete
+    // `haupt=nein`. `setCategory` braucht 3–8 ms, `setActive(true)` 63–309 ms.
+    //
+    // Die App fror wirklich ein, nur aus einem anderen Grund: eine
+    // Rueckkopplung richtete die Session 4–10 mal pro Sekunde neu ein, und
+    // weil jene Warteschlange seriell ist, stand danach jeder Plugin-Ruf
+    // dahinter. Nicht der Hauptthread war belegt, sondern die Bruecke. Die
+    // Rueckkopplung ist seit demselben Tag an der Wurzel beseitigt
+    // (Weg-Vergleich statt Zeitfrist, s. `wegAngewandt` in `iosTon.ts`) —
+    // damit kostet dieses `await` im gemessenen schlechtesten Fall rund eine
+    // Drittelsekunde und stellt die Reihenfolge sicher, auf die es ankommt.
+    await tonVoice('sprachkanal', true);
 
     // Aufgelegt, waehrend der Ruf-Modus gesetzt wurde — gar nicht erst
     // verbinden. Ohne diesen Wachposten baut der Handschlag den Raum noch

@@ -7,7 +7,13 @@ import {
   iosWegWechsel,
   iosVoiceAktiv
 } from './iosAudioSession';
-import { audioSessionTyp, zielModus, type AudioSessionTyp, type TonModus } from './tonModus';
+import {
+  audioSessionTyp,
+  wegAntwort,
+  zielModus,
+  type AudioSessionTyp,
+  type TonModus
+} from './tonModus';
 
 /**
  * Der eine Ort, der die iOS-Audio-Session schaltet.
@@ -116,15 +122,44 @@ let webTyp: AudioSessionTyp | null = null;
  * deswegen aber nicht neu geschrieben werden.
  */
 /**
- * **AUS, seit dem 2026-10-10 am Geraet.** Das Setzen des Typs liess die App
- * haengen: `navigator.audioSession.type` konfiguriert die AVAudioSession, und
- * unser `AudioSessionPlugin` tut dasselbe — beide gleichzeitig, auf derselben
- * Session. Der Verdacht ist damit noch nicht bewiesen, aber eine haengende App
- * ist nicht der Zustand, in dem man weitersucht.
+ * **AUS — am 2026-10-10 am Geraet gemessen, mit Vorher/Nachher.**
  *
- * Die Abbildung bleibt stehen (samt Tests): die Luecke ist echt, WebKit kennt
- * unsere Absicht weiterhin nicht. Was fehlt, ist das WIE — vermutlich nicht
- * gleichzeitig mit dem nativen Einrichten, sondern davor und einmalig.
+ * Die Vermutung war, diese Schnittstelle sei der Hebel auf WebKits eigene
+ * Session: die Session, die den Sprachton wirklich abspielt, gehoert WebKits
+ * Prozess, und unser natives `overrideOutputAudioPort` erreicht sie nicht —
+ * es dreht unsere Session (die meldet danach brav `Receiver`), waehrend die
+ * aktive Systemroute auf dem Lautsprecher bleibt. Daran scheitert die
+ * Hoermuschel, und deshalb beweist der funktionierende Lautsprecher nichts:
+ * dorthin geht WebKit von selbst.
+ *
+ * **Gemessen, mit und ohne diese Zeile, je drei Beitritte, iOS 26.6.2:**
+ *
+ * | | WebKits Session im Geraetelog |
+ * |---|---|
+ * | aus | `PlayAndRecord_WithBluetooth_DefaultToSpeaker/VideoChat` |
+ * | an | dasselbe, plus einmal `…_DefaultToSpeaker/Default` |
+ *
+ * Die Zeile KOMMT also an — der Modus kippte sichtbar. **`DefaultToSpeaker`
+ * bleibt trotzdem**, und genau darauf kam es an. Das deckt sich mit der
+ * W3C-API: sie kennt die Typen `auto`/`playback`/`ambient`/`play-and-record`
+ * und kein Gegenstueck zu `defaultToSpeaker` — eine Route waehlt man damit
+ * nicht.
+ *
+ * Geblieben ist nur eine Nebenwirkung, und zwar eine unerwuenschte: in
+ * `Default` statt `VideoChat` ist Apples Sprachverarbeitung AUS, waehrend
+ * unsere Seite sie fuer an haelt (`tonSystemFiltert` liest unsere eigene
+ * Session) — ein Fenster ohne jede Echo-Unterdrueckung. Beobachtet wurde es
+ * beim Wechsel zwischen zwei Beitritten, nicht im laufenden Gespraech; ein
+ * Risiko ohne Gegenwert bleibt es trotzdem.
+ *
+ * **Die Abbildung bleibt stehen** (samt Tests) und der Schalter auch, denn
+ * eine Frage ist ungeprueft: ob diese Absichtserklaerung mitentscheidet, ob
+ * WebKit die Seite bei gesperrtem Bildschirm weiterlaufen laesst. Wer das
+ * messen will, hat hier den Schalter — und oben die Zahlen, gegen die er
+ * vergleichen muss.
+ *
+ * **Was die Hoermuschel wirklich braucht:** dass der Sprachton nicht mehr von
+ * WebKit abgespielt wird. Dafuer gibt es keine Abkuerzung aus dem Web heraus.
  */
 const WEB_AUDIO_SESSION_AN = false;
 
@@ -145,29 +180,33 @@ function webAudioSession(ziel: TonModus): void {
 }
 
 /**
- * Wann wir zuletzt selbst an der Session gedreht haben.
+ * Fuer welchen Tonweg die Session zuletzt eingerichtet wurde.
  *
- * **Gegen eine Rückkopplung, die am 2026-10-10 am Gerät gemessen wurde.**
- * `setCategory`/`setActive` LÖSEN einen Routenwechsel aus — und der
- * Routenwechsel löste hier wieder ein Einrichten aus. Im Gerätelog standen
- * dadurch 4–10 Kategorie-Wechsel pro Sekunde, durchgehend, und über
- * 850.000 Zeilen allein aus `audiomxd` in wenigen Minuten. Die Folge war
- * nicht nur Last: jeder weitere Session-Ruf stand in dieser Schlange, die
- * Oberfläche fror ein, und das Mikrofon reagierte nicht mehr.
+ * **Das ersetzt eine Zeitfrist, die das Problem nur verlangsamt hat.** Bis zum
+ * 2026-10-10 stand hier ein Zeitfenster: `setCategory`/`setActive` LOESEN
+ * einen Routenwechsel aus, und der loeste wieder ein Einrichten aus — eine
+ * Rueckkopplung, die im Geraetelog 4–10 Kategorie-Wechsel pro Sekunde
+ * erzeugte. Das Fenster (1,5 s) brach den Schwall, aber nicht den Kreis: am
+ * Geraet nachgemessen blieb EIN Durchlauf alle 2,4–2,9 s uebrig, also 1–2
+ * zusaetzliche Einrichtungen mitten in jeden Beitritt hinein — genau in das
+ * Zeitfenster, in dem LiveKit das Mikrofon holt und veroeffentlicht.
  *
- * Das Ereignis aus der Hülle trägt keine Nutzlast — JS kann also nicht
- * sehen, OB sich die Route wirklich geändert hat. Deshalb die Zeit als
- * Ersatz: ein Wechsel kurz nach dem eigenen Einrichten ist dessen Folge.
- * Sauberer wäre, die Hülle den Weg mitschicken zu lassen (`Tonweg` kennt
- * sie bereits) und nur bei echtem Wechsel neu einzurichten — das braucht
- * aber einen nativen Neubau.
+ * Der Grund fuer die Fristkonstruktion war die Annahme, das Ereignis trage
+ * keine Nutzlast. Es trug sie immer (`routeGewechselt` schickt den Porttyp,
+ * seit demselben Tag auch den Tonweg) — nur der Binder in
+ * `iosAudioSession.ts` warf sie weg. Jetzt wird verglichen: gleicher Tonweg =
+ * Folge der eigenen Einrichtung, nichts zu tun. Kein Zeitgeber, kein Fenster,
+ * keine Vermutung.
+ *
+ * **Verglichen wird der Tonweg, nicht der Port.** Die Huelle richtet die
+ * Session nach `eingebaut`/`kabel`/`funk` ein; Lautsprecher und Hoermuschel
+ * sind derselbe Fall und brauchen kein Neueinrichten. Die Einteilung liegt
+ * deshalb nativ (`Tonweg.kennung`) und nicht hier.
+ *
+ * `null` heisst „nicht bekannt" — dann wird der gemeldete Weg uebernommen,
+ * ohne neu einzurichten. Ein unbekannter Ausgangszustand ist kein Wechsel.
  */
-let zuletztAngewandt = 0;
-/** Wie lange nach eigenem Einrichten ein Routenwechsel als dessen Folge gilt. */
-const EIGENE_FOLGE_MS = 1500;
-/** Ruhe, bevor ein echter Wechsel beantwortet wird — bündelt Schwälle. */
-const WEG_RUHE_MS = 400;
-let wegGriff: ReturnType<typeof setTimeout> | null = null;
+let wegAngewandt: string | null = null;
 
 async function anwenden(): Promise<void> {
   const ziel = zielModus(voiceQuellen.size > 0, wiedergaben.size);
@@ -175,20 +214,22 @@ async function anwenden(): Promise<void> {
   if (!isCapacitorIOS()) return;
   if (ziel === angewandt) return;
   angewandt = ziel;
-  // VOR dem nativen Ruf setzen, nicht erst danach: die Routenwechsel
-  // entstehen WÄHREND er läuft.
-  zuletztAngewandt = Date.now();
   const vorher = systemFiltert;
   if (ziel === 'voice') {
-    systemFiltert = (await iosVoiceAktiv(true, hqFunk)) === 'voiceChat';
+    const antwort = await iosVoiceAktiv(true, hqFunk);
+    systemFiltert = antwort.modus === 'voiceChat';
+    wegAngewandt = antwort.weg;
   } else if (ziel === 'wiedergabe') {
     await iosPlaybackModus();
     systemFiltert = false;
+    // Die Wiedergabe-Kategorie richtet sich nicht nach dem Weg — was gilt,
+    // ist damit unbekannt. Nicht raten.
+    wegAngewandt = null;
   } else {
-    await iosVoiceAktiv(false);
+    const antwort = await iosVoiceAktiv(false);
     systemFiltert = false;
+    wegAngewandt = antwort.weg;
   }
-  zuletztAngewandt = Date.now();
   if (systemFiltert !== vorher) {
     // Kopie, weil ein Hörer sich im Ruf abmelden darf.
     for (const h of [...filterHoerer]) h();
@@ -241,19 +282,21 @@ function unterbrechungenBeobachten(): void {
   //
   // Auch hier muss der Merker fallen: gewollt ist weiter `voice`, nur die
   // Einrichtung dahinter ist eine andere (dieselbe Falle wie oben).
-  iosWegWechsel(() => {
-    if (voiceQuellen.size === 0) return; // ohne Mikrofon ist der Weg einerlei
-    // Unsere eigene Einrichtung erzeugt Routenwechsel — die dürfen nicht die
-    // nächste auslösen (s. `zuletztAngewandt`).
-    if (Date.now() - zuletztAngewandt < EIGENE_FOLGE_MS) return;
-    if (wegGriff) clearTimeout(wegGriff);
-    wegGriff = setTimeout(() => {
-      wegGriff = null;
-      if (voiceQuellen.size === 0) return;
-      if (Date.now() - zuletztAngewandt < EIGENE_FOLGE_MS) return;
-      angewandt = 'aus';
-      void anwenden();
-    }, WEG_RUHE_MS);
+  iosWegWechsel((e) => {
+    // Die Entscheidung selbst steht importfrei in `tonModus.ts` und ist dort
+    // geprueft — sie ist der Kern dieses Hakens und darf nicht nur am Geraet
+    // nachweisbar sein.
+    switch (wegAntwort(voiceQuellen.size > 0, e.weg, wegAngewandt)) {
+      case 'ignorieren':
+        return;
+      case 'uebernehmen':
+        wegAngewandt = e.weg;
+        return;
+      case 'neu-einrichten':
+        angewandt = 'aus';
+        void anwenden();
+        return;
+    }
   });
 }
 
@@ -310,11 +353,7 @@ export function tonZuruecksetzen(): void {
   wiedergaben.clear();
   angewandt = 'aus';
   webTyp = null;
-  zuletztAngewandt = 0;
-  if (wegGriff) {
-    clearTimeout(wegGriff);
-    wegGriff = null;
-  }
+  wegAngewandt = null;
 }
 
 /** Der zuletzt angewandte Modus — für Anzeige und Tests. */

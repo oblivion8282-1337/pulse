@@ -2,7 +2,6 @@ import AVFoundation
 import AVKit
 import UIKit
 import Capacitor
-import MediaPlayer
 
 /// Audio-Session-Steuerung für die Hülle (Etappe 3, Punkte 21/23/24/26).
 ///
@@ -51,11 +50,25 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     ///
     /// Deshalb ueberlebt der Wunsch hier und wird nach JEDEM Einrichten erneut
     /// angewandt (`ausgabeDurchsetzen`).
-    private enum Ausgabewunsch { case offen, lautsprecher, hoermuschel }
-    private var ausgabewunsch: Ausgabewunsch = .offen
+    ///
+    /// **Nicht `private`, und das hat einen Grund:** `private` gilt in Swift
+    /// je DATEI, und die Ausgabe-Wahl, die diesen Wunsch setzt, liegt seit dem
+    /// 2026-10-10 in `AudioSessionAusgabe.swift` (die Hauptdatei stiess an die
+    /// harte Groessen-Grenze). Gespeicherte Eigenschaften koennen nicht in
+    /// eine Erweiterung wandern — also bleiben sie hier und werden sichtbar.
+    enum Ausgabewunsch { case offen, lautsprecher, hoermuschel }
+    var ausgabewunsch: Ausgabewunsch = .offen
     /// Letzter `hqFunk`-Wert, damit `routeSetzen` die Kategorie mit denselben
     /// Vorgaben neu setzen kann wie `setVoiceActive`.
-    private var letzterHqFunk = false
+    var letzterHqFunk = false
+
+    /// Merker fuer `befehleVerdrahten()` (in `AudioSessionJetztLaeuft.swift`).
+    ///
+    /// **Steht hier, obwohl die Sperrbildschirm-Anzeige ausgezogen ist:**
+    /// Swift erlaubt in einer Erweiterung keine gespeicherten Eigenschaften.
+    /// Deshalb auch nicht `private` — das gilt je Datei, und der einzige
+    /// Leser steht in einer anderen.
+    var befehleStehen = false
 
     /// Den gemerkten Ausgabewunsch anwenden. Nach jedem `setCategory` noetig.
     /// Bewusst ohne `throws`: ein gescheitertes Durchsetzen darf das Einrichten
@@ -67,6 +80,31 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         case .hoermuschel: try? session.overrideOutputAudioPort(.none)
         case .offen: break
         }
+    }
+
+    /// Zeitmass um einen Ruf, der unbegrenzt lange dauern kann.
+    ///
+    /// **Warum das dauerhaft hier steht.** `setCategory` und `setActive` sind
+    /// die einzigen Stellen im Tonweg, die auf den Audio-Server des Systems
+    /// warten — sie koennen Millisekunden brauchen oder Sekunden, und das
+    /// haengt nicht an unserem Code. Capacitor arbeitet Plugin-Rufe auf EINER
+    /// gemeinsamen, SERIELLEN Warteschlange ab (`DispatchQueue(label:
+    /// "bridge")`, `CapacitorBridge.swift`), also haelt eine lange Wartezeit
+    /// hier jeden anderen Plugin-Ruf mit auf.
+    ///
+    /// Ohne Messung ist genau das nicht von „die App haengt" zu
+    /// unterscheiden. Am 2026-10-10 wurde deshalb dem Hauptthread
+    /// angelastet, was nie auf ihm lief, und daraufhin eine richtige
+    /// Reihenfolge zurueckgenommen (s. `tonVoice` in `livekit.svelte.ts`).
+    /// Die Zeile sagt beides: welcher Thread, und wie lange.
+    private func gemessen<T>(_ was: String, _ block: () throws -> T) rethrows -> T {
+        let start = CFAbsoluteTimeGetCurrent()
+        defer {
+            NSLog("[PulseTon] %@ dauer=%.0fms haupt=%@", was,
+                  (CFAbsoluteTimeGetCurrent() - start) * 1000,
+                  Thread.isMainThread ? "JA" : "nein")
+        }
+        return try block()
     }
 
     /// Beobachter werden EINMAL gesetzt, beim ersten Laden des Plugins.
@@ -94,7 +132,7 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     /// nicht. Und umgekehrt kostet Bluetooth Qualität, der Telefonlautsprecher
     /// nicht. **Die beiden Nöte treten also nie gleichzeitig auf**, und ein
     /// gemeinsamer Satz Einstellungen verschenkt in jedem Einzelfall etwas.
-    private enum Tonweg {
+    enum Tonweg {
         /// Eingebauter Lautsprecher oder Hörmuschel: Echo-Unterdrückung ist
         /// hier unverzichtbar, Bluetooth-Qualität steht nicht zur Debatte.
         case eingebaut
@@ -105,9 +143,22 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         /// Mikrofon verlässt der Kopfhörer A2DP und beide Richtungen werden
         /// schmalbandig und mono.
         case funk
+
+        /// Name fuer die Bruecke. **Das Web vergleicht Tonwege, nicht Ports.**
+        /// Genau diese drei Faelle entscheiden die Konfiguration — ein Wechsel
+        /// von Lautsprecher auf Hoermuschel ist derselbe Tonweg und braucht
+        /// kein Neueinrichten. Die Einteilung bleibt dadurch an EINER Stelle
+        /// (hier), und das Web muss keine Porttypen kennen.
+        var kennung: String {
+            switch self {
+            case .eingebaut: return "eingebaut"
+            case .kabel: return "kabel"
+            case .funk: return "funk"
+            }
+        }
     }
 
-    private func wegJetzt() -> Tonweg {
+    func wegJetzt() -> Tonweg {
         let ausgaenge = AVAudioSession.sharedInstance().currentRoute.outputs
         let funk: Set<AVAudioSession.Port> = [.bluetoothA2DP, .bluetoothHFP, .bluetoothLE]
         if ausgaenge.contains(where: { funk.contains($0.portType) }) { return .funk }
@@ -150,10 +201,16 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         letzterHqFunk = hqFunk
         let session = AVAudioSession.sharedInstance()
         let callkit = Anrufverwaltung.geteilt.callkitAktiv
+        NSLog("[PulseTon] setVoiceActive aktiv=%@ hqFunk=%@ callkit=%@",
+              aktiv ? "JA" : "nein", hqFunk ? "JA" : "nein", callkit ? "JA" : "nein")
         do {
             if aktiv {
-                let modus = try voiceEinrichten(session, hqFunk: hqFunk)
-                if !callkit { try session.setActive(true) }
+                let modus = try gemessen("setCategory(voice)") {
+                    try voiceEinrichten(session, hqFunk: hqFunk)
+                }
+                if !callkit {
+                    try gemessen("setActive(true)") { try session.setActive(true) }
+                }
                 // Erst JETZT durchsetzen: `overrideOutputAudioPort` verlangt
                 // eine aktive Session, und `setCategory` oben hat jede
                 // vorherige Uebersteuerung geloescht.
@@ -163,18 +220,33 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
                 // schon, bei `default` nicht. Zweimal filtern verdirbt die
                 // Stimme (abgeschnittene Wortanfänge) — es soll in jeder
                 // Konfiguration genau EINER filtern.
-                call.resolve(["modus": modus])
+                //
+                // Der Weg geht MIT zurueck: daran erkennt das Web, ob ein
+                // spaeter gemeldeter Routenwechsel ueberhaupt einer ist, der
+                // eine neue Einrichtung braucht (`iosTon.ts`). Bewusst NACH
+                // dem Einrichten gelesen — das ist der Zustand, gegen den
+                // kuenftige Ereignisse verglichen werden.
+                call.resolve(["modus": modus, "weg": wegJetzt().kennung])
                 return
             }
             if !callkit {
-                try session.setActive(false, options: [.notifyOthersOnDeactivation])
+                try gemessen("setActive(false)") {
+                    try session.setActive(false, options: [.notifyOthersOnDeactivation])
+                }
             }
             // Der Wunsch gilt fuer die Sitzung, nicht fuer immer. Ohne das
             // bliebe `.defaultToSpeaker` nach einmal „Hoermuschel" dauerhaft
             // aus der Kategorie — auch beim naechsten Beitritt.
             ausgabewunsch = .offen
-            call.resolve(["modus": "aus"])
+            call.resolve(["modus": "aus", "weg": wegJetzt().kennung])
         } catch {
+            // **Laut scheitern.** Ein verschluckter Fehlschlag hier ist der
+            // teuerste Zustand ueberhaupt: die Session ist nicht aktiv, der
+            // Klient haelt sich fuer verbunden, und niemand hoert etwas. Die
+            // Gegenseite meldet es seit dem 2026-10-10 auch im Web
+            // (`iosVoiceAktiv`), vorher ging beides still unter.
+            NSLog("[PulseTon] setVoiceActive FEHLER aktiv=%@: %@",
+                  aktiv ? "JA" : "nein", error.localizedDescription)
             call.reject("audio_session_error", nil, error)
         }
     }
@@ -196,7 +268,7 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     /// `setPreferredIOBufferDuration` aus. Die gehoeren laut Apple VOR das
     /// Aktivieren — mitten im Betrieb sind sie eine komplette
     /// Hardware-Neukonfiguration, und die Session teilen wir uns mit WebKit.
-    private func voiceEinrichten(
+    func voiceEinrichten(
         _ session: AVAudioSession, hqFunk: Bool, mitWuenschen: Bool = true
     ) throws -> String {
         // `.allowBluetoothHFP` (früher `.allowBluetooth`) — der neue Name sagt,
@@ -249,177 +321,6 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    // MARK: - Wege (Punkt 24)
-
-    /// Welche Ausgabewege es gibt und welcher gerade gilt.
-    ///
-    /// **iOS wählt anders als Android.** Dort pinnt man ein Ausgabegerät; hier
-    /// wählt man den EINGANG, und der Ausgang folgt ihm (bei einem
-    /// Bluetooth-Headset ist beides dasselbe Gerät). Lautsprecher und
-    /// Hörmuschel sind kein Eingang, sondern eine Übersteuerung
-    /// (`overrideOutputAudioPort`) — deshalb stehen sie hier als zwei feste
-    /// Einträge neben den echten Geräten.
-    @objc func routen(_ call: CAPPluginCall) {
-        let session = AVAudioSession.sharedInstance()
-        var geraete: [[String: Any]] = [
-            ["id": "speaker", "art": "speaker", "name": "Lautsprecher"],
-            ["id": "earpiece", "art": "earpiece", "name": "Hörmuschel"]
-        ]
-        for eingang in session.availableInputs ?? [] {
-            // Das eingebaute Mikrofon ist kein eigener WEG — es gehört zu
-            // Lautsprecher und Hörmuschel, die schon oben stehen.
-            if eingang.portType == .builtInMic { continue }
-            geraete.append([
-                "id": eingang.uid,
-                "art": eingang.portType.rawValue,
-                "name": eingang.portName
-            ])
-        }
-        call.resolve([
-            "aktuell": session.currentRoute.outputs.first?.portType.rawValue ?? "",
-            "aktuellName": session.currentRoute.outputs.first?.portName ?? "",
-            "geraete": geraete
-        ])
-    }
-
-    /// Einen Weg erzwingen. `id` ist entweder `speaker`/`earpiece` oder die
-    /// UID eines Eintrags aus `routen()`.
-    @objc func routeSetzen(_ call: CAPPluginCall) {
-        guard let id = call.getString("id") else {
-            call.reject("id_fehlt")
-            return
-        }
-        let session = AVAudioSession.sharedInstance()
-        do {
-            switch id {
-            case "speaker", "earpiece":
-                ausgabewunsch = (id == "speaker") ? .lautsprecher : .hoermuschel
-                // `try?`, nicht `try`: der EINGANG ist fuer die Ausgabe-Wahl
-                // belanglos, und ein Fehlschlag hier darf sie nicht aufhalten
-                // — vorher endete der ganze Ruf im `catch`, ohne dass je
-                // uebersteuert wurde.
-                try? session.setPreferredInput(nil)
-                // Die Kategorie muss zum Wunsch passen, BEVOR uebersteuert
-                // wird: `.defaultToSpeaker` ist genau das, worauf `.none`
-                // zurueckfaellt. Nur im Sprach-Betrieb — in `.playback` ist
-                // eine Uebersteuerung ungueltig.
-                // **Die Ausgabe-Wahl versorgt sich selbst.** Vorher haing sie
-                // daran, dass anderswo schon eine Session eingerichtet war —
-                // war sie es nicht, lief der Zweig ins Leere, und `try?`
-                // verschluckte das. Am 2026-10-10 gemessen: nach dem Tippen
-                // stand im Geraetelog NULL mal `overrideOutputAudioPort`.
-                //
-                // `overrideOutputAudioPort` verlangt beides: die passende
-                // Kategorie UND eine aktive Session. Ohne Hardware-Wuensche,
-                // die gehoeren vor das Aktivieren und nicht in den Betrieb.
-                _ = try? voiceEinrichten(session, hqFunk: letzterHqFunk, mitWuenschen: false)
-                try? session.setActive(true)
-                // Kein `try?`: scheitert gerade DIE Uebersteuerung, um die es
-                // hier geht, soll der Rufer es erfahren.
-                try session.overrideOutputAudioPort(
-                    ausgabewunsch == .lautsprecher ? .speaker : .none
-                )
-                // **Ins Geraetelog, nicht nur ins Promise.** Die Web-Konsole
-                // ist am Telefon nur ueber Kabel und Safari erreichbar; der
-                // System-Log dagegen laesst sich mitlesen. Ohne diese Zeile
-                // war am 2026-10-10 nicht entscheidbar, ob die Uebersteuerung
-                // ankommt — `overrideOutputAudioPort` selbst protokolliert iOS
-                // nirgends.
-                NSLog("[PulseTon] Ausgabe '%@' gesetzt, erreicht: %@", id,
-                      session.currentRoute.outputs.first?.portType.rawValue ?? "(keiner)")
-            default:
-                guard let eingang = (session.availableInputs ?? []).first(where: { $0.uid == id })
-                else {
-                    // Gerät inzwischen weg (Headset abgezogen): kein Fehler,
-                    // sondern ein Zustand. Die Oberfläche holt die Liste neu.
-                    call.reject("geraet_weg")
-                    return
-                }
-                // Übersteuerung ZUERST zurücknehmen: ein stehengebliebenes
-                // `.speaker` schlägt jede Eingangswahl und das Headset bliebe
-                // stumm, obwohl es gewählt ist.
-                try session.overrideOutputAudioPort(.none)
-                ausgabewunsch = .offen
-                try session.setPreferredInput(eingang)
-            }
-            // **Den erreichten Ausgang zurueckgeben, nicht nur „ok".** Vorher
-            // sahen Erfolg und Wirkungslosigkeit auf der Web-Seite identisch
-            // aus — genau daran scheiterte die Fehlersuche am 2026-10-10.
-            call.resolve([
-                "aktuell": session.currentRoute.outputs.first?.portType.rawValue ?? "",
-                "aktuellName": session.currentRoute.outputs.first?.portName ?? ""
-            ])
-        } catch {
-            call.reject("audio_session_error", nil, error)
-        }
-    }
-
-    // MARK: - Sperrbildschirm und Kontrollzentrum (Punkt 25)
-
-    /// Was gerade läuft, auf dem Sperrbildschirm und im Kontrollzentrum
-    /// anzeigen — plus die beiden Knöpfe, die dort etwas bewirken können.
-    ///
-    /// **Was „Pause" bei einem Live-Strom heisst, ist eine Entscheidung.**
-    /// Anhalten kann man ihn nicht (er läuft weiter, man verpasst nur), und
-    /// Beenden wäre von einem Sperrbildschirm aus zu grob — ein Fehlgriff
-    /// risse die Übertragung weg. Hier bedeutet Pause deshalb STUMM, und
-    /// Wiedergabe wieder laut. Das ist nicht-zerstörend, sofort umkehrbar und
-    /// genau das, was man will, wenn jemand den Raum betritt.
-    ///
-    /// Mindestens ein aktiver Befehl ist nötig, damit iOS die Anzeige
-    /// überhaupt zeigt — eine reine Info-Karte ohne Knöpfe blendet es aus.
-    @objc func jetztLaeuft(_ call: CAPPluginCall) {
-        let titel = call.getString("titel") ?? "Pulse"
-        let zeile2 = call.getString("zeile2") ?? ""
-        DispatchQueue.main.async {
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = [
-                MPMediaItemPropertyTitle: titel,
-                MPMediaItemPropertyArtist: zeile2,
-                // Live: iOS zeigt dann keinen Fortschrittsbalken, der bei
-                // einem laufenden Strom ohnehin nichts bedeutete.
-                MPNowPlayingInfoPropertyIsLiveStream: true
-            ]
-            MPNowPlayingInfoCenter.default().playbackState = .playing
-            self.befehleVerdrahten()
-            call.resolve()
-        }
-    }
-
-    @objc func jetztLaeuftAus(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-            MPNowPlayingInfoCenter.default().playbackState = .stopped
-            call.resolve()
-        }
-    }
-
-    private var befehleStehen = false
-
-    /// Einmal verdrahten, nicht bei jedem Strom: `addTarget` hängt JEDES Mal
-    /// einen weiteren Empfänger an, und dann feuert ein Tastendruck mehrfach.
-    private func befehleVerdrahten() {
-        guard !befehleStehen else { return }
-        befehleStehen = true
-        let z = MPRemoteCommandCenter.shared()
-        z.playCommand.isEnabled = true
-        z.pauseCommand.isEnabled = true
-        z.playCommand.addTarget { [weak self] _ in
-            self?.notifyListeners("fernbefehl", data: ["befehl": "laut"])
-            MPNowPlayingInfoCenter.default().playbackState = .playing
-            return .success
-        }
-        z.pauseCommand.addTarget { [weak self] _ in
-            self?.notifyListeners("fernbefehl", data: ["befehl": "stumm"])
-            MPNowPlayingInfoCenter.default().playbackState = .paused
-            return .success
-        }
-        // Titelsprünge gibt es hier nicht — ohne das Abschalten zeigt iOS
-        // Knöpfe, die nichts tun.
-        z.nextTrackCommand.isEnabled = false
-        z.previousTrackCommand.isEnabled = false
-        z.changePlaybackPositionCommand.isEnabled = false
-    }
-
     // MARK: - Ereignisse
 
     /// Telefonanruf, Siri, Wecker (Punkt 26).
@@ -453,7 +354,14 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         let session = AVAudioSession.sharedInstance()
         notifyListeners("routeGewechselt", data: [
             "aktuell": session.currentRoute.outputs.first?.portType.rawValue ?? "",
-            "aktuellName": session.currentRoute.outputs.first?.portName ?? ""
+            "aktuellName": session.currentRoute.outputs.first?.portName ?? "",
+            // **Der Tonweg ist der Teil, auf den es ankommt.** Ohne ihn kann
+            // das Web nicht unterscheiden, ob dieses Ereignis die Folge der
+            // eigenen Einrichtung ist (gleicher Weg) oder ein echter Wechsel
+            // — und musste die Antwort bis zum 2026-10-10 ueber eine
+            // Zeitfrist raten, was die Rueckkopplung nur verlangsamte statt
+            // sie zu beenden.
+            "weg": wegJetzt().kennung
         ])
     }
 

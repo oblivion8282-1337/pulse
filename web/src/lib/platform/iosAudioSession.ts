@@ -29,6 +29,20 @@ export interface TonWege {
   geraete: TonWeg[];
 }
 
+/**
+ * Ein gemeldeter Wechsel des Ausgabewegs.
+ *
+ * `weg` ist die Einteilung der Huelle (`eingebaut`/`kabel`/`funk`) — und der
+ * einzige Teil, an dem haengt, ob die Session neu eingerichtet werden muss.
+ * `aktuell` ist der genaue Porttyp und nur fuer die Anzeige gedacht: ein
+ * Wechsel von Lautsprecher auf Hoermuschel aendert ihn, den Tonweg nicht.
+ */
+export interface WegWechsel {
+  aktuell: string;
+  aktuellName: string;
+  weg: string;
+}
+
 /** Telefonanruf, Siri, Wecker. */
 export interface Unterbrechung {
   art: 'begonnen' | 'beendet';
@@ -37,7 +51,9 @@ export interface Unterbrechung {
 }
 
 interface AudioSessionPlugin {
-  setVoiceActive(options: { aktiv: boolean; hqFunk: boolean }): Promise<{ modus: string }>;
+  setVoiceActive(
+    options: { aktiv: boolean; hqFunk: boolean }
+  ): Promise<{ modus: string; weg: string }>;
   setPlaybackMode(): Promise<void>;
   routen(): Promise<TonWege>;
   routeSetzen(options: { id: string }): Promise<void>;
@@ -50,7 +66,7 @@ interface AudioSessionPlugin {
   ): Promise<{ remove: () => void }>;
   addListener(
     name: 'routeGewechselt',
-    cb: (e: { aktuell: string; aktuellName: string }) => void
+    cb: (e: WegWechsel) => void
   ): Promise<{ remove: () => void }>;
   addListener(
     name: 'fernbefehl',
@@ -80,12 +96,22 @@ function plugin(): AudioSessionPlugin | null {
 export async function iosVoiceAktiv(
   aktiv: boolean,
   hqFunk = false
-): Promise<string> {
-  if (!isCapacitorIOS()) return 'unbekannt';
+): Promise<{ modus: string; weg: string | null }> {
+  if (!isCapacitorIOS()) return { modus: 'unbekannt', weg: null };
   const p = plugin();
-  if (!p) return 'unbekannt';
-  const antwort = await p.setVoiceActive({ aktiv, hqFunk }).catch(() => undefined);
-  return antwort?.modus ?? 'unbekannt';
+  if (!p) return { modus: 'unbekannt', weg: null };
+  const antwort = await p.setVoiceActive({ aktiv, hqFunk }).catch((e: unknown) => {
+    // **Nicht stillschweigend verschlucken.** Scheitert das Einrichten, ist
+    // die Session nicht aktiv — der Sprachkanal steht dann verbunden da und
+    // ist stumm. Am 2026-10-10 am Geraet gesehen; der Fehlschlag war in der
+    // Oberflaeche an nichts erkennbar. Der Rueckfall bleibt derselbe, aber er
+    // ist jetzt sichtbar.
+    console.error('[Ton] setVoiceActive fehlgeschlagen', e);
+    return undefined;
+  });
+  // `weg: null` heisst „nicht erfahren", nicht „kein Weg" — der Aufrufer darf
+  // daraus keinen Wegwechsel ableiten.
+  return { modus: antwort?.modus ?? 'unbekannt', weg: antwort?.weg ?? null };
 }
 
 /** Playback-Modus (Watch-/Stream-Ton ohne Mikro). */
@@ -133,11 +159,15 @@ export function iosUnterbrechungen(cb: (e: Unterbrechung) => void): () => void {
 }
 
 /** Wegwechsel melden (Headset rein/raus, AirPods verbunden). */
-export function iosWegWechsel(cb: () => void): () => void {
+export function iosWegWechsel(cb: (e: WegWechsel) => void): () => void {
   if (!isCapacitorIOS()) return () => undefined;
   const p = plugin();
   if (!p) return () => undefined;
-  const griff = p.addListener('routeGewechselt', () => cb());
+  // **Die Nutzlast wird durchgereicht, nicht verworfen.** Sie war von Anfang
+  // an da (`routeGewechselt` in `AudioSessionPlugin.swift`); dass dieser
+  // Binder sie wegwarf, hat `iosTon.ts` monatelang zu einer Zeitfrist
+  // gezwungen, wo ein Vergleich genuegt.
+  const griff = p.addListener('routeGewechselt', cb);
   return () => void griff.then((h) => h.remove()).catch(() => undefined);
 }
 

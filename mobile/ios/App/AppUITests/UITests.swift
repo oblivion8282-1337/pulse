@@ -10,6 +10,54 @@ final class AppUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    // MARK: - Gemeinsame Handgriffe
+
+    /// Ein Element BELIEBIGER Art, dessen Beschriftung `teil` enthaelt.
+    ///
+    /// **Typunabhaengig suchen.** Ob eine Kachel als Button, Link oder
+    /// StaticText im Baum erscheint, entscheidet das Markup — und das darf
+    /// einen Test nicht zum Scheitern bringen, wenn das Element sichtbar da
+    /// ist. `descendants(matching: .any)` sucht ueber alle Arten.
+    ///
+    /// Jeder Ruf baut die Abfrage neu und haelt KEIN Element fest:
+    /// `firstMatch` beschreibt nur, wonach gesucht wird — aufgeloest wird es
+    /// erst beim Zugriff (`waitForExistence`, `tap`). Genau deshalb traegt ein
+    /// zweiter Ruf auch dann, wenn die Route ihre Liste neu gebaut hat.
+    private func elementMit(_ app: XCUIApplication, _ teil: String) -> XCUIElement {
+        app.webViews.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS[c] %@", teil)
+        ).firstMatch
+    }
+
+    /// Der Knopf der Sprachleiste, der den aktiven Ausgabeweg traegt — und
+    /// zugleich der Oeffner der Ausgabe-Wahl. Die Beschriftung kommt aus dem
+    /// Paraglide-Katalog, deshalb mehrere Kandidaten statt eines geratenen
+    /// Namens.
+    ///
+    /// **Eine Abfrage, zwei Verwendungen, und das MUSS so sein:** der Lauf
+    /// vergleicht die Beschriftung desselben Knopfes vor und nach dem
+    /// Umschalten. Zwei getrennt hingeschriebene Kandidatenlisten koennten
+    /// auseinanderlaufen, und der Vergleich traefe dann zwei verschiedene
+    /// Knoepfe.
+    private func ausgabeKnopf(_ app: XCUIApplication) -> XCUIElement {
+        app.webViews.buttons.matching(
+            NSPredicate(
+                format: "label CONTAINS[c] 'Ausgabe' OR label CONTAINS[c] 'Lautsprecher'"
+                    + " OR label CONTAINS[c] 'Hörmuschel'"
+            )
+        ).firstMatch
+    }
+
+    /// Zeitmarke zum Abgleich mit dem Geraetelog. UTC, weil `idevicesyslog`
+    /// daneben in UTC stempelt — eine Ortszeit hier kostete bei jedem
+    /// Vergleich eine Umrechnung im Kopf.
+    private func stempel() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f.string(from: Date())
+    }
+
     func testNachrichtSendenImChat() throws {
         let app = XCUIApplication()
         app.launch()
@@ -71,23 +119,15 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(raeume.waitForExistence(timeout: 15), "Bereichs-Link Raeume nicht gefunden")
         raeume.tap()
 
-        // **Typunabhaengig suchen.** Ob eine Kachel als Button, Link oder
-        // StaticText im Baum erscheint, entscheidet das Markup — und das darf
-        // einen Test nicht zum Scheitern bringen, wenn das Element sichtbar
-        // da ist. `descendants(matching: .any)` sucht ueber alle Arten.
         Thread.sleep(forTimeInterval: 3)
         print("=== BAUM/RAEUME ===\n\(app.debugDescription)\n=== /BAUM ===")
 
-        let community = app.webViews.descendants(matching: .any).matching(
-            NSPredicate(format: "label CONTAINS[c] 'dev-stack'")
-        ).firstMatch
+        let community = elementMit(app, "dev-stack")
         XCTAssertTrue(community.waitForExistence(timeout: 20), "Community nicht gefunden")
         community.tap()
 
         Thread.sleep(forTimeInterval: 3)
-        let kanal = app.webViews.descendants(matching: .any).matching(
-            NSPredicate(format: "label CONTAINS[c] 'test-voice'")
-        ).firstMatch
+        let kanal = elementMit(app, "test-voice")
         XCTAssertTrue(kanal.waitForExistence(timeout: 20), "Sprachkanal nicht gefunden")
         kanal.tap()
 
@@ -95,12 +135,8 @@ final class AppUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 10)
         print("=== BAUM/IM-KANAL ===\n\(app.debugDescription)\n=== /BAUM ===")
 
-        // Ausgabe-Wahl oeffnen. Der Knopf traegt ein Kopfhoerer-Symbol; die
-        // Beschriftung kommt aus dem Paraglide-Katalog, deshalb mehrere
-        // Kandidaten statt eines geratenen Namens.
-        let ausgabe = app.webViews.buttons.matching(
-            NSPredicate(format: "label CONTAINS[c] 'Ausgabe' OR label CONTAINS[c] 'Lautsprecher' OR label CONTAINS[c] 'Hörmuschel'")
-        ).firstMatch
+        // Ausgabe-Wahl oeffnen. Der Knopf traegt ein Kopfhoerer-Symbol.
+        let ausgabe = ausgabeKnopf(app)
         if ausgabe.waitForExistence(timeout: 10) {
             ausgabe.tap()
             Thread.sleep(forTimeInterval: 2)
@@ -108,7 +144,7 @@ final class AppUITests: XCTestCase {
 
             // **Das Menue schliesst sich nach jeder Wahl** — fuer den zweiten
             // Weg muss es neu geoeffnet werden. Ohne das meldete der Lauf
-            // „Lautsprecher nicht gefunden" und prueftre nur eine Richtung.
+            // „Lautsprecher nicht gefunden" und pruefte nur eine Richtung.
             for (i, wunsch) in ["Hörmuschel", "Lautsprecher"].enumerated() {
                 if i > 0 {
                     ausgabe.tap()
@@ -124,6 +160,12 @@ final class AppUITests: XCTestCase {
                     print("=== TIPPE: \(wunsch) ===")
                     eintrag.tap()
                     Thread.sleep(forTimeInterval: 4)
+                    // Was steht DANACH auf dem Schirm? Der Knopf der
+                    // Sprachleiste traegt den aktiven Weg als Beschriftung —
+                    // damit ist pruefbar, ob die Anzeige dem Umschalten folgt
+                    // oder nur die Session es tut.
+                    let leiste = ausgabeKnopf(app)
+                    print("=== ANZEIGE NACH \(wunsch): '\(leiste.exists ? leiste.label : "(kein Knopf)")' ===")
                 } else {
                     print("=== NICHT GEFUNDEN: \(wunsch) ===")
                 }
@@ -134,5 +176,138 @@ final class AppUITests: XCTestCase {
 
         // Noch kurz im Kanal bleiben, damit der Mitschnitt daneben etwas sieht.
         Thread.sleep(forTimeInterval: 5)
+    }
+
+    /// **Differenz-Versuch zum stummen Mikrofon.**
+    ///
+    /// Der Befund vom 2026-10-10: nach dem Beitritt traegt das Mikrofon keinen
+    /// Ton; nach einmal Stummschalten und wieder Einschalten schon. Beides ist
+    /// reproduzierbar — also laesst sich der Unterschied MESSEN, statt ihn zu
+    /// erraten.
+    ///
+    /// Der Test stellt beide Zustaende nacheinander her und markiert sie mit
+    /// Zeitstempeln. Was im Geraetelog (`idevicesyslog`) zwischen Phase A und
+    /// Phase B anders ist, IST die Signatur eines tragenden Mikrofons — und
+    /// damit das Messmittel, das fuer die eigentliche Behebung fehlt.
+    ///
+    /// Er urteilt selbst ueber nichts; er erzeugt nur zwei saubere Fenster.
+    func testMikrofonVorUndNachMuteZyklus() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let geladen = app.webViews.buttons["Nachricht senden"].firstMatch
+        XCTAssertTrue(geladen.waitForExistence(timeout: 40), "App nicht geladen")
+
+        let raeume = app.webViews.links["Räume"].firstMatch
+        XCTAssertTrue(raeume.waitForExistence(timeout: 15), "Bereichs-Link Raeume nicht gefunden")
+        raeume.tap()
+
+        let community = elementMit(app, "dev-stack")
+        XCTAssertTrue(community.waitForExistence(timeout: 20), "Community nicht gefunden")
+        community.tap()
+
+        Thread.sleep(forTimeInterval: 3)
+        let kanal = elementMit(app, "test-voice")
+        XCTAssertTrue(kanal.waitForExistence(timeout: 20), "Sprachkanal nicht gefunden")
+        kanal.tap()
+
+        // Phase A: direkt nach dem Beitritt — hier soll das Mikrofon stumm sein.
+        Thread.sleep(forTimeInterval: 8)
+        print("=== PHASE-A-START \(stempel()) ===")
+        Thread.sleep(forTimeInterval: 12)
+        print("=== PHASE-A-ENDE \(stempel()) ===")
+
+        // **Nur die beiden Knopf-Beschriftungen.** `CONTAINS 'Mikrofon'` traf
+        // nach dem Stummschalten die Teilnehmer-Kachel („… Mikrofon stumm"),
+        // und der Entstumm-Tipp ging ins Leere — der erste Lauf verglich
+        // dadurch „an" gegen „stumm" statt gegen „nach dem Zyklus".
+        let mikroKnopf = {
+            app.webViews.buttons.matching(
+                NSPredicate(format: "label == 'Mikrofon stummschalten' OR label == 'Mikrofon einschalten'")
+            ).firstMatch
+        }
+        let mikro = mikroKnopf()
+        XCTAssertTrue(mikro.waitForExistence(timeout: 10), "Mikrofon-Knopf nicht gefunden")
+        // **Den Zustand nach JEDEM Tipp mitschreiben.** Ein erster Lauf
+        // verglich unwissentlich „entstummt" gegen „stumm", weil der zweite
+        // Tipp nicht ankam — die Beschriftung des Knopfes sagt, was wirklich
+        // gilt („Mikrofon stummschalten" = gerade AN).
+        print("=== VOR MUTE: '\(mikro.label)' \(stempel()) ===")
+        mikro.tap()
+        Thread.sleep(forTimeInterval: 3)
+        let nachMute = mikroKnopf()
+        print("=== NACH MUTE: '\(nachMute.label)' \(stempel()) ===")
+        nachMute.tap()
+        Thread.sleep(forTimeInterval: 3)
+        let nachUnmute = mikroKnopf()
+        print("=== NACH UNMUTE: '\(nachUnmute.label)' \(stempel()) ===")
+
+        // Phase B: nach dem Zyklus — hier soll es tragen.
+        print("=== PHASE-B-START \(stempel()) ===")
+        Thread.sleep(forTimeInterval: 12)
+        print("=== PHASE-B-ENDE \(stempel()) ===")
+    }
+
+    /// **Mehrfach-Beitritt: das Rennen einfangen.**
+    ///
+    /// Der Befund vom 2026-10-10 ist kein fester Fehler, sondern ein Rennen —
+    /// ein Lauf mit wachsenden `totalSamplesDuration` in WebKits Statistik
+    /// zeigte ein voellig gesundes Mikrofon direkt nach dem Beitritt. Ein
+    /// einzelner Beitritt pro Lauf beweist deshalb NICHTS: weder „heil" noch
+    /// „kaputt".
+    ///
+    /// Also drei Beitritte hintereinander, in EINEM Lauf, mit Zeitmarken. Das
+    /// Messmittel liegt daneben im Geraetelog: `media-source` mit
+    /// `totalSamplesDuration` — ein beendeter Track liefert keine Abtastwerte
+    /// mehr, und das ist ohne jedes Zuhoeren sichtbar.
+    ///
+    /// Der zweite Zweck ist die Unterscheidung der beiden Kandidaten: bleibt
+    /// ein spaeterer Beitritt kaputt, liegt es am Session-Umbau; wird er von
+    /// sich aus heil, war es die Geraete-Abfrage vor dem Publish.
+    func testBeitrittDreimalHintereinander() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let geladen = app.webViews.buttons["Nachricht senden"].firstMatch
+        XCTAssertTrue(geladen.waitForExistence(timeout: 40), "App nicht geladen")
+
+        let raeume = app.webViews.links["Räume"].firstMatch
+        XCTAssertTrue(raeume.waitForExistence(timeout: 15), "Bereichs-Link Raeume nicht gefunden")
+        raeume.tap()
+
+        let community = elementMit(app, "dev-stack")
+        XCTAssertTrue(community.waitForExistence(timeout: 20), "Community nicht gefunden")
+        community.tap()
+        Thread.sleep(forTimeInterval: 3)
+
+        let verlassenSuche = { app.webViews.buttons["Sprachkanal verlassen"].firstMatch }
+
+        for runde in 1...3 {
+            // **Frisch suchen, nicht merken.** Nach dem Verlassen baut die
+            // Route ihre Liste neu auf; ein festgehaltenes Element zeigt
+            // danach auf einen Knoten, den es nicht mehr gibt (erster Entwurf
+            // scheiterte beim zweiten Beitritt an genau dem).
+            let kanal = elementMit(app, "test-voice")
+            XCTAssertTrue(kanal.waitForExistence(timeout: 20), "Sprachkanal nicht gefunden (Runde \(runde))")
+            // Koordinaten-Tipp: waehrend des Aufbaus ist die Kachel teils
+            // nicht „hittable", der Treffer aber eindeutig.
+            kanal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+            let verlassen = verlassenSuche()
+            XCTAssertTrue(verlassen.waitForExistence(timeout: 25), "Nicht im Kanal (Runde \(runde))")
+            print("=== BEITRITT-\(runde)-DRIN \(stempel()) ===")
+
+            // 15 s stehen lassen: WebKit schreibt seine Statistik im
+            // Sekundentakt, das reicht fuer einen eindeutigen Verlauf.
+            Thread.sleep(forTimeInterval: 15)
+            print("=== BEITRITT-\(runde)-ENDE \(stempel()) ===")
+
+            let raus = verlassenSuche()
+            if raus.exists {
+                raus.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            }
+            Thread.sleep(forTimeInterval: 5)
+            print("=== VERLASSEN-\(runde) \(stempel()) ===")
+        }
     }
 }

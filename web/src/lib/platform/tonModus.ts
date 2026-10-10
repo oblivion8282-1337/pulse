@@ -54,3 +54,35 @@ export function audioSessionTyp(modus: TonModus): AudioSessionTyp {
   if (modus === 'wiedergabe') return 'playback';
   return 'auto';
 }
+
+/** Was auf einen gemeldeten Wegwechsel zu tun ist. */
+export type WegAntwort = 'ignorieren' | 'uebernehmen' | 'neu-einrichten';
+
+/**
+ * Entscheidet, ob ein gemeldeter Wegwechsel eine neue Einrichtung braucht.
+ *
+ * **Warum das eine eigene Funktion ist.** Bis zum 2026-10-10 beantwortete
+ * `iosTon.ts` dieselbe Frage mit einer Zeitfrist („ein Wechsel kurz nach dem
+ * eigenen Einrichten ist dessen Folge"), weil der Binder die Nutzlast des
+ * Ereignisses wegwarf. Das verlangsamte die Rueckkopplung, statt sie zu
+ * beenden: am Geraet nachgemessen blieb eine Einrichtung alle 2,4–2,9 s
+ * uebrig, mitten in den Beitritt hinein. Mit dem Tonweg im Ereignis ist es
+ * ein Vergleich — und ein Vergleich laesst sich pruefen, eine Frist nicht.
+ *
+ * - `voiceAktiv === false`: ohne Mikrofon richtet sich die Session nicht nach
+ *   dem Weg. Nur mitschreiben (`uebernehmen`), damit der naechste Beitritt
+ *   nicht grundlos neu einrichtet.
+ * - `angewandt === null`: der Ausgangszustand ist unbekannt. Ein unbekannter
+ *   Zustand ist kein Wechsel — uebernehmen, nicht einrichten.
+ * - gleicher Weg: Folge der eigenen Einrichtung. `setCategory`/`setActive`
+ *   loesen selbst Routenwechsel aus; die duerfen keine weitere ausloesen.
+ */
+export function wegAntwort(
+  voiceAktiv: boolean,
+  gemeldet: string,
+  angewandt: string | null
+): WegAntwort {
+  if (!voiceAktiv) return 'uebernehmen';
+  if (angewandt === null) return 'uebernehmen';
+  return gemeldet === angewandt ? 'ignorieren' : 'neu-einrichten';
+}
