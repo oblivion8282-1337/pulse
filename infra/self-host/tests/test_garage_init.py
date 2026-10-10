@@ -11,6 +11,20 @@ anfassen, nur importieren.
 import pathlib
 import subprocess
 
+import pytest
+
+from _gnu_sed import GRUND, gnu_sed_vorhanden
+
+# `garage-init.sh` patcht `env.sh` mit `sed -i "s|…|"` — GNU-Form, ohne
+# Backup-Suffix. BSD-sed (macOS) liest das erste Argument als Suffix und
+# scheitert. Das Skript ist richtig: es läuft im Linux-Container. Der TEST
+# fährt es auf dem Host, und der muss dafür dasselbe sed haben.
+#
+# **Bewusst je Test, nicht fürs ganze Modul:** nur der Austausch-Zweig patcht
+# `env.sh`. Der GK-Zweig fasst nichts an (das ist sein Punkt) und läuft auch
+# mit BSD-sed — ihn mitzunehmen hiesse, eine Prüfung ohne Not zu verlieren.
+braucht_gnu_sed = pytest.mark.skipif(not gnu_sed_vorhanden(), reason=GRUND)
+
 GARAGE_INIT = pathlib.Path(__file__).resolve().parents[1] / "garage-init.sh"
 
 # So druckte garage v1.1.0 `key create` auf Prod (2026-09-22).
@@ -73,6 +87,7 @@ def _zeilen(ergebnis: subprocess.CompletedProcess) -> dict[str, str]:
     )
 
 
+@braucht_gnu_sed
 def test_legacy_schluessel_wird_durch_gk_ersetzt(tmp_path):
     ergebnis = _lauf(str(tmp_path), "pulse-ab12cd34")
     assert ergebnis.returncode == 0, ergebnis.stderr

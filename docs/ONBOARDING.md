@@ -36,10 +36,12 @@ Die Betriebssysteme sind dabei **nicht gleichwertig**:
 | | Tests parallel | gate.sh / ship.sh | Lokaler Dev-Stack |
 |---|---|---|---|
 | **Linux** | ja | ja | `scripts/dev-up.fish` |
-| **macOS** | ja (`brew install redis`) | ja | `dev-up.fish` (fish nötig) |
+| **macOS** | ja (`brew install redis`) | ja — zwei `infra/self-host`-Prüfungen überspringen sich mangels GNU-sed (s. unten) | `dev-up.fish` (fish nötig) |
 | **Windows** | **nein** (kein `redis-server`) → seriell | nur über **Git Bash** | **gar nicht** (fish-only) → Remote-Dev-Stack (`infra/dev-remote/README.md`) |
 
 Wer unter Windows Tempo braucht, nimmt WSL.
+
+**macOS und `sed`:** zwei Prüfungen unter `infra/self-host/tests/` fahren Skript-Ausschnitte des Linux-Containers unverändert auf dem Host aus — das ist ihr Sinn, denn der Fehler, gegen den sie gebaut wurden, steckte in der Backslash-Verschachtelung einer `sed`-Zeile. Der Preis: sie brauchen GNU-sed, und auf dem Mac ist `sed` BSD-sed. Seit dem 2026-10-10 überspringen sie sich dort selbst (`infra/self-host/tests/_gnu_sed.py`); davor waren sie auf einem Mac **immer rot**, und mit ihnen das ganze Gate, sobald der Backend-Bereich im Umfang lag. Wer sie auch dort fahren will: `brew install gnu-sed` und `gsed` als `sed` in den PATH hängen. Die Skripte selbst sind in Ordnung — sie laufen im Container, und dort ist GNU-sed richtig.
 
 ## Voraussetzungen
 

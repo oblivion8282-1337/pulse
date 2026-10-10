@@ -9,8 +9,16 @@ from __future__ import annotations
 
 import pathlib
 import subprocess
+import sys
 
 import pytest
+
+# **Damit die Prueflinge ihre Nachbarn importieren koennen.** pytest laeuft
+# hier mit `--import-mode=importlib` (pyproject), und dann liegt das
+# Testverzeichnis NICHT im Suchpfad — ein `from _gnu_sed import …` in einer
+# Testdatei scheitert sonst mit ModuleNotFoundError. Die conftest wird vor den
+# Testmodulen desselben Verzeichnisses geladen, ist also die richtige Stelle.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 S6 = pathlib.Path(__file__).resolve().parents[1] / "s6"
 

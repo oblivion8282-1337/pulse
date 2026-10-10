@@ -22,6 +22,8 @@ import sys
 
 import pytest
 
+from _gnu_sed import GRUND, gnu_sed_vorhanden
+
 # Die sed-Aufrufe werden unter bash ausgeführt, wie sie im Container stehen.
 # Unter Windows läuft Git-Bash mit anderem sed-Stand und anderer Pfad-/Umgebungs-
 # Semantik — die Ergebnisse sagen dort nichts über den Container aus. Die
@@ -31,6 +33,14 @@ if sys.platform == "win32":
         "sed-Unter-Bash-Prüfungen sind Linux-CI-Sache — s. Modul-Docstring",
         allow_module_level=True,
     )
+
+# **Und dasselbe gilt für jedes Nicht-GNU-sed, allen voran macOS.** Das stand
+# hier bis zum 2026-10-10 nicht, und die Folge war kein Fehlalarm, sondern ein
+# stiller: auf einem Mac waren diese Prüfungen IMMER rot, und damit das ganze
+# Gate, sobald der Backend-Bereich im Umfang lag. Die Skripte sind in Ordnung —
+# BSD-sed spricht nur ihre Form nicht (`a\` zum Anfügen, `-i` ohne Suffix).
+if not gnu_sed_vorhanden():
+    pytest.skip(GRUND, allow_module_level=True)
 
 S6 = pathlib.Path(__file__).resolve().parents[1] / "s6"
 TEMPLATE = S6 / "etc/caddy/Caddyfile.template"
