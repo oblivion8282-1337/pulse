@@ -1,5 +1,13 @@
 # Self-Host ohne Freigabe — Implementation Plan
 
+> **Überholt (2026-10-10).** Dieser Plan folgt Fassung 1 des Entwurfs
+> (Einrichtungscode, Adresse im Ticket). Fassung 2 ersetzt beides durch das
+> Verbinden per Gerätecode. **Nicht ausführen.** Etappe 0 gilt weiter, aber
+> mit dem Organisationsnamen `oblivion-pictures` statt `howispulse`. Die Etappen
+> 1 bis 5 werden nach Fassung 2 neu geschrieben
+> (`docs/superpowers/specs/2026-10-09-selfhost-ohne-freigabe-design.md`,
+> Abschnitt 9).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Jeder kann einen Pulse-Server mit `curl -fsSL https://howispulse.com/install | bash` oder einer Compose-Datei installieren — ohne Antrag, ohne Freigabe, ohne Zugangsdaten aus der Cloud.
