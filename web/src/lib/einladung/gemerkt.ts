@@ -6,7 +6,12 @@
 // der Bestätigungslink wieder nach /app. Auf jedem dieser Wege ginge der
 // Zusammenhang verloren. Der Eintrag im Browser übersteht alle drei, und das
 // App-Layout greift ihn auf, sobald der Nutzer angemeldet und bestätigt ist.
-import { istGueltigerCode, istGueltigerHandle, istGueltigerHost, type Ziel } from './einladungsLink.ts';
+import {
+  istGueltigerCode,
+  istGueltigerHandle,
+  istGueltigerHost,
+  type Ziel
+} from './einladungsLink.ts';
 
 export const SPEICHER_SCHLUESSEL = 'pulse.einladung.gemerkt';
 export const HALTBARKEIT_MS = 24 * 60 * 60 * 1000;
