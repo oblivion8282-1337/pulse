@@ -85,7 +85,10 @@ async function ladeAdresse(a: Adresse, angemeldet: boolean): Promise<GeladeneEin
   if (a.host || !angemeldet) return { zustand: angemeldet ? 'einladung' : 'abgemeldet', ...LEER };
   try {
     const cloudId = serversStore.cloudId();
-    const p = await chatApi.getPublicCommunityPreview(a.handle, cloudId ? { serverId: cloudId } : {});
+    const p = await chatApi.getPublicCommunityPreview(
+      a.handle,
+      cloudId ? { serverId: cloudId } : {}
+    );
     // Die Cloud-Mitgliedschaft, nicht die des gerade aktiven Servers.
     let mitglied: boolean;
     if (cloudId) {
