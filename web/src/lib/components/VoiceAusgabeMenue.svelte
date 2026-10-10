@@ -27,6 +27,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { airplayMoeglich, airplayOeffnen, type AudioRoute } from '$lib/platform/audioRoute';
   import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
+  import { isCapacitorIOS } from '$lib/platform/runtime';
 
   let { btnCls, iconCls }: { btnCls: string; iconCls: string } = $props();
 
@@ -60,6 +61,30 @@
 
   const eintrag = 'text-text flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm';
   const aktuell = $derived(audioRouteState.liste?.current);
+
+  /**
+   * **Die Hörmuschel ist auf iOS nicht erreichbar — am 2026-10-10 am Gerät
+   * gemessen, und der Eintrag entfällt dort deshalb.**
+   *
+   * Den Sprachton spielt nicht unser Prozess ab, sondern WebKits eigener, und
+   * dessen Audio-Session fordert ausdrücklich den Lautsprecher (im Gerätelog:
+   * `com.apple.WebKit(…) with [PlayAndRecord_WithBluetooth_DefaultToSpeaker/
+   * VideoChat]`, nicht mischbar). Unser `overrideOutputAudioPort` erreicht sie
+   * nicht: es dreht unsere Session — die meldet danach brav `Receiver` —,
+   * während die aktive Systemroute auf dem Lautsprecher bleibt. Der zweite
+   * Versuch über die W3C-Audio-Session-API kam bei WebKit an, nahm
+   * `DefaultToSpeaker` aber nicht weg (Zahlen an `WEB_AUDIO_SESSION_AN` in
+   * `platform/iosTon.ts`).
+   *
+   * **Auf Android bleibt der Eintrag**, dort trägt er: die WebView teilt die
+   * Audio-Session der App, und `AudioRoutePlugin` schaltet sie wirklich um.
+   *
+   * Ein Knopf, der nichts tut, ist schlechter als keiner — dieselbe Regel, mit
+   * der der AirPlay-Eintrag darunter seinen Fehlschlag MELDET statt ihn zu
+   * verschweigen. Er kommt zurück, sobald der Sprachton nicht mehr von WebKit
+   * abgespielt wird; eine Abkürzung aus dem Web heraus gibt es nicht.
+   */
+  const hoermuschelMoeglich = !isCapacitorIOS();
 </script>
 
 <div class="relative">
@@ -88,13 +113,15 @@
       class="bg-bg-panel border-border absolute bottom-full left-1/2 z-30 mb-2 w-52 -translate-x-1/2 rounded-xl border p-1 shadow-lg"
       data-testid="voice-audio-route-menu"
     >
-      <button
-        class="{eintrag} {aktuell === 'earpiece' ? 'bg-bg-hover font-semibold' : ''}"
-        onclick={() => waehleFestenWeg('earpiece')}
-      >
-        <EarIcon class="size-4" />
-        {m.voice_bar_route_name_hoermuschel()}
-      </button>
+      {#if hoermuschelMoeglich}
+        <button
+          class="{eintrag} {aktuell === 'earpiece' ? 'bg-bg-hover font-semibold' : ''}"
+          onclick={() => waehleFestenWeg('earpiece')}
+        >
+          <EarIcon class="size-4" />
+          {m.voice_bar_route_name_hoermuschel()}
+        </button>
+      {/if}
       <button
         class="{eintrag} {aktuell === 'speaker' || aktuell === 'auto'
           ? 'bg-bg-hover font-semibold'
