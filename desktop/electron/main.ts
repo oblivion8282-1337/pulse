@@ -171,9 +171,10 @@ if (DEV_ZWEITINSTANZ) {
 // Prod (packaged / Flatpak): plain `setAsDefaultProtocolClient('pulse')`.
 //
 // NOTE: On Linux this writes to `~/.local/share/applications/` (a .desktop file
-// handled by xdg-open). The Flatpak variant also needs
-// `x-scheme-handler/pulse` in the Flatpak manifest's `finish-args`. See TODOs
-// in the README / packaging manifest.
+// handled by xdg-open). The Flatpak variant needs no `finish-args` entry: it
+// registers the scheme through `MimeType=x-scheme-handler/pulse;` and
+// `Exec=pulse %u` in `packaging/com.howispulse.Pulse.desktop`, which Flatpak
+// exports.
 if (!SERVER_MODE) {
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
