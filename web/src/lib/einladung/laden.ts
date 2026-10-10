@@ -1,5 +1,5 @@
-// Lädt und löst ein, was die Einladungskarte zeigt — gemeinsam für die Seite
-// /invite/<code> und den Dialog in der App.
+// Lädt und löst ein, was die Einladungskarte zeigt — gemeinsam für die Seiten
+// /invite/<code> und /c/<handle> und den Dialog in der App.
 //
 // Cloud-Einladungen gehen AUSDRÜCKLICH an die Cloud, nie an den aktiven
 // Server: ist gerade ein Self-Host aktiv, kennt der den Cloud-Code nicht und
@@ -82,7 +82,17 @@ function adressVorschau(p: PublicCommunityPreview): EinladungCommunity {
  *  (Backend: `CurrentUser`) — Abgemeldete bekommen die Karte ohne Namen, ohne
  *  dass ein Aufruf ins Leere (401) geht. */
 async function ladeAdresse(a: Adresse, angemeldet: boolean): Promise<GeladeneEinladung> {
-  if (a.host || !angemeldet) return { zustand: angemeldet ? 'einladung' : 'abgemeldet', ...LEER };
+  if (a.host) return { zustand: angemeldet ? 'einladung' : 'abgemeldet', ...LEER };
+  // Der Handle steht ohnehin in der Adresse; so sieht auch ein Abgemeldeter,
+  // welche Community gemeint ist.
+  if (!angemeldet) {
+    return {
+      zustand: 'abgemeldet',
+      community: { name: a.handle, iconUrl: null, mitglieder: null },
+      guildId: null,
+      fehler: null
+    };
+  }
   try {
     const cloudId = serversStore.cloudId();
     const p = await chatApi.getPublicCommunityPreview(
@@ -107,6 +117,7 @@ async function ladeAdresse(a: Adresse, angemeldet: boolean): Promise<GeladeneEin
   } catch (err) {
     const f = fehlerAus(err);
     if (f === 'ungueltig') return { zustand: 'ungueltig', ...LEER };
+    if (f === 'email') return { zustand: 'email', ...LEER };
     return { zustand: 'fehler', community: null, guildId: null, fehler: f };
   }
 }
@@ -195,7 +206,12 @@ export type BeitrittsErgebnis =
 
 /** Eingabe für joinGuildByInvite — dieselbe Form, die InviteEmbed baut. */
 function beitrittsEingabe(e: Ziel): string {
-  if (istAdresse(e)) return e.host ? `https://${e.host}/c/${e.handle}` : `c/${e.handle}`;
+  // Self-Host über `?host=`: dieser Zweig läuft durch die strenge Prüfung
+  // `zielHost`; ein vollständiger Link würde den Host verlieren, sobald
+  // irgendwo `howispulse.com` darin steht (etwa `*.relay.howispulse.com`).
+  if (istAdresse(e)) {
+    return e.host ? `c/${e.handle}?host=${encodeURIComponent(e.host)}` : `c/${e.handle}`;
+  }
   return e.host ? `https://app/invite/${e.code}?host=${encodeURIComponent(e.host)}` : e.code;
 }
 

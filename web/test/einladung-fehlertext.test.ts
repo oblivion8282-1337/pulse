@@ -27,3 +27,10 @@ test('ein 404 ohne den Einladungstext ist ein Serverproblem, nicht „ungültig�
   assert.equal(einladungFehler(404, 'Not Found'), 'netz');
   assert.equal(einladungFehler(404, undefined), 'netz');
 });
+
+// GET /c/{handle}: routes/public_community.py antwortet auf einen unbekannten
+// oder nicht öffentlichen Handle mit genau diesem Text — auch eine bewusste
+// „gibt es nicht“-Antwort, kein Serverproblem.
+test('ein 404 „community not found“ ist endgültig „ungültig“', () => {
+  assert.equal(einladungFehler(404, 'community not found'), 'ungueltig');
+});
