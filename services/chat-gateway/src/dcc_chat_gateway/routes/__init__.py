@@ -43,6 +43,7 @@ from dcc_chat_gateway.routes import (
     instance_membership,
     internal,
     internal_instance_name,
+    invite_public,
     invites,
     kopplung,
     kopplung_umzug,
@@ -121,6 +122,7 @@ router.include_router(privacy.router)
 router.include_router(preferences.router)
 router.include_router(audio_diagnostic.router)
 router.include_router(invites.router)
+router.include_router(invite_public.router)
 router.include_router(public_community.router)
 router.include_router(roles.router)
 router.include_router(role_members.router)
