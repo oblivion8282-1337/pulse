@@ -129,8 +129,10 @@ bestehenden** (dieselbe Regel wie bei den Gast-Links: nirgends „Nutzer ODER
 anonym“ an einer Abhängigkeit): `GET /invites/{code}/public-preview` →
 `{ guild: { name, icon_url }, member_count }`.
 
-- Keine `guild.id`, kein `channel_id` — Abgemeldete brauchen nur, was die
-  Karte zeigt.
+- Kein `guild.id`-Feld, kein `channel_id` — Abgemeldete brauchen nur, was die
+  Karte zeigt. Der Bildpfad in `icon_url` (`/api/chat/guild-icons/<id>.webp`)
+  trägt die Guild-ID, das Bild ist dort ohnehin öffentlich abrufbar — die
+  Antwort verrät nichts, was nicht schon öffentlich ist.
 - Unbekannt, abgelaufen, zurückgezogen, aufgebraucht **und gesperrte
   Community** antworten gleich: 404.
 - **Bremse über Redis, doppelt** (pro IP und pro Code), nach dem Muster von
@@ -247,7 +249,7 @@ Jede Etappe ist einzeln auslieferbar.
   die Testzahl vergleichen.
 - **Backend:** anonyme Vorschau — gültig, alle 404-Fälle gleich, gesperrte
   Community, Bremse pro IP und pro Code, keine Anmeldung nötig, keine
-  `guild.id` in der Antwort.
+  `guild.id`-Feld in der Antwort, `icon_url` unverändert durchgereicht.
 - **E2E (Playwright), der Link wird wirklich aufgerufen:** abgemeldet öffnen
   → Karte → Anmelden → Dialog → Beitreten → in der Community; angemeldet
   öffnen → Beitreten; schon Mitglied; ungültiger Code; Klick auf einen

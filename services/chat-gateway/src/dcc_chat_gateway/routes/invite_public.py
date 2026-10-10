@@ -5,8 +5,10 @@ einen Link öffnet, soll vor dem Anmelden sehen, wohin er führt. Eigene Route
 statt optionaler Anmeldung an ``GET /invites/{code}`` — dieselbe Regel wie
 bei den Gast-Links: nirgends „Nutzer ODER anonym“ an einer Abhängigkeit.
 
-Bewusst knapp: Name, Bild, Mitgliederzahl — keine ``guild.id``, kein
-``channel_id``. Jedes „nein“ (unbekannt, zurückgezogen, abgelaufen,
+Bewusst knapp: Name, Bild, Mitgliederzahl — kein ``guild.id``-Feld, kein
+``channel_id``. Der Bildpfad in ``icon_url`` (``/api/chat/guild-icons/<id>.webp``)
+trägt die Guild-ID allerdings; das Bild ist dort ohnehin öffentlich abrufbar,
+die Antwort verrät also nichts, was nicht schon öffentlich ist. Jedes „nein“ (unbekannt, zurückgezogen, abgelaufen,
 aufgebraucht, gesperrte Community) ist dieselbe 404, und die Bremse zählt in
 Redis pro IP UND pro Code (``ratelimit.py`` zählt pro Nutzer-ID im Prozess und
 wäre für Anonyme wirkungslos). Spec 2026-10-10, Abschnitt „Server“.
@@ -23,7 +25,6 @@ from dcc_chat_gateway import gaeste
 from dcc_chat_gateway.client_ip import client_ip
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Guild, GuildInvite
-from dcc_chat_gateway.routes._deps import is_guild_suspended
 from dcc_chat_gateway.routes.invites import _INVITE_INVALID, _is_active, _member_count
 
 router = APIRouter()
@@ -65,7 +66,7 @@ async def public_invite_preview(
     if invite is None or not _is_active(invite, datetime.now(tz=UTC)):
         raise HTTPException(404, detail=_INVITE_INVALID)
     guild = await session.get(Guild, invite.guild_id)
-    if guild is None or await is_guild_suspended(session, guild.id):
+    if guild is None or guild.suspended_at is not None:
         raise HTTPException(404, detail=_INVITE_INVALID)
     return PublicInvitePreviewOut(
         guild=PublicInviteGuildOut(name=guild.name, icon_url=guild.icon_url),

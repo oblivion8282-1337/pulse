@@ -45,8 +45,26 @@ async def test_liefert_name_bild_mitglieder_ohne_anmeldung(client, _auth_signer)
     _, _, code = await _community_mit_link(client, _auth_signer)
     r = await client.get(f"/invites/{code}/public-preview")
     assert r.status_code == 200, r.text
-    # Genau diese Felder — keine guild.id, kein channel_id (der Besitzer zählt als Mitglied).
+    # Genau diese Felder — kein guild.id-Feld, kein channel_id (der Besitzer zählt als Mitglied).
+    # (Ein Bildpfad in icon_url trägt die Guild-ID, s. test_bildpfad_…)
     assert r.json() == {"guild": {"name": "Designrunde", "icon_url": None}, "member_count": 1}
+
+
+@pytest.mark.asyncio
+async def test_bildpfad_wird_unverändert_geliefert(client, _auth_signer, session_factory):
+    # icon_url trägt die Guild-ID im Pfad; das Bild ist über /api/chat/guild-icons/…
+    # ohnehin öffentlich. Die Antwort verrät also nichts Neues — festgenagelt, damit
+    # das niemand wieder als „keine ID in der Antwort“ missversteht.
+    _, g, code = await _community_mit_link(client, _auth_signer)
+    pfad = f"/api/chat/guild-icons/{g['id']}.webp?v=1"
+    async with session_factory() as s:
+        await s.execute(update(Guild).where(Guild.id == int(g["id"])).values(icon_url=pfad))
+        await s.commit()
+    r = await client.get(f"/invites/{code}/public-preview")
+    assert r.status_code == 200, r.text
+    assert set(r.json()) == {"guild", "member_count"}
+    assert set(r.json()["guild"]) == {"name", "icon_url"}
+    assert r.json()["guild"]["icon_url"] == pfad
 
 
 @pytest.mark.asyncio
