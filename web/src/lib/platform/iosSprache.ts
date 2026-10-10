@@ -111,7 +111,24 @@ function plugin(): SprachePlugin | null {
  * Binary bekommt diese Datei also, ohne das Plugin zu haben — ohne diese
  * Weiche gäbe es dort gar keine Sprache mehr.
  */
+/**
+ * **Notschalter. AN seit dem 2026-10-10** (Eigentümer-Entscheid: der native
+ * Weg soll es werden, und zwar sauber).
+ *
+ * Er bleibt als Schalter stehen, weil die Web-App zentral ausgeliefert wird
+ * und JEDES Telefon sofort erreicht: wer hier etwas kaputtmacht, nimmt allen
+ * iOS-Nutzern die Sprache, bis ein neuer Bau draussen ist. Mit dem Schalter
+ * ist der Rückweg eine Zeile.
+ *
+ * **Er hat an genau diesem Tag schon einmal Zeit gekostet:** auf `false`
+ * gesetzt und dann vergessen, liefen vier Messläufe unbemerkt auf dem ALTEN
+ * Weg — die Oberfläche sah richtig aus, nur die Zahlen gehörten zu etwas
+ * anderem. Wer hier misst, prüft diesen Wert ZUERST.
+ */
+const NATIVER_SPRACHWEG_AN = true;
+
 export function nativerSprachwegDa(): boolean {
+  if (!NATIVER_SPRACHWEG_AN) return false;
   if (!isCapacitorIOS()) return false;
   // `registerPlugin` liefert immer ein Objekt, auch für ein Plugin, das die
   // Hülle gar nicht hat — die Frage ist also nicht, ob es da ist, sondern ob

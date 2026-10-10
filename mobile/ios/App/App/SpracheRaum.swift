@@ -97,7 +97,34 @@ final class SpracheRaum: NSObject {
     /// zweite Session hielt. Welcher Weg gilt, entscheidet eine einzige
     /// Frage, und `Anrufverwaltung` beantwortet sie schon heute.
     func ausgabe(_ weg: String) {
-        AudioManager.shared.isSpeakerOutputPreferred = (weg != "hoermuschel")
+        let hoermuschel = (weg == "hoermuschel")
+        AudioManager.shared.isSpeakerOutputPreferred = !hoermuschel
+        // **Die Vorgabe allein bewegt eine LAUFENDE Route nicht.** Am
+        // 2026-10-10 am Geraet gemessen: der SDK-Schalter stellt die Session
+        // korrekt um — `defaultToSpeaker` verschwindet aus den Optionen, der
+        // Modus wechselt von `VideoChat` auf `VoiceChat` —, aber die aktive
+        // Route blieb auf `Speaker`. Eine Vorgabe entscheidet, wohin eine
+        // Session beim AKTIVIEREN geht; sie holt keine laufende zurueck.
+        //
+        // Im Pruefpfad fiel das nicht auf, weil dort direkt nach dem ersten
+        // Veroeffentlichen geschaltet wurde — da richtete das SDK die Session
+        // ohnehin gerade neu ein.
+        //
+        // Der Griff dafuer ist `overrideOutputAudioPort`, und er wirkt JETZT:
+        // bis heute scheiterte er daran, dass WebKit eine zweite, nicht
+        // mischbare Session hielt. Auf dem nativen Weg gibt es die nicht mehr.
+        //
+        // **Nicht mit `try?` verschlucken.** Genau dieser Ruf ist die Antwort
+        // auf die Frage, warum die Route nicht folgt — ein stilles `try?`
+        // haette sie weitere Runden lang verborgen.
+        do {
+            try AVAudioSession.sharedInstance()
+                .overrideOutputAudioPort(hoermuschel ? .none : .speaker)
+            NSLog("[PulseSprache] Uebersteuerung '%@' angenommen", weg)
+        } catch {
+            NSLog("[PulseSprache] Uebersteuerung '%@' ABGELEHNT: %@",
+                  weg, error.localizedDescription)
+        }
         NSLog("[PulseSprache] Ausgabe '%@' gewuenscht, Route: %@", weg, routeJetzt())
         schickeEigenen()
     }
@@ -111,8 +138,27 @@ final class SpracheRaum: NSObject {
             "teilnehmer": teilnehmerListe(),
             "mikro": raum?.localParticipant.isMicrophoneEnabled() ?? false,
             "lautsprecher": AudioManager.shared.isSpeakerOutputPreferred,
-            "route": routeJetzt()
+            "route": routeJetzt(),
+            // **Kategorie und Optionen gehören in den Zustand, nicht in einen
+            // Einzelfall-Log.** Am 2026-10-10 schaltete die Hörmuschel im
+            // Prüfpfad, in der echten App aber nicht — und die Frage, WER
+            // die Session gerade anders eingestellt hat, war von aussen
+            // nicht zu beantworten. `.defaultToSpeaker` in den Optionen macht
+            // die Hörmuschel unerreichbar, ganz gleich wer es gesetzt hat.
+            "kategorie": AVAudioSession.sharedInstance().category.rawValue,
+            "modus": AVAudioSession.sharedInstance().mode.rawValue,
+            "optionen": optionenNamen()
         ]
+    }
+
+    private func optionenNamen() -> [String] {
+        let o = AVAudioSession.sharedInstance().categoryOptions
+        var namen: [String] = []
+        if o.contains(.defaultToSpeaker) { namen.append("defaultToSpeaker") }
+        if o.contains(.allowBluetoothHFP) { namen.append("allowBluetoothHFP") }
+        if o.contains(.allowBluetoothA2DP) { namen.append("allowBluetoothA2DP") }
+        if o.contains(.mixWithOthers) { namen.append("mixWithOthers") }
+        return namen
     }
 
     /// Was die Session gerade WIRKLICH ausgibt — nicht, was gewünscht ist.

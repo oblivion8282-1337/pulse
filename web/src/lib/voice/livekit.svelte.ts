@@ -464,6 +464,19 @@ class VoiceRoom {
     // JS-`Room` auf, den es auf dem nativen Weg nicht gibt. Die Weiche sitzt
     // bewusst NACH dem Token-Abruf: die Anmeldung bleibt im Web, nativ
     // bekommt nur `wsUrl` und `token` gereicht.
+    // **Welcher Weg genommen wurde, steht im Speicher — und das hat einen
+    // Grund.** Am 2026-10-10 liefen vier Messläufe unbemerkt auf dem ALTEN
+    // Weg, weil ein vergessener Schalter ihn abgeschaltet hatte. Von aussen
+    // sah alles richtig aus; nur die Zahlen gehörten zu etwas anderem. Seither
+    // sagt die App, wofür sie sich entschieden hat.
+    try {
+      localStorage.setItem(
+        'pulse.diag.weiche',
+        JSON.stringify({ zeit: new Date().toISOString(), nativ: nativerSprachwegDa() })
+      );
+    } catch {
+      /* Diagnose darf nie der Grund sein, dass ein Beitritt scheitert. */
+    }
     if (nativerSprachwegDa()) {
       // `this.micEnabled` wird erst weiter unten gesetzt und trägt hier noch
       // den Stand des vorigen Kanals. Die Absicht steht in `opts`.
