@@ -3,8 +3,17 @@
 # Der Lizenz-Grant im CLA hält die Option auf Dual-Licensing offen
 # (AGPL-3.0 für alle + optionale separate Kommerzlizenz).
 #
-# Signaturen landen in signatures/version1/cla.json auf main. Repo-Owner und
-# Bots sind über die allowlist ausgenommen — die müssen nicht signieren.
+# Signaturen landen in signatures/version1/cla.json auf dem Zweig
+# `cla-signaturen`, NICHT auf main. Der Bot schreibt sie mit dem GITHUB_TOKEN
+# direkt per Contents-API auf den Zweig aus `branch:` — und main nimmt
+# Änderungen nur mit Review an, eine Ausnahme für den Bot gibt es dort nicht.
+# Bis 2026-10-10 stand hier `main`; aufgefallen ist das nie, weil bis dahin
+# niemand unterschrieben hatte (die Liste war seit Mai leer). Der Zweig hat
+# keine gemeinsame Geschichte mit main und trägt nur die Liste + eine README —
+# nicht löschen, nicht mergen.
+#
+# Repo-Owner und Bots sind über die allowlist ausgenommen — die müssen nicht
+# signieren.
 name: CLA Assistant
 
 on:
@@ -40,5 +49,5 @@ jobs:
         with:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/oblivion8282-1337/pulse/blob/main/CLA.md'
-          branch: 'main'
+          branch: 'cla-signaturen'
           allowlist: 'oblivion8282-1337,*[bot]'
