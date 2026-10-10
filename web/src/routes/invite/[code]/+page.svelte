@@ -107,17 +107,17 @@
     amRechnerImBrowser &&
       (zustand === 'einladung' || zustand === 'abgemeldet' || zustand === 'mitglied')
   );
-  const downloadUrl = isWindows()
-    ? WINDOWS_INSTALLER_URL
-    : isMac()
-      ? MAC_DMG_URL
-      : isLinux()
-        ? LINUX_FLATPAKREF_URL
-        : null;
+  function downloadUrlDiesesRechners(): string | null {
+    if (isWindows()) return WINDOWS_INSTALLER_URL;
+    if (isMac()) return MAC_DMG_URL;
+    if (isLinux()) return LINUX_FLATPAKREF_URL;
+    return null;
+  }
+  const downloadUrl = downloadUrlDiesesRechners();
   /** Startversuch über ein verstecktes iframe statt `location.href`: ohne
    *  installierte App ersetzt ein Browser die Seite sonst ggf. durch eine
    *  Fehlerseite, und der Hinweis „hier im Browser beitreten“ wäre weg. */
-  function inDerApp() {
+  function inDerApp(): void {
     if (!einladung) return;
     const params = new URLSearchParams({ code: einladung.code });
     if (einladung.host) params.set('host', einladung.host);
