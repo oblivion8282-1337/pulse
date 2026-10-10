@@ -139,6 +139,14 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
 - **Lesebestätigungs-Schalter** (`user_privacy.lesebestaetigungen`, WhatsApp-Regel): aus = in DMs in BEIDE Richtungen kein Blau, der Server hält die Stände zurück (Ereignis + ready + `GET /dm-channels`). Gruppen sind ausgenommen, sonst würde nie etwas blau, sobald ein Mitglied abschaltet. Der eigene Lesestand geht trotzdem an die eigenen Geräte (Zähler).
 - Die Stände der Gegenseite leben im Klienten in `stores/quittungen.svelte.ts`, nicht in `readState` (der hält nur den eigenen Stand und die Zähler); `readState.clear/resetCacheOnly/forgetChannel` leeren beide.
 
+**Einladungslinks (seit 2026-10, Spec `docs/superpowers/specs/2026-10-10-einladungsseite-design.md`)** — `/invite/<code>[?host=<fqdn>]` ist eine eigene Seite AUSSERHALB von `/app`; in der App öffnet derselbe Inhalt als Dialog über `?einladung=<code>[&einladung_host=<fqdn>]` an der aktuellen Adresse.
+- **Ein Parser für alle Leser:** `web/src/lib/einladung/einladungsLink.ts` (importfrei). Wer irgendwo einen Einladungslink liest, nimmt den — vorher hatten Chat-Karte und Beitrittsfeld eigene, widersprüchliche Ausdrücke.
+- **Rückweg = gemerkte Einladung** (`gemerkt.ts`, `localStorage`, 24 h), nicht `?redirect=`: Registrierung und E-Mail-Bestätigung führen beide nach `/app`, die Adresse ginge unterwegs verloren.
+- **Cloud-Einladungen ausdrücklich an die Cloud** (`serversStore.cloudId()`), nie an den aktiven Server — ein aktiver Self-Host kennt den Code nicht.
+- **Kein Kontakt zu einem unbekannten Self-Host vor der Erstkontakt-Zustimmung**, auch nicht für die Vorschau.
+- **Nur Links auf den Cloud-Host oder den Host der laufenden App zählen als Pulse-Einladung** (`einladungAusUrl(url, cloudHost, seitenHost)`) — vorher hielt der Parser auch `discord.com/invite/…` für eine Pulse-Einladung, kaperte den Klick und versteckte reine Link-Nachrichten.
+- **Der Dialog liest die gemerkte Einladung direkt aus dem Speicher** (nicht über `?einladung=` in der Adresse) — sie übersteht so die Weiterleitung `/app` → `/app/friends`, die Query-Parameter verwirft.
+
 **Watch-Party Host-sticky**: Host **behält** die Party bis explizit `watch_handoff`, **kein Auto-Handoff**. Channel-Wechsel/Unmount (`watch_leave`) beendet sofort; WS-Disconnect startet `WATCH_HOST_GRACE_S` (default 30, E2E=1) Schonfrist. Watcher-Menge **in-process** im ConnectionManager (`watch_registry`, Socket-Refcount → Multi-Tab-korrekt, kein Redis). Client-Sync `web/src/lib/watch/partyController.svelte.ts`. **WS-Tests lokal brauchen `PULSE_INSTANCE_MODE=cloud`** (sonst self-host-Guard-Crash im Lifespan).
 
 **Fernsteuerung + mehrere Host-Bildschirme** — **Voll-Doku: `docs/fernsteuerung.md`. Wer daran arbeitet, liest die zuerst.** Hier nur, was man auch ausserhalb wissen muss:
