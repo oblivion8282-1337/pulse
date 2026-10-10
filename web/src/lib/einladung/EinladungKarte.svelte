@@ -1,6 +1,7 @@
 <!--
   Inhalt einer Community-Einladung — dieselbe Karte auf der Einladungsseite
-  (/invite/<code>, Einstieg von außen) und im Dialog in der App (Link im Chat,
+  (/invite/<code>) und der öffentlichen Adresse (/c/<handle>, `art="adresse"`),
+  jeweils als Einstieg von außen, und im Dialog in der App (Link im Chat,
   Deep-Link aus dem Browser). Rein darstellend: Daten und Aktionen kommen als
   Props, damit Seite und Dialog gleich aussehen, ohne die Ladelogik zu doppeln.
 -->
@@ -36,6 +37,7 @@
     community = null,
     host = null,
     rahmen = 'karte',
+    art = 'einladung',
     hinweis = null,
     busy = false,
     appKnopf = false,
@@ -55,6 +57,8 @@
     /** FQDN des Self-Hosts; null = Cloud. */
     host?: string | null;
     rahmen?: 'karte' | 'dialog';
+    /** Öffentliche Adresse statt Einladungscode: andere Überschrift und Texte. */
+    art?: 'einladung' | 'adresse';
     /** Fehlertext (Zustand 'fehler') bzw. gescheiterter Beitritt. */
     hinweis?: string | null;
     busy?: boolean;
@@ -72,6 +76,7 @@
     onErneut?: () => void;
   } = $props();
 
+  const adresse = $derived(art === 'adresse');
   const titel = $derived(
     community?.name ?? (host ? m.einladung_titel_selfhost() : m.einladung_titel_unbekannt())
   );
@@ -107,10 +112,17 @@
     </div>
     <div class="flex flex-col gap-2">
       <h1 class="text-card-foreground text-xl font-semibold">
-        {zustand === 'ungueltig' ? m.einladung_ungueltig_titel() : m.einladung_fehler_titel()}
+        {zustand !== 'ungueltig'
+          ? m.einladung_fehler_titel()
+          : adresse
+            ? m.einladung_ungueltig_titel_adresse()
+            : m.einladung_ungueltig_titel()}
       </h1>
       <p class="text-muted-foreground text-sm" data-testid="einladung-hinweis">
-        {zustand === 'ungueltig' ? (hinweis ?? m.einladung_ungueltig_text()) : hinweis}
+        {zustand === 'ungueltig'
+          ? (hinweis ??
+            (adresse ? m.einladung_ungueltig_text_adresse() : m.einladung_ungueltig_text()))
+          : hinweis}
       </p>
     </div>
     <div class="flex w-full flex-col gap-2">
@@ -136,7 +148,7 @@
     </Button>
   {:else}
     <p class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-      {m.einladung_eyebrow()}
+      {adresse ? m.einladung_eyebrow_adresse() : m.einladung_eyebrow()}
     </p>
 
     {#if !community && host}
@@ -215,7 +227,9 @@
         {/if}
       </p>
     {:else if zustand === 'abgemeldet'}
-      <p class="text-muted-foreground text-xs">{m.einladung_anmelden_hinweis()}</p>
+      <p class="text-muted-foreground text-xs">
+        {adresse ? m.einladung_anmelden_hinweis_adresse() : m.einladung_anmelden_hinweis()}
+      </p>
     {/if}
   {/if}
 </div>

@@ -111,6 +111,7 @@
   <AuthBuehne />
   <EinladungKarte
     {zustand}
+    art="adresse"
     {community}
     host={ziel?.host ?? null}
     {hinweis}
