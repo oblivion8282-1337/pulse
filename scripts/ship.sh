@@ -98,18 +98,62 @@ fi
 admin_merge="${PULSE_ADMIN_MERGE:-$(git config --get pulse.adminmerge || echo false)}"
 case "$admin_merge" in 1|true|yes|on) admin_merge=true ;; *) admin_merge=false ;; esac
 
+# Wartet, bis jeder Pflicht-Check am PR ANGETRETEN ist, und dann, bis er grün ist.
+#
+# Die Liste kommt aus dem Branch-Schutz von main, nicht aus dem PR. Bis zum
+# 2026-10-10 fragte das Skript nur den PR, und der meldet direkt nach
+# `gh pr create` noch gar nichts: der CLA-Lauf braucht ein paar Sekunden, bis
+# GitHub ihn überhaupt einträgt. „Keine Checks gemeldet" galt dann als „es gibt
+# keine", und gemergt wurde, bevor der CLA-Lauf fertig war — bei 58 von 93 PRs
+# (gezählt über die letzten 200 CLA-Läufe). Für den Eigentümer folgenlos (er
+# steht auf der Ausnahmeliste), aber PR #498 landete mit 67 Commits eines
+# Mitwirkenden ohne Unterschrift, zwei Sekunden nachdem der CLA-Check rot
+# geworden war — nach den Zeitstempeln genau auf diesem Weg. Dieselbe Hast
+# erzeugte die abgebrochenen CLA-Läufe in der Actions-Liste: das Schliessen des
+# PRs startete einen zweiten Lauf, der den noch laufenden ersten abbrach.
+#
+# Fail-closed: ohne lesbaren Branch-Schutz, oder wenn ein Pflicht-Check nicht
+# binnen der Frist antritt, wird NICHT gemergt. Ein erneuter Aufruf von ship.sh
+# findet den offenen PR wieder und wartet von vorn.
+#
+# Aufgerufen hinter `if !` — dort gilt `set -e` NICHT, jeder Fehler ist deshalb
+# ausdrücklich behandelt. Ein Aussetzer von `gh pr view` zählt als „noch nicht
+# angetreten" und läuft in die Frist, nie in einen Merge.
+pflicht_checks_abwarten() {
+  local pr="$1" frist="${PULSE_CHECK_FRIST:-300}" pflicht gemeldet fehlt name start
+  if ! pflicht="$(gh api "repos/{owner}/{repo}/branches/main/protection" \
+                    --jq '.required_status_checks.contexts[]?')"; then
+    echo "✗ Branch-Schutz von main nicht lesbar — ohne Liste der Pflicht-Checks kein Merge." >&2
+    return 1
+  fi
+  if [ -z "$pflicht" ]; then
+    echo "  (main verlangt keine Pflicht-Checks — nichts zum Abwarten)"
+    return 0
+  fi
+  start=$SECONDS
+  while :; do
+    gemeldet="$(gh pr view "$pr" --json statusCheckRollup \
+                  --jq '.statusCheckRollup[]? | .name // .context' || true)"
+    fehlt=""
+    while IFS= read -r name; do
+      grep -qxF -- "$name" <<<"$gemeldet" || fehlt="$fehlt $name"
+    done <<<"$pflicht"
+    [ -z "$fehlt" ] && break
+    if (( SECONDS - start >= frist )); then
+      echo "✗ Pflicht-Check(s)$fehlt nach ${frist} s nicht angetreten — nicht gemergt." >&2
+      echo "  GitHub Actions prüfen, danach erneut: bash scripts/ship.sh" >&2
+      return 1
+    fi
+    sleep 5
+  done
+  gh pr checks "$pr" --required --watch --interval 10
+}
+
 if [ "$admin_merge" = true ]; then
   echo "→ Admin-Merge aktiv (pulse.adminmerge). Warte auf die Pflicht-Checks…"
-  if ! gh pr checks "$pr" --required --watch --interval 15; then
-    # `gh pr checks --required` endet auch dann ungleich 0, wenn es GAR KEINE
-    # Pflicht-Checks gibt. Beides auseinanderhalten, sonst bricht das Skript
-    # bei einem Repo ohne Pflicht-Checks ab, obwohl nichts rot ist.
-    if [ -z "$(gh pr view "$pr" --json statusCheckRollup --jq '[.statusCheckRollup[]?]|length|select(.>0)')" ]; then
-      echo "  (keine Checks gemeldet — nichts zum Abwarten)"
-    else
-      echo "✗ Ein Pflicht-Check ist ROT — nicht gemergt. Erst grün ziehen." >&2
-      exit 1
-    fi
+  if ! pflicht_checks_abwarten "$pr"; then
+    echo "✗ Ein Pflicht-Check ist ROT oder nicht angetreten — nicht gemergt." >&2
+    exit 1
   fi
   gh pr merge "$pr" --admin --rebase --delete-branch
   merged="$(gh pr view "$pr" --json mergedAt --jq '.mergedAt // empty')"
