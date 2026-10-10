@@ -34,6 +34,9 @@
 
   let preview = $state<InvitePreview | null>(null);
   let invalid = $state(false);
+  // Vorschau nicht ladbar, Code aber nicht als ungültig belegt (429-Bremse, Netzfehler):
+  // Karte bleibt im schlanken Modus, der Beitritt selbst kann noch gelingen.
+  let previewUnavailable = $state(false);
   let loading = $state(true);
   let joining = $state(false);
 
@@ -107,7 +110,9 @@
         ? await getInvitePreviewOn(code, { serverId: cloudId })
         : await chatApi.getInvitePreview(code);
     } catch (e) {
-      invalid = true;
+      // Nur 404 belegt „ungültig“; eine Bremse (429) oder ein Netzfehler nicht.
+      if (e instanceof ApiError && e.status === 404) invalid = true;
+      else previewUnavailable = true;
     } finally {
       loading = false;
     }
@@ -199,6 +204,25 @@
       data-testid="invite-embed-join-btn"
     >
       {alreadyMemberSelfHost ? m.invite_embed_joined() : joining ? '…' : m.invite_embed_join()}
+    </Button>
+  {:else if previewUnavailable && !invalid && !preview}
+    <Avatar.Root class="size-10 shrink-0">
+      <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
+        ?
+      </Avatar.Fallback>
+    </Avatar.Root>
+    <div class="min-w-0 flex-1">
+      <p class="text-text-bright truncate text-sm font-semibold">
+        {m.invite_embed_self_host_title()}
+      </p>
+    </div>
+    <Button
+      size="sm"
+      onclick={handleJoin}
+      disabled={alreadyMember || joining}
+      data-testid="invite-embed-join-btn"
+    >
+      {alreadyMember ? m.invite_embed_joined() : joining ? '…' : m.invite_embed_join()}
     </Button>
   {:else if invalid || selfHostInvalid || !preview}
     <div class="text-text-muted flex-1 text-sm">{m.invite_embed_invalid()}</div>
