@@ -20,3 +20,10 @@ test('alles andere ist ein Netz- oder Serverproblem, nie „ungültig“', () =>
   assert.equal(einladungFehler(502, null), 'netz');
   assert.equal(einladungFehler(403, { error: 'x' }), 'abgelehnt');
 });
+
+// Läuft das Web-Bundle vor dem chat-gateway, antwortet FastAPI auf die noch
+// fehlende Route mit 404 {"detail":"Not Found"} — das ist keine tote Einladung.
+test('ein 404 ohne den Einladungstext ist ein Serverproblem, nicht „ungültig“', () => {
+  assert.equal(einladungFehler(404, 'Not Found'), 'netz');
+  assert.equal(einladungFehler(404, undefined), 'netz');
+});
