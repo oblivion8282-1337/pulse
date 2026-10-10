@@ -310,4 +310,109 @@ final class AppUITests: XCTestCase {
             print("=== VERLASSEN-\(runde) \(stempel()) ===")
         }
     }
+
+    /// **Traegt der Ton, wenn die App nicht im Vordergrund ist?**
+    ///
+    /// Eine Anforderung, die bis zum 2026-10-10 unbelegt war (Roadmap-Punkt 23
+    /// stand auf „Geraetetest offen"). Sie steht und faellt mit dem
+    /// `audio`-Hintergrundmodus und damit, dass WebKit die Seite weiterlaufen
+    /// laesst, statt ihre Medien anzuhalten.
+    ///
+    /// **Was dieser Test NICHT prueft: den gesperrten Bildschirm.** XCUITest
+    /// kann die Seitentaste nicht druecken, und `idevicediagnostics sleep`
+    /// trennt die USB-Verbindung — damit waere der Mitschnitt daneben blind.
+    /// Geprueft wird der Hintergrund (Taste Home), der denselben Pfad belastet;
+    /// das Sperren legt nur noch den dunklen Schirm darueber. Wer den
+    /// Sperrfall wirklich braucht, muss ihn von Hand druecken.
+    ///
+    /// Der Test urteilt nicht selbst. Er erzeugt drei saubere Fenster mit
+    /// Zeitmarken — Vordergrund, Hintergrund, zurueck — und die Messung liegt
+    /// daneben im Geraetelog (`media-source`: traegt die Aufnahme weiter?
+    /// `cmsSetIs*`: bleibt WebKits Session am Spielen?).
+    func testTonImHintergrund() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let geladen = app.webViews.buttons["Nachricht senden"].firstMatch
+        XCTAssertTrue(geladen.waitForExistence(timeout: 40), "App nicht geladen")
+
+        let raeume = app.webViews.links["Räume"].firstMatch
+        XCTAssertTrue(raeume.waitForExistence(timeout: 15), "Bereichs-Link Raeume nicht gefunden")
+        raeume.tap()
+
+        let community = elementMit(app, "dev-stack")
+        XCTAssertTrue(community.waitForExistence(timeout: 20), "Community nicht gefunden")
+        community.tap()
+        Thread.sleep(forTimeInterval: 3)
+
+        let kanal = elementMit(app, "test-voice")
+        XCTAssertTrue(kanal.waitForExistence(timeout: 20), "Sprachkanal nicht gefunden")
+        kanal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        let verlassen = app.webViews.buttons["Sprachkanal verlassen"].firstMatch
+        XCTAssertTrue(verlassen.waitForExistence(timeout: 25), "Nicht im Kanal")
+
+        print("=== VORDERGRUND-START \(stempel()) ===")
+        Thread.sleep(forTimeInterval: 12)
+        print("=== VORDERGRUND-ENDE \(stempel()) ===")
+
+        XCUIDevice.shared.press(.home)
+        print("=== HINTERGRUND-START \(stempel()) ===")
+        Thread.sleep(forTimeInterval: 25)
+        print("=== HINTERGRUND-ENDE \(stempel()) ===")
+
+        app.activate()
+        print("=== ZURUECK-START \(stempel()) ===")
+        // **25 s, nicht 12.** WebKit schreibt seine Statistik nur alle paar
+        // Sekunden; mit 12 s lag genau EIN Messpunkt hinter der Rueckkehr, und
+        // der straddelt den Uebergang. Ein eingefrorenes Mikrofon ist davon
+        // nicht zu unterscheiden — der Befund vom 2026-10-10 wurde erst
+        // sichtbar, als zwei Punkte DANACH lagen.
+        Thread.sleep(forTimeInterval: 25)
+        print("=== ZURUECK-ENDE \(stempel()) ===")
+
+        // Dass die App nach dem Wiederkommen noch im Kanal steht, ist Teil der
+        // Anforderung: ein Ton, der nur ueberlebt, weil neu verbunden wurde,
+        // waere keiner.
+        let nochDrin = app.webViews.buttons["Sprachkanal verlassen"].firstMatch
+        XCTAssertTrue(nochDrin.waitForExistence(timeout: 15), "Nach dem Hintergrund nicht mehr im Kanal")
+
+        // **Heilt ein Mute-Zyklus?** Die entscheidende Frage fuer die Behebung:
+        // LiveKit holt das Mikrofon beim Entstummen NUR neu, wenn die Spur
+        // beendet ist (`stopOnMute` ist aus). Traegt sie danach wieder, war sie
+        // beendet — und dann ist der richtige Griff, auf `ended` zu hoeren,
+        // nicht an der Session zu drehen.
+        let mikro = app.webViews.buttons.matching(
+            NSPredicate(format: "label == 'Mikrofon stummschalten' OR label == 'Mikrofon einschalten'")
+        ).firstMatch
+        if mikro.waitForExistence(timeout: 10) {
+            // **Zweimal dieselbe Stelle tippen, nicht zweimal suchen.** Nach
+            // dem Stummschalten traegt der Knopf eine andere Beschriftung, und
+            // die ist nicht verlaesslich vorherzusagen — ein Lauf endete
+            // deshalb mit „KNOPF WEG", ohne je entstummt zu haben. Der Knopf
+            // wandert nicht; seine Mitte ist der stabilere Bezug.
+            // Die Stelle wird vom FENSTER aus gerechnet, nicht vom Knopf:
+            // ein Koordinatenpunkt bleibt an seinem Element haengen, und
+            // sobald das verschwindet, wirft der zweite Tipp (so geschehen,
+            // der Lauf endete zwischen Stummschalten und Entstummen).
+            let mitte = mikro.frame
+            let stelle = app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: mitte.midX, dy: mitte.midY))
+            print("=== ZYKLUS-VOR '\(mikro.label)' bei \(Int(mitte.midX)),\(Int(mitte.midY)) \(stempel()) ===")
+            stelle.tap()
+            Thread.sleep(forTimeInterval: 4)
+            print("=== ZYKLUS-MITTE \(stempel()) ===")
+            stelle.tap()
+            Thread.sleep(forTimeInterval: 4)
+            let danach = app.webViews.buttons.matching(
+                NSPredicate(format: "label == 'Mikrofon stummschalten' OR label == 'Mikrofon einschalten'")
+            ).firstMatch
+            let stand = danach.exists ? danach.label : "(nicht gefunden)"
+            print("=== ZYKLUS-NACH '\(stand)' \(stempel()) ===")
+            Thread.sleep(forTimeInterval: 22)
+            print("=== ZYKLUS-ENDE \(stempel()) ===")
+        } else {
+            print("=== MIKROFON-KNOPF NICHT GEFUNDEN ===")
+        }
+    }
 }

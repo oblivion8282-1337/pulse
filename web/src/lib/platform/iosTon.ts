@@ -3,7 +3,6 @@ import {
   iosJetztLaeuft,
   iosJetztLaeuftAus,
   iosPlaybackModus,
-  iosUnterbrechungen,
   iosWegWechsel,
   iosVoiceAktiv
 } from './iosAudioSession';
@@ -257,20 +256,38 @@ let beobachtet = false;
 function unterbrechungenBeobachten(): void {
   if (beobachtet || !isCapacitorIOS()) return;
   beobachtet = true;
-  iosUnterbrechungen((e) => {
-    if (e.art === 'begonnen') {
-      // iOS hat die Session schon abgeschaltet. Nur mitschreiben, damit das
-      // Wiederherstellen unten greift.
-      angewandt = 'aus';
-      return;
-    }
-    // `weiterMoeglich` wird bewusst NICHT verlangt: iOS setzt es nicht
-    // zuverlässig, und ein Sprachkanal, in dem jemand sitzt, soll zurück-
-    // kommen. Scheitert das Aktivieren, bleibt es beim stillen No-op — wie
-    // vorher, nur mit Versuch.
-    angewandt = 'aus';
-    void anwenden();
-  });
+  // **Hier wurde bis zum 2026-10-10 auf Unterbrechungen reagiert — und genau
+  // das hat das Mikrofon umgebracht.**
+  //
+  // Die Annahme war Apples Standardfall: iOS schaltet die Session zu Beginn
+  // einer Unterbrechung ab, die App muss sie danach selbst wieder aktivieren.
+  // Richtig fuer eine App, die ihren Ton selbst abspielt. Wir sind das nicht:
+  // Aufnahme und Wiedergabe liegen bei WebKits eigenem Prozess, mit dessen
+  // eigener, nicht mischbarer Session.
+  //
+  // Folge: jedes `setActive(true)` von uns UNTERBRICHT WebKit. Am Geraet
+  // gemessen — unsere Session meldet 0,6 s nach jedem eigenen Aktivieren
+  // selbst „Unterbrechung begonnen", und eine Sonde, die darauf antwortete,
+  // drehte sich in einer Schleife im 2-Sekunden-Takt, minutenlang.
+  //
+  // Beim Zurueckkehren aus dem Hintergrund schickt iOS ein End-Interruption
+  // (`Resumable:0`). Wer darauf die Session anfasst, raeumt WebKits laufende
+  // Aufnahme ab. Drei Laeufe, drei Mal dasselbe: im Hintergrund nahm das
+  // Telefon mit 100 % der Echtzeit auf, ab der Rueckkehr stand die Abtastung
+  // still — und **kein Mute-Zyklus half**, denn die Spur war nicht beendet,
+  // sondern lebendig und stumm. Ohne den Eingriff laeuft dieselbe Strecke
+  // 90 s durch, mit 100 %, Mute-Zyklus eingeschlossen.
+  //
+  // Die Huelle meldet Unterbrechungen weiterhin und schreibt sie ins
+  // Geraetelog (`unterbrechung` in `AudioSessionPlugin.swift`) — sie sind
+  // wertvoll zum Mitlesen, nur nicht als Handlungsanweisung.
+  //
+  // **Was damit UNGEPRUEFT bleibt:** ein echter Telefonanruf. Ob WebKit nach
+  // einer fremden Unterbrechung von selbst zurueckkommt, konnten wir nicht
+  // automatisch pruefen. Falls nicht, gehoert die Reparatur auf die Ebene,
+  // der die Aufnahme GEHOERT — `restartTrack()` auf der Mikrofonspur —, nicht
+  // an unsere Session. Wer das angeht, misst zuerst, ob ueberhaupt etwas
+  // kaputtgeht.
 
   // **Wegwechsel richten die Session neu ein** (seit 2026-10-09). Die Hülle
   // wählt Kategorie und Modus nach dem AUSGABEWEG: am Lautsprecher mit

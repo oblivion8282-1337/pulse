@@ -150,6 +150,16 @@ export async function iosTonWegSetzen(id: string): Promise<boolean> {
 }
 
 /** Unterbrechungen melden (Telefonanruf, Siri, Wecker). Rueckgabe = Abriss. */
+/**
+ * **Ohne Hoerer seit dem 2026-10-10 — und das ist Absicht.**
+ *
+ * Der Binder bleibt, der Aufrufer ist weg: wer auf eine beendete
+ * Unterbrechung hin die eigene Session wieder aktiviert, unterbricht damit
+ * WebKit und raeumt dessen laufende Aufnahme ab (Messung an der Stelle in
+ * `iosTon.ts`, wo der Hoerer sass). Die Huelle meldet weiter und schreibt es
+ * ins Geraetelog; wer hier wieder zuhoert, braucht vorher eine Messung, dass
+ * ueberhaupt etwas kaputtgeht.
+ */
 export function iosUnterbrechungen(cb: (e: Unterbrechung) => void): () => void {
   if (!isCapacitorIOS()) return () => undefined;
   const p = plugin();

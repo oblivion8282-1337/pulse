@@ -334,6 +334,17 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     /// `shouldResume` wird mitgereicht und NICHT hier ausgewertet: iOS setzt
     /// es nicht immer (bei einem Anruf schon, bei manchen Apps nicht), und die
     /// Entscheidung, es trotzdem zu versuchen, gehört zur Anwendung.
+    /// Unterbrechungen melden — **zum MITLESEN, nicht als Handlungsanweisung.**
+    ///
+    /// Im Web hoert darauf seit dem 2026-10-10 niemand mehr, und das ist
+    /// Absicht: wer auf eine beendete Unterbrechung hin unsere Session wieder
+    /// aktiviert, unterbricht damit WebKit — und raeumt dessen laufende
+    /// Aufnahme ab. Die volle Messung steht in `platform/iosTon.ts` an der
+    /// Stelle, wo der Hoerer frueher sass.
+    ///
+    /// Die Meldung bleibt, weil sie im Geraetelog die halbe Diagnose ist: an
+    /// ihr liest man ab, wann die beiden Sessions einander in die Quere
+    /// kommen.
     @objc private func unterbrechung(_ nachricht: Notification) {
         guard
             let info = nachricht.userInfo,
@@ -345,6 +356,15 @@ public class AudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
             nutzlast["weiterMoeglich"] =
                 AVAudioSession.InterruptionOptions(rawValue: optRoh).contains(.shouldResume)
         }
+        // **Ins Geraetelog, nicht nur ueber die Bruecke.** Ob eine
+        // Unterbrechung gemeldet wurde und was das Web daraus gemacht hat,
+        // war am 2026-10-10 nicht entscheidbar — die Web-Konsole ist am
+        // Telefon nur ueber Kabel und Safari erreichbar, der Systemlog
+        // dagegen laesst sich mitlesen. Ohne diese Zeile sieht „der Handler
+        // lief nicht" genauso aus wie „es kam nie etwas an".
+        NSLog("[PulseTon] Unterbrechung %@ weiterMoeglich=%@",
+              art == .began ? "begonnen" : "beendet",
+              String(describing: nutzlast["weiterMoeglich"] ?? "-"))
         notifyListeners("unterbrechung", data: nutzlast)
     }
 
