@@ -136,13 +136,36 @@ Brücke mit Ereignissen nicht gibt.
 - Die Hülle führt die Session **allein**. Unser `AudioSessionPlugin` fasst sie
   im Sprach-Betrieb auf iOS nicht mehr an.
 - Lautsprecher ↔ Hörmuschel über `AudioManager.shared.isSpeakerOutputPreferred`.
+  **Am Quelltext geprüft** (`Sources/LiveKit/Audio/Manager/AudioManager.swift`),
+  Doc-Kommentar wörtlich: „Determines whether the device's built-in speaker or
+  receiver is preferred for audio output. Defaults to `true` … Set to `false`
+  if the receiver is preferred instead of the speaker."
   Bluetooth und AirPlay bleiben Sache des Systems; der AirPlay-Griff
   (`airplayWaehler`) bleibt, wie er ist.
-- **Bei CallKit gibt das SDK die Session ab**, wie LiveKit es vorschreibt:
+- **Die Falle dabei, und sie trifft genau unseren CallKit-Fall.** Derselbe
+  Doc-Kommentar sagt: die Eigenschaft wird **ignoriert**, sobald
+  `customConfigureAudioSessionFunc` gesetzt ist, und `sessionConfiguration`
+  hat ohnehin Vorrang vor ihr. Für CallKit schaltet LiveKit die automatische
+  Konfiguration ab — und damit ist der Schalter dort wirkungslos.
+  **Es gibt also ZWEI Wege zur Hörmuschel, je nachdem wer die Session führt:**
+  im Sprachkanal der SDK-Schalter, im Anruf unser eigenes `setCategory` +
+  `overrideOutputAudioPort`. Letzteres funktioniert dann auch wirklich — es
+  scheiterte bisher nur daran, dass WebKit eine zweite Session hielt.
+  **Die beiden dürfen einander nicht überschreiben**; welcher gilt, hängt an
+  genau einer Frage (führt CallKit gerade?), und die beantwortet
+  `Anrufverwaltung.callkitAktiv` schon heute.
+- **Bei CallKit gibt das SDK die Session ab**, wie LiveKits README es
+  vorschreibt (dort geprüft; eine eigene `Docs/callkit.md` gibt es nicht):
   `audioSession.isAutomaticConfigurationEnabled = false` und
-  `setEngineAvailability(.none)` vor dem Verbinden; aktiviert wird allein in
-  `provider(_:didActivate:)`. `Anrufverwaltung` hält diesen Zustand heute
-  schon (`callkitAktiv`), das Stück ist gebaut.
+  `setEngineAvailability(.none)` vor dem Verbinden; in
+  `provider(_:didActivate:)` erst Kategorie und Modus setzen, dann
+  `setEngineAvailability(.default)`; in `provider(_:didDeactivate:)` wieder
+  `.none`. `Anrufverwaltung` hält diesen Zustand heute schon
+  (`callkitAktiv`) und hat beide Delegat-Methoden — das Stück ist gebaut.
+- Ebenfalls aus dem README: vor dem Veröffentlichen des Mikrofons muss die
+  Session mit `.playAndRecord` und Modus `.voiceChat`/`.videoChat`
+  **konfiguriert UND aktiviert** sein. Das ist dieselbe Reihenfolge-Regel, an
+  der heute der Web-Weg hing — sie gilt nativ unverändert weiter.
 - **Die Rauschunterdrückung wechselt die Seite.** RNNoise läuft heute in einem
   Web-Audio-Graphen und entfällt auf iOS; es bleibt Apples Verarbeitung.
   `voice/filterwahl.ts` muss das wissen, sonst filtert niemand oder zweimal.
@@ -171,8 +194,12 @@ zuletzt.**
 
 Weiter offen und bewusst benannt:
 
-1. **Lautstärke je Teilnehmer** — im Web eine Element-Eigenschaft. Ob das SDK
-   ein Gegenstück hat, ist ungeprüft.
+1. ~~Lautstärke je Teilnehmer~~ — **geklärt:** `RemoteAudioTrack.volume`
+   („Playout volume of the remote audio track"). Ein Haken steht im
+   Doc-Kommentar: Lesen und Schreiben **blockiert den rufenden Thread**, bis
+   WebRTCs Signalisierungs-Thread es angewandt hat — also nicht vom
+   Hauptthread und nicht aus einem Brücken-Ruf heraus, der etwas anderes
+   aufhält.
 2. **Anruf WÄHREND eines Sprachkanals.** Heute sind das zwei Räume
    nebeneinander, und `iosTon.ts` hält dafür zwei Quellen (`'sprachkanal'`,
    `'anruf'`) auseinander. Nativ wären es zwei `Room`-Objekte und EINE
@@ -188,8 +215,17 @@ Weiter offen und bewusst benannt:
 6. **Zwei Sprach-Implementierungen** sind ab dann dauerhaft zu pflegen — Web
    für Android/Desktop, nativ für iOS. Das ist der eigentliche Preis dieses
    Weges und keine Übergangserscheinung.
-7. **SDK-Fassung und Mindest-iOS** sind an der Quelle zu prüfen; die
-   Suchtreffer dazu waren teils veraltete Spiegel.
+7. ~~SDK-Fassung und Mindest-iOS~~ — **geprüft** an `Package.swift`:
+   `swift-tools-version:6.1`, **iOS 13+**, macOS 10.15+. Das Paket zieht zwei
+   vorgebaute Binär-Abhängigkeiten nach, beide exakt gepinnt:
+   `webrtc-xcframework` 150.7871.02 und `livekit-uniffi-xcframework` 0.1.9.
+   **Das ist die eigentliche neue Abhängigkeit** — ein WebRTC-Build als
+   Binärpaket, nicht ein paar Swift-Dateien. Wer das Vorhaben abnimmt, nimmt
+   das mit ab.
+8. **Die Quellen waren teils veraltete Spiegel.** Was oben als geprüft steht,
+   ist am Quelltext oder am offiziellen README nachgelesen; `Docs/audio.md`
+   dokumentiert den Lautsprecher/Hörmuschel-Schalter NICHT, obwohl mehrere
+   Fundstellen das behaupteten.
 
 **Reihenfolge der Messungen am Gerät** (alles andere lässt sich im Simulator
 bauen; Hörmuschel, Bluetooth, CallKit und gesperrter Bildschirm nicht):
