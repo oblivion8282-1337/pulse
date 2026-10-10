@@ -1,3 +1,12 @@
 {
-   "signedContributors": []
+  "signedContributors": [
+    {
+      "name": "Kuriiko-Real",
+      "id": 320646292,
+      "comment_id": 6096689994,
+      "created_at": "2026-10-10T10:45:18Z",
+      "repoId": 1235795266,
+      "pullRequestNo": 504
+    }
+  ]
 }
