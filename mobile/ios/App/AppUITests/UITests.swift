@@ -307,6 +307,14 @@ final class AppUITests: XCTestCase {
                 raus.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             }
             Thread.sleep(forTimeInterval: 5)
+            // **Pruefen, dass der Knopf WEG ist.** Ohne das bewies der Lauf
+            // das Verlassen nicht: blieb die Oberflaeche faelschlich im Kanal
+            // stehen, fand die naechste Runde denselben Knopf noch vor und
+            // der Test wurde gruen, obwohl nie etwas verlassen wurde. Genau
+            // dieser Fehler war am 2026-10-10 im nativen Weg drin.
+            XCTAssertFalse(
+                verlassenSuche().waitForExistence(timeout: 3),
+                "Nach dem Verlassen steht der Knopf noch da (Runde \(runde))")
             print("=== VERLASSEN-\(runde) \(stempel()) ===")
         }
     }

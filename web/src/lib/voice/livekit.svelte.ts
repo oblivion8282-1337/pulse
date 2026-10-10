@@ -789,17 +789,19 @@ class VoiceRoom {
     // Wachposten vorbei.
     this.#abbruchGen = this.#connectGen;
     this.#connectGen++;
-    // iOS, nativer Weg: erst die Hülle trennen, dann die gemeinsame
-    // Aufräumarbeit unten durchlaufen lassen (`#room` ist dort ohnehin leer).
-    if (this.#nativAbmelden) {
-      this.#nativAbmelden();
-      this.#nativAbmelden = null;
-      await spracheVerlassen().catch(() => undefined);
-      this.participants = [];
-      this.localSpeaking = false;
-    }
+    // **Der native Weg hat KEINEN `#room` — und genau daran hing er fest.**
+    // Der Wachposten unten („Raum stand noch gar nicht") räumt nur auf, wenn
+    // der Zustand `Connecting` ist; bei `Connected` kehrte er wortlos zurück.
+    // Die Hülle trennte zwar, aber die Oberfläche blieb im Kanal stehen und
+    // liess sich nicht mehr verlassen (am Gerät gemeldet, 2026-10-10).
+    //
+    // Die Trennung selbst passiert deshalb weiter unten, NACH der
+    // gemeinsamen Arbeit (Verlass-Ton, laufende Übertragungen stoppen,
+    // Watch-Party beenden, Resume-Eintrag löschen) — die gilt für beide Wege
+    // gleichermassen und darf nicht ein zweites Mal danebenstehen.
+    const nativ = this.#nativAbmelden !== null;
     const room = this.#room;
-    if (!room) {
+    if (!room && !nativ) {
       // Aufgelegt, bevor der Raum ueberhaupt stand (der Token-Abruf laeuft
       // noch): der zurueckkehrende `connect()` bricht jetzt am Wachposten ab,
       // raeumt aber die schon gesetzte Oberflaeche nicht mehr auf — das tun
@@ -838,6 +840,23 @@ class VoiceRoom {
         }
       }
     }
+    if (nativ) {
+      this.#nativAbmelden?.();
+      this.#nativAbmelden = null;
+      this.participants = [];
+      this.localSpeaking = false;
+      try {
+        await spracheVerlassen();
+      } finally {
+        // Auch wenn die Hülle sich beschwert: die Oberfläche muss zurück.
+        // Ein Nutzer, der nicht auflegen kann, ist der schlimmere Zustand.
+        this.#teardown();
+      }
+      return;
+    }
+    // Nur noch fuer den Typpruefer: ohne Raum UND ohne nativen Weg ist oben
+    // schon zurueckgekehrt, der native Fall eben. Hier bleibt der Web-Weg.
+    if (!room) return;
     try {
       await room.disconnect();
     } finally {
