@@ -120,9 +120,28 @@ export async function ladeEinladung(e: Einladung): Promise<GeladeneEinladung> {
   }
 }
 
-/** Für Abgemeldete. Ohne anonyme Vorschau (Etappe 2) gibt es keinen Namen. */
-export async function ladeEinladungAbgemeldet(_e: Einladung): Promise<GeladeneEinladung> {
-  return { zustand: 'abgemeldet', ...LEER };
+/** Für Abgemeldete. Name nur für Cloud-Einladungen: einen Self-Host fragen
+ *  wir vor der Erstkontakt-Zustimmung nie (Spec, Sicherheit 2). */
+export async function ladeEinladungAbgemeldet(e: Einladung): Promise<GeladeneEinladung> {
+  if (e.host) return { zustand: 'abgemeldet', ...LEER };
+  try {
+    const cloudId = serversStore.cloudId();
+    const p = await chatApi.getPublicInvitePreview(e.code, cloudId ? { serverId: cloudId } : {});
+    return {
+      zustand: 'abgemeldet',
+      community: {
+        name: p.guild.name,
+        iconUrl: guildIconSrc(p.guild.icon_url, window.location.origin),
+        mitglieder: p.member_count
+      },
+      guildId: null,
+      fehler: null
+    };
+  } catch (err) {
+    // Ungültig ist endgültig; Bremse oder Netz dürfen das Anmelden nicht blockieren.
+    if (fehlerAus(err) === 'ungueltig') return { zustand: 'ungueltig', ...LEER };
+    return { zustand: 'abgemeldet', ...LEER };
+  }
 }
 
 export type BeitrittsErgebnis =

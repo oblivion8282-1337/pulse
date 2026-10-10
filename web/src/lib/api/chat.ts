@@ -72,6 +72,11 @@ export type PublicCommunityPreview = {
   member_count: number;
   is_public: boolean;
 };
+
+export type PublicInvitePreview = {
+  guild: { name: string; icon_url: string | null };
+  member_count: number;
+};
 import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
 import type { WatchChatMessage } from '$lib/stores/watchChat.svelte';
 
@@ -589,6 +594,18 @@ export const chatApi = {
     route: { serverId?: string } = {},
   ): Promise<PublicCommunityPreview> {
     return request<PublicCommunityPreview>(`/c/${encodeURIComponent(handle)}`, {}, route);
+  },
+  /** Anonyme Einladungs-Vorschau (Name, Bild, Mitgliederzahl) — für die
+   *  Einladungsseite ohne Anmeldung. 404 für jedes „nein“, 429 bei Bremse. */
+  getPublicInvitePreview(
+    code: string,
+    route: { serverId?: string } = {},
+  ): Promise<PublicInvitePreview> {
+    return request<PublicInvitePreview>(
+      `/invites/${encodeURIComponent(code)}/public-preview`,
+      { auth: false },
+      route,
+    );
   },
   /** Öffentlicher Community-Beitritt. Idempotent; 404 wenn nicht public, 403 gebannt. */
   joinPublicCommunity(

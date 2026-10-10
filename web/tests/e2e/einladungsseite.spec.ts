@@ -97,6 +97,7 @@ test.describe.serial('Einladungsseite', () => {
   test('Abgemeldet: der Link zeigt die Einladung, keine Fehlerseite', async () => {
     await bob.goto(link1);
     await expect(karte(bob, 'abgemeldet')).toBeVisible({ timeout: 15_000 });
+    await expect(bob.getByTestId('einladung-name')).toHaveText(RUNDE);
     await expect(bob.getByTestId('route-error')).toHaveCount(0);
   });
 
