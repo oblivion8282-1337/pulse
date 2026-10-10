@@ -1,8 +1,11 @@
 // Ordnet eine Server-Antwort einer Fehlerart zu — importfrei (Node-Tests).
 //
-// Nur ein 404 MIT dem Einladungstext heißt „Diese Einladung gilt nicht mehr“.
+// Nur ein 404 MIT einem der beiden „gibt es nicht“-Texte heißt „gilt nicht mehr“.
 // Alle Einladungs-404 des Servers tragen genau `invite invalid or expired`
-// (_INVITE_INVALID in routes/invites.py). Ein anderer 404 — etwa FastAPIs
+// (_INVITE_INVALID in routes/invites.py), die öffentliche Adresse antwortet bei
+// unbekanntem oder nicht öffentlichem Handle mit `community not found`
+// (GET /c/{handle}, routes/public_community.py) — beides bewusste Antworten.
+// Ein anderer 404 — etwa FastAPIs
 // `Not Found`, solange das Web-Bundle schon läuft und der chat-gateway die
 // Route noch nicht hat (getrennte Image-Bauten, Rückrollen) — ist ein
 // Serverproblem; sonst zeigte jeder gültige Link „gilt nicht mehr“. Der Prototyp machte
@@ -22,7 +25,9 @@ export type EinladungFehler =
 
 export function einladungFehler(status: number | null, detail: unknown): EinladungFehler {
   const d = typeof detail === 'string' ? detail : '';
-  if (status === 404) return d === 'invite invalid or expired' ? 'ungueltig' : 'netz';
+  if (status === 404) {
+    return d === 'invite invalid or expired' || d === 'community not found' ? 'ungueltig' : 'netz';
+  }
   if (status === 429) return 'bremse';
   if (status === 403) {
     if (d === 'email verification required') return 'email';
