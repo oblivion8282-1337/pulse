@@ -17,3 +17,17 @@ export function inviteLink(code: string): string {
   const host = srv.hostname.replace(/^https?:\/\//, '');
   return `${origin}/invite/${code}?host=${encodeURIComponent(host)}`;
 }
+
+/**
+ * Teilbare öffentliche Community-Adresse (`/c/<handle>`). Gleiche Regel wie
+ * `inviteLink`: der Link zeigt auf die WEB-App-Origin (ein Self-Host liefert
+ * kein Web-UI aus), der Self-Host reist als `?host=`.
+ */
+export function oeffentlicheAdresse(handle: string): string {
+  const origin = window.location.origin;
+  const srv = activeServer.current;
+  const pfad = `${origin}/c/${encodeURIComponent(handle)}`;
+  if (!srv || srv.isCloud) return pfad;
+  const host = srv.hostname.replace(/^https?:\/\//, '');
+  return `${pfad}?host=${encodeURIComponent(host)}`;
+}

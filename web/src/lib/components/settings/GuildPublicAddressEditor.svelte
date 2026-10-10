@@ -7,8 +7,8 @@
     → 400 wenn is_public=true ohne Handle
     → 409 wenn Handle bereits vergeben
 
-  Kopierbare Adresse: <aktiver-Server-Host>/c/<handle> (nur sichtbar wenn
-  Handle gesetzt). Der Host wird aus dem aktiven Server-Entry gelesen.
+  Kopierbare Adresse: <App-Origin>/c/<handle>[?host=<Self-Host>] (nur sichtbar wenn
+  Handle gesetzt), gebaut von oeffentlicheAdresse().
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -16,6 +16,7 @@
   import GlobeIcon from '@lucide/svelte/icons/globe';
   import CopyIcon from '@lucide/svelte/icons/copy';
   import CheckIcon from '@lucide/svelte/icons/check';
+  import { oeffentlicheAdresse } from '$lib/guilds/inviteLink';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
@@ -58,12 +59,10 @@
             : m.community_category_other();
   }
 
-  /** Host-Origin des aktiven Servers (für die kopierbare Adresse). */
-  let serverHost = $derived(activeServer.current?.hostname ?? '');
+  /** Host der Web-App (die Adresse liegt auf deren Origin, nicht auf dem Self-Host). */
+  const appHost = window.location.host;
 
-  let publicUrl = $derived(
-    handle && serverHost ? `${serverHost}/c/${handle}` : null,
-  );
+  let publicUrl = $derived(handle && activeServer.current ? oeffentlicheAdresse(handle) : null);
 
   // Lokale Validierung (spiegelt Backend-Regex)
   let handleError = $derived(
@@ -153,7 +152,7 @@
           {m.guild_public_address_handle_label()}
         </Label>
         <div class="flex items-center gap-2">
-          <span class="text-text-muted text-sm">{serverHost}/c/</span>
+          <span class="text-text-muted text-sm">{appHost}/c/</span>
           <Input
             id="guild-handle"
             type="text"
