@@ -163,7 +163,7 @@
 </script>
 
 <div
-  class="mt-1 flex items-center gap-3 rounded-xl border border-border bg-bg-elev px-4 py-3 max-w-sm"
+  class="mt-1 flex items-center gap-3 rounded-xl border border-border bg-bg-input px-4 py-3 max-w-sm"
   data-testid="invite-embed"
 >
   {#if loading}
@@ -212,7 +212,9 @@
         {preview.guild.name}
       </p>
       <p class="text-text-muted text-xs" data-testid="invite-embed-member-count">
-        {m.invite_embed_member_count({ count: preview.member_count })}
+        {preview.member_count === 1
+          ? m.invite_embed_member_count_one({ count: 1 })
+          : m.invite_embed_member_count({ count: preview.member_count })}
       </p>
     </div>
     <Button

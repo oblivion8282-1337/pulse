@@ -140,7 +140,7 @@
             <!-- Nur bei fremdem Server: der Eingeladene soll vor dem Antippen
                  sehen, wohin er tritt. Bei Cloud-Zielen waere die Zeile
                  Rauschen. -->
-            <p class="text-primary truncate font-mono text-2xs">{inv.target_host}</p>
+            <p class="text-primary truncate text-xs">{inv.target_host}</p>
           {/if}
         </div>
         <Button

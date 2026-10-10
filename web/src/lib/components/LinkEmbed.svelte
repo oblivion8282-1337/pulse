@@ -31,7 +31,7 @@
 
 {#if !resolved}
   <div
-    class="mt-1 flex max-w-sm items-center gap-3 rounded-xl border border-border bg-bg-elev p-2 pr-3"
+    class="mt-1 flex max-w-sm items-center gap-3 rounded-xl border border-border bg-bg-input p-2 pr-3"
     data-testid="link-embed-loading"
   >
     <div class="aspect-video w-28 shrink-0 animate-pulse rounded-md bg-bg-hover"></div>
@@ -46,7 +46,7 @@
     href={url}
     target="_blank"
     rel="noopener noreferrer"
-    class="mt-1 flex max-w-sm items-center gap-3 rounded-xl border border-border bg-bg-elev p-2 pr-3 transition-colors hover:bg-bg-hover"
+    class="mt-1 flex max-w-sm items-center gap-3 rounded-xl border border-border bg-bg-input p-2 pr-3 transition-colors hover:bg-bg-hover"
     data-testid="link-embed"
   >
     {#if thumb}
