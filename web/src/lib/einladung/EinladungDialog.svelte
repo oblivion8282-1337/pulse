@@ -29,7 +29,9 @@
 
   $effect(() => {
     if (auth.user && !auth.user.email_verification_pending) {
-      ausSpeicher = gemerkteEinladung(browserSpeicher(), Date.now());
+      const g = gemerkteEinladung(browserSpeicher(), Date.now());
+      // Nur bei echter Änderung zuweisen: jede neue Objekt-Identität lüde neu.
+      if (g?.code !== ausSpeicher?.code || g?.host !== ausSpeicher?.host) ausSpeicher = g;
     }
   });
 
@@ -61,10 +63,15 @@
     hinweis = r.zustand === 'fehler' && r.fehler ? fehlerMeldung(r.fehler, e.host) : null;
   }
 
+  // Stabiler Schlüssel statt Objekt: `aktiv` ist bei jeder URL-Änderung und
+  // jeder Neuzuweisung von auth.user ein neues Objekt, die Einladung dieselbe.
+  const schluessel = $derived(
+    aktiv ? `${aktiv.code}|${aktiv.host ?? ''}` : ausUrl === 'kaputt' ? 'kaputt' : null
+  );
+
   $effect(() => {
-    const e = aktiv;
-    if (!offen) return;
-    untrack(() => void laden(e));
+    if (!offen || schluessel === null) return;
+    untrack(() => void laden(aktiv));
   });
 
   function erledigt() {
@@ -117,6 +124,7 @@
         onOeffnen={oeffnen}
         onErneut={() => laden(aktiv)}
         onZuPulse={schliessen}
+        onEmail={() => goto('/verify-email-required')}
       />
     </div>
   </Dialog.Content>

@@ -96,9 +96,18 @@ export async function ladeEinladung(e: Einladung): Promise<GeladeneEinladung> {
 
   try {
     const p = await cloudVorschau(e.code);
-    await guilds.hydrate().catch(() => {});
+    // Die Cloud-Mitgliedschaft, nicht die des gerade aktiven Servers.
+    const cloudId = serversStore.cloudId();
+    let mitglied: boolean;
+    if (cloudId) {
+      await serverGuilds.ensureLoaded(cloudId);
+      mitglied = serverGuilds.get(cloudId).some((g) => g.id === p.guild.id);
+    } else {
+      await guilds.hydrate().catch(() => {});
+      mitglied = !!guilds.byId[p.guild.id];
+    }
     return {
-      zustand: guilds.byId[p.guild.id] ? 'mitglied' : 'einladung',
+      zustand: mitglied ? 'mitglied' : 'einladung',
       community: alsCommunity(p, window.location.origin),
       guildId: p.guild.id,
       fehler: null
