@@ -121,6 +121,14 @@ test.describe.serial('Einladungsseite', () => {
     await bob.waitForURL(/\/app\/guilds\/\d+\/channels\//);
   });
 
+  test('Desktop-App-Knopf: die Seite bleibt stehen, der Hinweis erscheint', async () => {
+    await bob.goto(link1);
+    await expect(karte(bob, 'mitglied')).toBeVisible({ timeout: 15_000 });
+    await bob.getByTestId('einladung-app').click();
+    await expect(bob.getByText('Pulse wird geöffnet', { exact: false })).toBeVisible();
+    await expect(bob).toHaveURL(/\/invite\//);
+  });
+
   test('Unbekannter Code: gilt nicht mehr', async () => {
     await bob.goto(`${E2E_BASE_URL}/invite/ZZZZ9999`);
     await expect(karte(bob, 'ungueltig')).toBeVisible({ timeout: 15_000 });
