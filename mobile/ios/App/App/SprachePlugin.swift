@@ -110,9 +110,9 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
     extension SprachePlugin {
         static func probeAusStartargumenten() {
             guard let roh = UserDefaults.standard.string(forKey: "PulseSpracheProbe") else { return }
-            let teile = roh.split(separator: "|", maxSplits: 1).map(String.init)
-            guard teile.count == 2 else {
-                NSLog("[PulseSprache] Probe: erwartet \"<wsUrl>|<token>\"")
+            let teile = roh.split(separator: "|", maxSplits: 2).map(String.init)
+            guard teile.count >= 2 else {
+                NSLog("[PulseSprache] Probe: erwartet \"<wsUrl>|<token>[|<wartesekunden>]\"")
                 return
             }
             NSLog("[PulseSprache] Probe startet gegen %@", teile[0])
@@ -133,18 +133,18 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
                     return
                 }
 
-                // **Erst das Mikrofon, dann die Route — in dieser
-                // Reihenfolge, und das ist der Befund vom 2026-10-10.** Der
-                // SDK-Schalter wirkt nicht fuer sich: er greift, wenn das SDK
-                // die Session neu einrichtet, und das tut es beim
-                // Veroeffentlichen einer Aufnahme (Kategorie wechselt von
-                // `.playback` auf `.playAndRecord`). Vorher gemessen: drei
-                // Umschaltversuche ohne jede Wirkung, dann `Mikrofon an` —
-                // und die Route sprang auf `Receiver`.
+                // **Erst das Mikrofon, dann die Route.** Ohne Aufnahme
+                // waehlt das SDK `.playback`, und dort gibt es gar keine
+                // Hoermuschel-Wahl — vorher gemessen: drei Umschaltversuche
+                // ohne jede Wirkung, dann `Mikrofon an`, und die Route sprang
+                // auf `Receiver`.
                 //
-                // Die eigentliche Frage ist damit eine andere: traegt das
-                // Umschalten auch MITTEN im Gespraech, wenn die Aufnahme schon
-                // laeuft? Genau das misst die Reihenfolge hier.
+                // Die Bedingung dahinter ist allgemeiner, und sie kostete den
+                // ganzen 2026-10-10: **die Session muss AKTIV sein.** Das SDK
+                // waehlt Lautsprecher oder Hoermuschel nur ueber
+                // `setCategory`, und an einer nicht aktiven Session bewegt
+                // eine Kategorie keine Route (sie meldet nicht einmal einen
+                // Routenwechsel).
                 do {
                     try await SpracheRaum.geteilt.mikrofon(true)
                     NSLog("[PulseSprache] Probe MIKROFON an, Route: %@",
@@ -154,9 +154,25 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
                           error.localizedDescription)
                 }
 
+                // **Die Wartezeit ist regelbar, weil die erste Vermutung
+                // am Abstand zum Beitritt hing — und daran lag es nicht.**
+                // In der App lagen zwischen Beitritt und Umschalten ~40 s, im
+                // Pruefpfad 3 s; die Gegenprobe mit 45 s hier war gruen
+                // (`Routenwechsel grund=3 neu=Receiver`). Damit war die Zeit
+                // ausgeschlossen und der Blick frei fuer den wirklichen
+                // Unterschied: in der App lief die Audio-Maschine nicht, weil
+                // WebKits Beitritts-Ton die Session an sich gezogen hatte
+                // (volle Messung an `webSessionTyp` in
+                // `web/src/lib/platform/iosSprache.ts`). Der Parameter
+                // bleibt — er ist der Weg, eine solche Vermutung in einem Lauf
+                // zu erledigen statt sie zu glauben.
+                let warten = teile.count > 2 ? (Double(teile[2]) ?? 3) : 3
+                try? await Task.sleep(nanoseconds: UInt64(warten * 1_000_000_000))
                 for weg in ["hoermuschel", "lautsprecher", "hoermuschel"] {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
                     SpracheRaum.geteilt.ausgabe(weg)
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    NSLog("[PulseSprache] Probe nach '%@': Route %@", weg,
+                          "\(SpracheRaum.geteilt.zustand()["route"] ?? "?")")
                 }
             }
         }

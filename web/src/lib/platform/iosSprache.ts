@@ -41,6 +41,18 @@ export interface NativerZustand {
   /** Was die Session WIRKLICH ausgibt (`Speaker`, `Receiver`, …) — nicht, was
    *  gewünscht wurde. Genau dieser Unterschied war der Befund vom 2026-10-10. */
   route: string;
+  /** Diagnose-Felder der Hülle. Die Oberfläche braucht sie nicht, der
+   *  Fehlersucher schon — und dieselbe Frage kam am 2026-10-10 zweimal auf:
+   *  „ist die Session überhaupt aktiv?" beantwortet `eingaenge` (eine nicht
+   *  aktivierte `.playAndRecord`-Session führt keinen Eingang), „führt sie
+   *  die Route?" entscheiden `modus` und `optionen` zusammen mit `route`.
+   *  Optional, weil eine ältere Hülle sie nicht mitschickt. */
+  kategorie?: string;
+  modus?: string;
+  optionen?: string[];
+  engineLaeuft?: boolean;
+  eingaenge?: string[];
+  fremdTon?: boolean;
 }
 
 interface SprachePlugin {
@@ -138,6 +150,59 @@ export function nativerSprachwegDa(): boolean {
   return cap?.Plugins?.SprachePlugin !== undefined;
 }
 
+/**
+ * Was WebKit über seine EIGENE Audio-Session sagt — und das entscheidet auf
+ * dem nativen Weg, ob die Hörmuschel wählbar ist.
+ *
+ * **Der Befund, 2026-10-10 am iPhone 16 Pro (iOS 26.6.2).** Die Hülle führt
+ * den Sprachton, aber die Oberfläche spielt weiter ihre eigenen Töne — und der
+ * erste kommt unmittelbar nach dem Beitritt (`voice.self_join` in
+ * `voice/livekit.svelte.ts`). WebKit richtet dafür seine eigene Session ein,
+ * und mit der Vorgabe `auto` ist die nicht mischbar: sie übernimmt die
+ * Routen-Hoheit (im Gerätelog `cmsTakeControl … requires Volume_Routing`,
+ * `routeSharingPolicy LongFormAudio`), und iOS **unterbricht** daraufhin
+ * unsere Session. Ab da ist sie nicht mehr aktiv — und genau daran scheiterte
+ * die Hörmuschel: das SDK wählt Lautsprecher oder Hörmuschel allein über
+ * `setCategory`, und eine Kategorie bewegt an einer nicht aktiven Session
+ * keine Route (sie meldet nicht einmal einen Routenwechsel).
+ *
+ * **Gemessen, derselbe Lauf, derselbe Ton, nur dieser Wert verschieden:**
+ *
+ * | `navigator.audioSession.type` | nach dem Ton |
+ * |---|---|
+ * | `auto` (bisher) | Audio-Maschine aus, Session ohne Eingang → Umschalten wirkungslos |
+ * | `ambient` | Maschine läuft, Eingang bleibt → `Receiver` |
+ *
+ * `ambient` ist mischbar: WebKit legt seinen Ton dazu, statt die Session zu
+ * übernehmen. Die Töne bleiben hörbar — nur eben als Beiwerk neben dem
+ * Gespräch.
+ *
+ * **Der Preis, und er ist Absicht:** eine mischbare Session folgt dem
+ * Klingel-Schalter. Wer im Sprachkanal sitzt und das Telefon auf stumm
+ * stellt, hört die Oberflächen-Töne nicht mehr — was für „stumm" das
+ * Richtige ist. Deshalb gilt der Wert nur SOLANGE der native Raum steht und
+ * wird beim Verlassen auf `auto` zurückgenommen: der Stream-Ton (WHEP) läuft
+ * weiter in der WebView und braucht dort eine richtige Session, auch bei
+ * gesperrtem Bildschirm.
+ *
+ * **Zweite Schreibstelle derselben Eigenschaft** ist `webAudioSession` in
+ * `platform/iosTon.ts`; die ist abgeschaltet (`WEB_AUDIO_SESSION_AN`) und
+ * gehört zum Web-Weg, den es auf iOS nicht mehr gibt. Wer sie wieder
+ * einschaltet, prüft zuerst, dass sie diesen Wert nicht überschreibt.
+ */
+function webSessionTyp(typ: 'ambient' | 'auto'): void {
+  if (!isCapacitorIOS()) return;
+  const nav = navigator as Navigator & { audioSession?: { type: string } };
+  // Vor iOS 17 gibt es die Schnittstelle nicht. Dann bleibt es beim alten
+  // Verhalten — kein Grund, den Beitritt daran scheitern zu lassen.
+  if (!nav.audioSession) return;
+  try {
+    nav.audioSession.type = typ;
+  } catch {
+    // Ein nicht angenommener Wert darf den Beitritt nicht aufhalten.
+  }
+}
+
 export async function spracheBeitreten(
   wsUrl: string,
   token: string,
@@ -146,11 +211,16 @@ export async function spracheBeitreten(
 ): Promise<NativerZustand> {
   const p = plugin();
   if (!p) throw new Error('SprachePlugin fehlt');
+  // **Vor dem Beitritt, nicht danach.** Der Ton, der die Session übernimmt,
+  // kommt unmittelbar nach dem gelungenen Beitritt — eine Erklärung, die
+  // erst danach abgegeben wird, kommt zu spät.
+  webSessionTyp('ambient');
   return p.beitreten({ wsUrl, token, kanalId, startStumm });
 }
 
 export async function spracheVerlassen(): Promise<void> {
   await plugin()?.verlassen();
+  webSessionTyp('auto');
 }
 
 export async function spracheMikrofon(an: boolean): Promise<NativerZustand | null> {

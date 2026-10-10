@@ -160,6 +160,19 @@ let webTyp: AudioSessionTyp | null = null;
  * **Was die Hoermuschel wirklich braucht:** dass der Sprachton nicht mehr von
  * WebKit abgespielt wird. Dafuer gibt es keine Abkuerzung aus dem Web heraus.
  */
+/**
+ * **Zweite Schreibstelle derselben Eigenschaft, und sie ist seit dem
+ * 2026-10-10 die wichtige:** `webSessionTyp` in `platform/iosSprache.ts`
+ * erklärt WebKits Session für die Dauer des nativen Sprachraums als
+ * `ambient`. Dort steht die Messung, warum — ohne das übernimmt der erste
+ * Oberflächen-Ton nach dem Beitritt die Routen-Hoheit und unterbricht die
+ * Session der Hülle, womit die Hörmuschel unerreichbar wird.
+ *
+ * Heute kollidieren die beiden nicht: dieser Schalter ist aus, und auf dem
+ * nativen Weg läuft `tonVoice('sprachkanal', …)` gar nicht mehr. Wer ihn
+ * wieder einschaltet, muss beides zusammen denken — die letzte Zuweisung
+ * gewinnt.
+ */
 const WEB_AUDIO_SESSION_AN = false;
 
 function webAudioSession(ziel: TonModus): void {

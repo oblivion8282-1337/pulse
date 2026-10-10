@@ -34,6 +34,22 @@ fehlt — `AudioManager.shared.isSpeakerOutputPreferred` (`false` = Hörmuschel)
 — und eine dokumentierte CallKit-Einbindung. Vor allem aber gibt es dann nur
 noch **eine** Partei an der Session.
 
+> **Nachtrag 2026-10-10, am Gerät gemessen: der letzte Satz traf nicht zu, und
+> er hat die Hörmuschel ein weiteres Mal gekostet.** Die Oberfläche spielt
+> weiter ihre eigenen Töne, und der erste kommt unmittelbar nach dem Beitritt
+> (`voice.self_join`). WebKit richtet dafür seine eigene Session ein; mit der
+> Vorgabe `auto` ist die nicht mischbar, übernimmt die Routen-Hoheit
+> (`cmsTakeControl … requires Volume_Routing`) und iOS **unterbricht** die
+> Session der Hülle. Danach bewegt kein `setCategory` mehr eine Route — das
+> SDK wählt Lautsprecher/Hörmuschel nur darüber, und eine Kategorie wirkt an
+> einer nicht aktiven Session nicht (sie meldet nicht einmal einen
+> Routenwechsel). Es sind also zwei Parteien, bis der Klient WebKits Session
+> ausdrücklich als `ambient` erklärt; das tut `webSessionTyp` in
+> `web/src/lib/platform/iosSprache.ts`, dort steht die Vorher/Nachher-Messung.
+> **Die Lehre:** „der Ton läuft jetzt nativ" heisst nicht „die WebView hat
+> keine Audio-Session mehr". Jeder Ton, den die Oberfläche selbst spielt,
+> bleibt eine zweite Partei.
+
 ## 2. Zuschnitt (vom Eigentümer entschieden, 2026-10-10)
 
 | | |

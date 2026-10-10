@@ -9,7 +9,13 @@ import LiveKit
 /// unerreichbar, und jedes Drehen an unserer eigenen Session unterbricht nur
 /// WebKit (beides am 2026-10-10 am Gerät gemessen, voller Befund im Entwurf
 /// `docs/superpowers/specs/2026-10-10-ios-nativer-sprachweg-design.md`).
-/// Sobald der Raum hier liegt, gibt es nur noch EINE Partei an der Session.
+/// **Die Erwartung dabei war, dass es dann nur noch EINE Partei an der
+/// Session gibt — und die traf nicht zu.** Die Oberfläche spielt weiter ihre
+/// eigenen Töne, und WebKit richtet dafür seine eigene, nicht mischbare
+/// Session ein: der Beitritts-Ton zog uns die Session weg, und ohne aktive
+/// Session bewegt kein `setCategory` eine Route. Dass es trotzdem genau eine
+/// Partei ist, muss der Klient erklären — `webSessionTyp` in
+/// `web/src/lib/platform/iosSprache.ts`, dort steht die Messung.
 ///
 /// **Die Anmeldung bleibt im Web.** Diese Klasse bekommt `wsUrl` und `token`
 /// gereicht und kennt weder Konten noch Sitzungen — der Teil, der sonst in
@@ -26,11 +32,13 @@ final class SpracheRaum: NSObject {
 
     private var raum: Room?
     private(set) var kanalId: String?
+    private var sessionBeobachter: NSObjectProtocol?
 
     // MARK: - Steuerung
 
     func beitreten(wsUrl: String, token: String, kanalId: String, stumm: Bool) async throws {
         await verlassen()
+        sessionBeobachtenFallsNoetig()
         let r = Room(delegate: self)
         raum = r
         self.kanalId = kanalId
@@ -92,41 +100,88 @@ final class SpracheRaum: NSObject {
     /// **Er gilt NICHT, wenn CallKit führt.** Derselbe Doc-Kommentar sagt, die
     /// Eigenschaft werde ignoriert, sobald die Session-Konfiguration des SDK
     /// abgeschaltet ist — und genau das verlangt CallKit. Dort stellt die
-    /// Hülle die Route selbst (`AudioSessionAusgabe.swift`), was dann auch
-    /// wirklich wirkt: es scheiterte bisher allein daran, dass WebKit eine
-    /// zweite Session hielt. Welcher Weg gilt, entscheidet eine einzige
-    /// Frage, und `Anrufverwaltung` beantwortet sie schon heute.
+    /// Hülle die Route selbst (`AudioSessionAusgabe.swift`). Welcher Weg gilt,
+    /// entscheidet eine einzige Frage, und `Anrufverwaltung` beantwortet sie
+    /// schon heute.
+    ///
+    /// **Für den CallKit-Weg gilt dieselbe Bedingung wie hier**, und sie stand
+    /// bis zum 2026-10-10 falsch da: dort hiess es, die eigene Übersteuerung
+    /// habe allein an WebKits zweiter Session gescheitert. Gemessen ist etwas
+    /// anderes — eine Übersteuerung an einer NICHT AKTIVEN Session wird
+    /// angenommen und tut nichts, ganz ohne zweite Partei. Wer die Route
+    /// selbst stellt, muss die Session also auch selbst aktiv halten; bei
+    /// CallKit tut das der `CXProvider` in `didActivate`.
     func ausgabe(_ weg: String) {
         let hoermuschel = (weg == "hoermuschel")
         AudioManager.shared.isSpeakerOutputPreferred = !hoermuschel
-        // **Die Vorgabe allein bewegt eine LAUFENDE Route nicht.** Am
-        // 2026-10-10 am Geraet gemessen: der SDK-Schalter stellt die Session
-        // korrekt um — `defaultToSpeaker` verschwindet aus den Optionen, der
-        // Modus wechselt von `VideoChat` auf `VoiceChat` —, aber die aktive
-        // Route blieb auf `Speaker`. Eine Vorgabe entscheidet, wohin eine
-        // Session beim AKTIVIEREN geht; sie holt keine laufende zurueck.
+        // **Hier stand bis zum 2026-10-10 ein `overrideOutputAudioPort`, und
+        // es war ein Ruf, der gelang und nichts tat.** Gemessen: die
+        // Uebersteuerung wurde angenommen (kein Fehler), die Route blieb
+        // `Speaker`, und erst ein `setActive(true)` holte sie. Ein zweiter
+        // Schreiber an der Session ist er trotzdem — `.speaker` setzt eine
+        // klebende Uebersteuerung, die das naechste `setCategory` des SDK
+        // ueberschreiben muesste. Die Vorgabe oben genuegt, sobald die Session
+        // aktiv ist — und dass sie das bleibt, entscheidet nicht diese Datei,
+        // sondern `webSessionTyp` in `web/src/lib/platform/iosSprache.ts`:
+        // dort steht, warum WebKit sie sonst an sich zieht.
         //
-        // Im Pruefpfad fiel das nicht auf, weil dort direkt nach dem ersten
-        // Veroeffentlichen geschaltet wurde — da richtete das SDK die Session
-        // ohnehin gerade neu ein.
-        //
-        // Der Griff dafuer ist `overrideOutputAudioPort`, und er wirkt JETZT:
-        // bis heute scheiterte er daran, dass WebKit eine zweite, nicht
-        // mischbare Session hielt. Auf dem nativen Weg gibt es die nicht mehr.
-        //
-        // **Nicht mit `try?` verschlucken.** Genau dieser Ruf ist die Antwort
-        // auf die Frage, warum die Route nicht folgt — ein stilles `try?`
-        // haette sie weitere Runden lang verborgen.
-        do {
-            try AVAudioSession.sharedInstance()
-                .overrideOutputAudioPort(hoermuschel ? .none : .speaker)
-            NSLog("[PulseSprache] Uebersteuerung '%@' angenommen", weg)
-        } catch {
-            NSLog("[PulseSprache] Uebersteuerung '%@' ABGELEHNT: %@",
-                  weg, error.localizedDescription)
-        }
-        NSLog("[PulseSprache] Ausgabe '%@' gewuenscht, Route: %@", weg, routeJetzt())
+        // Die Route wird hier NICHT mehr gemeldet: sie wechselt asynchron
+        // (8-17 ms nach dem `setCategory`, am Geraet gemessen), ein Lesen an
+        // dieser Stelle liefert also systematisch den alten Wert — genau
+        // diese Zahl galt stundenlang als Beleg dafuer, dass der Schalter
+        // nicht traegt. Wer die Wahrheit will, hoert auf `eigenerZustand`:
+        // den schickt der Routen-Beobachter, wenn der Wechsel wirklich da ist.
+        NSLog("[PulseSprache] Ausgabe '%@' gewuenscht", weg)
         schickeEigenen()
+    }
+
+    /// Horcht auf Routenwechsel UND Unterbrechungen der Session — einmal fuers
+    /// ganze Leben des Singletons, nicht je Beitritt (beide haengen am
+    /// einen Merker, sie werden zusammen angelegt).
+    ///
+    /// **Der Routenwechsel ist ASYNCHRON, und das war eine Messfalle.** Am
+    /// 2026-10-10 am Gerät gemessen lagen zwischen `setCategory` und dem
+    /// `routeChangeNotification` mit der neuen Route 8–17 ms. Wer die Route
+    /// direkt nach dem Umschalten liest, liest deshalb noch die alte — genau
+    /// diese Zahl stand stundenlang als Beleg dafür, dass der Schalter nicht
+    /// trägt. Die Oberfläche braucht die Wahrheit ausserdem auch dann, wenn
+    /// sie den Wechsel nicht selbst ausgelöst hat (Kopfhörer rein, AirPods).
+    private func sessionBeobachtenFallsNoetig() {
+        guard sessionBeobachter == nil else { return }
+        sessionBeobachter = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil
+        ) { [weak self] n in
+            guard let self else { return }
+            let grund = n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 99
+            NSLog("[PulseSprache] Routenwechsel grund=%lu neu=%@ kat=%@ modus=%@ opt=%lu",
+                  grund, routeJetzt(),
+                  AVAudioSession.sharedInstance().category.rawValue,
+                  AVAudioSession.sharedInstance().mode.rawValue,
+                  AVAudioSession.sharedInstance().categoryOptions.rawValue)
+            if raum != nil { schickeEigenen() }
+        }
+        // **Eine Unterbrechung heisst: jemand anderes hat die Session.** Das
+        // ist die Zeile, an der der Hoermuschel-Fehler hing — die Oberfläche
+        // spielte ihren Beitritts-Ton, WebKit richtete dafür seine eigene,
+        // nicht mischbare Session ein, und iOS nahm uns die unsere. Danach
+        // bewegt kein `setCategory` mehr eine Route. Ohne diese Meldung sieht
+        // genau das aus wie „der SDK-Schalter trägt nicht".
+        //
+        // `eingaenge` steht mit im Log, weil `AVAudioSession` nicht sagt, ob
+        // sie aktiv ist: eine nicht aktivierte `.playAndRecord`-Session führt
+        // keinen Eingang.
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: nil
+        ) { [weak self] n in
+            guard let self, raum != nil else { return }
+            let roh = n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt ?? 99
+            NSLog("[PulseSprache] Unterbrechung art=%@ route=%@ engine=%@ eing=%@",
+                  roh == 1 ? "begonnen" : (roh == 0 ? "beendet" : "\(roh)"),
+                  routeJetzt(),
+                  AudioManager.shared.isEngineRunning ? "laeuft" : "aus",
+                  AVAudioSession.sharedInstance().currentRoute.inputs
+                      .map { $0.portType.rawValue }.joined(separator: ","))
+        }
     }
 
     // MARK: - Zustand
@@ -147,7 +202,21 @@ final class SpracheRaum: NSObject {
             // die Hörmuschel unerreichbar, ganz gleich wer es gesetzt hat.
             "kategorie": AVAudioSession.sharedInstance().category.rawValue,
             "modus": AVAudioSession.sharedInstance().mode.rawValue,
-            "optionen": optionenNamen()
+            "optionen": optionenNamen(),
+            // „Spielt eine FREMDE App?" — und das Feld sagt genau das und
+            // nichts mehr. Am 2026-10-10 nachgemessen: es blieb `false`,
+            // waehrend WebKit die Session unseres EIGENEN Prozesses an sich
+            // zog. Es taugt also zum Ausschluss einer fremden App, nicht zum
+            // Erkennen der eigenen WebView; dafuer ist `eingaenge` da.
+            "fremdTon": AVAudioSession.sharedInstance().isOtherAudioPlaying,
+            // Laeuft die Audio-Maschine noch? Nach einer Unterbrechung steht
+            // sie, und eine stehende Session bewegt keine Route.
+            "engineLaeuft": AudioManager.shared.isEngineRunning,
+            // Eingaenge als Anzeiger dafuer, ob die Session wirklich AKTIV
+            // ist: eine nicht aktivierte `.playAndRecord`-Session fuehrt
+            // keinen Eingang, und „aktiv?" fragt `AVAudioSession` nicht ab.
+            "eingaenge": AVAudioSession.sharedInstance().currentRoute.inputs
+                .map { $0.portType.rawValue }
         ]
     }
 
