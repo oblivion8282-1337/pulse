@@ -1476,7 +1476,7 @@
   "einladung_registrieren": "Create account",
   "einladung_anmelden_hinweis": "After signing in you'll come straight back to this invitation.",
   "einladung_app_oeffnen": "Open in the desktop app",
-  "einladung_app_hinweis": "Opening Pulse. If nothing happens, the app isn't installed. Just join here in the browser instead.",
+  "einladung_app_hinweis": "Opening Pulse. If the invitation doesn't show up there, the app isn't installed or isn't up to date. Just join here in the browser instead.",
   "einladung_app_download": "Download Pulse",
   "einladung_email_titel": "Confirm your email address first",
   "einladung_email_text": "Then you'll continue right here with this invitation.",

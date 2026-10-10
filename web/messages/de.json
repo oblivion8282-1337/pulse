@@ -1476,7 +1476,7 @@
   "einladung_registrieren": "Konto erstellen",
   "einladung_anmelden_hinweis": "Nach der Anmeldung kommst du direkt zu dieser Einladung zurück.",
   "einladung_app_oeffnen": "In der Desktop-App öffnen",
-  "einladung_app_hinweis": "Pulse wird geöffnet. Passiert nichts, ist die App nicht installiert. Dann tritt einfach hier im Browser bei.",
+  "einladung_app_hinweis": "Pulse wird geöffnet. Erscheint die Einladung dort nicht, ist die App nicht installiert oder nicht aktuell. Dann tritt einfach hier im Browser bei.",
   "einladung_app_download": "Pulse herunterladen",
   "einladung_email_titel": "Bestätige zuerst deine E-Mail-Adresse",
   "einladung_email_text": "Danach geht es direkt mit dieser Einladung weiter.",

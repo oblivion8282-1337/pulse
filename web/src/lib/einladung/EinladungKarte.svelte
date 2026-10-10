@@ -218,7 +218,10 @@
       <p class="text-destructive text-sm" role="alert" data-testid="einladung-hinweis">{hinweis}</p>
     {/if}
     {#if appGeoeffnet}
-      <p class="bg-bg-input border-border text-muted-foreground w-full rounded-lg border px-3 py-2 text-xs">
+      <p
+        class="bg-bg-input border-border text-muted-foreground w-full rounded-lg border px-3 py-2 text-xs"
+        role="status"
+      >
         {m.einladung_app_hinweis()}
         {#if downloadUrl}
           <a class="text-primary font-semibold underline-offset-2 hover:underline" href={downloadUrl}>
