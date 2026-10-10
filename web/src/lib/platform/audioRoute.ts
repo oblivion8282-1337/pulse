@@ -107,7 +107,9 @@ export async function setAudioRoute(
     // abspielte — deshalb liess sich die Hörmuschel nie wählen (gemessen
     // 2026-10-10). Nativ ist sie es, und der SDK-Schalter trägt.
     if (nativerSprachwegDa()) {
-      await spracheAusgabe(route === 'earpiece' ? 'hoermuschel' : 'lautsprecher');
+      await spracheAusgabe(route === 'earpiece' ? 'hoermuschel' : 'lautsprecher').catch(
+        (e: unknown) => console.warn('[audioRoute] Ausgabe an die Hülle fehlgeschlagen', e)
+      );
       return;
     }
     // Ohne nativen Raum (ältere App-Fassung, oder nur Stream-Ton): der alte

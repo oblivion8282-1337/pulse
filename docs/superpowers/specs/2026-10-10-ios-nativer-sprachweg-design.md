@@ -124,6 +124,31 @@ Deshalb: die native Kanalansicht zeichnet Pegel und Sprechringe **selbst**.
 Liste ist kurz, und Teil-Updates brauchen eine Reihenfolge-Garantie, die eine
 Brücke mit Ereignissen nicht gibt.
 
+> **Nachtrag 2026-10-11 (Behebungen aus `docs/2026-10-11-ios-bughunt.md`) —
+> was von den Tabellen oben abweicht:**
+>
+> - `lautstaerke({identitaet, wert})` heisst `lautstaerken({lautstaerken,
+>   gesamt})` und schickt die **ganze Tabelle** (Nutzer-Id → Faktor, dazu die
+>   Gesamtlautstärke) — aus demselben Grund wie `teilnehmer`. Die Hülle
+>   rechnet daraus und aus `taub` die Lautstärke jeder Spur aus, gedeckelt bei
+>   1 wie der Mobil-Web-Weg (`SpracheRaumTaub.swift`).
+> - `beitreten` liefert `sitzung`; `verlassen({sitzung?})` trifft dann nur
+>   genau diesen Raum. `zustand()` trägt zusätzlich `kanalName` und `sitzung`.
+> - Neues Ereignis `wunsch` (`{aktion: mikrofon|taub|auflegen, an}`): die
+>   Knöpfe der nativen Ansicht, deren Regeln im Web liegen, bitten das Web.
+>   Hört dort niemand zu, handelt die Hülle selbst; Auflegen erledigt sie nach
+>   4 s auch dann, wenn das Web nicht antwortet.
+> - `verbindung` trägt das schlichte Wort (`connected`), nicht LiveKits
+>   `description` (`.connected`). Das Web liest beides.
+> - Die native Ansicht öffnet nach einem Beitritt nur, wenn die Web-Route den
+>   Kanal zeigt (§5), und schliesst, wenn die Route ihn verlässt.
+> - Der Abgleich nach einem Reload (§5) ist gebaut: übernommen wird nur ein
+>   Raum, den der Eintrag fürs Wiederaufnehmen bestätigt; alles andere wird
+>   verlassen (`web/src/lib/voice/nativAbgleich.ts`).
+> - Solange der native Raum steht, fasst `iosTon` die Session nicht an (§6:
+>   „fasst sie im Sprach-Betrieb nicht mehr an" galt bis dahin nur für den
+>   Sprachkanal selbst, nicht für Stream-Ton und Anrufe daneben).
+
 ## 5. Die native Ansicht
 
 - **Vorgehängt, nicht eingebettet.** Ein `UIViewController` wird über der

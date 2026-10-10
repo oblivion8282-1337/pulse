@@ -68,3 +68,38 @@ test('ohne Mikrofon wird nur mitgeschrieben', () => {
 	assert.equal(wegAntwort(false, 'funk', 'eingebaut'), 'uebernehmen');
 	assert.equal(wegAntwort(false, 'eingebaut', 'eingebaut'), 'uebernehmen');
 });
+
+// --- Bughunt 2026-10-11: K2 (nativer Raum) und G2 (Merken erst nach Gelingen)
+
+import { NACH_NATIVEM_RAUM, tonSchritt } from '../src/lib/platform/tonModus.ts';
+
+const schritt = (teil: Partial<Parameters<typeof tonSchritt>[0]> = {}) =>
+  tonSchritt({ ziel: 'wiedergabe', angewandt: 'aus', nativerRaum: false, erzwingen: false, ...teil });
+
+test('K2: steht der native Raum, wird die Session NICHT angefasst — weder Stream noch Abmelden', () => {
+  // Stream an waehrend des nativen Sprachkanals: vorher `.playback` auf
+  // LiveKits Session (kein Eingang mehr).
+  assert.equal(schritt({ ziel: 'wiedergabe', angewandt: 'aus', nativerRaum: true }), 'nichts');
+  // Stream wieder zu: vorher `setActive(false)` mitten im Gespraech.
+  assert.equal(schritt({ ziel: 'aus', angewandt: 'wiedergabe', nativerRaum: true }), 'nichts');
+  // Direktanruf neben dem nativen Kanal: vorher `.defaultToSpeaker` neu.
+  assert.equal(schritt({ ziel: 'voice', angewandt: 'aus', nativerRaum: true }), 'nichts');
+  // Auch ein erzwungenes Neueinrichten (AirPods rein) wartet.
+  assert.equal(schritt({ ziel: 'voice', angewandt: 'voice', nativerRaum: true, erzwingen: true }), 'nichts');
+});
+
+test('K2: nach dem nativen Raum gilt die Session als aus — ein laufender Stream wird neu eingerichtet', () => {
+  // LiveKit deaktiviert beim Verlassen selbst. Laeuft noch ein Stream, muss
+  // er seine Session zurueckbekommen; laeuft nichts, bleibt es dabei.
+  assert.equal(NACH_NATIVEM_RAUM, 'aus');
+  assert.equal(schritt({ ziel: 'wiedergabe', angewandt: NACH_NATIVEM_RAUM }), 'anwenden');
+  assert.equal(schritt({ ziel: 'aus', angewandt: NACH_NATIVEM_RAUM }), 'nichts');
+});
+
+test('G2: was nicht angewandt ist, wird beim naechsten Anlass erneut versucht', () => {
+  // `angewandt` bleibt nach einem Fehlschlag auf dem alten Wert — gleiches
+  // Ziel beim naechsten Anlass ergibt also wieder `anwenden`.
+  assert.equal(schritt({ ziel: 'voice', angewandt: 'aus' }), 'anwenden');
+  assert.equal(schritt({ ziel: 'voice', angewandt: 'voice' }), 'nichts');
+  assert.equal(schritt({ ziel: 'voice', angewandt: 'voice', erzwingen: true }), 'anwenden');
+});

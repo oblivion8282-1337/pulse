@@ -86,3 +86,44 @@ export function wegAntwort(
   if (angewandt === null) return 'uebernehmen';
   return gemeldet === angewandt ? 'ignorieren' : 'neu-einrichten';
 }
+
+/** Darf `iosTon` die Session jetzt einrichten? */
+export type TonSchritt = 'nichts' | 'anwenden';
+
+/**
+ * Die ganze Entscheidung vor jedem Griff an die Session.
+ *
+ * - **`nativerRaum`: nie.** Hält die Hülle einen Sprachraum, gehört die
+ *   Session LiveKit (`AudioManager` im selben Prozess, dieselbe
+ *   `AVAudioSession.sharedInstance()`). Bis zum 2026-10-11 stellte ein
+ *   angesehener Stream sie auf `.playback` (kein Eingang mehr) und sein
+ *   Schliessen deaktivierte sie mitten im Gespräch — LiveKit richtet sie nur
+ *   bei einer Änderung SEINER Anforderungen neu ein, also blieb es so
+ *   (Bughunt 2026-10-11, K2, am SDK-Quelltext nachgelesen). Dasselbe galt für
+ *   einen Direktanruf neben dem nativen Kanal.
+ * - `erzwingen`: der Weg oder die Bluetooth-Wahl hat sich geändert — gleiches
+ *   Ziel, aber eine andere Einrichtung dahinter.
+ * - sonst nur, wenn das Ziel nicht schon angewandt ist.
+ */
+export function tonSchritt(z: {
+  ziel: TonModus;
+  angewandt: TonModus;
+  nativerRaum: boolean;
+  erzwingen: boolean;
+}): TonSchritt {
+  if (z.nativerRaum) return 'nichts';
+  if (z.erzwingen) return 'anwenden';
+  return z.ziel === z.angewandt ? 'nichts' : 'anwenden';
+}
+
+/**
+ * Was nach dem Ende des nativen Raums als angewandt gilt.
+ *
+ * `aus`, weil LiveKit die Session beim Verlassen selbst deaktiviert
+ * (`AudioSessionEngineObserver.configureAudioSession`: `setActive(false)`,
+ * sobald weder Wiedergabe noch Aufnahme läuft). Läuft dann noch ein Stream,
+ * richtet der nächste Schritt `wiedergabe` neu ein; läuft nichts, bleibt es
+ * bei LiveKits Deaktivierung — ein zweites `setActive(false)` wäre nur ein
+ * weiterer Griff an eine Session, die gerade jemand anderes losgelassen hat.
+ */
+export const NACH_NATIVEM_RAUM: TonModus = 'aus';

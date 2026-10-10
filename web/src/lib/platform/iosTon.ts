@@ -6,13 +6,8 @@ import {
   iosWegWechsel,
   iosVoiceAktiv
 } from './iosAudioSession';
-import {
-  audioSessionTyp,
-  wegAntwort,
-  zielModus,
-  type AudioSessionTyp,
-  type TonModus
-} from './tonModus';
+import { NACH_NATIVEM_RAUM, tonSchritt, wegAntwort, zielModus, type TonModus } from './tonModus';
+import { webAudioSession, webAudioSessionVergessen } from './iosTonWebkit';
 
 /**
  * Der eine Ort, der die iOS-Audio-Session schaltet.
@@ -30,11 +25,13 @@ import {
  * liefe davon nach oben weg und die Session bliebe nach dem letzten Stream
  * für immer aktiv; eine Menge ist von sich aus idempotent.
  *
- * **Bewusst ohne Änderung am Swift-Plugin:** `aus` fährt über
- * `setVoiceActive(false)`, das genau das tut (Session deaktivieren,
- * `notifyOthersOnDeactivation`). Eine eigene `setInactive`-Methode wäre
- * sauberer benannt, verlangte aber einen nativen Neubau auf jedem Gerät —
- * für denselben Effekt. Wer das Plugin ohnehin anfasst, kann es nachziehen.
+ * `aus` fährt über `setVoiceActive(false)` (Session deaktivieren,
+ * `notifyOthersOnDeactivation`) — eine eigene `setInactive`-Methode verlangte
+ * einen nativen Neubau für denselben Effekt.
+ *
+ * **Eine Ausnahme: der native Sprachraum.** Solange die Hülle ihn hält,
+ * gehört die Session LiveKit, und hier wird nichts angefasst
+ * (`tonNativerRaum`).
  *
  * Browser, Electron und Android: No-op (`isCapacitorIOS`-Gate in der
  * Plugin-Schicht; Android hat mit `audioRoute.ts` sein eigenes Gegenstück).
@@ -80,7 +77,29 @@ export function tonHqFunkSetzen(an: boolean): void {
   hqFunk = an;
   // Die Route wird beim nächsten Einrichten gewählt — also jetzt neu
   // einrichten, sonst wirkt die Einstellung erst beim nächsten Beitritt.
-  angewandt = 'aus';
+  erzwingen = true;
+  void anwenden();
+}
+
+/**
+ * Hält die Hülle gerade einen nativen Sprachraum? Dann gehört die Session
+ * LiveKit, und hier wird sie NICHT angefasst — weder umgestellt noch
+ * deaktiviert (Begründung an `tonSchritt` in `tonModus.ts`). Gesetzt allein
+ * aus `platform/iosSprache.ts`, zusammen mit WebKits `ambient`.
+ *
+ * **Sofort gesetzt, nicht in der Kette:** ein schon wartender Schritt soll
+ * beim Anlaufen sehen, dass der Raum steht. Das Zurücksetzen von `angewandt`
+ * beim Ende läuft dagegen IN der Kette — ein Schritt, der gerade noch
+ * arbeitet, würde es sonst überschreiben.
+ */
+export function tonNativerRaum(an: boolean): void {
+  if (nativerRaum === an) return;
+  nativerRaum = an;
+  if (an) return;
+  kette = kette.then(() => {
+    angewandt = NACH_NATIVEM_RAUM;
+    wegAngewandt = null;
+  });
   void anwenden();
 }
 
@@ -98,97 +117,6 @@ export function tonSystemFilterBeobachten(cb: () => void): () => void {
 
 export function tonSystemFiltert(): boolean {
   return systemFiltert;
-}
-
-/** Zuletzt an WebKit gemeldeter Typ — eigener Merker, weil der Web-Teil
- *  auch dort gilt, wo der native gar nicht laeuft (Safari am iPhone). */
-let webTyp: AudioSessionTyp | null = null;
-
-/**
- * WebKit die Absicht nennen (W3C Audio Session API).
- *
- * **Absichtlich VOR dem Capacitor-Gate und ohne es.** Die Schnittstelle ist
- * Web-Standard, kein Huellen-Zusatz: sie wirkt in Safari am iPhone genauso
- * wie in unserer App, und beide haben dasselbe Problem — WebKit waehlt die
- * AVAudioSession nach dem, was es auf der Seite sieht, und weiss ohne diese
- * Zeile nichts von unserer Absicht. Fehlt die Schnittstelle (Chromium, Safari
- * vor iOS 17), geschieht nichts; das ist der richtige Rueckfall, denn dort
- * gibt es auch keine Session zu beeinflussen.
- *
- * Der Merker ist von `angewandt` getrennt: dieses wird beim Wiederherstellen
- * nach einer Unterbrechung absichtlich auf `aus` zurueckgesetzt, damit die
- * NATIVE Einrichtung erneut laeuft — die Absichtserklaerung an WebKit muss
- * deswegen aber nicht neu geschrieben werden.
- */
-/**
- * **AUS — am 2026-10-10 am Geraet gemessen, mit Vorher/Nachher.**
- *
- * Die Vermutung war, diese Schnittstelle sei der Hebel auf WebKits eigene
- * Session: die Session, die den Sprachton wirklich abspielt, gehoert WebKits
- * Prozess, und unser natives `overrideOutputAudioPort` erreicht sie nicht —
- * es dreht unsere Session (die meldet danach brav `Receiver`), waehrend die
- * aktive Systemroute auf dem Lautsprecher bleibt. Daran scheitert die
- * Hoermuschel, und deshalb beweist der funktionierende Lautsprecher nichts:
- * dorthin geht WebKit von selbst.
- *
- * **Gemessen, mit und ohne diese Zeile, je drei Beitritte, iOS 26.6.2:**
- *
- * | | WebKits Session im Geraetelog |
- * |---|---|
- * | aus | `PlayAndRecord_WithBluetooth_DefaultToSpeaker/VideoChat` |
- * | an | dasselbe, plus einmal `…_DefaultToSpeaker/Default` |
- *
- * Die Zeile KOMMT also an — der Modus kippte sichtbar. **`DefaultToSpeaker`
- * bleibt trotzdem**, und genau darauf kam es an. Das deckt sich mit der
- * W3C-API: sie kennt die Typen `auto`/`playback`/`ambient`/`play-and-record`
- * und kein Gegenstueck zu `defaultToSpeaker` — eine Route waehlt man damit
- * nicht.
- *
- * Geblieben ist nur eine Nebenwirkung, und zwar eine unerwuenschte: in
- * `Default` statt `VideoChat` ist Apples Sprachverarbeitung AUS, waehrend
- * unsere Seite sie fuer an haelt (`tonSystemFiltert` liest unsere eigene
- * Session) — ein Fenster ohne jede Echo-Unterdrueckung. Beobachtet wurde es
- * beim Wechsel zwischen zwei Beitritten, nicht im laufenden Gespraech; ein
- * Risiko ohne Gegenwert bleibt es trotzdem.
- *
- * **Die Abbildung bleibt stehen** (samt Tests) und der Schalter auch, denn
- * eine Frage ist ungeprueft: ob diese Absichtserklaerung mitentscheidet, ob
- * WebKit die Seite bei gesperrtem Bildschirm weiterlaufen laesst. Wer das
- * messen will, hat hier den Schalter — und oben die Zahlen, gegen die er
- * vergleichen muss.
- *
- * **Was die Hoermuschel wirklich braucht:** dass der Sprachton nicht mehr von
- * WebKit abgespielt wird. Dafuer gibt es keine Abkuerzung aus dem Web heraus.
- */
-/**
- * **Zweite Schreibstelle derselben Eigenschaft, und sie ist seit dem
- * 2026-10-10 die wichtige:** `webSessionTyp` in `platform/iosSprache.ts`
- * erklärt WebKits Session für die Dauer des nativen Sprachraums als
- * `ambient`. Dort steht die Messung, warum — ohne das übernimmt der erste
- * Oberflächen-Ton nach dem Beitritt die Routen-Hoheit und unterbricht die
- * Session der Hülle, womit die Hörmuschel unerreichbar wird.
- *
- * Heute kollidieren die beiden nicht: dieser Schalter ist aus, und auf dem
- * nativen Weg läuft `tonVoice('sprachkanal', …)` gar nicht mehr. Wer ihn
- * wieder einschaltet, muss beides zusammen denken — die letzte Zuweisung
- * gewinnt.
- */
-const WEB_AUDIO_SESSION_AN = false;
-
-function webAudioSession(ziel: TonModus): void {
-  if (!WEB_AUDIO_SESSION_AN) return;
-  const typ = audioSessionTyp(ziel);
-  if (typ === webTyp) return;
-  if (typeof navigator === 'undefined') return;
-  const nav = navigator as Navigator & { audioSession?: { type: string } };
-  if (!nav.audioSession) return;
-  try {
-    nav.audioSession.type = typ;
-    webTyp = typ;
-  } catch {
-    // Ein nicht angenommener Wert darf nichts weiter nach sich ziehen; den
-    // Merker NICHT setzen, damit der naechste Anlauf es erneut versucht.
-  }
 }
 
 /**
@@ -220,46 +148,72 @@ function webAudioSession(ziel: TonModus): void {
  */
 let wegAngewandt: string | null = null;
 
-async function anwenden(): Promise<void> {
+/** Steht ein nativer Sprachraum? S. `tonNativerRaum`. */
+let nativerRaum = false;
+/** Gleiches Ziel, aber neu einrichten (Weg oder Bluetooth-Wahl geändert). */
+let erzwingen = false;
+
+/**
+ * **Die Schritte laufen der Reihe nach.** Bis zum 2026-10-11 setzte jeder
+ * Aufruf `angewandt` VOR dem `await` — damit zwei schnelle Aufrufe nicht
+ * doppelt einrichteten. Der Preis: scheiterte die Hülle, galt die Betriebsart
+ * trotzdem als angewandt und wurde nie wieder versucht (Bughunt G2). Jetzt
+ * wird erst NACH dem Gelingen gemerkt, und die Kette sorgt dafür, dass kein
+ * zweiter Schritt über einen laufenden hinwegliest.
+ */
+let kette: Promise<void> = Promise.resolve();
+
+function anwenden(): Promise<void> {
+  const lauf = kette.then(schritt);
+  kette = lauf.catch(() => undefined);
+  return lauf;
+}
+
+async function schritt(): Promise<void> {
   const ziel = zielModus(voiceQuellen.size > 0, wiedergaben.size);
-  webAudioSession(ziel);
+  if (!nativerRaum) webAudioSession(ziel);
   if (!isCapacitorIOS()) return;
-  if (ziel === angewandt) return;
+  if (tonSchritt({ ziel, angewandt, nativerRaum, erzwingen }) === 'nichts') return;
+  const warErzwungen = erzwingen;
+  erzwingen = false;
+  const ergebnis = await einrichten(ziel);
+  // Gescheitert: NICHT merken (auch nicht, dass neu eingerichtet werden
+  // muss). Der nächste Anlass versucht es erneut — ein eigener
+  // Wiederholungs-Takt wäre genau die Rückkopplung, die diese Datei am
+  // 2026-10-10 an der Wurzel beseitigt hat.
+  if (!ergebnis) {
+    if (warErzwungen) erzwingen = true;
+    return;
+  }
   angewandt = ziel;
-  const vorher = systemFiltert;
+  wegAngewandt = ergebnis.weg;
+  if (systemFiltert === ergebnis.filtert) return;
+  systemFiltert = ergebnis.filtert;
+  // Kopie, weil ein Hörer sich im Ruf abmelden darf.
+  for (const h of [...filterHoerer]) h();
+}
+
+/** Die Hülle für `ziel` einrichten lassen. `null`, wenn sie scheitert. */
+async function einrichten(
+  ziel: TonModus
+): Promise<{ filtert: boolean; weg: string | null } | null> {
   if (ziel === 'voice') {
     const antwort = await iosVoiceAktiv(true, hqFunk);
-    systemFiltert = antwort.modus === 'voiceChat';
-    wegAngewandt = antwort.weg;
-  } else if (ziel === 'wiedergabe') {
-    await iosPlaybackModus();
-    systemFiltert = false;
+    return antwort.ok ? { filtert: antwort.modus === 'voiceChat', weg: antwort.weg } : null;
+  }
+  if (ziel === 'wiedergabe') {
     // Die Wiedergabe-Kategorie richtet sich nicht nach dem Weg — was gilt,
     // ist damit unbekannt. Nicht raten.
-    wegAngewandt = null;
-  } else {
-    const antwort = await iosVoiceAktiv(false);
-    systemFiltert = false;
-    wegAngewandt = antwort.weg;
+    return (await iosPlaybackModus()) ? { filtert: false, weg: null } : null;
   }
-  if (systemFiltert !== vorher) {
-    // Kopie, weil ein Hörer sich im Ruf abmelden darf.
-    for (const h of [...filterHoerer]) h();
-  }
+  const antwort = await iosVoiceAktiv(false);
+  return antwort.ok ? { filtert: false, weg: antwort.weg } : null;
 }
 
 /**
- * Unterbrechungen (Telefonanruf, Siri, Wecker) — Roadmap-Punkt 26.
- *
- * **Warum das nicht ohne Zutun heilt:** iOS deaktiviert die Session zu Beginn
- * der Unterbrechung selbst. Danach steht sie auf tot, der Sprachkanal ist
- * stumm — und die Verbindung steht weiter, es sieht also nach „verbunden,
- * aber keiner hört mich" aus. Das Zurückschalten muss die App tun.
- *
- * **Und der Merker muss zurückgesetzt werden**, sonst passiert gar nichts:
- * `anwenden()` steigt aus, wenn das Ziel dem zuletzt Angewandten entspricht —
- * und das tut es hier, denn gewollt ist weiter `voice`. Die Session ist
- * trotzdem weg. Ohne diese eine Zeile wäre der ganze Beobachter wirkungslos.
+ * Unterbrechungen (Telefonanruf, Siri, Wecker — Roadmap-Punkt 26) und
+ * Wegwechsel. Auf Unterbrechungen wird seit dem 2026-10-10 bewusst NICHT mehr
+ * reagiert; warum, steht im Rumpf.
  *
  * Der Abriss wird nicht gebraucht: der Beobachter lebt so lange wie die
  * Seite, und genauso lange gibt es eine Audio-Session zu reparieren.
@@ -310,8 +264,8 @@ function unterbrechungenBeobachten(): void {
   // die Konfiguration des alten Wegs, und mit ihr liefe entweder zweimal
   // gefiltert oder gar nicht.
   //
-  // Auch hier muss der Merker fallen: gewollt ist weiter `voice`, nur die
-  // Einrichtung dahinter ist eine andere (dieselbe Falle wie oben).
+  // `erzwingen`, weil gewollt weiter `voice` ist: bei gleichem Ziel stiege
+  // `tonSchritt` sonst aus, obwohl die Einrichtung dahinter eine andere ist.
   iosWegWechsel((e) => {
     // Die Entscheidung selbst steht importfrei in `tonModus.ts` und ist dort
     // geprueft — sie ist der Kern dieses Hakens und darf nicht nur am Geraet
@@ -323,7 +277,7 @@ function unterbrechungenBeobachten(): void {
         wegAngewandt = e.weg;
         return;
       case 'neu-einrichten':
-        angewandt = 'aus';
+        erzwingen = true;
         void anwenden();
         return;
     }
@@ -382,8 +336,10 @@ export function tonZuruecksetzen(): void {
   voiceQuellen.clear();
   wiedergaben.clear();
   angewandt = 'aus';
-  webTyp = null;
+  webAudioSessionVergessen();
   wegAngewandt = null;
+  nativerRaum = false;
+  erzwingen = false;
 }
 
 /** Der zuletzt angewandte Modus — für Anzeige und Tests. */

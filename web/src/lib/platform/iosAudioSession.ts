@@ -92,14 +92,18 @@ function plugin(): AudioSessionPlugin | null {
  *
  * `unbekannt`, wenn die Hülle nicht antwortet (älterer Bau ohne das Feld):
  * dann bleibt es beim Wunsch des Nutzers, also beim bisherigen Verhalten.
+ *
+ * `ok`: hat die Hülle eingerichtet? Ohne das merkte sich `iosTon` eine
+ * Betriebsart, die nie angewandt war, und versuchte sie nie wieder
+ * (Bughunt 2026-10-11, G2).
  */
 export async function iosVoiceAktiv(
   aktiv: boolean,
   hqFunk = false
-): Promise<{ modus: string; weg: string | null }> {
-  if (!isCapacitorIOS()) return { modus: 'unbekannt', weg: null };
+): Promise<{ modus: string; weg: string | null; ok: boolean }> {
+  if (!isCapacitorIOS()) return { modus: 'unbekannt', weg: null, ok: false };
   const p = plugin();
-  if (!p) return { modus: 'unbekannt', weg: null };
+  if (!p) return { modus: 'unbekannt', weg: null, ok: false };
   const antwort = await p.setVoiceActive({ aktiv, hqFunk }).catch((e: unknown) => {
     // **Nicht stillschweigend verschlucken.** Scheitert das Einrichten, ist
     // die Session nicht aktiv — der Sprachkanal steht dann verbunden da und
@@ -111,15 +115,26 @@ export async function iosVoiceAktiv(
   });
   // `weg: null` heisst „nicht erfahren", nicht „kein Weg" — der Aufrufer darf
   // daraus keinen Wegwechsel ableiten.
-  return { modus: antwort?.modus ?? 'unbekannt', weg: antwort?.weg ?? null };
+  return {
+    modus: antwort?.modus ?? 'unbekannt',
+    weg: antwort?.weg ?? null,
+    ok: antwort !== undefined
+  };
 }
 
-/** Playback-Modus (Watch-/Stream-Ton ohne Mikro). */
-export async function iosPlaybackModus(): Promise<void> {
-  if (!isCapacitorIOS()) return;
+/** Playback-Modus (Watch-/Stream-Ton ohne Mikro). `false` = nicht
+ *  eingerichtet (s. `ok` an `iosVoiceAktiv`). */
+export async function iosPlaybackModus(): Promise<boolean> {
+  if (!isCapacitorIOS()) return false;
   const p = plugin();
-  if (!p) return;
-  await p.setPlaybackMode().catch(() => undefined);
+  if (!p) return false;
+  return p
+    .setPlaybackMode()
+    .then(() => true)
+    .catch((e: unknown) => {
+      console.error('[Ton] setPlaybackMode fehlgeschlagen', e);
+      return false;
+    });
 }
 
 /**
@@ -149,8 +164,9 @@ export async function iosTonWegSetzen(id: string): Promise<boolean> {
     .catch(() => false);
 }
 
-/** Unterbrechungen melden (Telefonanruf, Siri, Wecker). Rueckgabe = Abriss. */
 /**
+ * Unterbrechungen melden (Telefonanruf, Siri, Wecker). Rueckgabe = Abriss.
+ *
  * **Ohne Hoerer seit dem 2026-10-10 — und das ist Absicht.**
  *
  * Der Binder bleibt, der Aufrufer ist weg: wer auf eine beendete

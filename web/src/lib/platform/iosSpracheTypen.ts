@@ -29,7 +29,14 @@ export interface NativerTeilnehmer {
 
 export interface NativerZustand {
   verbunden: boolean;
+  /** Leer, wenn die Hülle keinen Raum hält — auch während eines
+   *  Wiederaufbaus steht hier der Kanal (`verbunden` ist dann `false`). */
   kanalId: string;
+  /** Für den Abgleich nach einem Reload: die frische Seite kennt ihn nicht. */
+  kanalName?: string;
+  /** Zählt die Beitritte der Hülle. Ein `verlassen` mit dieser Zahl trifft
+   *  nur genau diesen Raum (Bughunt 2026-10-11, M6). */
+  sitzung?: number;
   teilnehmer: NativerTeilnehmer[];
   mikro: boolean;
   /** Eigene Kamera an? Nach einem Reload der Web-App ist dieses Vollbild die
@@ -81,6 +88,13 @@ export interface NativerEigenerZustand {
   taub?: boolean;
 }
 
+/** Ein Knopf der nativen Ansicht, dessen Regeln im Web liegen
+ *  (`SpracheRaum.wunsch` in der Hülle). */
+export interface NativerWunsch {
+  aktion: 'mikrofon' | 'taub' | 'auflegen';
+  an: boolean;
+}
+
 export interface SprachePlugin {
   beitreten(o: {
     wsUrl: string;
@@ -89,8 +103,16 @@ export interface SprachePlugin {
     kanalName: string;
     startStumm: boolean;
     startTaub: boolean;
+    /** Lautstärke je Nutzer-Id und gesamt — schon beim Aufbau, damit die
+     *  erste abonnierte Spur richtig klingt. Eine ältere Hülle übergeht sie. */
+    lautstaerken?: Record<string, number>;
+    gesamt?: number;
   }): Promise<NativerZustand>;
-  verlassen(): Promise<void>;
+  verlassen(o: { sitzung?: number }): Promise<void>;
+  lautstaerken(o: {
+    lautstaerken: Record<string, number>;
+    gesamt: number;
+  }): Promise<NativerZustand>;
   mikrofon(o: { an: boolean }): Promise<NativerZustand>;
   taub(o: { an: boolean }): Promise<NativerZustand>;
   ausgabe(o: { weg: 'lautsprecher' | 'hoermuschel' }): Promise<NativerZustand>;
@@ -119,4 +141,5 @@ export interface SprachePlugin {
     name: 'ansichtGeschlossen',
     cb: () => void
   ): Promise<{ remove: () => void }>;
+  addListener(name: 'wunsch', cb: (e: NativerWunsch) => void): Promise<{ remove: () => void }>;
 }
