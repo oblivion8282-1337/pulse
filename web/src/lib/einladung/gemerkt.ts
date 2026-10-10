@@ -11,6 +11,10 @@ import { istGueltigerCode, istGueltigerHost, type Einladung } from './einladungs
 export const SPEICHER_SCHLUESSEL = 'pulse.einladung.gemerkt';
 export const HALTBARKEIT_MS = 24 * 60 * 60 * 1000;
 
+/** Fenster-Ereignis „eine Einladung wurde gerade gemerkt“ — der Dialog liest
+ *  den Speicher sonst nur, wenn sich die Anmeldung ändert. */
+export const EREIGNIS_GEMERKT = 'pulse:einladung-gemerkt';
+
 export type Speicher = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 /** localStorage, oder null, wenn schon der Zugriff wirft (Privatmodus,

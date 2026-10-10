@@ -135,3 +135,16 @@ export function klickAbfangen(k: KlickArt): boolean {
     !k.defaultPrevented && k.button === 0 && !k.metaKey && !k.ctrlKey && !k.shiftKey && !k.altKey
   );
 }
+
+/** Wohin ein Einladungs-Deep-Link der Desktop-App führt. `bereit` = angemeldet
+ *  und E-Mail bestätigt.
+ *  - 'dialog': auf einer echten Unterseite von /app — Dialog an der Adresse.
+ *  - 'merken': nicht bereit, oder genau auf `/app` — dort leitet
+ *    app/+page.svelte mit replaceState weiter und verwirft die Query; der
+ *    Dialog holt die Einladung stattdessen aus dem Speicher.
+ *  - 'merken-und-app': bereit, aber außerhalb von /app. */
+export function deepLinkWeg(pfad: string, bereit: boolean): 'dialog' | 'merken' | 'merken-und-app' {
+  if (!bereit) return 'merken';
+  if (pfad.startsWith('/app/')) return 'dialog';
+  return pfad === '/app' ? 'merken' : 'merken-und-app';
+}

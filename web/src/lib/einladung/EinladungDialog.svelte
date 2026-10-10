@@ -20,19 +20,32 @@
     type EinladungZustand
   } from './EinladungKarte.svelte';
   import { einladungAusParametern, ohneEinladung, type Einladung } from './einladungsLink';
-  import { browserSpeicher, gemerkteEinladung, gemerkteEinladungVerwerfen } from './gemerkt';
+  import {
+    EREIGNIS_GEMERKT,
+    browserSpeicher,
+    gemerkteEinladung,
+    gemerkteEinladungVerwerfen
+  } from './gemerkt';
   import { einladungAnnehmen, fehlerMeldung, ladeEinladung } from './laden';
   import { m } from '$lib/paraglide/messages.js';
 
   const ausUrl = $derived(einladungAusParametern(page.url.searchParams, CLOUD_HOSTNAME));
   let ausSpeicher = $state<Einladung | null>(null);
 
+  function ausSpeicherLesen() {
+    if (!auth.user || auth.user.email_verification_pending) return;
+    const g = gemerkteEinladung(browserSpeicher(), Date.now());
+    // Nur bei echter Änderung zuweisen: jede neue Objekt-Identität lüde neu.
+    if (g?.code !== ausSpeicher?.code || g?.host !== ausSpeicher?.host) ausSpeicher = g;
+  }
+
+  $effect(ausSpeicherLesen);
+
+  // Deep-Link auf genau /app (deepLink.ts): dort wird gemerkt, nicht über die
+  // Adresse geöffnet — dieses Ereignis sagt dem Dialog, dass er nachsehen soll.
   $effect(() => {
-    if (auth.user && !auth.user.email_verification_pending) {
-      const g = gemerkteEinladung(browserSpeicher(), Date.now());
-      // Nur bei echter Änderung zuweisen: jede neue Objekt-Identität lüde neu.
-      if (g?.code !== ausSpeicher?.code || g?.host !== ausSpeicher?.host) ausSpeicher = g;
-    }
+    window.addEventListener(EREIGNIS_GEMERKT, ausSpeicherLesen);
+    return () => window.removeEventListener(EREIGNIS_GEMERKT, ausSpeicherLesen);
   });
 
   const offen = $derived(ausUrl !== null || ausSpeicher !== null);
