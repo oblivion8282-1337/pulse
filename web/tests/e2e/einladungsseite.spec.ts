@@ -1,0 +1,135 @@
+/**
+ * Die Einladungsseite (Spec 2026-10-10). Anders als invite-link-join.spec.ts,
+ * das den Link nur ins Beitrittsfeld kopiert, RUFT dieser Test den Link auf —
+ * genau die Lücke, durch die die fehlende Route vier Monate unbemerkt blieb.
+ */
+import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import { E2E_BASE_URL } from './_ports';
+
+const ts = Date.now();
+const ALICE = {
+  username: `ein_alice_${ts}`,
+  email: `ein_alice_${ts}@dcc-test.example.com`,
+  password: 'ein-secret-pass'
+};
+const BOB = {
+  username: `ein_bob_${ts}`,
+  email: `ein_bob_${ts}@dcc-test.example.com`,
+  password: 'ein-secret-pass'
+};
+const RUNDE = 'Einladungsrunde';
+const ZWEITE = 'Zweite Runde';
+
+async function registrieren(page: Page, u: typeof ALICE) {
+  await page.getByTestId('reg-username').fill(u.username);
+  await page.getByTestId('reg-email').fill(u.email);
+  await page.getByTestId('reg-password').fill(u.password);
+  await page.getByTestId('reg-submit').click();
+  await page.waitForURL(/\/app/);
+  await page
+    .locator('[data-testid=backup-onboarding-skip-btn]')
+    .click({ timeout: 2500 })
+    .catch(() => undefined);
+}
+
+async function communityAnlegen(page: Page, name: string): Promise<string> {
+  await page.locator('[data-testid^="guild-create-menu-"]').first().click();
+  await page.getByTestId('guild-create').click();
+  await page.getByTestId('create-guild-name').fill(name);
+  await page.getByTestId('create-guild-submit').click();
+  await page.waitForURL(/\/app\/guilds\/(\d+)\/channels\/\d+/);
+  return page.url();
+}
+
+async function linkErzeugen(page: Page): Promise<string> {
+  await page.getByTestId('invite-open-btn').click();
+  await page.getByTestId('invite-share-create').click();
+  const el = page.getByTestId('invite-share-link');
+  await expect(el).toBeVisible({ timeout: 10_000 });
+  const link = (await el.textContent())!.trim();
+  await page.keyboard.press('Escape');
+  return link;
+}
+
+const karte = (page: Page, zustand: string) =>
+  page.locator(`[data-testid=einladung-karte][data-zustand=${zustand}]`);
+
+test.describe.serial('Einladungsseite', () => {
+  let aliceCtx: BrowserContext;
+  let alice: Page;
+  let bobCtx: BrowserContext;
+  let bob: Page;
+  let rundeUrl = '';
+  let link1 = '';
+  let link2 = '';
+
+  test.beforeAll(async ({ browser }) => {
+    aliceCtx = await browser.newContext();
+    bobCtx = await browser.newContext();
+    alice = await aliceCtx.newPage();
+    bob = await bobCtx.newPage();
+  });
+
+  test.afterAll(async () => {
+    await aliceCtx.close();
+    await bobCtx.close();
+  });
+
+  test('Alice legt zwei Communitys an und erzeugt je einen Link', async () => {
+    await alice.goto('/register');
+    await registrieren(alice, ALICE);
+    rundeUrl = await communityAnlegen(alice, RUNDE);
+    link1 = await linkErzeugen(alice);
+    await communityAnlegen(alice, ZWEITE);
+    link2 = await linkErzeugen(alice);
+    expect(link1).toContain('/invite/');
+  });
+
+  test('Abgemeldet: der Link zeigt die Einladung, keine Fehlerseite', async () => {
+    await bob.goto(link1);
+    await expect(karte(bob, 'abgemeldet')).toBeVisible({ timeout: 15_000 });
+    await expect(bob.getByTestId('route-error')).toHaveCount(0);
+  });
+
+  test('Konto erstellen führt nach der Registrierung zur Einladung zurück', async () => {
+    await bob.getByTestId('einladung-registrieren').click();
+    await bob.waitForURL(/\/register/);
+    await registrieren(bob, BOB);
+    const dialog = bob.getByTestId('einladung-dialog');
+    await expect(karte(bob, 'einladung')).toBeVisible({ timeout: 15_000 });
+    await expect(dialog.getByTestId('einladung-name')).toHaveText(RUNDE);
+    await dialog.getByTestId('einladung-beitreten').click();
+    const guildId = rundeUrl.match(/\/app\/guilds\/(\d+)/)![1];
+    await bob.waitForURL(new RegExp(`/app/guilds/${guildId}/channels/`), { timeout: 15_000 });
+    await expect(bob.getByTestId('einladung-dialog')).toHaveCount(0);
+  });
+
+  test('Schon Mitglied: Community öffnen', async () => {
+    await bob.goto(link1);
+    await expect(karte(bob, 'mitglied')).toBeVisible({ timeout: 15_000 });
+    await bob.getByTestId('einladung-oeffnen').click();
+    await bob.waitForURL(/\/app\/guilds\/\d+\/channels\//);
+  });
+
+  test('Unbekannter Code: gilt nicht mehr', async () => {
+    await bob.goto(`${E2E_BASE_URL}/invite/ZZZZ9999`);
+    await expect(karte(bob, 'ungueltig')).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('Klick auf einen Einladungslink im Chat öffnet den Dialog, keinen neuen Tab', async () => {
+    await alice.goto(rundeUrl);
+    await alice.getByTestId('message-input').click();
+    await alice.getByTestId('message-input').fill(`Schau mal: ${link2}`);
+    await alice.getByTestId('message-input').press('Enter');
+
+    await bob.goto(rundeUrl);
+    const anker = bob.locator(`[data-testid=message-content] a[href="${link2}"]`);
+    await expect(anker).toBeVisible({ timeout: 15_000 });
+    await anker.click();
+    await expect(bob).toHaveURL(/einladung=/);
+    await expect(bob.getByTestId('einladung-dialog').getByTestId('einladung-name')).toHaveText(ZWEITE, {
+      timeout: 15_000
+    });
+    expect(bobCtx.pages()).toHaveLength(1);
+  });
+});
