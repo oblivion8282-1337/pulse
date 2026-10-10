@@ -87,6 +87,8 @@
         ? m.invite_embed_member_count_one({ count: 1 })
         : m.invite_embed_member_count({ count: community.mitglieder })
   );
+  // Im Dialog trägt `Dialog.Title` (sr-only) schon die Ebene 1.
+  const ueberschrift = $derived(rahmen === 'dialog' ? 'h2' : 'h1');
   const zuPulseText = $derived(
     rahmen === 'dialog' ? m.invite_dialog_close_btn() : m.einladung_zu_pulse()
   );
@@ -111,13 +113,13 @@
       {#if zustand === 'ungueltig'}<LinkOffIcon class="size-7" />{:else}<WifiOffIcon class="size-7" />{/if}
     </div>
     <div class="flex flex-col gap-2">
-      <h1 class="text-card-foreground text-xl font-semibold">
+      <svelte:element this={ueberschrift} class="text-card-foreground text-xl font-semibold">
         {zustand !== 'ungueltig'
           ? m.einladung_fehler_titel()
           : adresse
             ? m.einladung_ungueltig_titel_adresse()
             : m.einladung_ungueltig_titel()}
-      </h1>
+      </svelte:element>
       <p class="text-muted-foreground text-sm" data-testid="einladung-hinweis">
         {zustand === 'ungueltig'
           ? (hinweis ??
@@ -140,7 +142,7 @@
       <MailIcon class="size-7" />
     </div>
     <div class="flex flex-col gap-2">
-      <h1 class="text-card-foreground text-xl font-semibold">{m.einladung_email_titel()}</h1>
+      <svelte:element this={ueberschrift} class="text-card-foreground text-xl font-semibold">{m.einladung_email_titel()}</svelte:element>
       <p class="text-muted-foreground text-sm">{m.einladung_email_text()}</p>
     </div>
     <Button class="w-full" onclick={onEmail} data-testid="einladung-email">
@@ -169,7 +171,7 @@
     {/if}
 
     <div class="flex flex-col items-center gap-2">
-      <h1 class="text-card-foreground text-2xl font-semibold" data-testid="einladung-name">{titel}</h1>
+      <svelte:element this={ueberschrift} class="text-card-foreground text-2xl font-semibold" data-testid="einladung-name">{titel}</svelte:element>
       {#if mitgliederText}
         <p class="text-muted-foreground text-sm">{mitgliederText}</p>
       {/if}

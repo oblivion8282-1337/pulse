@@ -79,6 +79,16 @@ type ParsedJoinInput =
 const _BARE_HOST_RE =
   /^(https?:\/\/)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d+)?\/?$/i;
 
+/** Ein kaputtes %-Escape wirft `URIError`; den Rohwert behalten, damit `zielHost`
+ *  ihn als ungültigen Host abweist (dieselbe Meldung wie jeder andere ungültige Host). */
+function hostDekodieren(roh: string): string {
+  try {
+    return decodeURIComponent(roh);
+  } catch {
+    return roh;
+  }
+}
+
 /**
  * Zerlegt einen gepasteten Link oder bare Code in sein strukturiertes Format.
  *
@@ -105,7 +115,7 @@ export function parseJoinInput(input: string): ParsedJoinInput {
     let host: string | null = null;
     const hostParam = trimmed.match(/[?&]host=([^\s&#]+)/i);
     if (hostParam) {
-      host = decodeURIComponent(hostParam[1]);
+      host = hostDekodieren(hostParam[1]);
     } else {
       // Host aus dem URL-Schema extrahieren (wenn URL mit http(s):// beginnt).
       // Nur als Self-Host behandeln, wenn es NICHT der Cloud-Host ist.
@@ -132,7 +142,7 @@ export function parseJoinInput(input: string): ParsedJoinInput {
   const codeMatch = trimmed.match(/\/invite\/([^/?#\s]+)/i);
   const code = (codeMatch ? codeMatch[1] : trimmed).trim();
   const hostMatch = trimmed.match(/[?&]host=([^\s&#]+)/i);
-  const host = hostMatch ? decodeURIComponent(hostMatch[1]) : null;
+  const host = hostMatch ? hostDekodieren(hostMatch[1]) : null;
   return { kind: 'invite', code, host };
 }
 
