@@ -92,3 +92,24 @@ test('eine vorlaeufige ID steht hinter einer echten Snowflake derselben Millisek
   assert.ok(compareSnowflakeId(echt, vorlaeufig) < 0, 'die bestaetigte Nachricht steht vorne');
   assert.ok(compareSnowflakeId(vorlaeufig, echt) > 0);
 });
+
+test('eine ALTE 20-stellige lokale ID (bis 2026-09-02 vergeben) sortiert nach ihrer echten Zeit', () => {
+  // Befund 2026-10-10: `lokaleNachrichtId()` vergab bis zum 2026-09-02 20
+  // Stellen (13 Zeit + 7 Zufall), seither 19. Die Umstellung erkannte nur
+  // noch 19 Stellen als lokal — eine 20-stellige ID aus dem Altbestand
+  // (lokaler Verlauf, gespeicherter Lesestand) wurde als Server-Snowflake
+  // gelesen, mit eingebetteter Zeit im Jahr 2161, und war damit „neuer" als
+  // jede echte Nachricht. Ein Lesestand, der auf so einer ID stand, rückte
+  // nie wieder vor — das Lese-Häkchen beim Partner wurde nie blau.
+  // Werte aus dem Befund: der festgefahrene Lesestand eines echten Profils
+  // (2026-09-02 17:08 UTC) gegen den Lesestand des Partners (2026-10-10).
+  const alt20 = '17883689393957468977';
+  const neu19 = '1791624581823726971';
+  assert.ok(compareSnowflakeId(alt20, neu19) < 0, 'September muss vor Oktober stehen');
+  assert.ok(compareSnowflakeId(neu19, alt20) > 0);
+  // Und gegen eine echte Snowflake vom 2026-10-10 (Zeitfeld in ms seit
+  // 2026-01-01): auch die ist jünger als der Altbestand vom September.
+  const msBis20261010 = BigInt(Date.UTC(2026, 9, 10)) - 1767225600000n;
+  const serverOktober = String(msBis20261010 << 22n);
+  assert.ok(compareSnowflakeId(alt20, serverOktober) < 0);
+});

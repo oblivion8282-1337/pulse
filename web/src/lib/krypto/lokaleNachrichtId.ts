@@ -12,10 +12,13 @@
  * `sortierSchluessel`s `padStart` (lokales Verlauf-Schema, `verlauf/satz.ts`)
  * sie weiterhin lexikografisch nach Zeit einordnet. Und die STELLENZAHL ist
  * anderswo festgeschrieben: `utils/snowflakeZeit.ts` erkennt eine lokale ID an
- * ihren 20 Ziffern (`LOKALE_ID_LAENGE`) und liest die ersten 13 als
+ * ihren 19 Ziffern (`LOKALE_ID_LAENGE`) und liest die ersten 13 als
  * `Date.now()` (`LOKALE_ID_ZEIT_STELLEN`). **Wer hier die Breite aendert,
  * aendert dort mit** — sonst deutet der Sortiervergleich lokale IDs still als
- * Server-Snowflakes um.
+ * Server-Snowflakes um. **Und die ALTE Breite muss dort erkannt bleiben**:
+ * genau das fehlte beim Wechsel von 20 auf 19 Stellen, und die 20-stelligen
+ * IDs im Altbestand galten fortan als Jahr 2161 (`LOKALE_ID_LAENGE_ALT`,
+ * Befund 2026-10-10).
  *
  * Genau dieser Vertrag lag bis zum 2026-09-01 dreimal im Baum, jede Kopie mit
  * eigenem Kommentar; hier steht er einmal.
