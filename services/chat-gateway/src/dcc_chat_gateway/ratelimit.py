@@ -30,6 +30,9 @@ _RULES: dict[str, tuple[int, float]] = {
     # Aufruf, Codes sind erratbar genug für Skripte. 120/Minute je Nutzer
     # reichen jedem Menschen (auch einer Liste von Links im Chat) locker.
     "invite_preview": (120, 60.0),
+    # Angemeldete Adress-Vorschau (GET /c/{handle}): ein DB-Lookup je Aufruf,
+    # Handles sind erratbar. Gleiche Größenordnung wie die Einladungs-Vorschau.
+    "community_preview": (120, 60.0),
     "report": (10, 3600.0),         # 10 reports / hour
     # 20 Gast-Links / Stunde (pro Erzeuger). MOVE_MEMBERS haelt nur, wem man
     # ohnehin vertraut — die Bremse steht gegen ein durchgedrehtes Skript,
