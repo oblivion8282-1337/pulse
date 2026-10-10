@@ -126,6 +126,17 @@ test.describe.serial('Einladungsseite', () => {
     await expect(karte(bob, 'ungueltig')).toBeVisible({ timeout: 15_000 });
   });
 
+  test('Abgemeldet: ein unbekannter Code gilt nicht mehr', async ({ browser }) => {
+    const ctx = await browser.newContext();
+    try {
+      const p = await ctx.newPage();
+      await p.goto(`${E2E_BASE_URL}/invite/ZZZZ9999`);
+      await expect(karte(p, 'ungueltig')).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await ctx.close();
+    }
+  });
+
   test('Klick auf einen Einladungslink im Chat öffnet den Dialog, keinen neuen Tab', async () => {
     await alice.goto(rundeUrl);
     await alice.getByTestId('message-input').click();
