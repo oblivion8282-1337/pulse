@@ -157,15 +157,17 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
           // Offen UND hingeschaut — ein offenes Gespräch hinter einem
           // minimierten Fenster ist ungelesen (s. `nachrichten/hinschauen.ts`);
           // das Gespräch meldet sich beim Zurückkommen selbst als gelesen.
-          if (istAboniert(nachricht.channel_id) && siehtHin()) {
+          const offen = istAboniert(nachricht.channel_id);
+          if (offen && siehtHin()) {
             readState.markRead(nachricht.channel_id, lesestandAnker(nachricht));
           } else {
             readState.incUnread(nachricht.channel_id, lesestandAnker(nachricht));
             // Toast/Ton/In-Page-Benachrichtigung — zieht mit `dm_bump` gleich
             // (Bughunt Runde 4, Befund 1: vorher loeste der verschluesselte
             // Weg keins von beiden aus). Der Rumpf steht seit Etappe G in
-            // `./postfachBenachrichtigung.ts`.
-            meldeNeueZustellung(nachricht, gruppe?.name ?? null);
+            // `./postfachBenachrichtigung.ts`; bei offenem Gespräch ohne
+            // den Toast (s. dort).
+            meldeNeueZustellung(nachricht, gruppe?.name ?? null, offen);
           }
         }
       }
@@ -269,7 +271,8 @@ export function register(ctx: HandlerContext): void {
     });
     if (evt.author_id !== me) {
       readState.recordSeen(evt.channel_id, evt.message_id);
-      if (ctx.subs.has(evt.channel_id) && siehtHin()) {
+      const offen = ctx.subs.has(evt.channel_id);
+      if (offen && siehtHin()) {
         // Already viewing this DM — mark read, no toast.
         readState.markRead(evt.channel_id, evt.message_id);
       } else {
@@ -292,8 +295,10 @@ export function register(ctx: HandlerContext): void {
         // Bild, das gerade ein Fremder sieht (`$lib/remote/sichtschutz.ts`).
         // Am Handy ebenfalls keiner: dort ist die Chats-Liste selbst die
         // Benachrichtigung (Badge + Vorschau), und ein Toast überdeckt die
-        // Bereichs-Leiste unten, die man gerade benutzen will.
-        if (!isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
+        // Bereichs-Leiste unten, die man gerade benutzen will. Und keiner
+        // neben dem offenen Gespräch, dessen Fenster nur den Fokus verloren
+        // hat (s. `postfachBenachrichtigung.ts`).
+        if (!offen && !isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
           toast.message(m.chat_handler_dm_new_message({ senderLabel }), {
             action: {
               label: m.chat_handler_dm_open(),
