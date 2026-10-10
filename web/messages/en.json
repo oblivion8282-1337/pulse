@@ -2999,6 +2999,7 @@
   "voice_bar_force_muted": "Muted by a moderator",
   "voice_bar_label": "Voice",
   "voice_bar_leave": "Leave voice channel",
+  "voice_bar_native_view_open": "Back to the channel",
   "voice_bar_mic_mute": "Mute microphone",
   "voice_bar_mic_state_muted": "Microphone muted",
   "voice_bar_mic_state_on": "Microphone on",

@@ -24,6 +24,7 @@
   import { isCapacitorAndroid, isCapacitorIOS } from '$lib/platform/runtime';
   import { audioRouteState } from '$lib/platform/audioRouteState.svelte';
   import VoiceAusgabeMenue from './VoiceAusgabeMenue.svelte';
+  import VoiceNativeAnsichtGriff from './VoiceNativeAnsichtGriff.svelte';
 
   // Handy-Klasse? Wird vom Mount-Punkt hereingereicht (Geraete-Trennung):
   // Desktop leistet die Leiste im Sidebar-Fuss, Handy als Dock unter dem
@@ -225,6 +226,9 @@
       {#if showAudioRouteToggle}
         <VoiceAusgabeMenue {btnCls} {iconCls} />
       {/if}
+      <!-- Zurück in die native Kanalansicht (nur iOS, nur wenn sie zu ist) —
+           die Komponente entscheidet das selbst. -->
+      <VoiceNativeAnsichtGriff {btnCls} {iconCls} />
       <!-- Watch-Party auf Mobil ausgeblendet — Desktop-Feature (s. Phase 6). -->
       {#if voice.channelId && !handy}
         <WatchPartyStartButton channelId={voice.channelId} />

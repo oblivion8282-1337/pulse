@@ -60,11 +60,17 @@ import { istAblehnung, standMerken } from '$lib/platform/berechtigung.svelte';
 import { isMobile } from '$lib/platform/runtime';
 import {
   nativerSprachwegDa,
+  spracheAnsichtOeffnen,
+  spracheAnsichtSchliessen,
   spracheAusgabe,
   spracheBeitreten,
   spracheBeobachten,
+  spracheKamera,
+  spracheKameraSeite,
   spracheMikrofon,
+  spracheTaub,
   spracheVerlassen,
+  type NativerEigenerZustand,
   type NativerTeilnehmer
 } from '$lib/platform/iosSprache';
 import { melde } from '$lib/diagnose/app-diagnose';
@@ -152,6 +158,21 @@ class VoiceRoom {
 
   /** Abmelder der nativen Ereignisse (iOS). `null`, solange der Web-Weg läuft. */
   #nativAbmelden: (() => void) | null = null;
+
+  /** Läuft dieser Raum nativ (iOS-Hülle)? Treibt die Weichen in der
+   *  Oberfläche: dort, wo der Web-Weg eine Videokachel zeichnet, gibt es auf
+   *  dem nativen Weg nur den Griff in die native Ansicht. */
+  get nativ(): boolean {
+    return this.#nativAbmelden !== null;
+  }
+
+  /** Steht die native Kanalansicht gerade über der Web-App?
+   *
+   *  **Sie ist die einzige Stelle mit Bild**, und solange sie liegt, ist die
+   *  Web-Leiste verdeckt. Fällt sie weg (Wischen nach unten, Pfeil), ist die
+   *  Leiste der einzige Weg zurück — deshalb bietet sie dann einen Griff an,
+   *  und der liest dieses Feld. */
+  nativeAnsichtOffen = $state(false);
 
   /** Local mic on/off (publish state) + "Deafen" (locally mute all remote
    *  audio). Die Signale leben in `voiceState` ($lib/voice/state.svelte), damit
@@ -410,7 +431,14 @@ class VoiceRoom {
     // a deafen across a channel switch (teardown wipes it) or a reload-resume
     // (opts.micBeforeDeafen — otherwise un-deafen would always stay muted).
     let micBeforeDeafen = opts.micBeforeDeafen ?? false;
-    if (this.#room && (this.connected || this.connecting)) {
+    // **`#nativAbmelden` muss hier mitgeprüft werden.** Auf dem nativen Weg
+    // bleibt `#room` für immer leer — der Wächter griff dort also NIE. Folge:
+    // ein Kanalwechsel auf iOS lief ohne `disconnect({reason:'user'})`, also
+    // ohne das Beenden einer gehosteten Watch-Party und ohne das Überführen
+    // von Stumm und Taub in den neuen Kanal (die Hülle trennt den alten Raum
+    // in `beitreten` selbst, deshalb fiel es nicht als Abriss auf, sondern nur
+    // als „die Wahl ist weg").
+    if ((this.#room || this.#nativAbmelden) && (this.connected || this.connecting)) {
       if (this.channelId === channelId) return;
       // Channel switch keeps the user's mute/deafen choice (Discord-style) —
       // #teardown resets both, so fold them into opts before disconnecting.
@@ -480,8 +508,10 @@ class VoiceRoom {
     if (nativerSprachwegDa()) {
       // `this.micEnabled` wird erst weiter unten gesetzt und trägt hier noch
       // den Stand des vorigen Kanals. Die Absicht steht in `opts`.
-      await this.#nativVerbinden(resp.ws_url, resp.token, channelId, gen, {
-        stumm: Boolean(opts.startMuted || opts.startDeafened) || this.pttMode
+      await this.#nativVerbinden(resp.ws_url, resp.token, channelId, channelName, gen, {
+        stumm: Boolean(opts.startMuted || opts.startDeafened) || this.pttMode,
+        taub: Boolean(opts.startDeafened),
+        micBeforeDeafen
       });
       return;
     }
@@ -689,21 +719,31 @@ class VoiceRoom {
   /**
    * Der native Weg auf iOS — die Hülle hält den Raum, dieser Store spiegelt.
    *
-   * **Was diese Etappe absichtlich NOCH NICHT tut:** Kamera, Bildschirm-
-   * freigaben, Geräteliste, Pegel und Selbst-Mithören. Die gehören zur
-   * nativen Kanalansicht (Etappe 3 im Entwurf) und sind hier bewusst leer
-   * statt halb — ein halb gefülltes Feld sähe aus wie ein Fehler, ein leeres
-   * wie der Bauzustand, der es ist.
+   * **Was hier bewusst LEER bleibt, und warum das kein Bauzustand mehr ist:**
+   * `cameraTracks`, `screenTracks` und `localCameraTrack` tragen
+   * `livekit-client`-Spuren aus einem JS-`Room`, den es auf diesem Weg nicht
+   * gibt — die Spuren leben im nativen Prozess, und die WebView kann sie
+   * grundsätzlich nicht anzeigen. Sie zu füllen wäre nur mit Platzhaltern
+   * möglich, und jede Komponente, die daraus ein `<video>` baut, bekäme ein
+   * schwarzes Rechteck. **Die Kacheln dafür zeichnet die native Ansicht**
+   * (`SpracheAnsicht.swift`); der Griff dorthin sitzt in der Web-Leiste.
    *
-   * Was es tut: verbinden, Mikrofon veröffentlichen, Teilnehmer spiegeln,
-   * Ausgabe schalten. Damit ist die Frage beantwortet, um die es geht.
+   * **Was dagegen gefüllt WIRD:** `participants` (die Hülle schickt dieselbe
+   * Form), `isCameraOn` und `cameraFacing` (die Leiste stellt damit ihre
+   * Knöpfe, und die Befehle gehen über die Brücke), `micEnabled`, `deafened`.
+   *
+   * Ebenfalls weiter leer, mit Absicht: Geräteliste, Mikrofon-Pegel und
+   * Selbst-Mithören. Alle drei hängen an einem Web-Audio-Graphen, den es hier
+   * nicht gibt; ein Pegelbalken bei 0 wäre eine Falschaussage, ein fehlender
+   * ist eine fehlende Funktion.
    */
   async #nativVerbinden(
     wsUrl: string,
     token: string,
     channelId: string,
+    channelName: string,
     gen: number,
-    opts: { stumm: boolean }
+    opts: { stumm: boolean; taub: boolean; micBeforeDeafen: boolean }
   ): Promise<void> {
     this.#nativAbmelden?.();
     this.#nativAbmelden = spracheBeobachten({
@@ -723,13 +763,24 @@ class VoiceRoom {
         }));
         this.localSpeaking = this.participants.some((p) => p.isLocal && p.isSpeaking);
       },
-      eigenerZustand: (e) => {
-        this.micEnabled = e.mikro;
+      eigenerZustand: (e) => this.#nativEigenerZustand(e),
+      // Der Nutzer hat die Ansicht verlassen, nicht den Raum. Die Leiste
+      // bietet daraufhin den Griff zurück an — sie ist dann der einzige Weg
+      // dorthin.
+      ansichtGeschlossen: () => {
+        this.nativeAnsichtOffen = false;
       }
     });
 
     try {
-      const zustand = await spracheBeitreten(wsUrl, token, channelId, opts.stumm);
+      const zustand = await spracheBeitreten(
+        wsUrl,
+        token,
+        channelId,
+        channelName,
+        opts.stumm,
+        opts.taub
+      );
       // Überholt, während die Hülle verband — den frisch gebauten Raum wieder
       // abräumen, sonst bliebe er neben dem neueren stehen.
       if (gen !== this.#connectGen) {
@@ -738,6 +789,18 @@ class VoiceRoom {
       }
       this.state = ConnectionState.Connected;
       this.micEnabled = zustand.mikro;
+      // Beigetreten, aber ohne Mikrofon (verweigerte Erlaubnis, belegtes oder
+      // fehlendes Gerät). Die Hülle lässt den Raum dafür bewusst stehen — man
+      // kann zuhören —, also muss die Oberfläche es SAGEN. Sonst hält sich der
+      // Nutzer für hörbar.
+      if (zustand.mikrofonFehler) this.error = zustand.mikrofonFehler;
+      this.isCameraOn = zustand.kamera ?? false;
+      // Taub reist über den Kanalwechsel mit — die Hülle hat den Stand beim
+      // Beitritt übernommen, hier wird der Spiegel nachgezogen, samt dem
+      // Mikrofon-Stand von VOR dem Taubstellen (sonst bliebe ein Zurücknehmen
+      // im neuen Kanal stumm).
+      this.deafened = zustand.taub ?? opts.taub;
+      if (this.deafened) this.#micEnabledBeforeDeafen = opts.micBeforeDeafen;
       this.#nativTeilnehmer(zustand.teilnehmer);
       // **Muss hier stehen.** Die Sperre meldet „Audio aktivieren" und gehört
       // zum WebKit-Weg: dort kann der Browser die Wiedergabe verweigern. Auf
@@ -759,7 +822,50 @@ class VoiceRoom {
     }
 
     this.#ensureWakeLock();
+    // **Erst nach dem Beitritt, und von hier aus, nicht aus der Hülle.** Die
+    // Hülle weiss nicht, ob der Nutzer gerade auf den Kanal schaut; ein
+    // Beitritt kommt auch vom Wiederaufnehmen nach einem Reload. Das Web
+    // weiss es — und ruft deshalb das Zeigen selbst (Abweichung vom Entwurf
+    // §4, Begründung steht auch an `ansichtOeffnen` in `SprachePlugin.swift`).
+    await this.ansichtOeffnen();
     sounds.play('voice.self_join', { guildId: guilds.guildIdForChannel(channelId) });
+  }
+
+  /** Die native Kanalansicht zeigen. Vom Griff in der Leiste und direkt nach
+   *  dem Beitritt gerufen; auf jedem anderen Weg ein No-op. */
+  async ansichtOeffnen(): Promise<void> {
+    if (!this.nativ) return;
+    const z = await spracheAnsichtOeffnen().catch((e: unknown) => {
+      console.error('[Sprache] Kanalansicht öffnen fehlgeschlagen', e);
+      return null;
+    });
+    this.nativeAnsichtOffen = z?.ansichtOffen ?? false;
+  }
+
+  /** Nur die Ansicht wegnehmen — der Raum bleibt. */
+  async ansichtSchliessen(): Promise<void> {
+    if (!this.nativ) return;
+    await spracheAnsichtSchliessen().catch(() => null);
+    this.nativeAnsichtOffen = false;
+  }
+
+  /** Der Spiegel für `eigenerZustand` aus der Hülle.
+   *
+   *  **Der Melde-Weg an den Server hängt mit dran, und das ist der Punkt.**
+   *  Wird im nativen Blatt stummgeschaltet, läuft das NICHT durch
+   *  `setMicEnabled` — ohne das `#publishSelfState()` hier erfährt der
+   *  Gateway nichts davon, und alle anderen sehen weiter ein offenes
+   *  Mikrofon. Gemeldet wird nur bei echter Änderung: das Ereignis kommt
+   *  auch für einen Routenwechsel, und dafür gibt es nichts zu melden. */
+  #nativEigenerZustand(e: NativerEigenerZustand): void {
+    const mikroVorher = this.micEnabled;
+    this.micEnabled = e.mikro;
+    if (e.kamera !== undefined) this.isCameraOn = e.kamera;
+    if (e.kameraVorn !== undefined) {
+      this.cameraFacing = e.kameraVorn ? 'user' : 'environment';
+    }
+    if (e.taub !== undefined) this.deafened = e.taub;
+    if (mikroVorher !== e.mikro) this.#publishSelfState();
   }
 
   #nativTeilnehmer(liste: NativerTeilnehmer[]): void {
@@ -882,7 +988,7 @@ class VoiceRoom {
 
   async setMicEnabled(on: boolean): Promise<void> {
     // iOS, nativer Weg: die Spur gehört der Hülle, nicht einem JS-Raum.
-    if (this.#nativAbmelden) {
+    if (this.nativ) {
       this.micEnabled = on;
       const z = await spracheMikrofon(on).catch((e: unknown) => {
         // Nicht schlucken: ein stumm gebliebenes Mikrofon, das die Oberfläche
@@ -891,6 +997,12 @@ class VoiceRoom {
         return null;
       });
       if (z) this.micEnabled = z.mikro;
+      // **Fehlte bis zum 2026-10-10, und das war der halbe Befund „ich sehe
+      // das Stumm-Zeichen nicht".** Ohne diese Zeile erfährt der Gateway
+      // nichts von der Stummschaltung, und die anderen Teilnehmer sehen
+      // weiter ein offenes Mikrofon. Die eigene Kachel kommt getrennt davon
+      // über das `teilnehmer`-Ereignis der Hülle.
+      this.#publishSelfState();
       return;
     }
     const room = this.#room;
@@ -1021,7 +1133,24 @@ class VoiceRoom {
       this.#micEnabledBeforeDeafen = false;
     }
     this.deafened = on;
-    this.#audioEls.setDeafened(on);
+    // **iOS, nativer Weg: die `<audio>`-Elemente gibt es hier nicht.** Den Ton
+    // der anderen spielt der native Prozess, also muss das Nicht-Mehr-Hören
+    // dort geschehen (die Hülle stellt die Lautstärke jeder fremden Tonspur
+    // auf 0 und beim Zurücknehmen auf ihren vorherigen Wert).
+    //
+    // Bis zum 2026-10-10 lief dieser Knopf auf iOS ins Leere — und das war
+    // schlimmer als eine fehlende Funktion: das Zeichen kippte, die Zeile
+    // darunter meldete allen anderen „taub", und gehört wurde weiter alles.
+    // Die Mikrofon-Hälfte oben hat immer funktioniert (sie geht über
+    // `setMicEnabled` und damit nativ), was den Fehler besonders gut
+    // versteckte.
+    if (this.nativ) {
+      void spracheTaub(on).catch((e: unknown) => {
+        console.error('[Sprache] Taubstellen fehlgeschlagen', e);
+      });
+    } else {
+      this.#audioEls.setDeafened(on);
+    }
     sounds.play(on ? 'voice.self_deafen' : 'voice.self_undeafen', this.#soundCtx);
     this.#publishSelfState();
   }
@@ -1217,6 +1346,26 @@ class VoiceRoom {
    *  from the admin-configured instance ceiling (#camCaptureResolution); the
    *  default 720p/30 keeps egress sane when several cams are on at once. */
   async setCamera(on: boolean): Promise<void> {
+    // iOS, nativer Weg: die Kamera gehört der Hülle. Das Bild erscheint nicht
+    // hier, sondern in der nativen Kanalansicht — `localCameraTrack` bleibt
+    // deshalb leer (Begründung in `#nativVerbinden`).
+    if (this.nativ) {
+      const vorher = this.isCameraOn;
+      this.isCameraOn = on;
+      const z = await spracheKamera(on).catch((e: unknown) => {
+        // Laut scheitern: eine verweigerte Erlaubnis oder ein belegtes Gerät
+        // muss man sehen, sonst sieht der Knopf geschaltet aus und es kommt
+        // kein Bild.
+        console.error('[Sprache] Kamera schalten fehlgeschlagen', e);
+        this.isCameraOn = vorher;
+        if (e instanceof Error) {
+          toast.error(m.livekit_camera_failed(), { description: e.message });
+        }
+        return null;
+      });
+      if (z?.kamera !== undefined) this.isCameraOn = z.kamera;
+      return;
+    }
     const room = this.#room;
     if (!room) {
       // Pressed before the voice room finished connecting (mobile auto-join
@@ -1281,6 +1430,26 @@ class VoiceRoom {
    *  the existing publication's track in place so the swap is seamless and
    *  remote subscribers keep the same track. No-op unless the cam is live. */
   async flipCamera(): Promise<void> {
+    // iOS, nativer Weg: die Hülle stellt den Aufnehmer um, ohne die Spur neu
+    // zu veröffentlichen — dieselbe Absicht wie `restartTrack` unten. `null`
+    // als `localCameraTrack` ist hier kein „keine Kamera", der Wächter unten
+    // würde also falsch greifen.
+    if (this.nativ) {
+      // Die Hülle nimmt den Wunsch als `front`: steht die Frontkamera, geht
+      // es zur Rückkamera und umgekehrt.
+      const front = this.cameraFacing !== 'user';
+      const z = await spracheKameraSeite(front).catch((e: unknown) => {
+        console.error('[Sprache] Kamera wechseln fehlgeschlagen', e);
+        if (e instanceof Error) {
+          toast.error(m.livekit_camera_failed(), { description: e.message });
+        }
+        return null;
+      });
+      if (z?.kameraVorn !== undefined) {
+        this.cameraFacing = z.kameraVorn ? 'user' : 'environment';
+      }
+      return;
+    }
     const track = this.localCameraTrack;
     if (!track) return;
     const next = this.cameraFacing === 'user' ? 'environment' : 'user';
@@ -2062,6 +2231,11 @@ class VoiceRoom {
     this.isCameraOn = false;
     this.localCameraTrack = null;
     this.cameraFacing = 'user';
+    // Die Hülle nimmt die Ansicht beim Verlassen selbst weg (`verlassen()` in
+    // `SpracheRaum.swift`); hier wird nur der Spiegel nachgezogen. Ohne das
+    // bliebe der Griff „zurück in den Kanal" in der Leiste stehen, obwohl es
+    // keinen Kanal mehr gibt.
+    this.nativeAnsichtOffen = false;
     this.#cameras.clear();
     // Win11 bypass path: stop raw MediaStreamTracks ourselves — the LiveKit
     // room is gone so unpublishTrack would no-op, but the OS-level "you are

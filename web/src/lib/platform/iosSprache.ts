@@ -1,7 +1,3 @@
-import { registerPlugin } from '@capacitor/core';
-
-import { isCapacitorIOS } from './runtime';
-
 /**
  * Nativer Sprach-Raum auf iOS (Hülle: `SprachePlugin.swift`).
  *
@@ -19,70 +15,19 @@ import { isCapacitorIOS } from './runtime';
  * `nativerSprachwegDa()` ist dort `false`, und der bestehende Weg bleibt.
  */
 
-/** Teilnehmer in genau der Form, die `voice/livekit.svelte.ts` schon kennt. */
-export interface NativerTeilnehmer {
-  identity: string;
-  name: string;
-  userId: string | null;
-  isLocal: boolean;
-  isSpeaking: boolean;
-  audioLevel: number;
-  micMuted: boolean;
-  cameraOn: boolean;
-  connectionQuality: string;
-}
+import { registerPlugin } from '@capacitor/core';
 
-export interface NativerZustand {
-  verbunden: boolean;
-  kanalId: string;
-  teilnehmer: NativerTeilnehmer[];
-  mikro: boolean;
-  lautsprecher: boolean;
-  /** Was die Session WIRKLICH ausgibt (`Speaker`, `Receiver`, …) — nicht, was
-   *  gewünscht wurde. Genau dieser Unterschied war der Befund vom 2026-10-10. */
-  route: string;
-  /** Diagnose-Felder der Hülle. Die Oberfläche braucht sie nicht, der
-   *  Fehlersucher schon — und dieselbe Frage kam am 2026-10-10 zweimal auf:
-   *  „ist die Session überhaupt aktiv?" beantwortet `eingaenge` (eine nicht
-   *  aktivierte `.playAndRecord`-Session führt keinen Eingang), „führt sie
-   *  die Route?" entscheiden `modus` und `optionen` zusammen mit `route`.
-   *  Optional, weil eine ältere Hülle sie nicht mitschickt. */
-  kategorie?: string;
-  modus?: string;
-  optionen?: string[];
-  engineLaeuft?: boolean;
-  eingaenge?: string[];
-  fremdTon?: boolean;
-}
+import { isCapacitorIOS } from './runtime';
+import type {
+  NativerEigenerZustand,
+  NativerTeilnehmer,
+  NativerZustand,
+  SprachePlugin
+} from './iosSpracheTypen';
 
-interface SprachePlugin {
-  beitreten(o: {
-    wsUrl: string;
-    token: string;
-    kanalId: string;
-    startStumm: boolean;
-  }): Promise<NativerZustand>;
-  verlassen(): Promise<void>;
-  mikrofon(o: { an: boolean }): Promise<NativerZustand>;
-  ausgabe(o: { weg: 'lautsprecher' | 'hoermuschel' }): Promise<NativerZustand>;
-  zustand(): Promise<NativerZustand>;
-  addListener(
-    name: 'verbindung',
-    cb: (e: { zustand: string; fehler?: string }) => void
-  ): Promise<{ remove: () => void }>;
-  addListener(
-    name: 'teilnehmer',
-    cb: (e: { liste: NativerTeilnehmer[] }) => void
-  ): Promise<{ remove: () => void }>;
-  addListener(
-    name: 'sprechen',
-    cb: (e: { sprechen: string[] }) => void
-  ): Promise<{ remove: () => void }>;
-  addListener(
-    name: 'eigenerZustand',
-    cb: (e: { mikro: boolean; lautsprecher: boolean; route: string }) => void
-  ): Promise<{ remove: () => void }>;
-}
+// Weitergereicht, damit die Aufrufer ihren Import nicht ändern müssen — die
+// Typen sind Teil DIESER Schnittstelle, sie liegen nur woanders.
+export type { NativerEigenerZustand, NativerTeilnehmer, NativerZustand };
 
 /**
  * **Über `registerPlugin`, nicht über `window.Capacitor.Plugins` — und das ist
@@ -115,15 +60,6 @@ function plugin(): SprachePlugin | null {
 }
 
 /**
- * Trägt diese App den nativen Weg?
- *
- * **Die Prüfung auf das Plugin ist nicht Zierde, sondern Pflicht.** Web und
- * Hülle werden getrennt ausgeliefert: die Oberfläche kommt bei jedem Start
- * frisch vom Server, die App nur über den Store. Ein Telefon mit älterem
- * Binary bekommt diese Datei also, ohne das Plugin zu haben — ohne diese
- * Weiche gäbe es dort gar keine Sprache mehr.
- */
-/**
  * **Notschalter. AN seit dem 2026-10-10** (Eigentümer-Entscheid: der native
  * Weg soll es werden, und zwar sauber).
  *
@@ -139,6 +75,15 @@ function plugin(): SprachePlugin | null {
  */
 const NATIVER_SPRACHWEG_AN = true;
 
+/**
+ * Trägt diese App den nativen Weg?
+ *
+ * **Die Prüfung auf das Plugin ist nicht Zierde, sondern Pflicht.** Web und
+ * Hülle werden getrennt ausgeliefert: die Oberfläche kommt bei jedem Start
+ * frisch vom Server, die App nur über den Store. Ein Telefon mit älterem
+ * Binary bekommt diese Datei also, ohne das Plugin zu haben — ohne diese
+ * Weiche gäbe es dort gar keine Sprache mehr.
+ */
 export function nativerSprachwegDa(): boolean {
   if (!NATIVER_SPRACHWEG_AN) return false;
   if (!isCapacitorIOS()) return false;
@@ -207,7 +152,9 @@ export async function spracheBeitreten(
   wsUrl: string,
   token: string,
   kanalId: string,
-  startStumm: boolean
+  kanalName: string,
+  startStumm: boolean,
+  startTaub: boolean
 ): Promise<NativerZustand> {
   const p = plugin();
   if (!p) throw new Error('SprachePlugin fehlt');
@@ -215,7 +162,7 @@ export async function spracheBeitreten(
   // kommt unmittelbar nach dem gelungenen Beitritt — eine Erklärung, die
   // erst danach abgegeben wird, kommt zu spät.
   webSessionTyp('ambient');
-  return p.beitreten({ wsUrl, token, kanalId, startStumm });
+  return p.beitreten({ wsUrl, token, kanalId, kanalName, startStumm, startTaub });
 }
 
 export async function spracheVerlassen(): Promise<void> {
@@ -224,23 +171,60 @@ export async function spracheVerlassen(): Promise<void> {
 }
 
 export async function spracheMikrofon(an: boolean): Promise<NativerZustand | null> {
-  const p = plugin();
-  if (!p) return null;
-  return p.mikrofon({ an });
+  return plugin()?.mikrofon({ an }) ?? null;
+}
+
+/**
+ * Mithören aus.
+ *
+ * **Warum das überhaupt über die Brücke muss.** Der Web-Weg schaltet dafür die
+ * `<audio>`-Elemente stumm, die die fremden Spuren abspielen
+ * (`RemoteAudioElements`). Auf dem nativen Weg gibt es die nicht — den Ton
+ * spielt der native Prozess. Bis zum 2026-10-10 lief `setDeafened` auf iOS
+ * deshalb ins Leere: der Knopf kippte, das Zeichen wechselte, der Server
+ * meldete allen anderen „taub" — und gehört wurde weiter alles. **Das ist
+ * schlimmer als eine fehlende Funktion**, weil es nach aussen aussieht wie
+ * eine vorhandene.
+ */
+export async function spracheTaub(an: boolean): Promise<NativerZustand | null> {
+  return plugin()?.taub({ an }) ?? null;
+}
+
+export async function spracheKamera(an: boolean): Promise<NativerZustand | null> {
+  return plugin()?.kamera({ an }) ?? null;
+}
+
+export async function spracheKameraSeite(front: boolean): Promise<NativerZustand | null> {
+  return plugin()?.kameraSeite({ front }) ?? null;
+}
+
+/**
+ * Die native Kanalansicht zeigen beziehungsweise wegnehmen.
+ *
+ * **Sie ist der einzige Weg zu einem Bild.** Kamera- und Bildschirmspuren
+ * entstehen im nativen Prozess; die WebView kann sie nicht anzeigen. Deshalb
+ * wird die Ansicht nativ gezeichnet und über die Oberfläche gelegt — die
+ * Web-App bleibt darunter stehen (Entwurf §5).
+ *
+ * **Öffnen ist idempotent, Schliessen nimmt nur die ANSICHT**, nie den Raum:
+ * ein Wischen nach unten darf nicht versehentlich auflegen.
+ */
+export async function spracheAnsichtOeffnen(): Promise<NativerZustand | null> {
+  return plugin()?.ansichtOeffnen() ?? null;
+}
+
+export async function spracheAnsichtSchliessen(): Promise<NativerZustand | null> {
+  return plugin()?.ansichtSchliessen() ?? null;
 }
 
 export async function spracheAusgabe(
   weg: 'lautsprecher' | 'hoermuschel'
 ): Promise<NativerZustand | null> {
-  const p = plugin();
-  if (!p) return null;
-  return p.ausgabe({ weg });
+  return plugin()?.ausgabe({ weg }) ?? null;
 }
 
 export async function spracheZustand(): Promise<NativerZustand | null> {
-  const p = plugin();
-  if (!p) return null;
-  return p.zustand();
+  return plugin()?.zustand() ?? null;
 }
 
 /** Alle Ereignisse der Hülle anmelden. Gibt den Abmelder zurück. */
@@ -248,7 +232,9 @@ export function spracheBeobachten(h: {
   verbindung: (e: { zustand: string; fehler?: string }) => void;
   teilnehmer: (liste: NativerTeilnehmer[]) => void;
   sprechen: (identitaeten: string[]) => void;
-  eigenerZustand: (e: { mikro: boolean; lautsprecher: boolean; route: string }) => void;
+  eigenerZustand: (e: NativerEigenerZustand) => void;
+  /** Der Nutzer hat die native Ansicht verlassen — **nicht** den Raum. */
+  ansichtGeschlossen: () => void;
 }): () => void {
   const p = plugin();
   if (!p) return () => undefined;
@@ -256,7 +242,8 @@ export function spracheBeobachten(h: {
     p.addListener('verbindung', h.verbindung),
     p.addListener('teilnehmer', (e) => h.teilnehmer(e.liste)),
     p.addListener('sprechen', (e) => h.sprechen(e.sprechen)),
-    p.addListener('eigenerZustand', h.eigenerZustand)
+    p.addListener('eigenerZustand', h.eigenerZustand),
+    p.addListener('ansichtGeschlossen', h.ansichtGeschlossen)
   ];
   return () => {
     for (const g of griffe) void g.then((x) => x.remove()).catch(() => undefined);

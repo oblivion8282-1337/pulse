@@ -24,24 +24,76 @@ import LiveKit
 /// Zustand geht als Ereignis nach oben, nie als Abfrage im Takt: Capacitors
 /// Brücke ist EINE serielle Warteschlange, und ihre Verstopfung hat am selben
 /// Tag die App einfrieren lassen. Pegel bleiben deshalb hier.
-final class SpracheRaum: NSObject {
+///
+/// Die Abbildung nach oben (Zustands-Vollbild, Teilnehmerform, Diagnosefelder)
+/// und die Delegat-Haken liegen in `SpracheRaumZustand.swift` — hier steht nur,
+/// was etwas TUT.
+/// **`@unchecked Sendable` ist eine Aussage, also hier was sie bedeutet.**
+/// `RoomDelegate` verlangt `Sendable`, und diese Klasse wird wirklich von
+/// mehreren Fäden berührt: Befehle kommen von Capacitors Brücken-Faden, die
+/// Delegat-Rufe des SDK von dessen eigenen, die Ansicht liest vom Hauptthread.
+/// Geprüft ist davon GENAU EINES — `lautstaerken` liegt hinter `tonFaden`
+/// (s. `SpracheRaumTaub.swift`). Die übrigen Felder (`raum`, `kanalId`,
+/// `kanalName`, `kameraVorn`, `taub`, `melde`) sind kleine Werte, die ein
+/// Befehl setzt und andere lesen; sie sind NICHT synchronisiert, und das ist
+/// der Grund für `unchecked`.
+///
+/// Bis zum 2026-10-10 stand hier gar nichts: die Zusicherung kam stillschweigend
+/// über `RoomDelegate` mit, und der Übersetzer mahnte sie in der Swift-5-Art
+/// nur als Warnung an. Wer auf Swift 6 geht, muss diese Felder wirklich
+/// absichern — die Warnung wird dort ein Fehler, und das zu Recht.
+final class SpracheRaum: NSObject, @unchecked Sendable {
     static let geteilt = SpracheRaum()
 
     /// Meldet ein Ereignis an die Brücke. Wird vom Plugin gesetzt.
     var melde: ((String, [String: Any]) -> Void)?
 
-    private var raum: Room?
+    /// Der LiveKit-Raum. **Setzen nur in dieser Datei** (`private(set)` ist in
+    /// Swift datei-weit) — gelesen wird er auch vom Zustandsteil und von der
+    /// nativen Ansicht, die ihn als `ObservableObject` beobachtet.
+    private(set) var raum: Room?
     private(set) var kanalId: String?
-    private var sessionBeobachter: NSObjectProtocol?
+    /// Gewünschter Kanalname für die Kopfzeile der nativen Ansicht. Kommt vom
+    /// Web mit — die Hülle kennt keine Kanäle.
+    private(set) var kanalName: String = ""
+    /// Welche Kamera läuft. **Gemerkt statt abgefragt**, weil die Abfrage am
+    /// Aufnehmer hängt (`CameraCapturer.position`) und der zwischen
+    /// „aus" und „an" gar nicht existiert — ein Wunsch, der das Ausschalten
+    /// überlebt, ist das, was die Oberfläche braucht.
+    private(set) var kameraVorn = true
+    /// Mithören aus. Eine Entscheidung des Nutzers, nicht ein Zustand des
+    /// Raums — sie überlebt deshalb einen Kanalwechsel.
+    private(set) var taub = false
+    /// Warum das Mikrofon beim Beitritt nicht hochkam, falls es das nicht tat.
+    /// Reist im Zustand mit, statt den Beitritt zu werfen — Begründung in
+    /// `beitreten`.
+    private(set) var mikrofonFehler: String?
+    /// Griff auf den Routen-Beobachter. **Nur in `SpracheRaumSession.swift`
+    /// anfassen** — `private` ginge nicht, Swift rechnet es datei-weit.
+    var sessionBeobachter: NSObjectProtocol?
+
+    /// Lautstärke je fremder Tonspur, gemerkt beim Taubstellen. Schlüssel ist
+    /// die Spur-Kennung (`Track.sid`), nicht die Teilnehmer-Kennung: ein
+    /// Teilnehmer kann zwei Tonspuren führen (Mikrofon und der Ton einer
+    /// Bildschirmfreigabe).
+    ///
+    /// **Nur auf `tonFaden` anfassen, und nur aus `SpracheRaumTaub.swift`.**
+    /// Nicht `private`, weil Swift das DATEI-weit rechnet und die Mechanik
+    /// dort liegt — eine Erweiterung kann keine gespeicherte Eigenschaft
+    /// tragen.
+    var lautstaerken: [String: Double] = [:]
+    let tonFaden = DispatchQueue(label: "com.howispulse.sprache.lautstaerke")
 
     // MARK: - Steuerung
 
-    func beitreten(wsUrl: String, token: String, kanalId: String, stumm: Bool) async throws {
+    func beitreten(wsUrl: String, token: String, kanalId: String, kanalName: String,
+                   stumm: Bool, taubStart: Bool) async throws {
         await verlassen()
         sessionBeobachtenFallsNoetig()
         let r = Room(delegate: self)
         raum = r
         self.kanalId = kanalId
+        self.kanalName = kanalName
         try await r.connect(url: wsUrl, token: token)
         // **Erst verbinden, dann veröffentlichen.** LiveKit verlangt eine
         // eingerichtete und aktive Session, bevor ein Mikrofon publiziert
@@ -57,8 +109,38 @@ final class SpracheRaum: NSObject {
         // Spur aufhebt, schickt die Ausgabe zurück auf den Lautsprecher.
         // Am 2026-10-10 genau so erlebt. Der Web-Weg macht es seit jeher
         // richtig (`stopMicTrackOnMute` ist aus).
-        try await r.localParticipant.setMicrophone(enabled: true)
-        if stumm { try await stummSchalten(true) }
+        //
+        // **Ein gescheitertes Mikrofon lässt den Beitritt STEHEN** — es meldet
+        // sich, es wirft nicht. Bis zum 2026-10-10 warf es, und das hinterliess
+        // den teuersten Zustand dieser Baustelle: `r.connect` war durch, der
+        // Raum also verbunden, aber niemand räumte ihn ab. Für alle anderen sass
+        // man im Kanal, die eigene Oberfläche sagte „nicht verbunden", und es
+        // gab keinen Knopf zum Verlassen. Im Simulator ist das der Normalfall
+        // (`Audio engine returned error code: -4010`, kein Mikrofon am Mac), am
+        // Gerät die verweigerte Erlaubnis.
+        //
+        // Der Web-Weg macht es seit jeher so (`livekit.svelte.ts`: `micEnabled
+        // = false` plus `this.error`), und er hat recht: ohne Mikrofon kann man
+        // immer noch ZUHÖREN. **Der Preis steht im Absatz darüber** — ohne
+        // veröffentlichte Aufnahme wählt das SDK `.playback`, und dort gibt es
+        // keine Hörmuschel. Das ist keine Folge dieser Entscheidung, sondern
+        // der fehlenden Aufnahme selbst.
+        mikrofonFehler = nil
+        do {
+            try await r.localParticipant.setMicrophone(enabled: true)
+            if stumm { try await stummSchalten(true) }
+        } catch {
+            mikrofonFehler = error.localizedDescription
+            NSLog("[PulseSprache] Mikrofon beim Beitritt gescheitert: %@",
+                  error.localizedDescription)
+        }
+        // **Der Taub-Stand reist mit, der Raum ist neu.** Bei einem
+        // Kanalwechsel baut diese Methode einen frischen `Room`, und dessen
+        // fremde Spuren spielen auf voller Lautstärke — wer taubgestellt im
+        // Nachbarkanal landet, hörte dort sonst wieder alles. Die Spuren sind
+        // hier noch nicht abonniert; der Haken dafür sitzt im Delegaten
+        // (`didSubscribeTrack`), diese Zeile setzt nur den Stand.
+        taub = taubStart
         schickeTeilnehmer()
         schickeEigenen()
     }
@@ -67,11 +149,101 @@ final class SpracheRaum: NSObject {
         guard let r = raum else { return }
         raum = nil
         kanalId = nil
+        kanalName = ""
+        // Die gemerkten Lautstärken gehören zu Spuren, die es nicht mehr gibt.
+        // Der Taub-STAND bleibt dagegen stehen — er ist eine Entscheidung des
+        // Nutzers, kein Zustand des Raums (dasselbe Verhalten wie im Web, wo
+        // ein Kanalwechsel die Wahl mitnimmt).
+        lautstaerkenVergessen()
+        // **Zuerst die Ansicht, dann die Trennung.** Die Ansicht hält den Raum
+        // und zeichnet daraus; sie über einem gerade abgebauten Raum stehen zu
+        // lassen, zeigt einen leeren Bildschirm ohne Ausweg. Ein Melden wäre
+        // hier falsch: das Web hat das Verlassen selbst angestossen und räumt
+        // seinen Zustand ohnehin auf — ein `ansichtGeschlossen` hinterher
+        // sähe wie eine Nutzergeste aus.
+        await MainActor.run { SpracheAnsichtHalter.geteilt.schliessen(melden: false) }
         await r.disconnect()
     }
 
+    /// **Beide Meldungen, und das ist kein Versehen.** `eigenerZustand` stellt
+    /// den Knopf, `teilnehmer` die eigene KACHEL — die zeichnet aus
+    /// `voice.participants`, und die Liste kommt nur aus dem
+    /// `teilnehmer`-Ereignis. Bis zum 2026-10-10 stand hier nur das erste:
+    /// der Knopf kippte, das Stumm-Zeichen an der eigenen Kachel nicht.
+    /// Am Gerät gemeldet, und von aussen sah es wie ein Darstellungsfehler aus.
+    ///
+    /// Der Delegat (`didUpdateIsMuted`) schickt die Liste inzwischen auch —
+    /// aber erst asynchron (`Task.detachedDiscarding` im SDK), während der
+    /// Rückgabewert dieses Rufes sofort gebraucht wird. Zwei Meldungen mit
+    /// demselben Inhalt kosten nichts: jede liest den Live-Zustand, eine
+    /// spätere kann also keine ältere Wahrheit tragen.
     func mikrofon(_ an: Bool) async throws {
         try await stummSchalten(!an)
+        schickeEigenen()
+        schickeTeilnehmer()
+    }
+
+    /// Kamera veröffentlichen oder zurücknehmen.
+    ///
+    /// **Ausschalten heisst ZURÜCKNEHMEN, nicht stummschalten** — und das ist
+    /// der genaue Gegensatz zum Mikrofon drüber, aus zwei Gründen, die beide
+    /// schon im Web-Weg stehen (`livekit.svelte.ts::setCamera`):
+    /// LiveKits `setCamera(enabled: false)` mutet die Veröffentlichung nur, also
+    /// (a) feuert der `track_unpublished`-Webhook nie, und voice-signaling
+    /// lässt das CAM-Zeichen bei allen Teilnehmern an, und (b) die Kamera des
+    /// Geräts bleibt samt Leuchte in Betrieb. Beim Mikrofon ist Muten dagegen
+    /// Pflicht — dort hängt die Hörmuschel daran (Begründung in `beitreten`).
+    func kamera(_ an: Bool) async throws {
+        guard let r = raum else { return }
+        if an {
+            try await r.localParticipant.setCamera(
+                enabled: true, captureOptions: kameraOptionen())
+        } else if let pub = r.localParticipant.firstCameraPublication as? LocalTrackPublication {
+            // `unpublish` stoppt die Spur mit (`stopLocalTrackOnUnpublish`,
+            // Vorgabe des SDK) — damit geht die Kamera-Leuchte aus.
+            try await r.localParticipant.unpublish(publication: pub)
+        }
+        schickeEigenen()
+        schickeTeilnehmer()
+    }
+
+    /// Front- oder Rückkamera.
+    ///
+    /// Läuft die Kamera, wird der AUFNEHMER umgestellt statt neu
+    /// veröffentlicht: die Spur bleibt dieselbe, die Gegenseite bemerkt keinen
+    /// Abriss (dasselbe Vorgehen wie `restartTrack` im Web). Läuft sie nicht,
+    /// wird nur der Wunsch gemerkt und beim nächsten Einschalten angewandt.
+    func kameraSeite(front: Bool) async throws {
+        kameraVorn = front
+        if let spur = raum?.localParticipant.firstCameraPublication?.track as? LocalVideoTrack,
+           let aufnehmer = spur.capturer as? CameraCapturer {
+            _ = try await aufnehmer.set(cameraPosition: front ? .front : .back)
+        }
+        schickeEigenen()
+    }
+
+    private func kameraOptionen() -> CameraCaptureOptions {
+        CameraCaptureOptions(position: kameraVorn ? .front : .back)
+    }
+
+    // MARK: - Taubstellen
+
+    /// Nicht mehr mithören.
+    ///
+    /// **Es gibt im SDK kein globales Stummschalten der Wiedergabe** (gesucht:
+    /// kein `isPlayoutMuted` und nichts Gleichwertiges am `AudioManager`), also
+    /// wird jede fremde Tonspur einzeln auf 0 gestellt — und beim Zurücknehmen
+    /// auf den vorher gelesenen Wert, nicht blind auf 1: es gibt eine
+    /// Lautstärke je Teilnehmer, und ein Taub-Zyklus darf sie nicht platt
+    /// machen.
+    ///
+    /// **Bis zum 2026-10-10 war dieser Knopf auf iOS wirkungslos, und das war
+    /// schlimmer als „fehlt":** der Web-Weg schaltet `<audio>`-Elemente stumm,
+    /// die es auf dem nativen Weg nicht gibt. Das Zeichen kippte, der Server
+    /// meldete allen anderen „taub" — und gehört wurde weiter alles.
+    func taubStellen(_ an: Bool) async {
+        taub = an
+        await aufTonFaden { [weak self] in self?.lautstaerkenAnwenden(an) }
         schickeEigenen()
     }
 
@@ -133,200 +305,5 @@ final class SpracheRaum: NSObject {
         // den schickt der Routen-Beobachter, wenn der Wechsel wirklich da ist.
         NSLog("[PulseSprache] Ausgabe '%@' gewuenscht", weg)
         schickeEigenen()
-    }
-
-    /// Horcht auf Routenwechsel UND Unterbrechungen der Session — einmal fuers
-    /// ganze Leben des Singletons, nicht je Beitritt (beide haengen am
-    /// einen Merker, sie werden zusammen angelegt).
-    ///
-    /// **Der Routenwechsel ist ASYNCHRON, und das war eine Messfalle.** Am
-    /// 2026-10-10 am Gerät gemessen lagen zwischen `setCategory` und dem
-    /// `routeChangeNotification` mit der neuen Route 8–17 ms. Wer die Route
-    /// direkt nach dem Umschalten liest, liest deshalb noch die alte — genau
-    /// diese Zahl stand stundenlang als Beleg dafür, dass der Schalter nicht
-    /// trägt. Die Oberfläche braucht die Wahrheit ausserdem auch dann, wenn
-    /// sie den Wechsel nicht selbst ausgelöst hat (Kopfhörer rein, AirPods).
-    private func sessionBeobachtenFallsNoetig() {
-        guard sessionBeobachter == nil else { return }
-        sessionBeobachter = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil
-        ) { [weak self] n in
-            guard let self else { return }
-            let grund = n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 99
-            NSLog("[PulseSprache] Routenwechsel grund=%lu neu=%@ kat=%@ modus=%@ opt=%lu",
-                  grund, routeJetzt(),
-                  AVAudioSession.sharedInstance().category.rawValue,
-                  AVAudioSession.sharedInstance().mode.rawValue,
-                  AVAudioSession.sharedInstance().categoryOptions.rawValue)
-            if raum != nil { schickeEigenen() }
-        }
-        // **Eine Unterbrechung heisst: jemand anderes hat die Session.** Das
-        // ist die Zeile, an der der Hoermuschel-Fehler hing — die Oberfläche
-        // spielte ihren Beitritts-Ton, WebKit richtete dafür seine eigene,
-        // nicht mischbare Session ein, und iOS nahm uns die unsere. Danach
-        // bewegt kein `setCategory` mehr eine Route. Ohne diese Meldung sieht
-        // genau das aus wie „der SDK-Schalter trägt nicht".
-        //
-        // `eingaenge` steht mit im Log, weil `AVAudioSession` nicht sagt, ob
-        // sie aktiv ist: eine nicht aktivierte `.playAndRecord`-Session führt
-        // keinen Eingang.
-        NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification, object: nil, queue: nil
-        ) { [weak self] n in
-            guard let self, raum != nil else { return }
-            let roh = n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt ?? 99
-            NSLog("[PulseSprache] Unterbrechung art=%@ route=%@ engine=%@ eing=%@",
-                  roh == 1 ? "begonnen" : (roh == 0 ? "beendet" : "\(roh)"),
-                  routeJetzt(),
-                  AudioManager.shared.isEngineRunning ? "laeuft" : "aus",
-                  AVAudioSession.sharedInstance().currentRoute.inputs
-                      .map { $0.portType.rawValue }.joined(separator: ","))
-        }
-    }
-
-    // MARK: - Zustand
-
-    func zustand() -> [String: Any] {
-        [
-            "verbunden": raum?.connectionState == .connected,
-            "kanalId": kanalId ?? "",
-            "teilnehmer": teilnehmerListe(),
-            "mikro": raum?.localParticipant.isMicrophoneEnabled() ?? false,
-            "lautsprecher": AudioManager.shared.isSpeakerOutputPreferred,
-            "route": routeJetzt(),
-            // **Kategorie und Optionen gehören in den Zustand, nicht in einen
-            // Einzelfall-Log.** Am 2026-10-10 schaltete die Hörmuschel im
-            // Prüfpfad, in der echten App aber nicht — und die Frage, WER
-            // die Session gerade anders eingestellt hat, war von aussen
-            // nicht zu beantworten. `.defaultToSpeaker` in den Optionen macht
-            // die Hörmuschel unerreichbar, ganz gleich wer es gesetzt hat.
-            "kategorie": AVAudioSession.sharedInstance().category.rawValue,
-            "modus": AVAudioSession.sharedInstance().mode.rawValue,
-            "optionen": optionenNamen(),
-            // „Spielt eine FREMDE App?" — und das Feld sagt genau das und
-            // nichts mehr. Am 2026-10-10 nachgemessen: es blieb `false`,
-            // waehrend WebKit die Session unseres EIGENEN Prozesses an sich
-            // zog. Es taugt also zum Ausschluss einer fremden App, nicht zum
-            // Erkennen der eigenen WebView; dafuer ist `eingaenge` da.
-            "fremdTon": AVAudioSession.sharedInstance().isOtherAudioPlaying,
-            // Laeuft die Audio-Maschine noch? Nach einer Unterbrechung steht
-            // sie, und eine stehende Session bewegt keine Route.
-            "engineLaeuft": AudioManager.shared.isEngineRunning,
-            // Eingaenge als Anzeiger dafuer, ob die Session wirklich AKTIV
-            // ist: eine nicht aktivierte `.playAndRecord`-Session fuehrt
-            // keinen Eingang, und „aktiv?" fragt `AVAudioSession` nicht ab.
-            "eingaenge": AVAudioSession.sharedInstance().currentRoute.inputs
-                .map { $0.portType.rawValue }
-        ]
-    }
-
-    private func optionenNamen() -> [String] {
-        let o = AVAudioSession.sharedInstance().categoryOptions
-        var namen: [String] = []
-        if o.contains(.defaultToSpeaker) { namen.append("defaultToSpeaker") }
-        if o.contains(.allowBluetoothHFP) { namen.append("allowBluetoothHFP") }
-        if o.contains(.allowBluetoothA2DP) { namen.append("allowBluetoothA2DP") }
-        if o.contains(.mixWithOthers) { namen.append("mixWithOthers") }
-        return namen
-    }
-
-    /// Was die Session gerade WIRKLICH ausgibt — nicht, was gewünscht ist.
-    /// Der Unterschied war am 2026-10-10 der ganze Befund.
-    private func routeJetzt() -> String {
-        AVAudioSession.sharedInstance().currentRoute.outputs.first?.portType.rawValue ?? "(keiner)"
-    }
-
-    private func teilnehmerListe() -> [[String: Any]] {
-        guard let r = raum else { return [] }
-        var liste = [abbilden(r.localParticipant, lokal: true)]
-        liste.append(contentsOf: r.remoteParticipants.values.map { abbilden($0, lokal: false) })
-        return liste
-    }
-
-    /// Abbildung auf die Form, die der Web-Store schon kennt
-    /// (`VoiceParticipant` in `voice/livekit.svelte.ts`) — damit die 31
-    /// Dateien, die ihn benutzen, unverändert bleiben.
-    private func abbilden(_ p: Participant, lokal: Bool) -> [String: Any] {
-        let kennung = p.identity?.stringValue ?? ""
-        return [
-            "identity": kennung,
-            "name": p.name ?? kennung,
-            // `user-<snowflake>` → die nackte Id, wie im Web.
-            "userId": kennung.hasPrefix("user-") ? String(kennung.dropFirst(5)) : NSNull(),
-            "isLocal": lokal,
-            "isSpeaking": p.isSpeaking,
-            "audioLevel": Double(p.audioLevel),
-            "micMuted": !p.isMicrophoneEnabled(),
-            "cameraOn": p.isCameraEnabled(),
-            "connectionQuality": guete(p.connectionQuality)
-        ]
-    }
-
-    private func guete(_ q: ConnectionQuality) -> String {
-        switch q {
-        case .excellent: return "excellent"
-        case .good: return "good"
-        case .poor: return "poor"
-        case .lost: return "lost"
-        default: return "unknown"
-        }
-    }
-
-    private func schickeTeilnehmer() {
-        melde?("teilnehmer", ["liste": teilnehmerListe()])
-    }
-
-    private func schickeEigenen() {
-        melde?("eigenerZustand", [
-            "mikro": raum?.localParticipant.isMicrophoneEnabled() ?? false,
-            "lautsprecher": AudioManager.shared.isSpeakerOutputPreferred,
-            "route": routeJetzt()
-        ])
-    }
-}
-
-// MARK: - RoomDelegate
-
-/// **Die Rufe kommen NICHT vom Hauptthread** (so sagt es LiveKits eigene
-/// Dokumentation). Hier wird deshalb nur Zustand eingesammelt und über die
-/// Brücke geschickt; wer später Ansichten anfasst, muss selbst auf den
-/// Hauptthread wechseln.
-extension SpracheRaum: RoomDelegate {
-    func room(_ room: Room, didUpdateConnectionState state: ConnectionState,
-              from alt: ConnectionState) {
-        NSLog("[PulseSprache] Verbindung %@ → %@", "\(alt)", "\(state)")
-        melde?("verbindung", ["zustand": "\(state)"])
-        if state == .connected { schickeTeilnehmer() }
-    }
-
-    func room(_ room: Room, didDisconnectWithError error: LiveKitError?) {
-        NSLog("[PulseSprache] getrennt: %@", error?.localizedDescription ?? "ohne Fehler")
-        melde?("verbindung", ["zustand": "disconnected",
-                              "fehler": error?.localizedDescription ?? NSNull()])
-    }
-
-    func room(_ room: Room, didFailToConnectWithError error: LiveKitError?) {
-        NSLog("[PulseSprache] Verbinden fehlgeschlagen: %@",
-              error?.localizedDescription ?? "unbekannt")
-        melde?("verbindung", ["zustand": "disconnected",
-                              "fehler": error?.localizedDescription ?? "unbekannt"])
-    }
-
-    func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
-        schickeTeilnehmer()
-    }
-
-    func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
-        schickeTeilnehmer()
-    }
-
-    /// **Nur die Kippkante, nicht der Pegel.** Der Pegel ändert sich 10–20 mal
-    /// pro Sekunde je Teilnehmer; über eine serielle Brücke geschickt wäre das
-    /// genau die Last, die am 2026-10-10 die App angehalten hat. Wer ihn
-    /// braucht, zeichnet ihn nativ.
-    func room(_ room: Room, didUpdateSpeakingParticipants participants: [Participant]) {
-        melde?("sprechen", [
-            "sprechen": participants.compactMap { $0.identity?.stringValue }
-        ])
     }
 }

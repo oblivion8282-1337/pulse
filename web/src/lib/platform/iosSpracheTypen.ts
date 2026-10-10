@@ -1,0 +1,122 @@
+/**
+ * Die Formen an der Grenze zur iOS-Hülle — nur Gestalt, kein Verhalten.
+ *
+ * **Warum getrennt von `iosSprache.ts`:** dort steht, was die Brücke TUT,
+ * samt der Messungen, die dahinterstehen; zusammen lag die Datei über der
+ * Grössen-Policy (`PLAN.md` §12.1). `iosSprache.ts` reicht diese Typen
+ * weiter, damit kein Aufrufer seinen Import ändern muss.
+ *
+ * **Optionale Felder sind hier kein Geschmack, sondern Pflicht.** Web und
+ * Hülle werden getrennt ausgeliefert: die Oberfläche kommt bei jedem Start
+ * frisch vom Server, die App nur über den Store. Ein Telefon mit älterem
+ * Binary bekommt also diese Datei, ohne dass die Hülle die neuen Felder
+ * kennt — jedes Feld, das eine ältere Hülle nicht mitschickt, muss optional
+ * sein.
+ */
+
+/** Teilnehmer in genau der Form, die `voice/livekit.svelte.ts` schon kennt. */
+export interface NativerTeilnehmer {
+  identity: string;
+  name: string;
+  userId: string | null;
+  isLocal: boolean;
+  isSpeaking: boolean;
+  audioLevel: number;
+  micMuted: boolean;
+  cameraOn: boolean;
+  connectionQuality: string;
+}
+
+export interface NativerZustand {
+  verbunden: boolean;
+  kanalId: string;
+  teilnehmer: NativerTeilnehmer[];
+  mikro: boolean;
+  /** Eigene Kamera an? Nach einem Reload der Web-App ist dieses Vollbild die
+   *  EINZIGE Quelle, aus der sich der Kamera-Knopf wieder stellen kann — die
+   *  Spur lebt im nativen Prozess und überlebt den Reload. */
+  kamera?: boolean;
+  kameraVorn?: boolean;
+  /** Mithören aus. Gilt nur für das Abspielen der fremden Spuren; die
+   *  Mikrofon-Hälfte des Discord-Verhaltens bleibt im Web (`setDeafened`). */
+  taub?: boolean;
+  /** Steht die native Kanalansicht gerade? Entscheidet, ob die Web-Leiste den
+   *  Griff „zurück in den Kanal" anbietet. */
+  ansichtOffen?: boolean;
+  /** Warum das Mikrofon beim Beitritt nicht hochkam — `null`, wenn es kam.
+   *
+   *  **Ein Beitritt ohne Mikrofon ist kein gescheiterter Beitritt**: man kann
+   *  zuhören, und die Hülle lässt den Raum deshalb stehen. Vorher warf sie, und
+   *  der Raum blieb verbunden ohne dass das Web es wusste — für alle anderen
+   *  sass man im Kanal, die eigene Oberfläche sagte „nicht verbunden", und es
+   *  gab keinen Weg hinaus. */
+  mikrofonFehler?: string | null;
+  lautsprecher: boolean;
+  /** Was die Session WIRKLICH ausgibt (`Speaker`, `Receiver`, …) — nicht, was
+   *  gewünscht wurde. Genau dieser Unterschied war der Befund vom 2026-10-10. */
+  route: string;
+  /** Diagnose-Felder der Hülle. Die Oberfläche braucht sie nicht, der
+   *  Fehlersucher schon — und dieselbe Frage kam am 2026-10-10 zweimal auf:
+   *  „ist die Session überhaupt aktiv?" beantwortet `eingaenge` (eine nicht
+   *  aktivierte `.playAndRecord`-Session führt keinen Eingang), „führt sie
+   *  die Route?" entscheiden `modus` und `optionen` zusammen mit `route`.
+   *  Optional, weil eine ältere Hülle sie nicht mitschickt. */
+  kategorie?: string;
+  modus?: string;
+  optionen?: string[];
+  engineLaeuft?: boolean;
+  eingaenge?: string[];
+  fremdTon?: boolean;
+}
+
+/** Nutzlast von `eigenerZustand`. Die Felder nach `route` sind optional, weil
+ *  eine ältere Hülle sie nicht mitschickt — Web und Hülle werden getrennt
+ *  ausgeliefert (Begründung an `nativerSprachwegDa`). */
+export interface NativerEigenerZustand {
+  mikro: boolean;
+  lautsprecher: boolean;
+  route: string;
+  kamera?: boolean;
+  kameraVorn?: boolean;
+  taub?: boolean;
+}
+
+export interface SprachePlugin {
+  beitreten(o: {
+    wsUrl: string;
+    token: string;
+    kanalId: string;
+    kanalName: string;
+    startStumm: boolean;
+    startTaub: boolean;
+  }): Promise<NativerZustand>;
+  verlassen(): Promise<void>;
+  mikrofon(o: { an: boolean }): Promise<NativerZustand>;
+  taub(o: { an: boolean }): Promise<NativerZustand>;
+  ausgabe(o: { weg: 'lautsprecher' | 'hoermuschel' }): Promise<NativerZustand>;
+  kamera(o: { an: boolean }): Promise<NativerZustand>;
+  kameraSeite(o: { front: boolean }): Promise<NativerZustand>;
+  ansichtOeffnen(): Promise<NativerZustand>;
+  ansichtSchliessen(): Promise<NativerZustand>;
+  zustand(): Promise<NativerZustand>;
+  addListener(
+    name: 'verbindung',
+    cb: (e: { zustand: string; fehler?: string }) => void
+  ): Promise<{ remove: () => void }>;
+  addListener(
+    name: 'teilnehmer',
+    cb: (e: { liste: NativerTeilnehmer[] }) => void
+  ): Promise<{ remove: () => void }>;
+  addListener(
+    name: 'sprechen',
+    cb: (e: { sprechen: string[] }) => void
+  ): Promise<{ remove: () => void }>;
+  addListener(
+    name: 'eigenerZustand',
+    cb: (e: NativerEigenerZustand) => void
+  ): Promise<{ remove: () => void }>;
+  addListener(
+    name: 'ansichtGeschlossen',
+    cb: () => void
+  ): Promise<{ remove: () => void }>;
+}
