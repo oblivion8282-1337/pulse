@@ -105,10 +105,30 @@ der Umgebung gewinnen, damit Bestandsserver und Server-App unverändert laufen.
 `https://howispulse.com/verbinden#XXXX-XXXX`. Der Code steht hinter `#`, damit
 er in keinem Server-Protokoll landet. Ohne Anmeldung führt die Seite über die
 Anmeldung zurück (Muster der gemerkten Einladung, `einladung/gemerkt.ts`).
-Sie zeigt Adresse und Code und den Satz „Bestätige nur, wenn du diesen Server
-gerade selbst installierst“. Ein Knopf „Verbinden“, ein Knopf „Abbrechen“.
 Wer den Link nicht öffnen kann, tippt den Code auf `howispulse.com/verbinden`
 ein.
+
+**Schutz gegen untergeschobene Links.** Jemand kann einem anderen den Link
+seines eigenen Vorgangs schicken („klick mal hier“). Bestätigt das Opfer, wird
+der Server des Angreifers mit dem Konto des Opfers verbunden: er erscheint in
+dessen Leiste, dessen Geräte nehmen Kontakt auf (die IP-Adresse wird für den
+Server sichtbar), und der Server läuft auf den Namen des Opfers. Ein fremdes
+Konto oder einen fremden Server übernimmt man so nicht. Drei Gegenmittel:
+
+1. **Die Seite fragt, statt zu bitten.** Überschrift „Installierst du gerade
+   selbst einen Pulse-Server?“, darunter groß die Adresse und der Code mit dem
+   Satz „Dieser Code steht jetzt in der Konsole deines Servers.“ Darunter:
+   „Hat dir jemand diesen Link geschickt? Dann klicke auf Abbrechen.“ Der Knopf
+   heißt „Ja, das ist mein Server“; „Abbrechen“ ist vorausgewählt und lehnt
+   den Vorgang ab (die Konsole meldet das).
+2. **Hinweis-Mail nach jedem Verbinden** an die Adresse des Kontos (Muster
+   der Hinweis-Mail beim Ändern der E-Mail-Adresse,
+   `routes_account_security.py`): Adresse des Servers, Zeitpunkt, „Warst du
+   das nicht? Lösche den Server unter Meine Server.“ Ein Fehlschlag beim
+   Versand bricht das Verbinden nicht ab.
+3. **Löschen unter „Meine Server“** wirkt auch hier: Eintrag weg, Server aus
+   allen Leisten, Zugangsdaten ungültig (Soft-Delete mit Sperrlisten-Eintrag
+   wie heute).
 
 **E6 — `pulse-connect` im Container.** Ein Werkzeug für alle Wege:
 `docker exec -it pulse pulse-connect`. Es fragt den Gerätecode an, zeigt Link
@@ -228,6 +248,8 @@ zwei per Installer) und zwei Heim-Server (5, 1). Keine offenen Anträge.
   (`static-docker`, `hostproxy`) kann der fremde Proxy beim Verbinden noch
   fehlen. `pulse-connect` prüft den eigenen Nachweis vorher von außen und sagt
   in diesem Fall, was zu tun ist, statt den Gerätecode zu verbrauchen.
+- **Untergeschobene Links** (E5): bleiben möglich, die Gegenmittel machen sie
+  sichtbar und umkehrbar, nicht unmöglich.
 - **Wer den Code schneller bestätigt, wird Besitzer.** Gleiche Gefahrenklasse
   wie jeder Einmalcode. Gegenmittel: 15 Minuten Gültigkeit, Code nur in der
   Konsole, die Konsole nennt das bestätigende Konto, `pulse-connect` verbindet
