@@ -22,7 +22,7 @@
  * allen drei Fällen dasselbe tun soll (tippen). Ein eigener Fehlertext je
  * Ursache wäre drei Texte für eine Handlung.
  */
-import { registerPlugin } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { isCapacitorIOS } from './runtime';
 
 interface QrScanPlugin {
@@ -32,9 +32,10 @@ interface QrScanPlugin {
 const plugin = registerPlugin<QrScanPlugin>('QrScan');
 
 /** `true`, wenn diese Umgebung scannen kann. Die Oberfläche blendet den Knopf
- *  sonst aus, statt ihn anzubieten und nichts zu tun. */
+ *  sonst aus, statt ihn anzubieten und nichts zu tun — das gilt auch für einen
+ *  älteren App-Bau ohne das Plugin. */
 export function qrScanMoeglich(): boolean {
-  return isCapacitorIOS();
+  return isCapacitorIOS() && Capacitor.isPluginAvailable('QrScan');
 }
 
 /** Öffnet den Scanner und liefert den Inhalt, oder `null`. */
