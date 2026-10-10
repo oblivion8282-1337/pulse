@@ -1,5 +1,6 @@
 <!--
-  Einladung INNERHALB der App, über der aktuellen Ansicht. Zwei Quellen:
+  Einladung INNERHALB der App, über der aktuellen Ansicht (Code /invite/… wie
+  öffentliche Adresse /c/<handle>). Zwei Quellen:
   - die Adresse (`?einladung=<code>[&einladung_host=<fqdn>]`) — so öffnen
     Chat-Links (linkKlick.ts) und der Deep-Link (deepLink.ts) den Dialog;
   - die gemerkte Einladung (gemerkt.ts) — der Rückweg von /invite über
@@ -134,6 +135,7 @@
     <div class="pt-2">
       <EinladungKarte
         {zustand}
+        art={aktiv && istAdresse(aktiv) ? 'adresse' : 'einladung'}
         {community}
         host={aktiv?.host ?? null}
         {hinweis}
