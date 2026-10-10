@@ -285,10 +285,10 @@ export function register(ctx: HandlerContext): void {
         // z-index 999999999 und lag damit ÜBER dem Riegel des ferngesteuerten
         // Standplatz-Geräts — der Name des Absenders stand mitten auf dem
         // Bild, das gerade ein Fremder sieht (`$lib/remote/sichtschutz.ts`).
-        // Am Handy ebenfalls keiner: dort ist die Chats-Liste selbst die
-        // Benachrichtigung (Badge + Vorschau), und ein Toast überdeckt die
-        // Bereichs-Leiste unten, die man gerade benutzen will.
-        if (!isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
+        // Am Handy jetzt DOCH Toast (Nutzer-Entscheidung 2026-10-10): im
+        // Sprachkanal ist der In-App-Hinweis die einzige sichtbare Meldung,
+        // solange OneUI das OS-Banner für die Vordergrund-App unterdrückt.
+        if (!isDnd() && !sichtschutzAktiv()) {
           toast.message(m.chat_handler_dm_new_message({ senderLabel }), {
             action: {
               label: m.chat_handler_dm_open(),

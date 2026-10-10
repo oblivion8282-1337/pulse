@@ -36,7 +36,7 @@ export function meldeNeueZustellung(nachricht: Message, gruppenName: string | nu
   const kopfzeile = gruppenName
     ? m.chat_handler_gruppe_new_message({ gruppe: gruppenName, senderLabel })
     : m.chat_handler_dm_new_message({ senderLabel });
-  if (!isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
+  if (!isDnd() && !sichtschutzAktiv()) {
     toast.message(kopfzeile, {
       description: snippet || undefined,
       action: {
