@@ -155,12 +155,6 @@ public class HinweisePlugin extends Plugin {
                         Log.w("Hinweise", "Avatar nicht ladbar — Standard-Icon", e);
                     }
                 }
-                android.graphics.Bitmap rund = kreis(avatar);
-                // Skizze „benachrichtigungs desing.png“: Überschrift = Gruppen-
-                // bzw. Personenname, Textfenster = [Absender: ]Nachricht.
-                String ueberschrift = chatName.isEmpty() ? absender : chatName;
-                String boxText = (chatName.isEmpty() ? "" : absender + ": ") + text;
-                String kopf = "Pulse";
 
                 Intent rein = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
                 if (!ziel.isEmpty()) rein.putExtra("pulse_ziel", ziel);
@@ -168,40 +162,52 @@ public class HinweisePlugin extends Plugin {
                         (chatId + ziel).hashCode(), rein,
                         PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
+                // Eigenes Layout statt OS-Template: „PULSE“ klein oben, dann
+                // Kontaktbild + Name, die Nachricht DARUNTER, Zeitstempel
+                // rechts — der Nutzer soll das Popup ohne Aufklappen im
+                // WhatsApp-Look sehen.
                 android.widget.RemoteViews rv = new android.widget.RemoteViews(
                         ctx.getPackageName(), R.layout.notif_chat);
-                rv.setTextViewText(R.id.notif_name, ueberschrift);
-                rv.setTextViewText(R.id.notif_puls, kopf);
-                rv.setTextViewText(R.id.notif_box_text, boxText);
-                if (rund != null) {
-                    rv.setImageViewBitmap(R.id.notif_avatar, rund);
+                String kopf = chatName.isEmpty() ? "PULSE" : "PULSE · " + chatName.toUpperCase();
+                rv.setTextViewText(R.id.notif_kopf, kopf);
+                rv.setTextViewText(R.id.notif_name, absender);
+                rv.setTextViewText(R.id.notif_text, text);
+                rv.setTextViewText(R.id.notif_zeit,
+                        new java.text.SimpleDateFormat("HH:mm", java.util.Locale.GERMAN)
+                                .format(new java.util.Date()));
+                if (avatar != null) {
+                    rv.setImageViewBitmap(R.id.notif_avatar, avatar);
                 } else {
-                    rv.setImageViewResource(R.id.notif_avatar, android.R.drawable.ic_menu_report_image);
+                    rv.setImageViewResource(R.id.notif_avatar, android.R.drawable.ic_menu_myplaces);
                 }
+                boolean leseAktion = !token.isEmpty() && !lesePfad.isEmpty() && !basis.isEmpty();
+                rv.setViewVisibility(R.id.notif_gelesen,
+                        leseAktion ? android.view.View.VISIBLE : android.view.View.GONE);
+
                 NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
                         .setSmallIcon(android.R.drawable.stat_notify_chat)
-                        .setContentTitle(ueberschrift)
-                        .setContentText(boxText)
-                        .setLargeIcon(rund)
                         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                         .setAutoCancel(true)
                         .setContentIntent(intent)
                         .setNumber(anzahl)
                         .setGroup("chat-" + chatId)
+                        // Conversation-Behandlung (Android 11+): mit Shortcut +
+                        // Kategorie rendert OneUI den Kontakt-Avatar statt des
+                        // App-Symbols im kompakten Banner.
                         .setShortcutId(chatId)
                         // Pulse-Optik: Akzentfarbe der App (Tint des Icons).
                         .setColor(0xFF2563EB)
+                        .setCustomContentView(rv)
+                        .setCustomBigContentView(rv)
+                        .setCustomHeadsUpContentView(rv)
                         .setWhen(System.currentTimeMillis())
-                        .setShowWhen(true)
-                        // Aufgeklappt: das Skizzen-Layout.
-                        .setCustomBigContentView(rv);
-                if (rund != null) b.setLargeIcon(rund);
+                        .setShowWhen(true);
 
                 // Aktion „Als gelesen markieren" (keine Antwort-Aktion —
                 // Produktwunsch): der Receiver macht den Lesestand-PUT
                 // nativ, denn die WebView wäre im Hintergrund gefroren.
                 int nid = chatId.isEmpty() ? mid.hashCode() : chatId.hashCode();
-                if (!token.isEmpty() && !lesePfad.isEmpty() && !basis.isEmpty()) {
+                if (leseAktion) {
                     Intent lese = new Intent(ctx, HinweiseAktionReceiver.class);
                     lese.setAction("als_gelesen");
                     lese.putExtra("basis", basis);
@@ -212,11 +218,7 @@ public class HinweisePlugin extends Plugin {
                     PendingIntent leseIntent = PendingIntent.getBroadcast(ctx,
                             ("lese" + chatId).hashCode(), lese,
                             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-                    // Knopf im eigenen Layout (aufgeklappt) UND System-Aktion
-                    // (kompaktes Banner) — beide machen denselben PUT.
                     rv.setOnClickPendingIntent(R.id.notif_gelesen, leseIntent);
-                    b.addAction(new NotificationCompat.Action.Builder(
-                            0, "Als gelesen markieren", leseIntent).build());
                 }
                 nmF.notify(nid, b.build());
                 Log.i("Hinweise", "nachricht gepostet: chat=" + chatId + " absender=" + absender);
@@ -226,20 +228,6 @@ public class HinweisePlugin extends Plugin {
         });
         laden.start();
         call.resolve();
-    }
-
-    /** Kontaktbild als Kreis zuschneiden (Skizze: runder Avatar links). */
-    private static android.graphics.Bitmap kreis(android.graphics.Bitmap src) {
-        if (src == null) return null;
-        int kante = Math.min(src.getWidth(), src.getHeight());
-        android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(
-                kante, kante, android.graphics.Bitmap.Config.ARGB_8888);
-        android.graphics.Canvas c = new android.graphics.Canvas(out);
-        android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        c.drawCircle(kante / 2f, kante / 2f, kante / 2f, p);
-        p.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN));
-        c.drawBitmap(src, (kante - src.getWidth()) / 2f, (kante - src.getHeight()) / 2f, p);
-        return out;
     }
 
     /** Web holt das beim letzten Tipp gesetzte SPA-Ziel (und räumt es ab). */
