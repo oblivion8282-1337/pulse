@@ -39,7 +39,8 @@ export function einladungAusDeepLink(data: { hostname: string; code: string }): 
   const weg = deepLinkWeg(window.location.pathname, bereit);
   if (weg === 'dialog') {
     // Steht schon eine Einladung in der Adresse, ersetzen statt anhängen.
-    const schonOffen = new URLSearchParams(window.location.search).has('einladung');
+    const p = new URLSearchParams(window.location.search);
+    const schonOffen = p.has('einladung') || p.has('einladung_adresse');
     const ziel = mitEinladung(window.location.pathname + window.location.search, e);
     if (schonOffen) vergissSelbstGeoeffnet();
     else merkeSelbstGeoeffnet(ziel);

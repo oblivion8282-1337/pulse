@@ -190,6 +190,10 @@ test.describe.serial('Einladungsseite', () => {
     await bob.goto(rundeUrl);
     const anker = bob.locator(`[data-testid=message-content] a[href="${link2}"]`);
     await expect(anker).toBeVisible({ timeout: 15_000 });
+    // Positiv: unter der Nachricht mit link2 steht die Einladungskarte der zweiten Community.
+    await expect(
+      bob.getByTestId('invite-embed').getByTestId('invite-embed-guild-name').filter({ hasText: ZWEITE })
+    ).toBeVisible({ timeout: 15_000 });
     await anker.click();
     await expect(bob).toHaveURL(/einladung=/);
     await expect(bob.getByTestId('einladung-dialog').getByTestId('einladung-name')).toHaveText(ZWEITE, {

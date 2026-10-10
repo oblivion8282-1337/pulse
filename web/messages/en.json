@@ -1464,6 +1464,7 @@
   "invite_embed_joined": "Already joined",
   "invite_embed_member_count": "{count} members",
   "invite_embed_member_count_one": "{count} member",
+  "invite_embed_unavailable_title": "Invitation to a community",
   "einladung_eyebrow": "You've been invited",
   "einladung_titel_unbekannt": "A community is waiting for you",
   "einladung_titel_selfhost": "Community on its own server",
