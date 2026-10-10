@@ -48,8 +48,11 @@ Tailscale):
 1. Der Server erzeugt selbst eine geheime Abholkennung und legt deren
    SHA-256 als Nachweis unter `/.well-known/pulse-verbinden` ab (E2). Dann
    fragt er bei der Cloud anonym einen Gerätecode an
-   (`POST /selfhost/verbinden/start`, Felder `hostname` und `nachweis`). Die
-   Cloud prüft den Nachweis sofort, damit ein nicht erreichbarer Server keinen
+   (`POST /selfhost/verbinden/start`, Felder `hostname` und `kennung`). Die
+   Cloud bildet den Hash selbst und prüft den Nachweis sofort. Der Nachweis
+   allein reicht bewusst nicht zum Anfragen: er ist öffentlich lesbar, und wer
+   mit ihm einen Vorgang anlegen und selbst bestätigen könnte, würde Admin auf
+   einem fremden Server. Die Cloud prüft ihn sofort, damit ein nicht erreichbarer Server keinen
    Code verbraucht. Antwort: ein kurzer Anzeigecode (`XXXX-XXXX`,
    Crockford-Base32), der Link zur Bestätigungsseite, Gültigkeit 15 Minuten,
    Abfrage-Abstand 5 Sekunden. Die Cloud hält den Vorgang 15 Minuten in Redis
@@ -106,7 +109,9 @@ der Umgebung gewinnen, damit Bestandsserver und Server-App unverändert laufen.
 er in keinem Server-Protokoll landet. Ohne Anmeldung führt die Seite über die
 Anmeldung zurück (Muster der gemerkten Einladung, `einladung/gemerkt.ts`).
 Wer den Link nicht öffnen kann, tippt den Code auf `howispulse.com/verbinden`
-ein.
+ein. Der Code steht auch an der Cloud nie in einem URL-Pfad: die Seite schickt
+ihn im Anfragekörper (`POST /me/selfhost/verbinden/vorgang` und
+`…/entscheidung`).
 
 **Schutz gegen untergeschobene Links.** Jemand kann einem anderen den Link
 seines eigenen Vorgangs schicken („klick mal hier“). Bestätigt das Opfer, wird
@@ -287,9 +292,10 @@ Fassung 1. Etappe 0 gilt mit dem neuen Organisationsnamen weiter, die Etappen
 - **auth-svc:** Gerätecode anfragen, bestätigen, abholen; Ablauf nach 15
   Minuten; Abholen nur einmal; Nachweis fehlt oder falsch → kein Eintrag;
   bestehende Adresse mit gültigem Nachweis → Besitzerwechsel, alter Eintrag
-  gesperrt; Bestandsserver ohne Nachweis → nicht übernehmbar; neue Einträge
-  ohne Worker-IDs; Grenzen aus E8; `self_host_enabled = false` → Bestätigen
-  abgelehnt.
+  gesperrt; Bestandsserver ohne Nachweis → nicht übernehmbar; Anfragen nur mit
+  der Kennung, nicht mit dem öffentlichen Nachweis; neue Einträge ohne
+  Worker-IDs; Grenzen aus E8; `server_verbinden_gesperrt = true` → Bestätigen
+  abgelehnt; Hinweis-Mail nach dem Verbinden.
 - **Server (`infra/self-host`, chat-gateway):** Start nur mit
   `PULSE_HOSTNAME`; Nachweis-Route; `verbunden` in der Server-Info;
   `pulse-connect` schreibt die Datei und startet neu; Umgebung gewinnt vor der
