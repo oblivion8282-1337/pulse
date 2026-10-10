@@ -18,6 +18,7 @@
  */
 import { vorwaertsMerge } from '$lib/stores/lesestandKern';
 import type { PrivateGruppe } from '$lib/api/gruppen';
+import type { DMChannel } from '$lib/api/types';
 
 type Karte = Record<string, Record<string, string>>;
 
@@ -46,6 +47,17 @@ class Quittungen {
 
   zugestelltBei(kanal: string, konto: string): string | undefined {
     return this.zugestellt[kanal]?.[konto];
+  }
+
+  /** Stände der Gegenstelle aus einer DM-Zeile — `ready`-Rahmen und
+   *  `GET /dm-channels` tragen dieselben Felder. */
+  dmSeeden(dm: DMChannel): void {
+    if (dm.partner_last_read_message_id) {
+      this.gelesenMelden(dm.id, dm.other_user_id, dm.partner_last_read_message_id);
+    }
+    if (dm.partner_zugestellt_bis) {
+      this.zugestelltMelden(dm.id, dm.other_user_id, dm.partner_zugestellt_bis);
+    }
   }
 
   /** Stände aus `GET /gruppen` übernehmen (Mutations-Antworten tragen keine,

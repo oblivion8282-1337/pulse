@@ -181,12 +181,7 @@ export function register(
           if (dm.last_read_message_id) {
             readState.seedOwnLesestand(dm.id, dm.last_read_message_id);
           }
-          if (dm.partner_last_read_message_id) {
-            quittungen.gelesenMelden(dm.id, dm.other_user_id, dm.partner_last_read_message_id);
-          }
-          if (dm.partner_zugestellt_bis) {
-            quittungen.zugestelltMelden(dm.id, dm.other_user_id, dm.partner_zugestellt_bis);
-          }
+          quittungen.dmSeeden(dm);
         }
       }
       friends.seedAll(evt.friends ?? []);

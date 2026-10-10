@@ -166,29 +166,24 @@ async def zustellstaende_speichern(
     for kanal, absender, bis in eintraege:
         if (kanal, absender) not in erlaubt or absender == empfaenger_id:
             continue
-        stmt = (
-            pg_insert(Zustellstand)
-            .values(
-                channel_id=kanal,
-                absender_user_id=absender,
-                empfaenger_user_id=empfaenger_id,
-                zugestellt_bis=bis,
-            )
-            .on_conflict_do_update(
+        einfuegen = pg_insert(Zustellstand).values(
+            channel_id=kanal,
+            absender_user_id=absender,
+            empfaenger_user_id=empfaenger_id,
+            zugestellt_bis=bis,
+        )
+        neu = einfuegen.excluded.zugestellt_bis
+        await session.execute(
+            einfuegen.on_conflict_do_update(
                 index_elements=[
                     Zustellstand.channel_id,
                     Zustellstand.absender_user_id,
                     Zustellstand.empfaenger_user_id,
                 ],
-                set_={
-                    "zugestellt_bis": pg_insert(Zustellstand).excluded.zugestellt_bis,
-                    "aktualisiert_am": func.now(),
-                },
-                where=pg_insert(Zustellstand).excluded.zugestellt_bis
-                > Zustellstand.zugestellt_bis,
+                set_={"zugestellt_bis": neu, "aktualisiert_am": func.now()},
+                where=neu > Zustellstand.zugestellt_bis,
             )
         )
-        await session.execute(stmt)
         gespeichert = (
             await session.execute(
                 select(Zustellstand.zugestellt_bis).where(

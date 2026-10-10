@@ -73,7 +73,7 @@ class ReadState {
     }
   }
 
-  /** Liest eine der drei Karten aus dem Speicher. `null` heisst „da steht
+  /** Liest eine der vier Karten aus dem Speicher. `null` heisst „da steht
    *  nichts Brauchbares" — der Aufrufer behält dann seinen bisherigen Stand.
    *  `null` ist bewusst von `{}` unterschieden: ein leeres Objekt wäre von
    *  „wirklich nichts gelesen" nicht zu trennen. */
@@ -153,7 +153,7 @@ class ReadState {
     this.unreadBisByChannel = this.ladeKarte<string>(this.unreadBisKey) ?? {};
   }
 
-  /** Führt die drei entprellten Schreibvorgänge sofort aus und entschärft die
+  /** Führt die vier entprellten Schreibvorgänge sofort aus und entschärft die
    *  Wecker. Ohne das feuert ein Wecker nach einem Reset/Sign-out und schreibt
    *  den bereits verworfenen Stand unter die weiterhin gültigen Schlüssel. */
   flushPending(): void {

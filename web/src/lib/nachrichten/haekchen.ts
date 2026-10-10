@@ -78,14 +78,12 @@ export function infoJeEmpfaenger(
   e: Pick<TreppenEingabe, 'anker' | 'empfaenger' | 'gelesen' | 'zugestellt'>
 ): { konto: string; status: InfoStatus }[] {
   const rang: Record<InfoStatus, number> = { gelesen: 0, zugestellt: 1, ausstehend: 2 };
+  const statusVon = (konto: string): InfoStatus => {
+    if (erreicht(e.gelesen(konto), e.anker)) return 'gelesen';
+    if (erreicht(e.zugestellt(konto), e.anker)) return 'zugestellt';
+    return 'ausstehend';
+  };
   return e.empfaenger
-    .map((konto) => {
-      const status: InfoStatus = erreicht(e.gelesen(konto), e.anker)
-        ? 'gelesen'
-        : erreicht(e.zugestellt(konto), e.anker)
-          ? 'zugestellt'
-          : 'ausstehend';
-      return { konto, status };
-    })
+    .map((konto) => ({ konto, status: statusVon(konto) }))
     .sort((a, b) => rang[a.status] - rang[b.status]);
 }

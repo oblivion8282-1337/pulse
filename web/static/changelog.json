@@ -2,6 +2,22 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-10-10.1",
+      "date": "2026-10-10",
+      "style": "Sachlich",
+      "title": "Lesehäkchen, auf die du dich verlassen kannst",
+      "intro": "Die Häkchen unter deinen Nachrichten in Direktnachrichten und Gruppen zeigen jetzt zuverlässig, wie weit eine Nachricht gekommen ist.",
+      "items": [
+        "Vollständige Anzeige: eine Uhr, solange gesendet wird, ein grauer Haken für gesendet, zwei graue für angekommen, zwei blaue für gelesen. In Direktnachrichten fehlten bisher die zwei grauen Haken, und in neuen Unterhaltungen stand anfangs gar keiner.",
+        "Gelesen heißt gelesen: Ist eine Unterhaltung offen, das Fenster aber minimiert oder die App im Hintergrund, gilt eine neue Nachricht nicht mehr als gelesen — du bekommst dann wieder Ton und Hinweis.",
+        "Die Häkchen bleiben nach einem Neustart erhalten und kommen auch an, wenn du gerade offline warst, als deine Nachricht zugestellt wurde.",
+        "Gruppen: Die Häkchen werden auch blau, während ihr gemeinsam schreibt, und ein neues Mitglied färbt ältere Nachrichten nicht mehr zurück. Neu ist „Info“ im Menü einer eigenen Gruppennachricht — dort steht, wer sie gelesen hat und bei wem sie angekommen ist.",
+        "Eine Gruppennachricht, die niemand empfangen konnte, zeigt jetzt ein Warnzeichen statt eines Hakens.",
+        "Neu in den Datenschutz-Einstellungen: Lesebestätigungen lassen sich abschalten. Dann sieht in Direktnachrichten niemand, ob du gelesen hast — und du siehst es bei anderen auch nicht. In Gruppen bleiben sie immer an.",
+        "Liest du eine Nachricht auf einem Gerät, verschwindet die rote Zahl jetzt auch auf deinen anderen Geräten."
+      ]
+    },
+    {
       "id": "2026-10-09.1",
       "date": "2026-10-09",
       "style": "Sachlich",

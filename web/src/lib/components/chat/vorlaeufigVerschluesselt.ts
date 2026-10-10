@@ -20,7 +20,6 @@ import { messages } from '$lib/stores/messages.svelte';
 import { parseMentionMarkers } from '$lib/components/mentionMarkierungen';
 
 export interface Vorlaeufig {
-  nonce: string;
   /** Die echte Nachricht übernehmen — ersetzt die Kopie an ihrer Stelle. */
   ersetzen(echt: Message): void;
   /** Kopie entfernen; harmlos, wenn sie schon ersetzt wurde. */
@@ -49,7 +48,6 @@ export function vorlaeufigZeigen(
     ...(anhaenge.length > 0 ? { attachments: anhaenge.map(anhangAngabeZuAttachment) } : {})
   });
   return {
-    nonce,
     ersetzen: (echt) => messages.upsert({ ...echt, nonce }),
     entfernen: () => messages.remove(kanalId, tmpId)
   };

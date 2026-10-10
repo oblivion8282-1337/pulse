@@ -315,10 +315,11 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
   }
 
   // Wer bei offenem Gespräch ins Fenster zurückkehrt, hat die zwischendurch
-  // eingetroffenen Nachrichten jetzt gesehen.
+  // eingetroffenen Nachrichten jetzt gesehen. Nur `markRead` — das meldet
+  // dem Server allein bei Fortschritt, nicht bei jedem Alt-Tab.
   const hinschauenAbmelden = beimHinschauen(() => {
     const cid = untrack(() => prevDM);
-    if (cid) gelesenMelden(cid);
+    if (cid) readState.markRead(cid);
   });
 
   function aufraeumen() {
