@@ -12,7 +12,7 @@
   Einladung (lib/einladung/gemerkt.ts), nicht über die Adresse.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
@@ -36,7 +36,8 @@
     ladeEinladungAbgemeldet
   } from '$lib/einladung/laden';
   import { m } from '$lib/paraglide/messages.js';
-  import { isElectron, isLinux, isMac, isMobile, isWindows } from '$lib/platform/runtime';
+  import { isElectron, isLinux, isMac, isWindows } from '$lib/platform/runtime';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import {
     LINUX_FLATPAKREF_URL,
     MAC_DMG_URL,
@@ -51,6 +52,7 @@
   let hinweis = $state<string | null>(null);
   let busy = $state(false);
   let rueckfrage = $state(false);
+  let appGeoeffnet = $state(false);
   // Gegen überholte Antworten, wenn die Adresse wechselt (/invite/A → /invite/B).
   let lauf = 0;
 
@@ -60,6 +62,7 @@
     community = null;
     guildId = null;
     hinweis = null;
+    appGeoeffnet = false;
     // Auth wird nur im /app-Layout hydriert; diese Route liegt außerhalb.
     await auth.hydrate().catch(() => {});
     if (meiner !== lauf) return;
@@ -95,8 +98,11 @@
     void goto(ziel);
   }
 
-  // Nur im Browser am Rechner — nie in der App selbst, nie am Handy.
-  const amRechnerImBrowser = !isElectron() && !isMobile();
+  // Außerhalb von /app ruft niemand `viewport.init()` — idempotent, hier nachholen.
+  onMount(() => viewport.init());
+
+  // Nur im Browser am Rechner — nie in der App selbst, nie an Handy/Tablet.
+  const amRechnerImBrowser = $derived(!isElectron() && viewport.isDesktop);
   const appKnopf = $derived(
     amRechnerImBrowser &&
       (zustand === 'einladung' || zustand === 'abgemeldet' || zustand === 'mitglied')
@@ -108,8 +114,6 @@
       : isLinux()
         ? LINUX_FLATPAKREF_URL
         : null;
-  let appGeoeffnet = $state(false);
-
   /** Startversuch über ein verstecktes iframe statt `location.href`: ohne
    *  installierte App ersetzt ein Browser die Seite sonst ggf. durch eine
    *  Fehlerseite, und der Hinweis „hier im Browser beitreten“ wäre weg. */
