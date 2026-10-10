@@ -140,6 +140,7 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
 - Die Stände der Gegenseite leben im Klienten in `stores/quittungen.svelte.ts`, nicht in `readState` (der hält nur den eigenen Stand und die Zähler); `readState.clear/resetCacheOnly/forgetChannel` leeren beide.
 
 **Einladungslinks (seit 2026-10, Spec `docs/superpowers/specs/2026-10-10-einladungsseite-design.md`)** — `/invite/<code>[?host=<fqdn>]` ist eine eigene Seite AUSSERHALB von `/app`; in der App öffnet derselbe Inhalt als Dialog über `?einladung=<code>[&einladung_host=<fqdn>]` an der aktuellen Adresse.
+- **`/c/<handle>[?host=<fqdn>]` (öffentliche Community-Adresse) nutzt dieselbe Karte** (`art="adresse"`) und denselben Rückweg über die gemerkte Einladung; beigetreten wird erst per Klick im Dialog. `GET /c/{handle}` verlangt eine Anmeldung — Abgemeldete sehen nur den Handle aus der Adresse. Der Beitrittsweg für Self-Host-Adressen baut `c/<handle>?host=…` (strenge Prüfung `zielHost`), nie die volle URL.
 - **Ein Parser für alle Leser:** `web/src/lib/einladung/einladungsLink.ts` (importfrei). Wer irgendwo einen Einladungslink liest, nimmt den — vorher hatten Chat-Karte und Beitrittsfeld eigene, widersprüchliche Ausdrücke.
 - **Rückweg = gemerkte Einladung** (`gemerkt.ts`, `localStorage`, 24 h), nicht `?redirect=`: Registrierung und E-Mail-Bestätigung führen beide nach `/app`, die Adresse ginge unterwegs verloren.
 - **Cloud-Einladungen ausdrücklich an die Cloud** (`serversStore.cloudId()`), nie an den aktiven Server — ein aktiver Self-Host kennt den Code nicht.

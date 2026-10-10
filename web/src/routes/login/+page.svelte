@@ -23,7 +23,6 @@
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
   import AuthBuehne from '$lib/components/AuthBuehne.svelte';
   import { isElectron } from '$lib/platform/runtime';
-  import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
 
   type Step = 'credentials' | 'mfa';
 
@@ -96,25 +95,6 @@
     // mit dem Gerätezertifikat entfallen: Es gibt kein lokales Schlüsselpaar
     // mehr, das ein Account-Wechsel am selben Gerät verwechseln könnte.
     if (auth.isAuthenticated) void startProfileRefresh();
-
-    // Pending-Community-Adresse: nach dem Login beitreten (D-Flow Stufe 4).
-    // Format: `?pendingAddress=<handle>` oder `?pendingAddress=<handle>&pendingHost=<fqdn>`
-    const pendingHandle = page.url.searchParams.get('pendingAddress');
-    if (!pendingHandle) {
-      const redirect = safeRedirect(page.url.searchParams.get('redirect'));
-      await goto(redirect);
-      return;
-    }
-    const pendingHost = page.url.searchParams.get('pendingHost') ?? null;
-    const input = pendingHost
-      ? `https://${pendingHost}/c/${pendingHandle}`
-      : `c/${pendingHandle}`;
-    try {
-      await joinGuildByInvite(input);
-      return; // joinGuildByInvite navigiert selbst
-    } catch {
-      // Best-effort: bei Fehler normal nach /app weiterleiten
-    }
 
     await goto(safeRedirect(page.url.searchParams.get('redirect')));
   }
