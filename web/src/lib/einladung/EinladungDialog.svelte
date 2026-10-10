@@ -32,7 +32,7 @@
   const ausUrl = $derived(einladungAusParametern(page.url.searchParams, CLOUD_HOSTNAME));
   let ausSpeicher = $state<Einladung | null>(null);
 
-  function ausSpeicherLesen() {
+  function ausSpeicherLesen(): void {
     if (!auth.user || auth.user.email_verification_pending) return;
     const g = gemerkteEinladung(browserSpeicher(), Date.now());
     // Nur bei echter Änderung zuweisen: jede neue Objekt-Identität lüde neu.
