@@ -106,9 +106,21 @@ final class AppUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 2)
             print("=== BAUM/AUSGABEMENUE ===\n\(app.debugDescription)\n=== /BAUM ===")
 
-            for wunsch in ["Hörmuschel", "Lautsprecher"] {
-                let eintrag = app.webViews.buttons[wunsch].firstMatch
-                if eintrag.waitForExistence(timeout: 5) {
+            // **Das Menue schliesst sich nach jeder Wahl** — fuer den zweiten
+            // Weg muss es neu geoeffnet werden. Ohne das meldete der Lauf
+            // „Lautsprecher nicht gefunden" und prueftre nur eine Richtung.
+            for (i, wunsch) in ["Hörmuschel", "Lautsprecher"].enumerated() {
+                if i > 0 {
+                    ausgabe.tap()
+                    Thread.sleep(forTimeInterval: 2)
+                }
+                // **Nur Knoepfe.** `descendants(matching: .any)` trifft auch
+                // reinen Text — der Lauf meldete dann „getippt", ohne dass das
+                // Plugin je gerufen wurde.
+                let eintrag = app.webViews.buttons.matching(
+                    NSPredicate(format: "label CONTAINS[c] %@", wunsch)
+                ).firstMatch
+                if eintrag.waitForExistence(timeout: 8) {
                     print("=== TIPPE: \(wunsch) ===")
                     eintrag.tap()
                     Thread.sleep(forTimeInterval: 4)
