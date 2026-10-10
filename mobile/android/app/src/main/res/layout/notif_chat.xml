@@ -1,88 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Eigenes Chat-Notification-Layout (WhatsApp-Stil): Kontaktbild VOLL
-     links, Textblock rechts („PULSE“ über dem Namen, Nachricht darunter),
-     unten die Lese-Aktion als volle Leiste. Gebaut in
-     HinweisePlugin.nachricht(). -->
+<!-- Chat-Notification im Skizzen-Layout (benachrichtigungs desing.png):
+     Kontaktbild rund links, Gruppen-/Personenname als Überschrift, „Pulse“
+     oben rechts, Nachricht im eingerahmten Textfenster, unten die
+     „ALS GELESEN MARKIEREN“-Leiste. Gebaut in HinweisePlugin.nachricht(). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#FF1B1C20">
+    android:background="#FF15171C">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="10dp">
 
         <ImageView
             android:id="@+id/notif_avatar"
-            android:layout_width="84dp"
-            android:layout_height="match_parent"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:scaleType="centerCrop" />
 
-        <LinearLayout
+        <TextView
+            android:id="@+id/notif_name"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
             android:layout_weight="1"
-            android:orientation="vertical"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="10dp">
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFFFF" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:id="@+id/notif_kopf"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="PULSE"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:textColor="#FF7FA5FF"
-                    android:letterSpacing="0.18" />
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1" />
-
-                <TextView
-                    android:id="@+id/notif_zeit"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:textColor="#FF9AA0A6" />
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/notif_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:textColor="#FFFFFFFF" />
-
-            <TextView
-                android:id="@+id/notif_text"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textSize="15sp"
-                android:lineSpacingExtra="2dp"
-                android:textColor="#FFE8EAED" />
-        </LinearLayout>
+        <TextView
+            android:id="@+id/notif_puls"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Pulse"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FF7FA5FF" />
     </LinearLayout>
 
-    <View
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#24FFFFFF" />
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="12dp"
+        android:background="@drawable/notif_box_bg">
+
+        <TextView
+            android:id="@+id/notif_box_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:textSize="14sp"
+            android:lineSpacingExtra="2dp"
+            android:textColor="#FFE8EAED" />
+    </FrameLayout>
 
     <TextView
         android:id="@+id/notif_gelesen"

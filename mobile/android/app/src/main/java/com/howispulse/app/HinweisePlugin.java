@@ -155,18 +155,12 @@ public class HinweisePlugin extends Plugin {
                         Log.w("Hinweise", "Avatar nicht ladbar — Standard-Icon", e);
                     }
                 }
-                Person sender = new Person.Builder().setName(absender)
-                        .setIcon(avatar != null
-                                ? androidx.core.graphics.drawable.IconCompat.createWithBitmap(avatar)
-                                : null)
-                        .setKey(absender).build();
-                NotificationCompat.MessagingStyle style = new NotificationCompat.MessagingStyle(
-                        new Person.Builder().setName("Du").build());
-                // Konversationstitel nur bei Gruppen (WhatsApp-Stil: Gruppenname
-                // als Überschrift, DMs ohne Titel).
-                if (!chatName.isEmpty()) style.setConversationTitle(chatName);
-                style.addMessage(new NotificationCompat.MessagingStyle.Message(
-                        text, System.currentTimeMillis(), sender));
+                android.graphics.Bitmap rund = kreis(avatar);
+                // Skizze „benachrichtigungs desing.png“: Überschrift = Gruppen-
+                // bzw. Personenname, Textfenster = [Absender: ]Nachricht.
+                String ueberschrift = chatName.isEmpty() ? absender : chatName;
+                String boxText = (chatName.isEmpty() ? "" : absender + ": ") + text;
+                String kopf = "Pulse";
 
                 Intent rein = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
                 if (!ziel.isEmpty()) rein.putExtra("pulse_ziel", ziel);
@@ -174,23 +168,34 @@ public class HinweisePlugin extends Plugin {
                         (chatId + ziel).hashCode(), rein,
                         PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
+                android.widget.RemoteViews rv = new android.widget.RemoteViews(
+                        ctx.getPackageName(), R.layout.notif_chat);
+                rv.setTextViewText(R.id.notif_name, ueberschrift);
+                rv.setTextViewText(R.id.notif_puls, kopf);
+                rv.setTextViewText(R.id.notif_box_text, boxText);
+                if (rund != null) {
+                    rv.setImageViewBitmap(R.id.notif_avatar, rund);
+                } else {
+                    rv.setImageViewResource(R.id.notif_avatar, android.R.drawable.ic_menu_report_image);
+                }
                 NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
                         .setSmallIcon(android.R.drawable.stat_notify_chat)
-                        .setStyle(style)
+                        .setContentTitle(ueberschrift)
+                        .setContentText(boxText)
+                        .setLargeIcon(rund)
                         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                         .setAutoCancel(true)
                         .setContentIntent(intent)
                         .setNumber(anzahl)
                         .setGroup("chat-" + chatId)
-                        // Conversation-Behandlung (Android 11+): mit Shortcut +
-                        // Kategorie rendert OneUI den Kontakt-Avatar statt des
-                        // App-Symbols im kompakten Banner.
                         .setShortcutId(chatId)
                         // Pulse-Optik: Akzentfarbe der App (Tint des Icons).
                         .setColor(0xFF2563EB)
                         .setWhen(System.currentTimeMillis())
-                        .setShowWhen(true);
-                if (avatar != null) b.setLargeIcon(avatar);
+                        .setShowWhen(true)
+                        // Aufgeklappt: das Skizzen-Layout.
+                        .setCustomBigContentView(rv);
+                if (rund != null) b.setLargeIcon(rund);
 
                 // Aktion „Als gelesen markieren" (keine Antwort-Aktion —
                 // Produktwunsch): der Receiver macht den Lesestand-PUT
@@ -207,6 +212,9 @@ public class HinweisePlugin extends Plugin {
                     PendingIntent leseIntent = PendingIntent.getBroadcast(ctx,
                             ("lese" + chatId).hashCode(), lese,
                             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                    // Knopf im eigenen Layout (aufgeklappt) UND System-Aktion
+                    // (kompaktes Banner) — beide machen denselben PUT.
+                    rv.setOnClickPendingIntent(R.id.notif_gelesen, leseIntent);
                     b.addAction(new NotificationCompat.Action.Builder(
                             0, "Als gelesen markieren", leseIntent).build());
                 }
@@ -218,6 +226,20 @@ public class HinweisePlugin extends Plugin {
         });
         laden.start();
         call.resolve();
+    }
+
+    /** Kontaktbild als Kreis zuschneiden (Skizze: runder Avatar links). */
+    private static android.graphics.Bitmap kreis(android.graphics.Bitmap src) {
+        if (src == null) return null;
+        int kante = Math.min(src.getWidth(), src.getHeight());
+        android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(
+                kante, kante, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas c = new android.graphics.Canvas(out);
+        android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        c.drawCircle(kante / 2f, kante / 2f, kante / 2f, p);
+        p.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN));
+        c.drawBitmap(src, (kante - src.getWidth()) / 2f, (kante - src.getHeight()) / 2f, p);
+        return out;
     }
 
     /** Web holt das beim letzten Tipp gesetzte SPA-Ziel (und räumt es ab). */
