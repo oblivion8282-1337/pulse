@@ -17,6 +17,11 @@ const BOB = {
   email: `ein_bob_${ts}@dcc-test.example.com`,
   password: 'ein-secret-pass'
 };
+const CAROL = {
+  username: `ein_carol_${ts}`,
+  email: `ein_carol_${ts}@dcc-test.example.com`,
+  password: 'ein-secret-pass'
+};
 const RUNDE = 'Einladungsrunde';
 const ZWEITE = 'Zweite Runde';
 
@@ -33,11 +38,14 @@ async function registrieren(page: Page, u: typeof ALICE) {
 }
 
 async function communityAnlegen(page: Page, name: string): Promise<string> {
+  // Die zweite Community entsteht, während die erste noch in der Adresse steht:
+  // ein bloßes waitForURL(Muster) liefe sofort durch und gäbe die alte zurück.
+  const vorher = page.url();
   await page.locator('[data-testid^="guild-create-menu-"]').first().click();
   await page.getByTestId('guild-create').click();
   await page.getByTestId('create-guild-name').fill(name);
   await page.getByTestId('create-guild-submit').click();
-  await page.waitForURL(/\/app\/guilds\/(\d+)\/channels\/\d+/);
+  await page.waitForURL((u) => /\/app\/guilds\/\d+\/channels\/\d+/.test(u.href) && u.href !== vorher);
   return page.url();
 }
 
@@ -60,6 +68,7 @@ test.describe.serial('Einladungsseite', () => {
   let bobCtx: BrowserContext;
   let bob: Page;
   let rundeUrl = '';
+  let zweiteUrl = '';
   let link1 = '';
   let link2 = '';
 
@@ -80,7 +89,7 @@ test.describe.serial('Einladungsseite', () => {
     await registrieren(alice, ALICE);
     rundeUrl = await communityAnlegen(alice, RUNDE);
     link1 = await linkErzeugen(alice);
-    await communityAnlegen(alice, ZWEITE);
+    zweiteUrl = await communityAnlegen(alice, ZWEITE);
     link2 = await linkErzeugen(alice);
     expect(link1).toContain('/invite/');
   });
@@ -131,5 +140,61 @@ test.describe.serial('Einladungsseite', () => {
       timeout: 15_000
     });
     expect(bobCtx.pages()).toHaveLength(1);
+  });
+
+  test('Angemeldet: Beitreten direkt auf der Seite', async () => {
+    await bob.goto(link2);
+    await expect(karte(bob, 'einladung')).toBeVisible({ timeout: 15_000 });
+    await expect(bob.getByTestId('einladung-name')).toHaveText(ZWEITE);
+    await bob.getByTestId('einladung-beitreten').click();
+    const guildId = zweiteUrl.match(/\/app\/guilds\/(\d+)/)![1];
+    await bob.waitForURL(new RegExp(`/app/guilds/${guildId}/channels/`), { timeout: 15_000 });
+  });
+
+  test('Abgemeldet: Anmelden mit bestehendem Konto führt zur Einladung zurück', async ({
+    browser
+  }) => {
+    const carolCtx = await browser.newContext();
+    try {
+      const reg = await carolCtx.newPage();
+      await reg.goto('/register');
+      await registrieren(reg, CAROL);
+      await reg.close();
+    } finally {
+      await carolCtx.close();
+    }
+    const ctx = await browser.newContext();
+    try {
+      const p = await ctx.newPage();
+      await p.goto(link1);
+      await expect(karte(p, 'abgemeldet')).toBeVisible({ timeout: 15_000 });
+      await p.getByTestId('einladung-anmelden').click();
+      await p.waitForURL(/\/login/);
+      await p.getByTestId('login-identifier').fill(CAROL.username);
+      await p.getByTestId('login-password').fill(CAROL.password);
+      await p.getByTestId('login-submit').click();
+      const dialog = p.getByTestId('einladung-dialog');
+      await expect(karte(p, 'einladung')).toBeVisible({ timeout: 15_000 });
+      await expect(dialog.getByTestId('einladung-name')).toHaveText(RUNDE);
+      await dialog.getByTestId('einladung-beitreten').click();
+      const guildId = rundeUrl.match(/\/app\/guilds\/(\d+)/)![1];
+      await p.waitForURL(new RegExp(`/app/guilds/${guildId}/channels/`), { timeout: 15_000 });
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('Ein Discord-Link im Chat bleibt ein normaler Link', async () => {
+    const text = 'Discord: https://discord.com/invite/python';
+    await alice.goto(rundeUrl);
+    await alice.getByTestId('message-input').click();
+    await alice.getByTestId('message-input').fill(text);
+    await alice.getByTestId('message-input').press('Enter');
+
+    await bob.goto(rundeUrl);
+    const zeile = bob.locator('[data-testid=message-item]', { hasText: 'Discord:' });
+    await expect(zeile).toBeVisible({ timeout: 15_000 });
+    await expect(zeile.locator('a[href="https://discord.com/invite/python"]')).toBeVisible();
+    await expect(zeile.locator('[data-testid=invite-embed]')).toHaveCount(0);
   });
 });
