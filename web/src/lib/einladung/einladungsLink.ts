@@ -64,14 +64,9 @@ export function zielHost(roh: string | null, cloudHost: string): string | null |
   return istGueltigerHost(h) ? h : undefined;
 }
 
-/** `…/invite/<code>[?…host=<fqdn>…]` aus einer absoluten URL. Nur Links auf
- *  die Cloud oder auf die laufende App (`seitenHost`, inkl. Port) zählen —
- *  `discord.com/invite/…` und Ähnliches gehören nicht Pulse. */
-export function einladungAusUrl(
-  url: string,
-  cloudHost: string,
-  seitenHost: string
-): Einladung | null {
+/** Nur Links auf die Cloud oder auf die laufende App (`seitenHost`, inkl.
+ *  Port) zählen — `discord.com/invite/…` und Ähnliches gehören nicht Pulse. */
+function eigeneUrl(url: string, cloudHost: string, seitenHost: string): URL | null {
   let u: URL;
   try {
     u = new URL(url);
@@ -81,11 +76,39 @@ export function einladungAusUrl(
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
   const h = u.host.toLowerCase();
   if (h !== nackt(cloudHost) && h !== seitenHost.trim().toLowerCase()) return null;
+  return u;
+}
+
+/** `…/invite/<code>[?…host=<fqdn>…]` aus einer absoluten URL. */
+export function einladungAusUrl(
+  url: string,
+  cloudHost: string,
+  seitenHost: string
+): Einladung | null {
+  const u = eigeneUrl(url, cloudHost, seitenHost);
+  if (!u) return null;
   const m = u.pathname.match(/^\/invite\/([^/]+)\/?$/);
   if (!m || !istGueltigerCode(m[1])) return null;
   const host = zielHost(u.searchParams.get('host'), cloudHost);
   if (host === undefined) return null;
   return { code: m[1], host };
+}
+
+/** `…/c/<handle>[?…host=<fqdn>…]` aus einer absoluten URL, gleiche Herkunftsregeln. */
+export function adresseAusUrl(url: string, cloudHost: string, seitenHost: string): Adresse | null {
+  const u = eigeneUrl(url, cloudHost, seitenHost);
+  if (!u) return null;
+  const m = u.pathname.match(/^\/c\/([^/]+)\/?$/);
+  if (!m) return null;
+  const handle = m[1].toLowerCase();
+  if (!istGueltigerHandle(handle)) return null;
+  const host = zielHost(u.searchParams.get('host'), cloudHost);
+  if (host === undefined) return null;
+  return { handle, host };
+}
+
+export function zielAusUrl(url: string, cloudHost: string, seitenHost: string): Ziel | null {
+  return einladungAusUrl(url, cloudHost, seitenHost) ?? adresseAusUrl(url, cloudHost, seitenHost);
 }
 
 const LINK_RE = /https?:\/\/[^\s<>"]+/g;
@@ -110,12 +133,19 @@ export function ersteEinladungImText(
 // Der Dialog in der App öffnet sich über Parameter an der AKTUELLEN Adresse —
 // man bleibt, wo man war, und Zurück schließt ihn wieder.
 const P_CODE = 'einladung';
+const P_ADRESSE = 'einladung_adresse';
 const P_HOST = 'einladung_host';
 
-export function mitEinladung(pfadUndSuche: string, e: Einladung): string {
+export function mitEinladung(pfadUndSuche: string, z: Ziel): string {
   const u = new URL(pfadUndSuche, 'http://x');
-  u.searchParams.set(P_CODE, e.code);
-  if (e.host) u.searchParams.set(P_HOST, e.host);
+  if (istAdresse(z)) {
+    u.searchParams.set(P_ADRESSE, z.handle);
+    u.searchParams.delete(P_CODE);
+  } else {
+    u.searchParams.set(P_CODE, z.code);
+    u.searchParams.delete(P_ADRESSE);
+  }
+  if (z.host) u.searchParams.set(P_HOST, z.host);
   else u.searchParams.delete(P_HOST);
   return u.pathname + u.search + u.hash;
 }
@@ -123,6 +153,7 @@ export function mitEinladung(pfadUndSuche: string, e: Einladung): string {
 export function ohneEinladung(pfadUndSuche: string): string {
   const u = new URL(pfadUndSuche, 'http://x');
   u.searchParams.delete(P_CODE);
+  u.searchParams.delete(P_ADRESSE);
   u.searchParams.delete(P_HOST);
   return u.pathname + u.search + u.hash;
 }
@@ -131,12 +162,14 @@ export function ohneEinladung(pfadUndSuche: string): string {
 export function einladungAusParametern(
   p: URLSearchParams,
   cloudHost: string
-): Einladung | 'kaputt' | null {
+): Ziel | 'kaputt' | null {
   const code = p.get(P_CODE);
-  if (code === null) return null;
-  if (!istGueltigerCode(code)) return 'kaputt';
+  const handle = p.get(P_ADRESSE);
+  if (code === null && handle === null) return null;
   const host = zielHost(p.get(P_HOST), cloudHost);
-  return host === undefined ? 'kaputt' : { code, host };
+  if (host === undefined) return 'kaputt';
+  if (code !== null) return istGueltigerCode(code) ? { code, host } : 'kaputt';
+  return handle !== null && istGueltigerHandle(handle) ? { handle, host } : 'kaputt';
 }
 
 export interface KlickArt {

@@ -7,6 +7,8 @@ import {
   istAdresse,
   zielHost,
   einladungAusUrl,
+  adresseAusUrl,
+  zielAusUrl,
   ersteEinladungImText,
   mitEinladung,
   ohneEinladung,
@@ -217,4 +219,88 @@ test('Handle-Form wie parseJoinInput', () => {
 test('istAdresse trennt Adresse und Einladung', () => {
   assert.equal(istAdresse({ handle: 'x', host: null }), true);
   assert.equal(istAdresse({ code: 'abc12345', host: null }), false);
+});
+
+test('adresseAusUrl: Cloud, Seiten-Host, Self-Host, Fremde, Schreibweise', () => {
+  assert.deepEqual(adresseAusUrl('https://howispulse.com/c/mein-club', CLOUD, SEITE), {
+    handle: 'mein-club',
+    host: null
+  });
+  assert.deepEqual(adresseAusUrl('http://localhost:5173/c/abc', CLOUD, 'localhost:5173'), {
+    handle: 'abc',
+    host: null
+  });
+  assert.deepEqual(
+    adresseAusUrl('https://howispulse.com/c/abc?host=pulse.example.de', CLOUD, SEITE),
+    { handle: 'abc', host: 'pulse.example.de' }
+  );
+  assert.equal(adresseAusUrl('https://evil.example/c/abc', CLOUD, SEITE), null);
+  assert.equal(adresseAusUrl('https://howispulse.com/c/abc?host=1.2.3.4', CLOUD, SEITE), null);
+  assert.equal(adresseAusUrl('ftp://howispulse.com/c/abc', CLOUD, SEITE), null);
+  assert.equal(adresseAusUrl('kein url', CLOUD, SEITE), null);
+  assert.equal(adresseAusUrl('https://howispulse.com/c/ABC', CLOUD, SEITE)?.handle, 'abc');
+  assert.equal(adresseAusUrl('https://howispulse.com/c/-abc', CLOUD, SEITE), null);
+  assert.equal(adresseAusUrl('https://howispulse.com/c/abc/', CLOUD, SEITE)?.handle, 'abc');
+  assert.equal(adresseAusUrl('https://howispulse.com/c/abc/x', CLOUD, SEITE), null);
+  assert.equal(adresseAusUrl('https://howispulse.com/invite/abc12345', CLOUD, SEITE), null);
+});
+
+test('zielAusUrl: Einladung oder Adresse', () => {
+  assert.deepEqual(zielAusUrl('https://howispulse.com/invite/abc12345', CLOUD, SEITE), {
+    code: 'abc12345',
+    host: null
+  });
+  assert.deepEqual(zielAusUrl('https://howispulse.com/c/abc', CLOUD, SEITE), {
+    handle: 'abc',
+    host: null
+  });
+  assert.equal(zielAusUrl('https://howispulse.com/andere', CLOUD, SEITE), null);
+});
+
+test('mitEinladung / ohneEinladung / einladungAusParametern für Adressen', () => {
+  const a = mitEinladung('/app?x=1#h', { handle: 'abc', host: 'pulse.example.de' });
+  assert.equal(a, '/app?x=1&einladung_adresse=abc&einladung_host=pulse.example.de#h');
+  // Wechsel Code -> Adresse und zurück entfernt das jeweils andere.
+  assert.equal(
+    mitEinladung('/app?einladung=abc12345', { handle: 'abc', host: null }),
+    '/app?einladung_adresse=abc'
+  );
+  assert.equal(
+    mitEinladung('/app?einladung_adresse=abc', { code: 'abc12345', host: null }),
+    '/app?einladung=abc12345'
+  );
+  assert.equal(ohneEinladung('/app?einladung_adresse=abc&einladung_host=h.de&x=1'), '/app?x=1');
+  const p = (s: string) => new URLSearchParams(s);
+  assert.deepEqual(einladungAusParametern(p('einladung_adresse=abc'), CLOUD), {
+    handle: 'abc',
+    host: null
+  });
+  assert.deepEqual(
+    einladungAusParametern(p('einladung_adresse=abc&einladung_host=pulse.example.de'), CLOUD),
+    { handle: 'abc', host: 'pulse.example.de' }
+  );
+  assert.equal(einladungAusParametern(p('einladung_adresse=-x'), CLOUD), 'kaputt');
+  assert.equal(einladungAusParametern(p('einladung_adresse=Abc'), CLOUD), 'kaputt');
+  assert.equal(
+    einladungAusParametern(p('einladung_adresse=abc&einladung_host=1.2.3.4'), CLOUD),
+    'kaputt'
+  );
+});
+
+test('alte Lücken: host=Cloud, Hash, Schrägstrich, Label-Länge', () => {
+  assert.deepEqual(einladungAusUrl('https://howispulse.com/invite/abc12345?host=howispulse.com', CLOUD, SEITE), {
+    code: 'abc12345',
+    host: null
+  });
+  assert.equal(
+    mitEinladung('/app#frag', { code: 'abc12345', host: null }),
+    '/app?einladung=abc12345#frag'
+  );
+  assert.equal(ohneEinladung('/app?einladung=abc12345#frag'), '/app#frag');
+  assert.deepEqual(einladungAusUrl('https://howispulse.com/invite/abc12345/', CLOUD, SEITE), {
+    code: 'abc12345',
+    host: null
+  });
+  assert.equal(istGueltigerHost(`${'a'.repeat(63)}.de`), true);
+  assert.equal(istGueltigerHost(`${'a'.repeat(64)}.de`), false);
 });
