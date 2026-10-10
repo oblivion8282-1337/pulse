@@ -1,15 +1,16 @@
 // ── Deep-Link / Invite-Handler ───────────────────────────────────────────────
 // Validates and dispatches `pulse://invite?code=<code>[&host=<fqdn>]` URLs (no host = Cloud).
-// Security: we parse strictly (URL class + FQDN regex + alphanumeric code) and
+// Security: we parse strictly (URL class + FQDN regex + code of [A-Za-z0-9_-]) and
 // NEVER execute any action derived from the URL without showing a user-visible
-// disclaimer first (that's the frontend's job in /invite/[code]?host=…).
+// disclaimer first (that's the frontend's job: the renderer opens the invite dialog or
+// keeps the invite until after sign-in, web/src/lib/einladung/deepLink.ts).
 //
 // Split out of main.ts to keep that file under the code-size cap; the IPC wiring
 // (`open-url`, `second-instance`, `invite:getPending`) stays in main.ts and
 // calls into the validated helpers here.
 import type { BrowserWindow } from 'electron';
 
-/** Valid invite code: 6-64 alphanumeric chars (same shape as the backend issues). */
+/** Valid invite code: 6-64 chars of [A-Za-z0-9_-] (same shape as the backend issues). */
 const INVITE_CODE_RE = /^[A-Za-z0-9_-]{6,64}$/;
 
 /** Rough FQDN check — at least one dot, only label-safe chars, no port injection.
