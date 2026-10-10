@@ -194,9 +194,11 @@ test.describe.serial('Overnight T19 — Entdecken und Plugins', () => {
 
   test('/c/<handle>: Karte zeigt den Community-Namen, Join landet in der Community', async () => {
     await joiner.goto(`/c/${HANDLE}`);
-    await expect(joiner.getByTestId('public-community-card')).toBeVisible({ timeout: 15_000 });
-    await expect(joiner.getByTestId('public-community-name')).toHaveText(GUILD_NAME);
-    await joiner.getByTestId('public-community-join').click();
+    await expect(
+      joiner.locator('[data-testid=einladung-karte][data-zustand=einladung]')
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(joiner.getByTestId('einladung-name')).toHaveText(GUILD_NAME);
+    await joiner.getByTestId('einladung-beitreten').click();
     await joiner.waitForURL(/\/app\/guilds\/\d+/, { timeout: 20_000 });
     expect(joiner.url()).toContain(`/app/guilds/${guildId}`);
   });

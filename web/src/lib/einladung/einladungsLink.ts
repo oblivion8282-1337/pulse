@@ -11,6 +11,26 @@ export interface Einladung {
   host: string | null;
 }
 
+/** Öffentliche Community-Adresse `/c/<handle>[?host=<fqdn>]`. */
+export interface Adresse {
+  handle: string;
+  host: string | null;
+}
+
+/** Was die Karte zeigen kann: eine Einladung (Code) oder eine Adresse (Handle). */
+export type Ziel = Einladung | Adresse;
+
+export function istAdresse(z: Ziel): z is Adresse {
+  return 'handle' in z;
+}
+
+/** Handle-Form wie `parseJoinInput` (lib/guilds/joinByInvite.ts). */
+const HANDLE_RE = /^(?:[a-z0-9][a-z0-9-]{0,30}[a-z0-9]|[a-z0-9])$/;
+
+export function istGueltigerHandle(h: string): boolean {
+  return HANDLE_RE.test(h);
+}
+
 /** Code-Form wie `INVITE_CODE_RE` in desktop/electron/deeplink.ts. */
 const CODE_RE = /^[A-Za-z0-9_-]{6,64}$/;
 

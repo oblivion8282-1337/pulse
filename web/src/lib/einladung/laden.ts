@@ -5,7 +5,7 @@
 // Server: ist gerade ein Self-Host aktiv, kennt der den Cloud-Code nicht und
 // meldete fälschlich „ungültig“.
 import { ApiError } from '$lib/api/client';
-import { chatApi } from '$lib/api/chat';
+import { chatApi, type PublicCommunityPreview } from '$lib/api/chat';
 import { getInvitePreviewOn, SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
 import type { InvitePreview } from '$lib/api/types';
 import { serversStore } from '$lib/api/servers.svelte';
@@ -15,7 +15,7 @@ import { guildIconSrc } from '$lib/guildIcon';
 import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
 import { m } from '$lib/paraglide/messages.js';
 import type { EinladungCommunity, EinladungZustand } from './EinladungKarte.svelte';
-import type { Einladung } from './einladungsLink';
+import { istAdresse, type Adresse, type Ziel } from './einladungsLink';
 import { einladungFehler, type EinladungFehler } from './fehlertext';
 
 export interface GeladeneEinladung {
@@ -69,8 +69,48 @@ function cloudVorschau(code: string): Promise<InvitePreview> {
   return cloudId ? getInvitePreviewOn(code, { serverId: cloudId }) : chatApi.getInvitePreview(code);
 }
 
+function adressVorschau(p: PublicCommunityPreview): EinladungCommunity {
+  return {
+    name: p.guild.name,
+    iconUrl: guildIconSrc(p.guild.icon_url, window.location.origin),
+    mitglieder: p.member_count
+  };
+}
+
+/** Öffentliche Adresse `/c/<handle>`. Self-Host-Adressen fragen wir vor der
+ *  Zustimmung nicht (Spec, Sicherheit 2). Die Vorschau verlangt eine Anmeldung
+ *  (Backend: `CurrentUser`) — Abgemeldete bekommen die Karte ohne Namen, ohne
+ *  dass ein Aufruf ins Leere (401) geht. */
+async function ladeAdresse(a: Adresse, angemeldet: boolean): Promise<GeladeneEinladung> {
+  if (a.host || !angemeldet) return { zustand: angemeldet ? 'einladung' : 'abgemeldet', ...LEER };
+  try {
+    const cloudId = serversStore.cloudId();
+    const p = await chatApi.getPublicCommunityPreview(a.handle, cloudId ? { serverId: cloudId } : {});
+    // Die Cloud-Mitgliedschaft, nicht die des gerade aktiven Servers.
+    let mitglied: boolean;
+    if (cloudId) {
+      await serverGuilds.ensureLoaded(cloudId);
+      mitglied = serverGuilds.get(cloudId).some((g) => g.id === p.guild.id);
+    } else {
+      await guilds.hydrate().catch(() => {});
+      mitglied = !!guilds.byId[p.guild.id];
+    }
+    return {
+      zustand: mitglied ? 'mitglied' : 'einladung',
+      community: adressVorschau(p),
+      guildId: p.guild.id,
+      fehler: null
+    };
+  } catch (err) {
+    const f = fehlerAus(err);
+    if (f === 'ungueltig') return { zustand: 'ungueltig', ...LEER };
+    return { zustand: 'fehler', community: null, guildId: null, fehler: f };
+  }
+}
+
 /** Für angemeldete, bestätigte Nutzer. */
-export async function ladeEinladung(e: Einladung): Promise<GeladeneEinladung> {
+export async function ladeEinladung(e: Ziel): Promise<GeladeneEinladung> {
+  if (istAdresse(e)) return ladeAdresse(e, true);
   if (e.host) {
     // Self-Host: Vorschau nur, wenn wir dort schon eine Sitzung haben. Einen
     // UNBEKANNTEN Server fragen wir vor der Zustimmung nicht — er sähe sonst
@@ -122,7 +162,8 @@ export async function ladeEinladung(e: Einladung): Promise<GeladeneEinladung> {
 
 /** Für Abgemeldete. Name nur für Cloud-Einladungen: einen Self-Host fragen
  *  wir vor der Erstkontakt-Zustimmung nie (Spec, Sicherheit 2). */
-export async function ladeEinladungAbgemeldet(e: Einladung): Promise<GeladeneEinladung> {
+export async function ladeEinladungAbgemeldet(e: Ziel): Promise<GeladeneEinladung> {
+  if (istAdresse(e)) return ladeAdresse(e, false);
   if (e.host) return { zustand: 'abgemeldet', ...LEER };
   try {
     const cloudId = serversStore.cloudId();
@@ -150,13 +191,14 @@ export type BeitrittsErgebnis =
   | { art: 'fehler'; fehler: EinladungFehler };
 
 /** Eingabe für joinGuildByInvite — dieselbe Form, die InviteEmbed baut. */
-function beitrittsEingabe(e: Einladung): string {
+function beitrittsEingabe(e: Ziel): string {
+  if (istAdresse(e)) return e.host ? `https://${e.host}/c/${e.handle}` : `c/${e.handle}`;
   return e.host ? `https://app/invite/${e.code}?host=${encodeURIComponent(e.host)}` : e.code;
 }
 
 /** Tritt bei. Bei 'ok' hat joinGuildByInvite schon in die Community navigiert. */
 export async function einladungAnnehmen(
-  e: Einladung,
+  e: Ziel,
   bestaetigt: boolean
 ): Promise<BeitrittsErgebnis> {
   try {
