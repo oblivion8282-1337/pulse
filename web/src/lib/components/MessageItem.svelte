@@ -15,6 +15,7 @@
   import { renderMessage } from './messageRender';
   import { m } from '$lib/paraglide/messages.js';
   import { ersteEinladungImText } from '$lib/einladung/einladungsLink';
+  import { einladungsKlicksAbfangen } from '$lib/einladung/linkKlick';
   import { CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
   import { blocks } from '$lib/stores/blocks.svelte';
   import { auth } from '$lib/stores/auth.svelte';
@@ -123,6 +124,9 @@
   const isInviteOnly = $derived(
     !!inviteTreffer && message.content.trim() === inviteTreffer.roh
   );
+  // Klick auf einen Einladungslink im Text öffnet den Dialog (linkKlick.ts).
+  let inhalt = $state<HTMLElement | null>(null);
+  $effect(() => (inhalt ? einladungsKlicksAbfangen(inhalt) : undefined));
   // Optimistic copy still awaiting its server echo — it has no real id yet,
   // so edit / delete / react would hit `/messages/tmp-…` and 4xx. Gate them
   // until the echo swaps in the persisted message.
@@ -283,7 +287,7 @@
            ändert die Reihenfolge nichts (keine Anhänge → kein Block). -->
       <MessageAttachments {attachments} />
       {#if message.content && !isInviteOnly}
-        <div class="text-text-base break-words text-[15px]" data-testid="message-content">
+        <div bind:this={inhalt} class="text-text-base break-words text-[15px]" data-testid="message-content">
           {@html html}
           {#if isEdited}
             <span class="text-text-muted text-2xs" title={message.edited_at ?? ''}>{m.message_item_edited_label()}</span>
