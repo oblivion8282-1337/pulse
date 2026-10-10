@@ -155,6 +155,18 @@ public class HinweisePlugin extends Plugin {
                         Log.w("Hinweise", "Avatar nicht ladbar — Standard-Icon", e);
                     }
                 }
+                Person sender = new Person.Builder().setName(absender)
+                        .setIcon(avatar != null
+                                ? androidx.core.graphics.drawable.IconCompat.createWithBitmap(avatar)
+                                : null)
+                        .setKey(absender).build();
+                NotificationCompat.MessagingStyle style = new NotificationCompat.MessagingStyle(
+                        new Person.Builder().setName("Du").build());
+                // Konversationstitel nur bei Gruppen (WhatsApp-Stil: Gruppenname
+                // als Überschrift, DMs ohne Titel).
+                if (!chatName.isEmpty()) style.setConversationTitle(chatName);
+                style.addMessage(new NotificationCompat.MessagingStyle.Message(
+                        text, System.currentTimeMillis(), sender));
 
                 Intent rein = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
                 if (!ziel.isEmpty()) rein.putExtra("pulse_ziel", ziel);
@@ -162,30 +174,9 @@ public class HinweisePlugin extends Plugin {
                         (chatId + ziel).hashCode(), rein,
                         PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
-                // Eigenes Layout statt OS-Template: „PULSE“ klein oben, dann
-                // Kontaktbild + Name, die Nachricht DARUNTER, Zeitstempel
-                // rechts — der Nutzer soll das Popup ohne Aufklappen im
-                // WhatsApp-Look sehen.
-                android.widget.RemoteViews rv = new android.widget.RemoteViews(
-                        ctx.getPackageName(), R.layout.notif_chat);
-                String kopf = chatName.isEmpty() ? "PULSE" : "PULSE · " + chatName.toUpperCase();
-                rv.setTextViewText(R.id.notif_kopf, kopf);
-                rv.setTextViewText(R.id.notif_name, absender);
-                rv.setTextViewText(R.id.notif_text, text);
-                rv.setTextViewText(R.id.notif_zeit,
-                        new java.text.SimpleDateFormat("HH:mm", java.util.Locale.GERMAN)
-                                .format(new java.util.Date()));
-                if (avatar != null) {
-                    rv.setImageViewBitmap(R.id.notif_avatar, avatar);
-                } else {
-                    rv.setImageViewResource(R.id.notif_avatar, android.R.drawable.ic_menu_myplaces);
-                }
-                boolean leseAktion = !token.isEmpty() && !lesePfad.isEmpty() && !basis.isEmpty();
-                rv.setViewVisibility(R.id.notif_gelesen,
-                        leseAktion ? android.view.View.VISIBLE : android.view.View.GONE);
-
                 NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
                         .setSmallIcon(android.R.drawable.stat_notify_chat)
+                        .setStyle(style)
                         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                         .setAutoCancel(true)
                         .setContentIntent(intent)
@@ -197,17 +188,15 @@ public class HinweisePlugin extends Plugin {
                         .setShortcutId(chatId)
                         // Pulse-Optik: Akzentfarbe der App (Tint des Icons).
                         .setColor(0xFF2563EB)
-                        .setCustomContentView(rv)
-                        .setCustomBigContentView(rv)
-                        .setCustomHeadsUpContentView(rv)
                         .setWhen(System.currentTimeMillis())
                         .setShowWhen(true);
+                if (avatar != null) b.setLargeIcon(avatar);
 
                 // Aktion „Als gelesen markieren" (keine Antwort-Aktion —
                 // Produktwunsch): der Receiver macht den Lesestand-PUT
                 // nativ, denn die WebView wäre im Hintergrund gefroren.
                 int nid = chatId.isEmpty() ? mid.hashCode() : chatId.hashCode();
-                if (leseAktion) {
+                if (!token.isEmpty() && !lesePfad.isEmpty() && !basis.isEmpty()) {
                     Intent lese = new Intent(ctx, HinweiseAktionReceiver.class);
                     lese.setAction("als_gelesen");
                     lese.putExtra("basis", basis);
@@ -218,7 +207,8 @@ public class HinweisePlugin extends Plugin {
                     PendingIntent leseIntent = PendingIntent.getBroadcast(ctx,
                             ("lese" + chatId).hashCode(), lese,
                             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-                    rv.setOnClickPendingIntent(R.id.notif_gelesen, leseIntent);
+                    b.addAction(new NotificationCompat.Action.Builder(
+                            0, "Als gelesen markieren", leseIntent).build());
                 }
                 nmF.notify(nid, b.build());
                 Log.i("Hinweise", "nachricht gepostet: chat=" + chatId + " absender=" + absender);
