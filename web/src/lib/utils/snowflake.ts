@@ -9,9 +9,10 @@ import { vergleicheSnowflakeArtigeId } from './snowflakeZeit.ts';
  * längen-zuerst-Vergleich ist deshalb nur korrekt, solange ALLE verglichenen
  * IDs aus demselben Schema stammen. Seit den Ende-zu-Ende-verschlüsselten
  * DMs gilt das nicht mehr: `krypto/senden.ts::lokaleNachrichtId()` vergibt
- * lokale, fest 20-stellige Kennungen, während echte Server-Snowflakes heute
- * 17 Stellen haben — eine lokale ID wäre nach "Länge zuerst" IMMER als
- * jünger einsortiert worden, unabhängig vom echten Zeitpunkt (Bughunt Fund 1,
+ * lokale, fest 19-stellige Kennungen (bis 2026-09-02: 20-stellige), während
+ * echte Server-Snowflakes heute 17 bis 18 Stellen haben — eine lokale ID
+ * wäre nach "Länge zuerst" IMMER als jünger einsortiert worden, unabhängig
+ * vom echten Zeitpunkt (Bughunt Fund 1,
  * s. `web/test/snowflake-vergleich.test.ts`). Die eigentliche Rechnung
  * (eingebettete Zeit entschlüsseln und die vergleichen) steht deshalb in
  * `./snowflakeZeit.ts` — dieselbe Rechnung, die `verlauf/zusammenfuegen.ts`

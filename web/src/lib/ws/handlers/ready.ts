@@ -11,6 +11,7 @@
 import { guilds } from '$lib/stores/guilds.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { readState } from '$lib/stores/readState.svelte';
+import { quittungen } from '$lib/stores/quittungen.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { streamPresence } from '$lib/stores/streamPresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -173,16 +174,14 @@ export function register(
       // ready frames; we fall through to clean defaults when absent.
       if (evt.dm_channels) {
         directMessages.seed(evt.dm_channels);
-        // Serverseitiger Lesefortschritt (P0.2): eigener Stand + Gegenstelle
-        // je DM max-mergen — der Server ist die geräteübergreifende Wahrheit,
-        // ein frisch geladener Tab darf ihn nicht nach hinten ziehen.
+        // Serverseitiger Lese- und Zustellstand (P0.2, Migration 0101) je DM
+        // max-mergen — der Server ist die geräteübergreifende Wahrheit, ein
+        // frisch geladener Tab darf ihn nicht nach hinten ziehen.
         for (const dm of evt.dm_channels) {
           if (dm.last_read_message_id) {
             readState.seedOwnLesestand(dm.id, dm.last_read_message_id);
           }
-          if (dm.partner_last_read_message_id) {
-            readState.setPartnerLesestand(dm.id, dm.partner_last_read_message_id);
-          }
+          quittungen.dmSeeden(dm);
         }
       }
       friends.seedAll(evt.friends ?? []);
@@ -255,6 +254,14 @@ export function register(
         .auflisten()
         .then(async (gruppen) => {
           privateGruppen.seed(gruppen);
+          // Eigener Gruppen-Lesestand von den anderen Geräten → Zähler hier
+          // löschen (dasselbe wie der DM-Stand oben; die fremden Stände
+          // übernimmt `privateGruppen.seed` selbst).
+          const ich = evt.user_id;
+          for (const g of gruppen) {
+            const eigen = g.members.find((m) => m.user_id === ich)?.gelesen_bis;
+            if (eigen) readState.seedOwnLesestand(g.id, eigen);
+          }
           // **Jede Gruppe wird abonniert, nicht erst die geoeffnete.** Der
           // `postfach_neu`-Weckruf faechert am Server an die Abonnenten des
           // Kanals auf (`pubsub_channel_handlers.py::handle_chat_channel`) —

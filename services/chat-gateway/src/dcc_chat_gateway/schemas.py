@@ -507,6 +507,9 @@ class DMChannelOut(BaseModel):
     #: Gegenstelle, numerisch-opak (Details am ``DmLesestand``-Modell).
     last_read_message_id: int | None = None
     partner_last_read_message_id: int | None = None
+    #: Zustellstand der Gegenstelle für EIGENE Nachrichten (doppelt grau,
+    #: Migration 0101) — kanonische ID der jüngsten angekommenen Nachricht.
+    partner_zugestellt_bis: int | None = None
 
     @field_serializer(
         "id",
@@ -515,6 +518,7 @@ class DMChannelOut(BaseModel):
         "last_message_author_id",
         "last_read_message_id",
         "partner_last_read_message_id",
+        "partner_zugestellt_bis",
     )
     def _ser_ids(self, v: int | None) -> str | None:
         return _opt_id_str(v)
@@ -1539,10 +1543,19 @@ class PrivateGroupCreateIn(BaseModel):
 class PrivateGroupMemberOut(BaseModel):
     user_id: int
     beigetreten_am: datetime
+    #: Lesestand dieses Mitglieds und Zustellstand der EIGENEN Nachrichten bei
+    #: ihm (Häkchen-Treppe, ``haekchen.py``) — nur in den Lese-Antworten
+    #: gefüllt, sonst null; der Klient merged vorwärts.
+    gelesen_bis: int | None = None
+    zugestellt_bis: int | None = None
 
     @field_serializer("user_id")
     def _ser_user_id(self, v: int) -> str:
         return _id_str(v)
+
+    @field_serializer("gelesen_bis", "zugestellt_bis")
+    def _ser_staende(self, v: int | None) -> str | None:
+        return _opt_id_str(v)
 
 
 class PrivateGroupOut(BaseModel):
@@ -1662,6 +1675,14 @@ class PostfachAnhangAbrufIn(BaseModel):
     device_pubkey: GeraeteKennung
 
 
+class ZustellstandIn(BaseModel):
+    """Ein Eintrag in ``PostfachQuittungRequest.zustellstaende``."""
+
+    channel_id: SnowflakeId
+    absender_user_id: SnowflakeId
+    zugestellt_bis: SnowflakeId
+
+
 class PostfachQuittungRequest(BaseModel):
     """Rumpf von ``POST /postfach/quittung``."""
 
@@ -1671,3 +1692,8 @@ class PostfachQuittungRequest(BaseModel):
     # sind durchweg gekappt (anhaenge 16, user_ids 64). 500 = die harte
     # Obergrenze offener Zustellungen je Geraet, mehr kann nie warten.
     zustellung_ids: list[SnowflakeId] = Field(min_length=1, max_length=500)
+    # Doppelt grauer Haken (Migration 0101): je (Kanal, Absender) die
+    # kanonische ID der jüngsten Nachricht, die mit dieser Quittung angekommen
+    # ist. Nur der Klient kennt sie — sie steckt im Umschlag. Gedeckelt wie die
+    # Zustellungen: mehr Paare als Umschläge kann es nicht geben.
+    zustellstaende: list[ZustellstandIn] = Field(default_factory=list, max_length=500)

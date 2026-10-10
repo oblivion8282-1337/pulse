@@ -33,6 +33,7 @@ from sqlalchemy import delete, exists, select
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.haekchen import zustellstaende_speichern
 from dcc_chat_gateway.models import DmNutzlast, DmZustellung
 from dcc_chat_gateway.schemas import (
     PostfachAbholenRequest,
@@ -151,8 +152,8 @@ async def postfach_quittung(
 
     # Für den Absender-Rücklauf (WhatsApp-Treppe, Befund 05.10.: doppelter
     # GRAUER Haken = angekommen): vor dem Löschen die (Kanal, Absender)-Paare
-    # der Quittungen einsammeln — die Quittung ist das „angekommen"-Signal,
-    # das dem Absender als user_event zurückgeht.
+    # der Quittungen einsammeln — nur für diese Paare nimmt die Route unten
+    # einen gemeldeten Zustellstand an.
     absender_kreise = (
         (
             await session.execute(
@@ -203,25 +204,31 @@ async def postfach_quittung(
 
         await session.commit()
 
-    # Rücklauf an die Absender (best-effort, Muster wie die anderen Publishes):
-    # pro (Kanal, Absender) ein Ereignis — der Absender hält daraus den
-    # doppelten grauen Haken. Der Quittierende selbst braucht es nicht.
-    if absender_kreise:
-        manager = getattr(request.app.state, "connection_manager", None)
-        if manager is not None:
-            from dcc_shared.events import ZustellungBestaetigtEvent
+    # Doppelt grauer Haken (Migration 0101): die Stände, die der Klient zu
+    # DIESER Quittung meldet, dauerhaft ablegen — erlaubt sind nur Paare, deren
+    # Umschläge gerade wirklich quittiert wurden. Danach je Absender ein
+    # Ereignis mit dem geltenden Stand (best-effort, Muster wie die anderen
+    # Publishes); wer beim Abholen offline war, liest ihn aus dem ready-Rahmen.
+    geltend = await zustellstaende_speichern(
+        session,
+        user.id,
+        ((z.channel_id, z.absender_user_id, z.zugestellt_bis) for z in body.zustellstaende),
+        {(kanal, absender) for kanal, absender in absender_kreise if absender is not None},
+    )
+    await session.commit()
+    manager = getattr(request.app.state, "connection_manager", None)
+    if manager is not None:
+        from dcc_shared.events import ZustellungBestaetigtEvent
 
-            for kanal_id, absender_id in set(absender_kreise):
-                if absender_id is None or absender_id == user.id:
-                    continue
-                try:
-                    await manager.publish_user_event(
-                        absender_id,
-                        ZustellungBestaetigtEvent(
-                            channel_id=str(kanal_id), user_id=str(user.id)
-                        ),
-                    )
-                except Exception:
-                    log.exception("zustellung_bestaetigt publish failed")
+        for kanal_id, absender_id, bis in geltend:
+            try:
+                await manager.publish_user_event(
+                    absender_id,
+                    ZustellungBestaetigtEvent(
+                        channel_id=str(kanal_id), user_id=str(user.id), zugestellt_bis=str(bis)
+                    ),
+                )
+            except Exception:
+                log.exception("zustellung_bestaetigt publish failed")
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

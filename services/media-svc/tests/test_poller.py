@@ -76,6 +76,81 @@ def test_poll_interval_backs_off_after_idle_streak():
     assert _poller._poll_interval(5, 3.0) == 3.0
     assert _poller._poll_interval(10, 3.0) == 30.0
     assert _poller._poll_interval(50, 3.0) == _poller._IDLE_POLL_INTERVAL_S == 30.0
+    # Nach einem Klick auf „Stream starten" fragt er im Halbsekundentakt, bis
+    # der Stream erscheint — auch wenn der Leerlauf-Streak über der Schwelle steht.
+    from dcc_media_svc import weckruf
+
+    assert _poller._poll_interval(50, 3.0, wach=True) == weckruf.WACH_TAKT_S == 0.5
+    # Ein ohnehin schnellerer Grundtakt wird dadurch nicht langsamer.
+    assert _poller._poll_interval(0, 0.2, wach=True) == 0.2
+
+
+@pytest.mark.asyncio
+async def test_wecken_unterbricht_den_gedehnten_leerlauf_takt(monkeypatch):
+    """Ein neuer Stream darf nicht auf den 30-s-Leerlauftakt warten: der Poller
+    ist der einzige, der einen Publisher als live meldet. Steht er im gedehnten
+    Takt, muss ``wecken()`` (vom Sende-Token-Ausgeben gerufen) den Schlaf
+    sofort beenden — sonst sieht der Streamer sich bis zu 30 s nicht live."""
+    import asyncio
+
+    import dcc_media_svc.poller as _poller
+    from dcc_media_svc import weckruf
+
+    durchlaeufe = 0
+    gelaufen = asyncio.Event()
+
+    async def _zaehlen(_redis, _client):
+        nonlocal durchlaeufe
+        durchlaeufe += 1
+        gelaufen.set()
+
+    monkeypatch.setattr(_poller, "reconcile_once", _zaehlen)
+    monkeypatch.setattr(_poller, "_idle_streak", 50)
+    monkeypatch.setattr(weckruf, "_erwartet", {})
+    stop = asyncio.Event()
+    task = asyncio.create_task(_poller.run_poller(None, stop_event=stop))
+    try:
+        await asyncio.wait_for(gelaufen.wait(), timeout=2)
+        assert durchlaeufe == 1
+        gelaufen.clear()
+        # Der Poller schläft jetzt 30 s — ohne Weckruf käme hier nichts.
+        weckruf.wecken("1", "2", 0)
+        await asyncio.wait_for(gelaufen.wait(), timeout=1)
+        assert durchlaeufe == 2
+        gelaufen.clear()
+        # Danach im Halbsekundentakt weiter, bis der angekündigte Stream
+        # erscheint (der Stub meldet ihn nie) — ohne Weckruf kämen 30 s, mit
+        # dem Grundtakt 3 s.
+        await asyncio.wait_for(gelaufen.wait(), timeout=1.5)
+        assert durchlaeufe == 3
+    finally:
+        stop.set()
+        await asyncio.wait_for(task, timeout=2)
+    assert weckruf._ereignis is None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_hakt_den_angekuendigten_stream_ab(redis, monkeypatch):
+    """Der Halbsekundentakt endet, sobald ein Durchlauf genau den angekündigten
+    Stream sieht — nicht pauschal nach einer Frist. Sonst hielte in einer
+    belebten Instanz jeder Klick irgendwo den Poller dauerhaft im Schnelltakt."""
+    import dcc_media_svc.poller as _poller
+    from dcc_media_svc import weckruf
+
+    monkeypatch.setattr(weckruf, "_erwartet", {})
+    monkeypatch.setattr(_poller, "_idle_streak", 0)
+    monkeypatch.setattr(_poller, "_empty_snapshot_streak", 0)
+    cid = _unique_cid()
+    weckruf.wecken(cid, "1", 0)
+    leer = _FakeMediaMtxClient(_paths())
+    live = _FakeMediaMtxClient(_paths((f"channel-{cid}-1-{'cafebabe' * 4}", True)))
+    try:
+        await reconcile_once(redis, leer)
+        assert weckruf.ist_wach()
+        await reconcile_once(redis, live)
+        assert not weckruf.ist_wach()
+    finally:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
 
 
 @pytest.mark.asyncio

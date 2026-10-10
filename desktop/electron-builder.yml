@@ -23,6 +23,16 @@
 # sie von `https://howispulse.com`.
 appId: com.howispulse.pulse
 productName: Pulse
+
+# pulse://invite?code=…[&host=…] — der Sprung aus der Einladungsseite im
+# Browser. macOS braucht das Schema im Info.plist (CFBundleURLTypes), sonst
+# bleibt `setAsDefaultProtocolClient` wirkungslos. Windows: keine Anmeldung
+# durch den Installer — das erledigt allein `setAsDefaultProtocolClient` in
+# main.ts beim ersten Start.
+protocols:
+  - name: Pulse
+    schemes:
+      - pulse
 # afterPack-Hook (build-resources/afterPack.cjs) — FALLBACK für builds ohne
 # Developer-ID-Identity: ad-hoc-Signatur statt linker-signierter, unversiegelter
 # .app (die Gatekeeper auf Apple Silicon als „beschädigt" abweist). Liegt eine

@@ -5,15 +5,18 @@
  *
  * Self-Host: der Link zeigt auf die WEB-App-Origin und trägt den Zielserver
  * als ``?host=`` — so landet der Empfänger im Universal-Beitrittsfeld-Flow
- * (Cert-Login + Grant), nicht auf dem Self-Host direkt.
+ * (Cert-Login + Grant), nicht auf dem Self-Host direkt. Die Rechnung selbst
+ * steht importfrei in linkBau.ts.
  */
 
 import { activeServer } from '$lib/stores/active-server.svelte';
+import { adresseBauen, einladungsLinkBauen } from './linkBau';
 
 export function inviteLink(code: string): string {
-  const origin = window.location.origin;
-  const srv = activeServer.current;
-  if (!srv || srv.isCloud) return `${origin}/invite/${code}`;
-  const host = srv.hostname.replace(/^https?:\/\//, '');
-  return `${origin}/invite/${code}?host=${encodeURIComponent(host)}`;
+  return einladungsLinkBauen(window.location.origin, code, activeServer.current);
+}
+
+/** Teilbare öffentliche Community-Adresse (`/c/<handle>`), gleiche Regel wie `inviteLink`. */
+export function oeffentlicheAdresse(handle: string): string {
+  return adresseBauen(window.location.origin, handle, activeServer.current);
 }

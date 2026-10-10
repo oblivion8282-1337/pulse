@@ -330,9 +330,10 @@ contextBridge.exposeInMainWorld('pulse', {
 
   // Invite deep-link bridge (Phase 5.3). Main parses + validates pulse://invite
   // URLs and sends the sanitised {hostname, code} pair over this channel.
-  // The renderer (root +layout.svelte) subscribes once on mount and navigates
-  // to /invite/[code]?host=… where the user sees a confirmation dialog before
-  // anything happens.
+  // The renderer (root +layout.svelte) subscribes once on mount and opens the
+  // invite dialog or keeps the invite until after sign-in
+  // (web/src/lib/einladung/deepLink.ts); nothing happens without confirmation.
+  // hostname '' = Cloud-Einladung.
   invite: {
     /** Subscribe to incoming invite deep-links. Returns an unsubscribe fn. */
     onLink(cb: (data: { hostname: string; code: string }) => void): () => void {

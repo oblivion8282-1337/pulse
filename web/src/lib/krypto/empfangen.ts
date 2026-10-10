@@ -128,6 +128,7 @@ import {
 } from '../verlauf';
 import { lokaleIdsFuerLoeschung } from './loeschZiel';
 import { messages } from '../stores/messages.svelte';
+import { auth } from '../stores/auth.svelte';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { postfachApi } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
@@ -135,6 +136,7 @@ import { kryptoAccountLaden } from './account.svelte';
 import { geraeteKennung } from './geraeteKennung';
 import { anhaengeHolen } from './anhangHolen';
 import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
+import { zustellstaendeAus } from './zustellstand';
 import { verarbeiteMitWiederherstellung } from './postfachSchleife';
 import { KontoSicherungFehlgeschlagen, zustellungOeffnen } from './zustellungOeffnen';
 import { mitKontosperre } from './sperren';
@@ -328,9 +330,15 @@ async function postfachZyklus(): Promise<Message[]> {
   ];
 
   if (quittierbar.length > 0) {
-    // ERST JETZT quittieren, s. Modulkopf.
+    // ERST JETZT quittieren, s. Modulkopf — und mit der Quittung den
+    // Absendern melden, bis wohin ihre Nachrichten angekommen sind (doppelt
+    // grauer Haken, `zustellstand.ts`). Nur was gleich quittiert wird zählt.
     await postfachApi.quittieren(
-      { device_pubkey: kennung, zustellung_ids: quittierbar },
+      {
+        device_pubkey: kennung,
+        zustellung_ids: quittierbar,
+        zustellstaende: zustellstaendeAus(geoeffnet, new Set(quittierbar), auth.user?.id ?? null)
+      },
       cloudRoute()
     );
   }

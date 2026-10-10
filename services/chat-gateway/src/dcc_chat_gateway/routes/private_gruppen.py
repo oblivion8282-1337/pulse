@@ -47,6 +47,8 @@ from sqlalchemy.exc import IntegrityError
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
+from dcc_chat_gateway.haekchen import MitgliedStaende, gruppen_staende
+from dcc_chat_gateway.haekchen import mitglied_loeschen as haekchen_mitglied_loeschen
 from dcc_chat_gateway.models import (
     GruppenLesestand,
     PrivateGroupChannel,
@@ -65,6 +67,7 @@ from dcc_chat_gateway.schemas import (
     PrivateGroupMemberAddIn,
     PrivateGroupMemberOut,
     PrivateGroupOut,
+    SnowflakeId,
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -104,7 +107,15 @@ async def _mitglieder_laden(session, gruppe_id: int) -> list[PrivateGroupMember]
     return list((await session.execute(stmt)).scalars())
 
 
-def _wire(gruppe: PrivateGroupChannel, mitglieder: list[PrivateGroupMember]) -> PrivateGroupOut:
+def _wire(
+    gruppe: PrivateGroupChannel,
+    mitglieder: list[PrivateGroupMember],
+    staende: dict[int, MitgliedStaende] | None = None,
+) -> PrivateGroupOut:
+    """``staende`` (Häkchen-Treppe, ``haekchen.gruppen_staende``) nur in den
+    Lese-Antworten — die Mutations-Antworten lassen sie weg, der Klient
+    merged vorwärts und verliert dabei nichts."""
+    staende = staende or {}
     return PrivateGroupOut(
         id=gruppe.id,
         ersteller_id=gruppe.ersteller_id,
@@ -112,7 +123,12 @@ def _wire(gruppe: PrivateGroupChannel, mitglieder: list[PrivateGroupMember]) -> 
         created_at=gruppe.created_at,
         last_message_id=gruppe.last_message_id,
         members=[
-            PrivateGroupMemberOut(user_id=m.user_id, beigetreten_am=m.beigetreten_am)
+            PrivateGroupMemberOut(
+                user_id=m.user_id,
+                beigetreten_am=m.beigetreten_am,
+                gelesen_bis=st.gelesen_bis if (st := staende.get(m.user_id)) else None,
+                zugestellt_bis=st.zugestellt_bis if st else None,
+            )
             for m in mitglieder
         ],
     )
@@ -163,6 +179,7 @@ async def _entferne_mitglied(session, gruppe: PrivateGroupChannel, user_id: int)
             PrivateGroupMember.user_id == user_id,
         )
     )
+    await haekchen_mitglied_loeschen(session, gruppe.id, user_id)
     await session.commit()
 
     if await gruppe_loeschen_wenn_leer(session, gruppe.id):
@@ -263,10 +280,11 @@ async def gruppen_auflisten(
             select(PrivateGroupChannel).where(PrivateGroupChannel.id.in_(gruppe_ids))
         )
     ).scalars().all()
+    staende = await gruppen_staende(session, user.id, list(gruppe_ids))
     out: list[PrivateGroupOut] = []
     for gruppe in gruppen:
         mitglieder = await _mitglieder_laden(session, gruppe.id)
-        out.append(_wire(gruppe, mitglieder))
+        out.append(_wire(gruppe, mitglieder, staende.get(gruppe.id)))
     return out
 
 
@@ -276,7 +294,8 @@ async def gruppe_lesen(
 ) -> PrivateGroupOut:
     gruppe, _ = await _gruppe_fuer_mitglied_laden(session, gruppe_id, user.id)
     mitglieder = await _mitglieder_laden(session, gruppe.id)
-    return _wire(gruppe, mitglieder)
+    staende = await gruppen_staende(session, user.id, [gruppe.id])
+    return _wire(gruppe, mitglieder, staende.get(gruppe.id))
 
 
 @router.post("/gruppen/{gruppe_id}/mitglieder", status_code=status.HTTP_201_CREATED)
@@ -385,7 +404,9 @@ async def gruppe_verlassen(
 class GruppenLesestandIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    last_read_message_id: int
+    # SnowflakeId statt int: prüft den BIGINT-Bereich (sonst 500 aus dem
+    # Treiber statt 422) — dieselbe Naht wie ``DmLesestandIn``.
+    last_read_message_id: SnowflakeId
 
 
 @router.put("/gruppen/{gruppe_id}/lesestand", status_code=status.HTTP_204_NO_CONTENT)

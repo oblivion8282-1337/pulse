@@ -27,12 +27,16 @@ export type PrivacySettings = {
   dm_policy: number;
   friend_request_policy: number;
   show_in_search: boolean;
+  /** Lesebestätigungen in DMs (Migration 0101). Optional: ein älterer
+   *  ready-Rahmen kennt das Feld nicht — fehlt es, gilt „an". */
+  lesebestaetigungen?: boolean;
 };
 
 const DEFAULTS: PrivacySettings = {
   dm_policy: DM_POLICY.EVERYONE,
   friend_request_policy: FRIEND_REQ_POLICY.EVERYONE,
-  show_in_search: true
+  show_in_search: true,
+  lesebestaetigungen: true
 };
 
 class PrivacyStore {

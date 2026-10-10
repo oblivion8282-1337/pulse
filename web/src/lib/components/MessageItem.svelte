@@ -14,13 +14,14 @@
   import { detectEmbeds } from '$lib/embeds/providers';
   import { renderMessage } from './messageRender';
   import { m } from '$lib/paraglide/messages.js';
+  import { ersteEinladungImText } from '$lib/einladung/einladungsLink';
+  import { einladungsKlicksAbfangen } from '$lib/einladung/linkKlick';
+  import { CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
   import { blocks } from '$lib/stores/blocks.svelte';
-  import { readState } from '$lib/stores/readState.svelte';
-import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
-import { directMessages } from '$lib/stores/directMessages.svelte';
-import { auth } from '$lib/stores/auth.svelte';
-  import { lesestandAnker } from '$lib/stores/lesestandKern';
+  import { auth } from '$lib/stores/auth.svelte';
   import { nachrichtVonBlockiertem } from '$lib/nachrichten/blockierteAnzeige';
+  import { haekchenFuer, hatInfo } from '$lib/nachrichten/haekchenAnzeige';
+  import NachrichtInfoDialog from './chat/NachrichtInfoDialog.svelte';
 
   let {
     message,
@@ -98,6 +99,7 @@ import { auth } from '$lib/stores/auth.svelte';
   } = $props();
 
   let reportOpen = $state(false);
+  let infoOpen = $state(false);
 
   let editing = $state(false);
   let draft = $state('');
@@ -112,19 +114,19 @@ import { auth } from '$lib/stores/auth.svelte';
   const attachments = $derived(message.attachments ?? []);
   const isEdited = $derived(!!message.edited_at);
 
-  // Invite-Embed-Detection: extract the first /invite/<code> from the content.
-  // Require an explicit https?:// prefix so bare /invite/XXXXXXXX substrings
-  // (e.g. in path segments of unrelated URLs) do not trigger an embed fetch.
-  // Capture-Gruppe 1 = Code, 2 = optionaler ``?host=<fqdn>`` (Self-Host-Invite).
-  const INVITE_RE = /https?:\/\/[^\s]+\/invite\/([A-Za-z0-9]{8})(?:\?host=([^\s&#]+))?/;
-  const inviteMatch = $derived(message.content.match(INVITE_RE));
-  const inviteCode = $derived(inviteMatch ? inviteMatch[1] : null);
-  const inviteHost = $derived(inviteMatch && inviteMatch[2] ? decodeURIComponent(inviteMatch[2]) : null);
-  // Suppress the raw text entirely when the message is *only* the invite link
-  // (possibly with surrounding whitespace).
+  // Einladungs-Karte: erste gültige Einladung im Text (einladungsLink.ts —
+  // derselbe Leser wie Beitrittsfeld, Seite und Dialog; `host=` an jeder
+  // Stelle, Satzzeichen am Linkende werden abgeschnitten).
+  const inviteTreffer = $derived(ersteEinladungImText(message.content, CLOUD_HOSTNAME, window.location.host));
+  const inviteCode = $derived(inviteTreffer?.einladung.code ?? null);
+  const inviteHost = $derived(inviteTreffer?.einladung.host ?? null);
+  // Rohtext ausblenden, wenn die Nachricht NUR aus dem Link besteht.
   const isInviteOnly = $derived(
-    !!inviteCode && message.content.trim().replace(INVITE_RE, '').trim() === ''
+    !!inviteTreffer && message.content.trim() === inviteTreffer.roh
   );
+  // Klick auf einen Einladungslink im Text öffnet den Dialog (linkKlick.ts).
+  let inhalt = $state<HTMLElement | null>(null);
+  $effect(() => (inhalt ? einladungsKlicksAbfangen(inhalt) : undefined));
   // Optimistic copy still awaiting its server echo — it has no real id yet,
   // so edit / delete / react would hit `/messages/tmp-…` and 4xx. Gate them
   // until the echo swaps in the persisted message.
@@ -134,55 +136,6 @@ import { auth } from '$lib/stores/auth.svelte';
   // Nachricht nur, wo die Liste es ausdruecklich erlaubt (Reaktions-Umschlag,
   // P1.5, DM). Ohne Vorgabe der alte Stand: verschluesselt = gesperrt.
   const kannReagieren = $derived(canReact ?? !message.verschluesselt);
-
-  /** Lese-Häkchen (P0.2) — nur eigene DM-Nachrichten (bubble): true = von
-   *  der Gegenstelle gelesen, false = nur zugestellt, undefined = keine
-   *  Auskunft (optimistische Kopie, oder Partner-Stand unbekannt). */
-  function leseBestaetigtFuer(nachricht: Message): boolean | undefined {
-    if (layout !== 'bubble' || !istEigene || nachricht.id.startsWith('tmp-')) return undefined;
-    if (!nachricht.channel_id) return undefined;
-    // `null` (kein Partner-Stand) → `undefined` (gar kein Häkchen).
-    // Anker = kanonische ID (B3): die eigene Nachricht trägt hier ihre
-    // lokale ID, der Partner-Stand ist an ebendiese geankert — auf dem
-    // eigenen Zweitgerät (Nachricht unter der Zustellungs-ID abgelegt)
-    // springt `krypto_id` ein.
-    return readState.istGelesen(nachricht.channel_id, lesestandAnker(nachricht)) ?? undefined;
-  }
-
-  /** Diese Nachricht liegt in einer privaten Gruppe (statt einer DM)? */
-  const gruppe = $derived(privateGruppen.byId[message.channel_id] ?? undefined);
-
-  /** Gruppen-Lesebestätigung (Befund 05.10., Michaels Wahl „Haken wenn
-   *  alle gelesen"): blau erst, wenn ALLE anderen Mitglieder bis zu dieser
-   *  Nachricht durch sind — sonst verbleibt der einfache Haken. */
-  function gruppeAlleGelesenFuer(nachricht: Message): boolean | undefined {
-    if (layout !== 'bubble' && layout !== 'row') return undefined;
-    if (!istEigene || nachricht.id.startsWith('tmp-')) return undefined;
-    if (!gruppe) return undefined;
-    const ich = auth.user?.id;
-    if (!ich) return undefined;
-    const andere = gruppe.members.map((m) => m.user_id).filter((u) => u !== ich);
-    return readState.gruppeAlleGelesen(nachricht.channel_id, andere, lesestandAnker(nachricht)) ?? undefined;
-  }
-
-  /** Angekommen bei allen Mitgliedern (doppelter GRAUER Haken)? Holt die
-   *  Quittungs-Zeitpunkte aus dem Store; solange eine fehlt, bleibt der
-   *  einfache Haken. */
-  function angekommenFuer(nachricht: Message): boolean | undefined {
-    if (layout !== 'bubble' && layout !== 'row') return undefined;
-    if (!istEigene || nachricht.id.startsWith('tmp-')) return undefined;
-    const ich = auth.user?.id;
-    if (!ich) return undefined;
-    // Nur DMs und private Gruppen haben Quittungen — Community-Kanäle
-    // kennen das Konzept nicht (undefined = gar kein Haken, wie bisher).
-    const gruppe = privateGruppen.byId[nachricht.channel_id];
-    const dm = directMessages.byId[nachricht.channel_id];
-    if (!gruppe && !dm) return undefined;
-    const konten = gruppe
-      ? gruppe.members.map((m) => m.user_id).filter((u) => u !== ich)
-      : [dm.other_user_id];
-    return readState.angekommenAlle(nachricht.channel_id, konten, Date.parse(nachricht.created_at));
-  }
 
   // Eine verschluesselte DM hat keine `messages`-Zeile — `createOperatorReport`
   // (nachrichtenbezogen) faende sie nicht (Bughunt 2026-08-28, Befund 2).
@@ -280,17 +233,14 @@ import { auth } from '$lib/stores/auth.svelte';
     onDelete: () => onDelete(message),
     onReact: kannReagieren ? (e: string) => handleToggle(e, false) : undefined,
     onReport: () => (reportOpen = true),
-    onTogglePin: onTogglePin ? () => onTogglePin(message) : undefined
+    onTogglePin: onTogglePin ? () => onTogglePin(message) : undefined,
+    // Wer hat gelesen? Nur an eigenen Gruppennachrichten (WhatsApp „Info").
+    onInfo: hatInfo(message, auth.user?.id) ? () => (infoOpen = true) : undefined
   });
 
-  // Lese-/Zustell-Häkchen (nur eigene Nachrichten in DM/Gruppe) — beide
-  // Layout-Zweige (bubble + row) zeigen dieselben Werte, daher einmal hergeleitet.
-  const leseBestaetigt = $derived(
-    gruppe ? gruppeAlleGelesenFuer(message) : leseBestaetigtFuer(message)
-  );
-  const zugestellt = $derived(
-    gruppe && gruppeAlleGelesenFuer(message) !== true ? angekommenFuer(message) : undefined
-  );
+  // Häkchen-Treppe (nur eigene Nachrichten in DM/Gruppe) — beide Hüllen
+  // zeigen denselben Wert, daher einmal hergeleitet (`nachrichten/haekchen.ts`).
+  const haekchen = $derived(haekchenFuer(message, auth.user?.id));
 </script>
 
 {#snippet body()}
@@ -337,7 +287,7 @@ import { auth } from '$lib/stores/auth.svelte';
            ändert die Reihenfolge nichts (keine Anhänge → kein Block). -->
       <MessageAttachments {attachments} />
       {#if message.content && !isInviteOnly}
-        <div class="text-text-base break-words text-[15px]" data-testid="message-content">
+        <div bind:this={inhalt} class="text-text-base break-words text-[15px]" data-testid="message-content">
           {@html html}
           {#if isEdited}
             <span class="text-text-muted text-2xs" title={message.edited_at ?? ''}>{m.message_item_edited_label()}</span>
@@ -376,9 +326,7 @@ import { auth } from '$lib/stores/auth.svelte';
     {message}
     {time}
     eigen={istEigene}
-    pending={isPending}
-    leseBestaetigt={leseBestaetigt}
-    zugestellt={zugestellt}
+    {haekchen}
     onSwipeReply={() => onReply(message)}
     {isContinuation}
     {isGroupEnd}
@@ -396,9 +344,7 @@ import { auth } from '$lib/stores/auth.svelte';
     {time}
     {isContinuation}
     {highlight}
-    pending={isPending}
-    leseBestaetigt={leseBestaetigt}
-    zugestellt={zugestellt}
+    {haekchen}
     onLongPress={openSheet}
     {guildId}
     {handy}
@@ -409,6 +355,17 @@ import { auth } from '$lib/stores/auth.svelte';
 </div>
 
 <MessageActionSheet bind:open={sheetOpen} {...aktionen} />
+
+<NachrichtInfoDialog
+  {message}
+  bind:open={infoOpen}
+  onClose={() => {
+    infoOpen = false;
+    // Wie beim Melden: das Aktionsblatt erst schliessen, wenn der Dialog zu
+    // ist (bits-ui-Overlay-Race, s. unten).
+    sheetOpen = false;
+  }}
+/>
 
 <ReportMessageDialog
   messageId={meldungOhneNachricht ? undefined : message.id}

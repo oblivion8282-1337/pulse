@@ -48,6 +48,7 @@ async def test_get_privacy_returns_defaults(client, _auth_signer):
         "dm_policy": 0,
         "friend_request_policy": 0,
         "show_in_search": True,
+        "lesebestaetigungen": True,
     }
 
 

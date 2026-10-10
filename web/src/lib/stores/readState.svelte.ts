@@ -21,28 +21,19 @@
 
 import { compareSnowflakeId } from '$lib/utils/snowflake';
 import { istGelesenBis, vorwaertsMerge } from '$lib/stores/lesestandKern';
+import { quittungen } from '$lib/stores/quittungen.svelte';
 
 const STORAGE_PREFIX = 'pulse.readState.';
 const MENTIONS_PREFIX = 'pulse.mentions.';
 const UNREAD_PREFIX = 'pulse.unread.';
+const UNREAD_BIS_PREFIX = 'pulse.unreadBis.';
 
 class ReadState {
   lastReadByChannel = $state<Record<string, string>>({});
   latestByChannel = $state<Record<string, string>>({});
-  /** Serverseitiger Lesestand der GEGENSTELLE je DM (P0.2) — füttert die
-   *  Lese-Häkchen an der Bubble. Nur in-memory: die Wahrheit liegt auf dem
-   *  Server, der ready-Rahmen und `dm_lesestand`-Events liefern sie nach. */
-  partnerLastReadByChannel = $state<Record<string, string>>({});
-  /** Gruppen-Lesestand je Mitglied (Befund 05.10., „Haken wenn alle
-   *  gelesen"): gruppe → user → Wasserzeichen. Nur in-memory — die Quelle
-   *  ist das `gruppe_lesestand`-Ereignis; nach einem Reload füllen die
-   *  Ereignisse des nächsten Nachrichtenverkehrs das Feld wieder. */
-  gruppenLesestand = $state<Record<string, Record<string, string>>>({});
-  /** Zustellungs-Quittungen (WhatsApp „doppelter grauer Haken"): kanal →
-   *  empfangendes Konto → lokale Empfangszeit des Ereignisses (ms). Die
-   *  ECHTE Uhr des Empfangsgeräts ist irrelevant — gemessen wird, wann
-   *  DIESEM Klienten die Quittung zuflog. In-memory, wie oben. */
-  zustellungAngekommen = $state<Record<string, Record<string, number>>>({});
+  // Was die GEGENSEITE meldet (Lese-/Zustellstand fürs Häkchen) lebt seit
+  // 2026-10-10 in `quittungen.svelte.ts`; dieser Store hält nur den eigenen
+  // Lesestand und die Zähler.
   /** Per-channel unread @-mention counter — bumped by the WS handler
    *  when a `mention_added` event (or an inline `message` whose mentions
    *  include the current user) lands for a channel the user isn't
@@ -53,10 +44,18 @@ class ReadState {
    *  actively viewing. Superset of `mentionCountByChannel` (a mention also
    *  bumps this). Drives the red count pill everywhere. Cleared by `markRead`. */
   unreadCountByChannel = $state<Record<string, number>>({});
+  /** Bis zu welcher Nachricht der Zähler oben reicht (je Kanal die jüngste
+   *  gezählte, kanonische ID). Erst damit kann ein eigener Lesestand von
+   *  einem ANDEREN Gerät den Zähler löschen (`seedOwnLesestand`): ohne zu
+   *  wissen, was gezählt wurde, wäre „dort bis X gelesen" keine Aussage über
+   *  die hier gezählten Nachrichten. Fehlt der Eintrag (Zähler von vor
+   *  2026-10-10), bleibt der Zähler stehen, bis man den Kanal hier öffnet. */
+  unreadBisByChannel = $state<Record<string, string>>({});
 
   private storageKey = '';
   private mentionsKey = '';
   private unreadKey = '';
+  private unreadBisKey = '';
   /** Ausstehende entprellte Schreibvorgänge je Schlüssel. Die Karte wird
    *  erst beim Auslösen gelesen — ein Flush/Reset schreibt also den dann
    *  aktuellen Stand, nicht einen Schnappschuss von der Planung. */
@@ -74,7 +73,7 @@ class ReadState {
     }
   }
 
-  /** Liest eine der drei Karten aus dem Speicher. `null` heisst „da steht
+  /** Liest eine der vier Karten aus dem Speicher. `null` heisst „da steht
    *  nichts Brauchbares" — der Aufrufer behält dann seinen bisherigen Stand.
    *  `null` ist bewusst von `{}` unterschieden: ein leeres Objekt wäre von
    *  „wirklich nichts gelesen" nicht zu trennen. */
@@ -95,12 +94,15 @@ class ReadState {
     this.storageKey = `${STORAGE_PREFIX}${userId}`;
     this.mentionsKey = `${MENTIONS_PREFIX}${userId}`;
     this.unreadKey = `${UNREAD_PREFIX}${userId}`;
+    this.unreadBisKey = `${UNREAD_BIS_PREFIX}${userId}`;
     if (typeof window === 'undefined') return;
     this.lastReadByChannel = this.ladeKarte<string>(this.storageKey) ?? this.lastReadByChannel;
     this.mentionCountByChannel =
       this.ladeKarte<number>(this.mentionsKey) ?? this.mentionCountByChannel;
     this.unreadCountByChannel =
       this.ladeKarte<number>(this.unreadKey) ?? this.unreadCountByChannel;
+    this.unreadBisByChannel =
+      this.ladeKarte<string>(this.unreadBisKey) ?? this.unreadBisByChannel;
   }
 
   clear(): void {
@@ -108,13 +110,13 @@ class ReadState {
     this.storageKey = '';
     this.mentionsKey = '';
     this.unreadKey = '';
+    this.unreadBisKey = '';
     this.lastReadByChannel = {};
     this.latestByChannel = {};
-    this.partnerLastReadByChannel = {};
-    this.zustellungAngekommen = {};
-    this.gruppenLesestand = {};
+    quittungen.clear();
     this.mentionCountByChannel = {};
     this.unreadCountByChannel = {};
+    this.unreadBisByChannel = {};
   }
 
   /**
@@ -142,18 +144,16 @@ class ReadState {
     this.flushPending();
     this.latestByChannel = {};
     this.lastReadByChannel = this.ladeKarte<string>(this.storageKey) ?? {};
-    // Partner-Stand ist sessionseitig vom Server geliefert — der neue
-    // ready-Rahmen füllt ihn nach (gleiches Bild wie nach einem Reload).
-    // Gleiches gilt für die Häkchen- und Gruppen-Karten (Befund 06.10.):
-    // auch sie leeren, sonst überleben sie den Server-Wechsel.
-    this.partnerLastReadByChannel = {};
-    this.zustellungAngekommen = {};
-    this.gruppenLesestand = {};
+    // Die Stände der Gegenseite sind sessionseitig vom Server geliefert —
+    // der neue ready-Rahmen füllt sie nach (gleiches Bild wie nach einem
+    // Reload). Leeren, sonst überleben sie den Server-Wechsel (Befund 06.10.).
+    quittungen.clear();
     this.mentionCountByChannel = this.ladeKarte<number>(this.mentionsKey) ?? {};
     this.unreadCountByChannel = this.ladeKarte<number>(this.unreadKey) ?? {};
+    this.unreadBisByChannel = this.ladeKarte<string>(this.unreadBisKey) ?? {};
   }
 
-  /** Führt die drei entprellten Schreibvorgänge sofort aus und entschärft die
+  /** Führt die vier entprellten Schreibvorgänge sofort aus und entschärft die
    *  Wecker. Ohne das feuert ein Wecker nach einem Reset/Sign-out und schreibt
    *  den bereits verworfenen Stand unter die weiterhin gültigen Schlüssel. */
   flushPending(): void {
@@ -183,14 +183,9 @@ class ReadState {
     if (channelId in this.latestByChannel) {
       this.latestByChannel = this.ohneKanal(this.latestByChannel, channelId);
     }
-    // Auch die Häkchen- und Gruppen-Karten leeren (Befund 06.10.) — sonst
-    // bleiben tote Kanal-/Gruppen-Schlüssel für die Session liegen.
-    if (channelId in this.zustellungAngekommen) {
-      this.zustellungAngekommen = this.ohneKanal(this.zustellungAngekommen, channelId);
-    }
-    if (channelId in this.gruppenLesestand) {
-      this.gruppenLesestand = this.ohneKanal(this.gruppenLesestand, channelId);
-    }
+    // Auch die Häkchen-Stände leeren (Befund 06.10.) — sonst bleiben tote
+    // Kanal-/Gruppen-Schlüssel für die Session liegen.
+    quittungen.kanalVergessen(channelId);
     this.clearMentions(channelId);
     this.clearUnread(channelId);
   }
@@ -238,28 +233,21 @@ class ReadState {
 
   /** Mergt den EIGENEN Server-Stand in den lokalen — nur vorwärts. Ein
    *  frisch geladener Tab (oder das zweite Gerät) übernimmt den größeren
-   *  Stand, ohne jemals einen neueren lokalen zu verlieren. */
+   *  Stand, ohne jemals einen neueren lokalen zu verlieren.
+   *
+   *  Reicht der Stand bis zur jüngsten hier GEZÄHLTEN Nachricht, fällt auch
+   *  der Zähler (Befund 2026-10-10): wer am Handy liest, sah am Rechner bis
+   *  dahin den Fettdruck verschwinden, die rote Zahl aber stehen bleiben. */
   seedOwnLesestand(channelId: string, messageId: string): void {
     this.lastReadByChannel = {
       ...this.lastReadByChannel,
       [channelId]: vorwaertsMerge(this.lastReadByChannel[channelId], messageId)
     };
-  }
-
-  /** Mergt den Lesestand der Gegenstelle — Quelle ist der ready-Rahmen bzw.
-   *  das `dm_lesestand`-Event; nur vorwärts, Quelle ist der Server. */
-  setPartnerLesestand(channelId: string, messageId: string): void {
-    this.partnerLastReadByChannel = {
-      ...this.partnerLastReadByChannel,
-      [channelId]: vorwaertsMerge(this.partnerLastReadByChannel[channelId], messageId)
-    };
-  }
-
-  /** Lesebestätigung für eine EIGENE Nachricht in dieser DM: mindestens
-   *  eine Gegenstellen-Antwort mit id >= messageId gelesen? `null`, wenn
-   *  kein Partner-Stand bekannt ist (Häkchen zeigt dann nur „gesendet“). */
-  istGelesen(channelId: string, messageId: string): boolean | null {
-    return istGelesenBis(this.partnerLastReadByChannel[channelId], messageId);
+    const gezaehltBis = this.unreadBisByChannel[channelId];
+    if (gezaehltBis && istGelesenBis(messageId, gezaehltBis) === true) {
+      this.clearMentions(channelId);
+      this.clearUnread(channelId);
+    }
   }
 
   isUnread(channelId: string): boolean {
@@ -289,18 +277,30 @@ class ReadState {
     this.persistMentions();
   }
 
-  /** Bump the per-channel unread-message counter by one. */
-  incUnread(channelId: string): void {
+  /** Bump the per-channel unread-message counter by one. `anker` = die
+   *  kanonische ID der gezählten Nachricht (s. `unreadBisByChannel`). */
+  incUnread(channelId: string, anker?: string): void {
     const prev = this.unreadCountByChannel[channelId] ?? 0;
     this.unreadCountByChannel = {
       ...this.unreadCountByChannel,
       [channelId]: prev + 1
     };
     this.persistUnread();
+    if (anker) {
+      this.unreadBisByChannel = {
+        ...this.unreadBisByChannel,
+        [channelId]: vorwaertsMerge(this.unreadBisByChannel[channelId], anker)
+      };
+      this.persist(this.unreadBisKey, () => this.unreadBisByChannel);
+    }
   }
 
   /** Zero the unread-message counter for a channel — called from `markRead`. */
   clearUnread(channelId: string): void {
+    if (channelId in this.unreadBisByChannel) {
+      this.unreadBisByChannel = this.ohneKanal(this.unreadBisByChannel, channelId);
+      this.persist(this.unreadBisKey, () => this.unreadBisByChannel);
+    }
     if (!this.unreadCountByChannel[channelId]) return;
     const next = { ...this.unreadCountByChannel };
     delete next[channelId];
@@ -357,48 +357,6 @@ class ReadState {
   private persistUnread(): void {
     this.persist(this.unreadKey, () => this.unreadCountByChannel);
   }
-  /** Quittung eines Empfangskontos verbuchen (aus `zustellung_bestaetigt`). */
-  angekommenMelden(channelId: string, userId: string, ms: number): void {
-    const jeKanal = this.zustellungAngekommen[channelId] ?? {};
-    const bisher = jeKanal[userId] ?? 0;
-    if (ms <= bisher) return;
-    this.zustellungAngekommen = {
-      ...this.zustellungAngekommen,
-      [channelId]: { ...jeKanal, [userId]: ms }
-    };
-  }
-
-  /** Ist meine Nachricht in diesem Kanal bei ALLEN genannten Konten
-   *  angekommen (doppelter grauer Haken)? DMs nennen nur die Gegenseite,
-   *  Gruppen alle anderen Mitglieder. `false`, wenn eine Ankunft fehlt. */
-  angekommenAlle(channelId: string, konten: string[], seitMs: number): boolean {
-    if (konten.length === 0) return false;
-    const jeKanal = this.zustellungAngekommen[channelId] ?? {};
-    return konten.every((u) => (jeKanal[u] ?? 0) > seitMs);
-  }
-
-  /** Gruppen-Lesestand eines Mitglieds verbuchen (aus `gruppe_lesestand`). */
-  gruppenLesestandMelden(gruppeId: string, userId: string, wasserzeichen: string): void {
-    const jeGruppe = this.gruppenLesestand[gruppeId] ?? {};
-    this.gruppenLesestand = {
-      ...this.gruppenLesestand,
-      [gruppeId]: { ...jeGruppe, [userId]: vorwaertsMerge(jeGruppe[userId], wasserzeichen) }
-    };
-  }
-
-  /** Haben ALLE genannten Mitglieder (ohne mich) bis zum Anker gelesen?
-   *  `null`, wenn noch kein Stand vorliegt — die Anzeige bleibt dann beim
-   *  einfachen Haken, statt voreilig blau zu werden. */
-  gruppeAlleGelesen(gruppeId: string, mitgliederOhneIch: string[], anker: string): boolean | null {
-    const jeGruppe = this.gruppenLesestand[gruppeId];
-    if (!jeGruppe || mitgliederOhneIch.length === 0) return null;
-    for (const u of mitgliederOhneIch) {
-      const stand = jeGruppe[u];
-      if (!stand || compareSnowflakeId(stand, anker) < 0) return false;
-    }
-    return true;
-  }
-
 }
 
 export const readState = new ReadState();

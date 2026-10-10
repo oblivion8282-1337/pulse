@@ -19,7 +19,9 @@ import { dmGegenstelle } from '$lib/krypto/dmGegenstelle';
 import { streamChat } from '$lib/stores/streamChat.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
 import { readState } from '$lib/stores/readState.svelte';
+import { quittungen } from '$lib/stores/quittungen.svelte';
 import { lesestandAnker } from '$lib/stores/lesestandKern';
+import { siehtHin } from '$lib/nachrichten/hinschauen';
 import { typing } from '$lib/stores/typing.svelte';
 import { userCache } from '$lib/stores/users.svelte';
 import { dispatchingUserId } from '$lib/stores/currentServerUser';
@@ -152,15 +154,20 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
           // Stand später gegen eine fremde Kennung (B3, s.
           // `lesestandKern.lesestandAnker`).
           readState.recordSeen(nachricht.channel_id, lesestandAnker(nachricht));
-          if (istAboniert(nachricht.channel_id)) {
+          // Offen UND hingeschaut — ein offenes Gespräch hinter einem
+          // minimierten Fenster ist ungelesen (s. `nachrichten/hinschauen.ts`);
+          // das Gespräch meldet sich beim Zurückkommen selbst als gelesen.
+          const offen = istAboniert(nachricht.channel_id);
+          if (offen && siehtHin()) {
             readState.markRead(nachricht.channel_id, lesestandAnker(nachricht));
           } else {
-            readState.incUnread(nachricht.channel_id);
+            readState.incUnread(nachricht.channel_id, lesestandAnker(nachricht));
             // Toast/Ton/In-Page-Benachrichtigung — zieht mit `dm_bump` gleich
             // (Bughunt Runde 4, Befund 1: vorher loeste der verschluesselte
             // Weg keins von beiden aus). Der Rumpf steht seit Etappe G in
-            // `./postfachBenachrichtigung.ts`.
-            meldeNeueZustellung(nachricht, gruppe?.name ?? null);
+            // `./postfachBenachrichtigung.ts`; bei offenem Gespräch ohne
+            // den Toast (s. dort).
+            meldeNeueZustellung(nachricht, gruppe?.name ?? null, offen);
           }
         }
       }
@@ -237,7 +244,7 @@ export function register(ctx: HandlerContext): void {
       if (ctx.subs.has(evt.channel_id)) {
         readState.markRead(evt.channel_id, evt.message_id);
       } else {
-        readState.incUnread(evt.channel_id);
+        readState.incUnread(evt.channel_id, evt.message_id);
         if (!isRecentMention(evt.message_id) && !isDnd() && !serverStumm()) {
           sounds.play('notification.message', { guildId: evt.guild_id });
         }
@@ -264,11 +271,12 @@ export function register(ctx: HandlerContext): void {
     });
     if (evt.author_id !== me) {
       readState.recordSeen(evt.channel_id, evt.message_id);
-      if (ctx.subs.has(evt.channel_id)) {
+      const offen = ctx.subs.has(evt.channel_id);
+      if (offen && siehtHin()) {
         // Already viewing this DM — mark read, no toast.
         readState.markRead(evt.channel_id, evt.message_id);
       } else {
-        readState.incUnread(evt.channel_id);
+        readState.incUnread(evt.channel_id, evt.message_id);
         dmVorschauAuffrischen();
         // Not currently in this DM. Toast the user. We intentionally
         // surface only the sender's name, not the message content,
@@ -287,8 +295,10 @@ export function register(ctx: HandlerContext): void {
         // Bild, das gerade ein Fremder sieht (`$lib/remote/sichtschutz.ts`).
         // Am Handy ebenfalls keiner: dort ist die Chats-Liste selbst die
         // Benachrichtigung (Badge + Vorschau), und ein Toast überdeckt die
-        // Bereichs-Leiste unten, die man gerade benutzen will.
-        if (!isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
+        // Bereichs-Leiste unten, die man gerade benutzen will. Und keiner
+        // neben dem offenen Gespräch, dessen Fenster nur den Fokus verloren
+        // hat (s. `postfachBenachrichtigung.ts`).
+        if (!offen && !isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
           toast.message(m.chat_handler_dm_new_message({ senderLabel }), {
             action: {
               label: m.chat_handler_dm_open(),
@@ -333,17 +343,17 @@ export function register(ctx: HandlerContext): void {
   });
 
   registerWsHandler('dm_lesestand', (evt) => {
-    // Serverseitiger Lesefortschritt (P0.2) — geht an BEIDE Teilnehmer.
-    // Eigener Stand: andere Geräte des eigenen Kontos löschen damit ihre
-    // Ungelesen-Zähler (die eigene markRead-Meldung kommt als Echo wieder
-    // und ist durch den Vorwärts-Merge harmlos). Fremder Stand: die
-    // Gegenstelle hat gelesen → Lese-Häkchen an der eigenen Bubble.
+    // Serverseitiger Lesefortschritt (P0.2). Eigener Stand: andere Geräte
+    // des eigenen Kontos löschen damit ihre Ungelesen-Zähler (die eigene
+    // markRead-Meldung kommt als Echo wieder und ist durch den Vorwärts-Merge
+    // harmlos). Fremder Stand — nur bei beidseitig eingeschalteten
+    // Lesebestätigungen geschickt: Lese-Häkchen an der eigenen Bubble.
     const me = dispatchingUserId();
     if (!me) return;
     if (evt.user_id === me) {
       readState.seedOwnLesestand(evt.channel_id, evt.last_read_message_id);
     } else {
-      readState.setPartnerLesestand(evt.channel_id, evt.last_read_message_id);
+      quittungen.gelesenMelden(evt.channel_id, evt.user_id, evt.last_read_message_id);
     }
   });
 

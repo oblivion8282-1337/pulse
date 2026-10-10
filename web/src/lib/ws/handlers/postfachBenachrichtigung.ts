@@ -23,7 +23,16 @@ import { userCache } from '$lib/stores/users.svelte';
 import { viewport } from '$lib/stores/viewport.svelte';
 import type { Message } from '$lib/api/types';
 
-export function meldeNeueZustellung(nachricht: Message, gruppenName: string | null): void {
+/** `gespraechOffen`: das Gespräch steht gerade offen, nur das Fenster hat
+ *  keinen Fokus (s. `nachrichten/hinschauen.ts`). Dann kein Toast — er
+ *  meldete „Neue Nachricht — Öffnen" neben genau dem Gespräch, in dem sie
+ *  schon steht (Befund 2026-10-10). Ton und System-Benachrichtigung bleiben:
+ *  wer in einem anderen Fenster arbeitet, soll es trotzdem mitbekommen. */
+export function meldeNeueZustellung(
+  nachricht: Message,
+  gruppenName: string | null,
+  gespraechOffen: boolean
+): void {
   const cached = userCache.get(nachricht.author_id);
   const senderLabel = cached
     ? m.chat_handler_dm_sender_label({
@@ -36,7 +45,7 @@ export function meldeNeueZustellung(nachricht: Message, gruppenName: string | nu
   const kopfzeile = gruppenName
     ? m.chat_handler_gruppe_new_message({ gruppe: gruppenName, senderLabel })
     : m.chat_handler_dm_new_message({ senderLabel });
-  if (!isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
+  if (!gespraechOffen && !isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
     toast.message(kopfzeile, {
       description: snippet || undefined,
       action: {

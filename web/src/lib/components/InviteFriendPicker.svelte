@@ -150,7 +150,9 @@
 
 <div class="space-y-2" data-testid="invite-friend-picker">
   <div class="flex items-center justify-between gap-2">
-    <p class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+    <!-- Gleiche Überschrift wie die beiden Abschnitte darunter
+         (InviteByUsername, InviteLinkShare) — drei Wege im selben Dialog. -->
+    <p class="text-text-bright text-sm font-semibold">
       {m.invite_friend_picker_heading()}
     </p>
     {#if selected.size > 0}

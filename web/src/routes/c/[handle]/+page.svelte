@@ -1,140 +1,137 @@
 <!--
-  Public community landing page: /c/<handle>[?host=<fqdn>]
+  /c/<handle>[?host=<fqdn>] — öffentliche Community-Adresse.
 
-  The backend (public_community.py) + API client were ready; this is the
-  missing SvelteKit route, so a shared community address now resolves to a
-  real preview + join instead of falling through to the SPA root.
-
-  Logged in  → fetch the preview (cloud) + a Join button (joinGuildByInvite
-               handles cloud + cross-server self-host).
-  Logged out → "Sign in to join" → /login?pendingAddress=<handle> so the
-               login flow joins automatically afterwards.
+  Dieselbe Karte und derselbe Rückweg wie /invite/<code> (Spec 2026-10-10,
+  Etappe 4). Bis dahin trat diese Seite nach dem Login automatisch bei
+  (/login?pendingAddress=…); jetzt merkt sie die Adresse
+  (lib/einladung/gemerkt.ts), und der Dialog im App-Layout fragt nach dem
+  Login — Beitreten ist immer ein eigener Klick.
 -->
 <script lang="ts">
-  import { errText } from '$lib/utils/errText';
-  import { onMount } from 'svelte';
-  import { anfangsBuchstabe } from '$lib/utils/anfangsBuchstabe';
+  import { untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { toast } from 'svelte-sonner';
-  import * as Avatar from '$lib/components/ui/avatar/index.js';
-  import { Button } from '$lib/components/ui/button/index.js';
-  import { chatApi, type PublicCommunityPreview } from '$lib/api/chat';
   import { auth } from '$lib/stores/auth.svelte';
-  import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
-  import { SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
+  import { CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
+  import AuthBuehne from '$lib/components/AuthBuehne.svelte';
   import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
-  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import EinladungKarte, {
+    type EinladungCommunity,
+    type EinladungZustand
+  } from '$lib/einladung/EinladungKarte.svelte';
+  import { istGueltigerHandle, zielHost, type Ziel } from '$lib/einladung/einladungsLink';
+  import {
+    browserSpeicher,
+    einladungMerken,
+    gemerkteEinladungVerwerfen
+  } from '$lib/einladung/gemerkt';
+  import {
+    einladungAnnehmen,
+    fehlerMeldung,
+    ladeEinladung,
+    ladeEinladungAbgemeldet
+  } from '$lib/einladung/laden';
   import { m } from '$lib/paraglide/messages.js';
 
-  const handle = $derived(page.params.handle ?? '');
-  const host = $derived(page.url.searchParams.get('host'));
-  const joinInput = $derived(host ? `https://${host}/c/${handle}` : `c/${handle}`);
-
-  let preview = $state<PublicCommunityPreview | null>(null);
-  let loading = $state(true);
-  let busy = $state(false);
-  let confirmOpen = $state(false);
-
-  onMount(async () => {
-    // Auth is only hydrated inside the /app layout; this route lives outside it.
-    // Without hydrating here, an already-signed-in user opening a shared /c/ link
-    // (fresh load / new tab) would see "sign in to join" and be bounced through a
-    // needless re-login. hydrate() is idempotent + best-effort.
-    await auth.hydrate().catch(() => {});
-
-    // Best-effort preview — cloud communities resolve unauthenticated. Self-host
-    // (host set) needs the user's session on that server, so we skip the preview
-    // there and still offer the join (joinGuildByInvite does the cert-login).
-    if (!host) {
-      try {
-        preview = await chatApi.getPublicCommunityPreview(handle);
-      } catch {
-        preview = null;
-      }
-    }
-    loading = false;
+  const ziel = $derived.by((): Ziel | null => {
+    const handle = (page.params.handle ?? '').toLowerCase();
+    const host = zielHost(page.url.searchParams.get('host'), CLOUD_HOSTNAME);
+    return istGueltigerHandle(handle) && host !== undefined ? { handle, host } : null;
   });
 
-  async function doJoin(confirmed = false) {
-    if (busy) return;
-    if (!auth.user) {
-      const params = new URLSearchParams({ pendingAddress: handle });
-      if (host) params.set('pendingHost', host);
-      await goto(`/login?${params.toString()}`);
+  let zustand = $state<EinladungZustand>('laden');
+  let community = $state<EinladungCommunity | null>(null);
+  let guildId = $state<string | null>(null);
+  let hinweis = $state<string | null>(null);
+  let busy = $state(false);
+  let rueckfrage = $state(false);
+  // Gegen überholte Antworten, wenn die Adresse wechselt.
+  let lauf = 0;
+
+  async function laden(z: Ziel | null) {
+    const meiner = ++lauf;
+    zustand = 'laden';
+    community = null;
+    guildId = null;
+    hinweis = null;
+    // Auth wird nur im /app-Layout hydriert; diese Route liegt außerhalb.
+    await auth.hydrate().catch(() => {});
+    if (meiner !== lauf) return;
+    if (!z) {
+      zustand = 'ungueltig';
+      // Ein abgewiesener ?host= ist keine unbekannte Adresse.
+      hinweis =
+        zielHost(page.url.searchParams.get('host'), CLOUD_HOSTNAME) === undefined
+          ? m.einladung_host_ungueltig()
+          : null;
       return;
     }
-    busy = true;
-    try {
-      await joinGuildByInvite(joinInput, confirmed);
-      // joinGuildByInvite navigates to the joined guild on success.
-    } catch (e) {
-      if (e instanceof SelfHostContactConfirmRequired) {
-        confirmOpen = true;
-        return;
-      }
-      toast.error(m.public_community_join_failed(), {
-        description: errText(e)
-      });
-    } finally {
-      busy = false;
+    if (auth.user?.email_verification_pending) {
+      zustand = 'email';
+      return;
     }
+    const r = auth.user ? await ladeEinladung(z) : await ladeEinladungAbgemeldet(z);
+    if (meiner !== lauf) return;
+    zustand = r.zustand;
+    community = r.community;
+    guildId = r.guildId;
+    hinweis = r.zustand === 'fehler' && r.fehler ? fehlerMeldung(r.fehler, z.host) : null;
   }
 
-  function initial(name: string): string {
-    return anfangsBuchstabe(name) || '?';
+  $effect(() => {
+    const z = ziel;
+    untrack(() => void laden(z));
+  });
+
+  function merkenUndWeiter(pfad: string) {
+    if (ziel) einladungMerken(browserSpeicher(), ziel, Date.now());
+    void goto(pfad);
+  }
+
+  async function beitreten(bestaetigt = false) {
+    if (busy || !ziel) return;
+    busy = true;
+    hinweis = null;
+    const r = await einladungAnnehmen(ziel, bestaetigt);
+    busy = false;
+    if (r.art === 'ok') gemerkteEinladungVerwerfen(browserSpeicher());
+    else if (r.art === 'rueckfrage') rueckfrage = true;
+    else hinweis = fehlerMeldung(r.fehler, ziel.host);
   }
 </script>
 
-<div class="flex min-h-dvh items-center justify-center bg-bg-base p-6">
-  <div
-    class="border-border bg-bg-input/40 flex w-full max-w-sm flex-col items-center gap-5 rounded-2xl border p-8 text-center"
-    data-testid="public-community-card"
-  >
-    {#if loading}
-      <LoadingState label={m.public_community_loading()} />
-    {:else}
-      <Avatar.Root class="size-20">
-        {#if preview?.guild.icon_url}
-          <Avatar.Image src={preview.guild.icon_url} alt={preview.guild.name} />
-        {/if}
-        <Avatar.Fallback class="accent-gradient text-primary-foreground text-2xl font-semibold">
-          {initial(preview?.guild.name ?? handle)}
-        </Avatar.Fallback>
-      </Avatar.Root>
+<svelte:head>
+  <title>
+    {community ? m.einladung_seitentitel_name({ name: community.name }) : m.einladung_seitentitel()}
+  </title>
+  <meta name="robots" content="noindex, nofollow" />
+</svelte:head>
 
-      <div class="flex flex-col gap-1">
-        <h1 class="text-text-bright text-xl font-semibold" data-testid="public-community-name">
-          {preview?.guild.name ?? handle}
-        </h1>
-        {#if preview}
-          <p class="text-text-muted text-xs">
-            {m.public_community_member_count({ count: preview.member_count })}
-          </p>
-        {:else}
-          <p class="text-text-muted text-xs">@{handle}</p>
-        {/if}
-      </div>
-
-      <Button class="w-full" onclick={() => doJoin()} disabled={busy} data-testid="public-community-join">
-        {#if busy}
-          {m.public_community_joining()}
-        {:else if auth.user}
-          {m.public_community_join()}
-        {:else}
-          {m.public_community_signin_to_join()}
-        {/if}
-      </Button>
-    {/if}
-  </div>
+<div class="relative flex min-h-dvh items-center justify-center overflow-hidden p-4">
+  <AuthBuehne />
+  <EinladungKarte
+    {zustand}
+    art="adresse"
+    {community}
+    host={ziel?.host ?? null}
+    {hinweis}
+    {busy}
+    onBeitreten={() => beitreten()}
+    onOeffnen={() => guildId && goto(`/app/guilds/${guildId}/channels/_`)}
+    onAnmelden={() => merkenUndWeiter('/login')}
+    onRegistrieren={() => merkenUndWeiter('/register')}
+    onEmail={() => merkenUndWeiter('/verify-email-required')}
+    onErneut={() => laden(ziel)}
+    onZuPulse={() => goto('/app')}
+  />
 </div>
 
 <SelfHostContactConfirmDialog
-  open={confirmOpen}
-  hostname={host ?? ''}
+  open={rueckfrage}
+  hostname={ziel?.host ?? ''}
   onConfirm={() => {
-    confirmOpen = false;
-    void doJoin(true);
+    rueckfrage = false;
+    void beitreten(true);
   }}
-  onCancel={() => (confirmOpen = false)}
+  onCancel={() => (rueckfrage = false)}
 />

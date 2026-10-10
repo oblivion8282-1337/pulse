@@ -94,3 +94,29 @@ class GruppenLesestand(Base):
     gelesen_am: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class Zustellstand(Base):
+    """Doppelter grauer Haken, dauerhaft (Migration 0101): die kanonische ID
+    der jüngsten Nachricht von ``absender_user_id``, die bei
+    ``empfaenger_user_id`` angekommen ist — je DM oder privater Gruppe.
+
+    Je ABSENDER, nicht je Kanal: die IDs stammen aus der Uhr des Absenders,
+    und nur gegen seine eigenen IDs ist der Vergleich frei von Zeitversatz.
+    ``channel_id`` ist polymorph (DM oder Gruppe) und hat deshalb keinen
+    Fremdschlüssel — die Löschstellen räumen von Hand (s. Migration)."""
+
+    __tablename__ = "zustellstand"
+
+    channel_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    absender_user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    empfaenger_user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    zugestellt_bis: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    aktualisiert_am: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_zustellstand_absender", "absender_user_id"),
+        Index("ix_zustellstand_empfaenger", "empfaenger_user_id"),
+    )

@@ -23,6 +23,8 @@ import { messages } from '$lib/stores/messages.svelte';
 import { verlaufSpeichern, verlaufLesen, verlaufMergen } from '$lib/verlauf';
 import { readState } from '$lib/stores/readState.svelte';
 import { lesestandAnker } from '$lib/stores/lesestandKern';
+import { lesestandErneutMelden } from '$lib/api/lesestand';
+import { beimHinschauen, siehtHin } from '$lib/nachrichten/hinschauen';
 import { m } from '$lib/paraglide/messages.js';
 
 interface DmRoute {
@@ -259,20 +261,11 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     const letzte = loaded[loaded.length - 1];
     const latestSeen = letzte ? lesestandAnker(letzte) : undefined;
     if (latestSeen) readState.recordSeen(cid, latestSeen);
-    // Acknowledge up to whatever we know is the latest — including ids
-    // bumped in via dm_bump while we weren't subscribed (those don't land
-    // in `messages.byChannel`, so `latestSeen` can lag behind).
-    readState.markRead(cid);
-    // Gruppen-Lesebestätigung (Übergabe 05.10.): den eigenen Stand beim
-    // Server melden — daraus rechnen die ABSENDER den blauen Haken („alle
-    // haben gelesen"). Fire-and-forget; eine verpasste Meldung holt der
-    // nächste Öffnen-Lauf nach.
     untrack(() => (prevDM = cid));
-    if (istGruppe && latestSeen) {
-      void import('$lib/api/gruppen')
-        .then((m) => m.gruppenLesestandSetzen(cid, latestSeen))
-        .catch(() => undefined);
-    }
+    // Gelesen erst, wenn der Nutzer hinschaut (`nachrichten/hinschauen.ts`) —
+    // ein im Hintergrund geöffnetes Gespräch meldet sich beim Zurückkommen
+    // über `beimHinschauen` unten.
+    if (siehtHin()) gelesenMelden(cid);
     loadError = null;
     resolving = false;
   }
@@ -311,7 +304,26 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
       });
   }
 
+  /** Bis zum jüngsten Bekannten als gelesen markieren — einschliesslich der
+   *  über `dm_bump` gemeldeten IDs, die nie in `messages.byChannel` landen —
+   *  und den Stand beim Server melden (DM wie Gruppe, `api/lesestand.ts`).
+   *  Gemeldet wird auch ohne Fortschritt: eine verlorene Meldung holt das
+   *  nächste Öffnen nach. */
+  function gelesenMelden(cid: string) {
+    readState.markRead(cid);
+    lesestandErneutMelden(cid);
+  }
+
+  // Wer bei offenem Gespräch ins Fenster zurückkehrt, hat die zwischendurch
+  // eingetroffenen Nachrichten jetzt gesehen. Nur `markRead` — das meldet
+  // dem Server allein bei Fortschritt, nicht bei jedem Alt-Tab.
+  const hinschauenAbmelden = beimHinschauen(() => {
+    const cid = untrack(() => prevDM);
+    if (cid) readState.markRead(cid);
+  });
+
   function aufraeumen() {
+    hinschauenAbmelden();
     if (prevDM) abonnementAufgeben(prevDM);
   }
 

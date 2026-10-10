@@ -29,6 +29,11 @@ import { PRIVATE_GRUPPEN_ENABLED } from '../krypto/schalter';
 interface GruppenMitglied {
   user_id: string;
   beigetreten_am: string;
+  /** Häkchen-Treppe (Migration 0101): Lesestand dieses Mitglieds und
+   *  Zustellstand der EIGENEN Nachrichten bei ihm — nur in `auflisten`/
+   *  `lesen` gefüllt, s. `stores/quittungen.svelte.ts`. */
+  gelesen_bis?: string | null;
+  zugestellt_bis?: string | null;
 }
 
 export interface PrivateGruppe {
@@ -107,10 +112,13 @@ export const gruppenApi = {
 
 /** Serverseitiger Lesefortschritt des Aufrufers in dieser Gruppe
  *  (Übergabe 05.10., Gruppen-Lesebestätigung). Fire-and-forget vom
- *  Leseweg — ein Fehlschlag kostet nur den blauen Haken, nie die Nachricht. */
+ *  Leseweg — ein Fehlschlag kostet nur den blauen Haken, nie die Nachricht.
+ *  Cloud-Route wie jede Gruppen-Anfrage: ohne sie ging die Meldung bei
+ *  aktivem Self-Host an den Self-Host und verschwand dort im 404. */
 export async function gruppenLesestandSetzen(gruppeId: string, lastReadMessageId: string): Promise<void> {
-	await request<void>(
-		`/gruppen/${gruppeId}/lesestand`,
-		{ method: 'PUT', endpoint: 'chat', body: { last_read_message_id: lastReadMessageId } }
-	);
+  await request<void>(
+    `/gruppen/${encodeURIComponent(gruppeId)}/lesestand`,
+    { method: 'PUT', body: { last_read_message_id: lastReadMessageId } },
+    cloudRoute()
+  );
 }

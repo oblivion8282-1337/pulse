@@ -39,6 +39,7 @@ from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.poller import _needs_streams, _parse_state, _publish_event
 from dcc_media_svc.security import CurrentGast, CurrentUser, require_internal
+from dcc_media_svc.weckruf import wecken
 from dcc_shared.streaming import read_cache_key
 from dcc_media_svc.streamkeys import (
     CHANNEL_STATE_KEY,
@@ -354,6 +355,9 @@ async def issue_stream_token(
     # (channel, user, slot) — otherwise a quick stop→restart would stay invisible
     # until the tombstone's TTL lapsed (the poller would keep skipping the slot).
     await redis.delete(stopping_key(channel_id, user_id, slot))
+    # Gleich kommt ein Publisher — den Poller wecken und schnell nachsehen
+    # lassen, bis genau dieser Stream erscheint (s. ``weckruf.py``).
+    wecken(channel_id, user_id, slot)
     log.info(
         "stream_token_issued",
         channel_id=channel_id,

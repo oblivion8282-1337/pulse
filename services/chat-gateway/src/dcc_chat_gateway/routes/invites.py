@@ -318,6 +318,10 @@ async def revoke_invite(code: str, session: SessionDep, current: CurrentUser):
 
 @router.get("/invites/{code}", response_model=InvitePreviewOut)
 async def get_invite(code: str, session: SessionDep, current: CurrentUser):
+    # Bremse vor dem DB-Zugriff: sonst lässt sich über die angemeldete
+    # Vorschau beliebig viele Codes durchprobieren.
+    if not ratelimit_check("invite_preview", current.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded")
     invite = await session.get(GuildInvite, code)
     now = datetime.now(tz=UTC)
     if invite is None or not _is_active(invite, now):

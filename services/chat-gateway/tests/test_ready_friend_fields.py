@@ -98,6 +98,7 @@ async def test_ready_includes_friend_fields_defaults(ws_app, _auth_signer):
                     "dm_policy": 0,
                     "friend_request_policy": 0,
                     "show_in_search": True,
+                    "lesebestaetigungen": True,
                 }
 
     await asyncio.to_thread(_run)
@@ -142,6 +143,7 @@ async def test_ready_includes_friends_and_pending_and_blocks(
                     "dm_policy": 2,
                     "friend_request_policy": 1,
                     "show_in_search": False,
+                    "lesebestaetigungen": True,
                 }
 
     await asyncio.to_thread(_run)

@@ -16,13 +16,10 @@
  * Ein reiner Groessenvergleich der rohen IDs — ob "Laenge zuerst" oder "auf
  * gemeinsame Breite auffuellen, dann lexikografisch" — ist fuer Ziffernfolgen
  * OHNE fuehrende Null mathematisch IDENTISCH: ein laengerer String stellt
- * immer die groessere Zahl dar. Eine lokale ID ist IMMER 20 Ziffern (13
- * `Date.now()` + 7 Zufallsstellen, ~1,8·10^19), eine echte Snowflake heute
- * 17 Ziffern (~10^17) und selbst am Ende ihres 42-Bit-Zeitfelds in ~139
- * Jahren hoechstens ~1,84·10^19 — die lokale ID waechst mit `Date.now()`
- * aber schneller (Faktor 10^7 pro ms ggu. 2^22 ≈ 4,19·10^6 pro ms bei der
- * Snowflake) und bleibt darum numerisch fuer die gesamte praktische
- * Lebensdauer beider Schemata groesser, UNABHAENGIG vom tatsaechlichen
+ * immer die groessere Zahl dar. Eine lokale ID hat 19 Ziffern (13
+ * `Date.now()` + 6 Zufallsstellen, ~1,8·10^18; bis zum 2026-09-02 waren es
+ * 20 Ziffern, 7 Zufallsstellen), eine echte Snowflake heute 17 bis 18 — die
+ * lokale ID ist damit numerisch groesser, UNABHAENGIG vom tatsaechlichen
  * Erstellzeitpunkt. Belegt an einem nachgerechneten Beispielpaar aus dem
  * Bughunt: verschluesselte Nachrichten sortierten dauerhaft hinter
  * unverschluesselten (siehe `web/test/snowflake-vergleich.test.ts` und
@@ -51,6 +48,7 @@
 const SNOWFLAKE_EPOCH_MS = 1767225600000n; // dcc_shared/snowflake.py::DEFAULT_EPOCH_MS
 const SNOWFLAKE_ZEIT_SHIFT = 22n; // WORKER_BITS(10) + SEQ_BITS(12)
 const LOKALE_ID_LAENGE = 19; // lokaleNachrichtId(): 13-stelliger Date.now() + 6 Zufallsstellen (unter int64, Befund 2026-09-02)
+const LOKALE_ID_LAENGE_ALT = 20; // dieselbe Form bis 2026-09-02 mit 7 Zufallsstellen — Altbestand, s. zeitOderNull
 const LOKALE_ID_ZEIT_STELLEN = 13;
 /** `chat/dmKlartextSenden.ts`: `tmp-${nonce}` mit `nonce = n-${Date.now()}-${4
  *  Hexstellen}` — die optimistische Kopie einer noch nicht bestaetigten
@@ -91,13 +89,21 @@ function lexikografisch(a: string, b: string): number {
  *  Unterschieden wird an der Stellenzahl, also an genau der Groesse, deren
  *  naiver Gebrauch der Grund fuer diese Datei war. Das ist hier zulaessig,
  *  aber nicht zeitlos, und die Grenze ist ausgerechnet: eine echte Snowflake
- *  erreicht 20 Stellen, sobald ihr Wert 10^19 ueberschreitet, also bei einem
- *  Zeitfeld von 10^19 / 2^22 ≈ 2,384·10^12 ms — rund 75,6 Jahre nach der
- *  Epoche, mithin etwa 2101. Ab dann faende dieser Zweig in einer echten
- *  Snowflake ihre ersten 13 Ziffern und deutete sie als `Date.now()`, was
- *  eine sinnlose Zeit ergibt. Das ist KEINE Aussage ueber die Erschoepfung
- *  des 42-Bit-Zeitfelds (die kommt erst ~2165) — es sind zwei verschiedene
- *  Zeitpunkte, und der fruehere ist der, der hier zaehlt.
+ *  erreicht 19 Stellen, sobald ihr Wert 10^18 ueberschreitet, also bei einem
+ *  Zeitfeld von 10^18 / 2^22 ≈ 2,384·10^11 ms — mithin ab Juli 2033. Ab dann
+ *  faende dieser Zweig in einer echten Snowflake ihre ersten 13 Ziffern und
+ *  deutete sie als `Date.now()`, was eine sinnlose Zeit ergibt. (Hier stand
+ *  bis 2026-10-10 „etwa 2101" — das war die 20-Stellen-Grenze und galt nur,
+ *  solange lokale IDs 20 Stellen hatten.) Das ist KEINE Aussage ueber die
+ *  Erschoepfung des 42-Bit-Zeitfelds (die kommt erst ~2165).
+ *
+ *  **Beide Breiten werden erkannt, nicht nur die heutige.** Bis zum
+ *  2026-09-02 vergab `lokaleNachrichtId()` 20 Stellen; diese IDs liegen
+ *  weiter im lokalen Verlauf und im gespeicherten Lesestand. Als die
+ *  Erkennung nur noch 19 Stellen kannte, las sie eine solche ID als
+ *  Snowflake mit Zeit im Jahr 2161 — „neuer" als jede echte Nachricht. Ein
+ *  Lesestand auf so einer ID rueckte nie wieder vor, das Lese-Haekchen des
+ *  Partners blieb fuer immer grau (Befund 2026-10-10).
  *
  *  Wer die Schemata dauerhaft trennen will, macht die lokale Kennung
  *  selbstkennzeichnend (etwa ein Praefix) statt sie an ihrer Laenge zu
@@ -122,7 +128,7 @@ function zeitOderNull(id: string): bigint | null {
     return istZiffernfolge(ms) ? BigInt(ms) : null;
   }
   if (!istZiffernfolge(id)) return null;
-  if (id.length === LOKALE_ID_LAENGE) {
+  if (id.length === LOKALE_ID_LAENGE || id.length === LOKALE_ID_LAENGE_ALT) {
     return BigInt(id.slice(0, LOKALE_ID_ZEIT_STELLEN));
   }
   return (BigInt(id) >> SNOWFLAKE_ZEIT_SHIFT) + SNOWFLAKE_EPOCH_MS;

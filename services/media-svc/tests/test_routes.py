@@ -77,6 +77,24 @@ async def test_stream_token_happy_path_rtmp(client, auth_signer, redis):
 
 
 @pytest.mark.asyncio
+async def test_stream_token_weckt_den_poller(client, auth_signer, redis, monkeypatch):
+    """Ein Sende-Token kündigt einen Publisher an — der Poller muss dann aus
+    dem gedehnten Leerlauftakt heraus, sonst meldet er den neuen Stream erst
+    bis zu 30 s später als live (Regression aus dem Leerlauf-Backoff)."""
+    from dcc_media_svc import weckruf
+
+    monkeypatch.setattr(weckruf, "_erwartet", {})
+    assert not weckruf.ist_wach()
+    access = auth_signer.issue_access(4242, "alice")
+    cid = _unique_cid()
+    r = await client.post(f"/channels/{cid}/stream-token", json={"slot": 1}, headers=_auth(access))
+    assert r.status_code == 200, r.text
+    # Angekündigt ist genau dieser Stream: Kanal, Nutzer, Platz.
+    assert list(weckruf._erwartet) == [(cid, "4242", "1")]
+    await redis.delete(TOKEN_KEY.format(token=r.json()["token"]))
+
+
+@pytest.mark.asyncio
 async def test_stream_token_slot1_path_and_record(client, auth_signer, redis):
     """A slot-1 token targets a slotted path ``…-s1-<nonce>`` and stamps ``slot``
     into the record so the auth-hook can bind the publish to that slot."""

@@ -15,6 +15,8 @@ import {
   selfHostContactConfirmed,
   markSelfHostContactConfirmed,
 } from '$lib/api/add-server-flow';
+import { zielHost } from '$lib/einladung/einladungsLink';
+import { beitrittsEingabeZerlegen, type ParsedJoinInput } from './beitrittsEingabe';
 import { holeTicket, loeseTicketEin } from '$lib/api/server-ticket';
 
 import { instancesApi } from '$lib/api/instances';
@@ -65,74 +67,10 @@ function syncInstanceMembership(instanceId: string | null | undefined): void {
 // Parse helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Ergebnis des Parsens eines Join-Inputs.
- */
-type ParsedJoinInput =
-  | { kind: 'invite'; code: string; host: string | null }
-  | { kind: 'public'; handle: string; host: string | null }
-  | { kind: 'host'; host: string };
-
-/** Nackte Hostadresse: optionales Schema, FQDN (≥2 Labels), optionaler Port,
- *  KEIN Pfad. Bare Invite-Codes enthalten keinen Punkt → keine Kollision. */
-const _BARE_HOST_RE =
-  /^(https?:\/\/)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d+)?\/?$/i;
-
-/**
- * Zerlegt einen gepasteten Link oder bare Code in sein strukturiertes Format.
- *
- * Erkannte Formate:
- *  - Einladungslink: `<any>/invite/<code>[?host=<fqdn>]`
- *  - Öffentliche Community-Adresse: `<any>/c/<handle>[?host=<fqdn>]`
- *  - Bare Community-Handle: `c/<handle>` (kein Leading-Slash nötig)
- *  - Nackte Hostadresse: `chat.firma.de` / `https://chat.firma.de` (kein Pfad)
- *    → Universal-Beitrittsfeld: Server direkt ansprechen (Cert-Login ohne
- *    Grant; verlangt der Server eine Einladung, fragt das UI nach dem Code)
- *  - Bare Invite-Code: alles andere (Fallback)
- *
- * ``host`` ist der bare FQDN aus ``?host=`` (oder null bei Cloud/bare Code).
- */
+/** Zerlegt die Eingabe des Beitrittsfelds; die Rechnung steht importfrei in
+ *  beitrittsEingabe.ts (dort auch die erkannten Formate). */
 export function parseJoinInput(input: string): ParsedJoinInput {
-  const trimmed = input.trim();
-
-  // Öffentliche Community-Adresse: <scheme://host>/c/<handle>[?...]
-  // oder bare c/<handle>
-  const publicMatch = trimmed.match(/(?:^|\/)(c)\/([a-z0-9][a-z0-9-]{0,30}[a-z0-9]|[a-z0-9])(?:[/?#]|$)/i);
-  if (publicMatch) {
-    const handle = publicMatch[2].toLowerCase();
-    // Extrahiere den Host aus der URL (falls vorhanden, z.B. https://chat.firma.de/c/meine-community)
-    let host: string | null = null;
-    const hostParam = trimmed.match(/[?&]host=([^\s&#]+)/i);
-    if (hostParam) {
-      host = decodeURIComponent(hostParam[1]);
-    } else {
-      // Host aus dem URL-Schema extrahieren (wenn URL mit http(s):// beginnt).
-      // Nur als Self-Host behandeln, wenn es NICHT der Cloud-Host ist.
-      const urlHostMatch = trimmed.match(/^https?:\/\/([^/]+)\//i);
-      const cloudHost = CLOUD_HOSTNAME.replace('https://', '');
-      if (urlHostMatch && !trimmed.includes(cloudHost)) {
-        host = urlHostMatch[1];
-      }
-    }
-    return { kind: 'public', handle, host };
-  }
-
-  // Nackte Hostadresse (vor dem Invite-Fallback, NACH /invite- und /c/-Links):
-  // eine Server-URL ohne Pfad ist nie ein Invite-Code (Codes haben keine Punkte).
-  // Der Cloud-Host ist keine "Adresse zum Beitreten" — er ist immer schon da;
-  // Durchfallen zum Code-Pfad erzeugt die normale "Code ungültig"-Meldung.
-  if (_BARE_HOST_RE.test(trimmed)) {
-    const bare = trimmed.replace(/^https?:\/\//i, '').replace(/\/$/, '').toLowerCase();
-    const cloudHost = CLOUD_HOSTNAME.replace(/^https?:\/\//, '');
-    if (bare !== cloudHost) return { kind: 'host', host: bare };
-  }
-
-  // Einladungslink: <any>/invite/<code>[?host=<fqdn>]
-  const codeMatch = trimmed.match(/\/invite\/([^/?#\s]+)/i);
-  const code = (codeMatch ? codeMatch[1] : trimmed).trim();
-  const hostMatch = trimmed.match(/[?&]host=([^\s&#]+)/i);
-  const host = hostMatch ? decodeURIComponent(hostMatch[1]) : null;
-  return { kind: 'invite', code, host };
+  return beitrittsEingabeZerlegen(input, CLOUD_HOSTNAME);
 }
 
 // ---------------------------------------------------------------------------
@@ -169,15 +107,18 @@ async function joinByPublicHandle(
   host: string | null,
   confirmed: boolean,
 ): Promise<void> {
-  if (!host) {
-    // Cloud-Community
-    const result = await chatApi.joinPublicCommunity(handle);
+  const ziel = zielHost(host, CLOUD_HOSTNAME);
+  if (ziel === undefined) throw new Error(m.einladung_host_ungueltig());
+  if (!ziel) {
+    // Cloud-Community — ausdrücklich an die Cloud, wie im Invite-Pfad.
+    const cloudId = serversStore.cloudId();
+    const result = await chatApi.joinPublicCommunity(handle, cloudId ? { serverId: cloudId } : {});
+    if (cloudId) activeServer.set(cloudId);
     await navigateAfterJoin(result.guild.id, result.channel_id);
     return;
   }
 
-  const trimmed = host.trim().toLowerCase().replace(/\/$/, '');
-  const hostname = trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`;
+  const hostname = `https://${ziel}`;
 
   const existing = serversStore.findByHostname(hostname);
   if (existing) {
@@ -239,13 +180,16 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
   }
 
   // --- Invite-Code-Pfad (unveränderte Logik) ---
-  const { code, host } = parsed;
+  const { code } = parsed;
   if (!code) throw new Error(m.einladung_beitritt_eingabe());
+  // Zielserver streng prüfen (einladungsLink.ts): `?host=<cloud>` ist eine
+  // Cloud-Einladung; ein Host mit `@`, `\`, Port oder IP wird abgewiesen —
+  // daran lesen Browser und Cloud (Python) eine Adresse verschieden.
+  const host = zielHost(parsed.host, CLOUD_HOSTNAME);
+  if (host === undefined) throw new Error(m.einladung_host_ungueltig());
 
   if (host) {
-    // Self-Host: HTTPS-Hostname normalisieren
-    const trimmed = host.trim().toLowerCase().replace(/\/$/, '');
-    const hostname = trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`;
+    const hostname = `https://${host}`;
 
     let serverId: string;
     const existing = serversStore.findByHostname(hostname);
@@ -315,7 +259,13 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
     return;
   }
 
-  const result = await chatApi.acceptInvite(code);
+  // Cloud-Einladung AUSDRÜCKLICH an die Cloud: ist gerade ein Self-Host
+  // aktiv, kennt der den Code nicht und antwortete 404 „ungültig“.
+  const cloudId = serversStore.cloudId();
+  const result = cloudId
+    ? await acceptInvite(code, { serverId: cloudId })
+    : await chatApi.acceptInvite(code);
+  if (cloudId) activeServer.set(cloudId);
   joinedInvites.markJoined(code, result.guild.id);
   await guilds.hydrate();
   // Pull roles for the newly-joined guild so UI gates resolve correctly

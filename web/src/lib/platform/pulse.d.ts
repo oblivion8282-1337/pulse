@@ -174,10 +174,11 @@ export interface PulseNotifyApi {
 }
 
 /** Invite deep-link payload — delivered by main after strict URL validation.
- *  `hostname` is a bare FQDN (e.g. "howispulse.com"), NOT a full URL.
- *  `code` is the invite code (alphanumeric, 6-64 chars). The frontend shows a
+ *  `hostname` is a bare FQDN (e.g. "howispulse.com") or '' (Cloud), NOT a full URL.
+ *  `code` is the invite code (6-64 chars of [A-Za-z0-9_-]). The frontend shows a
  *  disclaimer before touching the server. */
 export interface PulseInvitePayload {
+  /** FQDN des Self-Hosts; '' = Cloud-Einladung (ab Desktop 0.1.98). */
   hostname: string;
   code: string;
 }
