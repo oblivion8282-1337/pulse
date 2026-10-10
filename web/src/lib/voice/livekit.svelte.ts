@@ -726,6 +726,14 @@ class VoiceRoom {
       this.state = ConnectionState.Connected;
       this.micEnabled = zustand.mikro;
       this.#nativTeilnehmer(zustand.teilnehmer);
+      // **Muss hier stehen.** Die Sperre meldet „Audio aktivieren" und gehört
+      // zum WebKit-Weg: dort kann der Browser die Wiedergabe verweigern. Auf
+      // dem nativen Weg gibt es gar keine Browser-Wiedergabe, die blockiert
+      // sein könnte — ein stehengebliebenes `true` aus einem früheren
+      // Beitritt liess die Oberfläche am 2026-10-10 aber wie festgehängt
+      // aussehen.
+      this.audioBlocked = false;
+      this.audioBlockGrund = '';
     } catch (e) {
       if (gen !== this.#connectGen) return;
       this.state = ConnectionState.Disconnected;

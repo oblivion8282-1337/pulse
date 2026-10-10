@@ -40,9 +40,17 @@ final class SpracheRaum: NSObject {
         // wird; das SDK richtet sie beim Verbinden ein. Dieselbe
         // Reihenfolge-Regel wie im Web — dort hat ihre Verletzung zwei
         // Mikrofon-Fehler gekostet.
-        if !stumm {
-            try await r.localParticipant.setMicrophone(enabled: true)
-        }
+        //
+        // **Die Spur wird IMMER veröffentlicht, auch wenn stumm gestartet
+        // wird** — und das ist kein Detail, sondern die Bedingung dafür, dass
+        // die Hörmuschel überhaupt wählbar ist. Das SDK wählt die Kategorie
+        // nach dem Zustand der Audio-Maschine: ohne Aufnahme `.playback`, und
+        // dort gibt es keine Hörmuschel. Wer stumm schaltet, indem er die
+        // Spur aufhebt, schickt die Ausgabe zurück auf den Lautsprecher.
+        // Am 2026-10-10 genau so erlebt. Der Web-Weg macht es seit jeher
+        // richtig (`stopMicTrackOnMute` ist aus).
+        try await r.localParticipant.setMicrophone(enabled: true)
+        if stumm { try await stummSchalten(true) }
         schickeTeilnehmer()
         schickeEigenen()
     }
@@ -55,9 +63,23 @@ final class SpracheRaum: NSObject {
     }
 
     func mikrofon(_ an: Bool) async throws {
-        guard let r = raum else { return }
-        try await r.localParticipant.setMicrophone(enabled: an)
+        try await stummSchalten(!an)
         schickeEigenen()
+    }
+
+    /// Stummschalten, ohne die Spur aufzuheben — s. Begründung in `beitreten`.
+    /// Gibt es noch keine Spur (Beitritt noch nicht durch), wird sie angelegt.
+    private func stummSchalten(_ stumm: Bool) async throws {
+        guard let r = raum else { return }
+        // Über `audioTracks` statt `getTrackPublication(source:)` — Letzteres
+        // ist im SDK `internal`.
+        guard let spur = r.localParticipant.audioTracks
+            .first(where: { $0.source == .microphone })?.track as? LocalAudioTrack
+        else {
+            try await r.localParticipant.setMicrophone(enabled: !stumm)
+            return
+        }
+        if stumm { try await spur.mute() } else { try await spur.unmute() }
     }
 
     /// Lautsprecher oder Hörmuschel.
