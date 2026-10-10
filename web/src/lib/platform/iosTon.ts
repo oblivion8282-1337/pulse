@@ -112,7 +112,20 @@ export function tonHqFunkSetzen(an: boolean): void {
  * Apples Paket). Dafür fehlt der App heute die Kenntnis des Wegs; die kennt
  * nur die Hülle und müsste sie mitschicken.
  */
-export const IOS_EIGENE_SENDEKETTE = true;
+export const IOS_EIGENE_SENDEKETTE = false;
+// **Zweiter Testlauf beendet, 2026-10-10 — der Klang war besser, der Preis zu
+// hoch.** Mit `true` klang die Stimme deutlich offener (bestaetigt), aber auf
+// dem iPhone kam KEIN Ton mehr an: weder ueber Lautsprecher noch ueber die
+// Hoermuschel. Zurueck auf `false` war der Ton sofort wieder da — eine
+// Variable, ein Ergebnis.
+//
+// Die Erklaerung liegt beim Paket: `echoCancellation: false` nimmt WebKit den
+// Anlass, seine Session fuer Sprache einzurichten, und mit ihr offenbar den
+// Wiedergabeweg. Wer das noch einmal angeht, prueft ZUERST, ob die Wiedergabe
+// ueberhaupt ueberlebt — der Klanggewinn ist wertlos, wenn man nichts hoert.
+//
+// NICHT die Ursache war unsere Session-Einrichtung: sie steht weiterhin auf
+// `false` (s. `EIGENE_SESSION_EINRICHTEN`), und die Wiedergabe laeuft.
 // **Zweiter Testlauf, 2026-10-10.** Der erste brach ab, bevor etwas zu hoeren
 // war: mit `true` kam das iPhone nicht mehr in den Sprachkanal (Token erteilt,
 // dann `participant_connection_aborted`). Ursache war nicht der Klang, sondern
