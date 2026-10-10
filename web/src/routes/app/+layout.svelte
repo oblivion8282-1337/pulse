@@ -64,6 +64,7 @@
   import { page } from '$app/state';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
+  import EinladungDialog from '$lib/einladung/EinladungDialog.svelte';
 
   let { children } = $props();
   let hydrated = $state(false);
@@ -556,6 +557,7 @@
        Navigation überdauert — Klingeln/Annahme/Auflegen sind überall
        erreichbar. -->
   <AnrufOverlay />
+  <EinladungDialog />
   <!-- Die Bereichs-Leiste sitzt UNTER dem Voice-Dock (Canvas 3a): das Dock ist
        der laufende Zustand, die Leiste die Navigation. `--safe-bottom` traegt
        jetzt sie, sonst laege der Home-Balken des Telefons darauf. -->
