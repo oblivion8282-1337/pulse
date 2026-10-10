@@ -15,7 +15,6 @@ from dcc_chat_gateway.models import Guild
 from dcc_chat_gateway.routes import public_community_preview
 from sqlalchemy import update
 
-
 pytestmark = pytest.mark.usefixtures("cloud_mode")
 
 
