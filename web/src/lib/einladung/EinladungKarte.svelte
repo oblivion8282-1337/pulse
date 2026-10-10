@@ -110,7 +110,7 @@
         {zustand === 'ungueltig' ? m.einladung_ungueltig_titel() : m.einladung_fehler_titel()}
       </h1>
       <p class="text-muted-foreground text-sm" data-testid="einladung-hinweis">
-        {zustand === 'ungueltig' ? m.einladung_ungueltig_text() : hinweis}
+        {zustand === 'ungueltig' ? (hinweis ?? m.einladung_ungueltig_text()) : hinweis}
       </p>
     </div>
     <div class="flex w-full flex-col gap-2">
