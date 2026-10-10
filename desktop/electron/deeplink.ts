@@ -1,5 +1,5 @@
 // ── Deep-Link / Invite-Handler ───────────────────────────────────────────────
-// Validates and dispatches `pulse://invite?host=<fqdn>&code=<code>` URLs.
+// Validates and dispatches `pulse://invite?code=<code>[&host=<fqdn>]` URLs (no host = Cloud).
 // Security: we parse strictly (URL class + FQDN regex + alphanumeric code) and
 // NEVER execute any action derived from the URL without showing a user-visible
 // disclaimer first (that's the frontend's job in /invite/[code]?host=…).
@@ -38,6 +38,27 @@ export function extractPulseUrl(argv: string[]): string | null {
 }
 
 /**
+ * Prüft `pulse://invite?code=<code>[&host=<fqdn>]`. Ohne `host` ist es eine
+ * Cloud-Einladung (`hostname: ''`) — bis 0.1.97 war `host` Pflicht, und jede
+ * Cloud-Einladung aus dem Browser wurde hier still verworfen. Mit `host` gilt
+ * weiter `isValidFqdn`. null = verwerfen.
+ */
+export function parseInviteDeepLink(url: string): { hostname: string; code: string } | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'pulse:' || parsed.hostname !== 'invite') return null;
+  const host = parsed.searchParams.get('host') ?? '';
+  const code = parsed.searchParams.get('code') ?? '';
+  if (host !== '' && !isValidFqdn(host)) return null;
+  if (!INVITE_CODE_RE.test(code)) return null;
+  return { hostname: host, code };
+}
+
+/**
  * Buffer for a validated invite payload that has not yet been consumed by the
  * renderer. Using a pull-based model (renderer calls `invite:getPending` on
  * mount) avoids the send-before-listen race: `ready-to-show` fires before the
@@ -50,48 +71,16 @@ let pendingInvitePayload: { hostname: string; code: string } | null = null;
 
 (function seedPendingFromArgv(): void {
   const url = extractPulseUrl(process.argv);
-  if (url) {
-    // Parse and validate the argv deep-link at startup; store only the
-    // sanitised payload so we never handle the raw URL twice.
-    let parsed: URL;
-    try { parsed = new URL(url); } catch { return; }
-    if (parsed.protocol !== 'pulse:' || parsed.hostname !== 'invite') return;
-    const host = parsed.searchParams.get('host') ?? '';
-    const code = parsed.searchParams.get('code') ?? '';
-    if (isValidFqdn(host) && INVITE_CODE_RE.test(code)) {
-      pendingInvitePayload = { hostname: host, code };
-    }
-  }
+  if (url) pendingInvitePayload = parseInviteDeepLink(url);
 })();
 
 export function handleDeepLink(url: string, getWindow: () => BrowserWindow | null): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    console.warn('[deep-link] unparseable URL, ignoring:', url);
+  const payload = parseInviteDeepLink(url);
+  if (!payload) {
+    // Bewusst ohne URL im Log: sie trägt den Einladungscode.
+    console.warn('[deep-link] ungültiger Einladungslink, ignoriert');
     return;
   }
-  if (parsed.protocol !== 'pulse:') return;
-  if (parsed.hostname !== 'invite') {
-    console.warn('[deep-link] unknown host, ignoring:', parsed.hostname);
-    return;
-  }
-
-  const host = parsed.searchParams.get('host') ?? '';
-  const code = parsed.searchParams.get('code') ?? '';
-
-  // Strict validation — do NOT send user to an attacker-controlled hostname.
-  if (!isValidFqdn(host)) {
-    console.warn('[deep-link] invalid host param, ignoring:', host);
-    return;
-  }
-  if (!INVITE_CODE_RE.test(code)) {
-    console.warn('[deep-link] invalid code param, ignoring:', code);
-    return;
-  }
-
-  const payload = { hostname: host, code };
   // Always buffer the validated payload so the renderer can pull it on mount.
   // Also push it eagerly when the webContents is alive AND has actually
   // finished loading, in case the renderer is already fully loaded (e.g. a
