@@ -71,6 +71,23 @@ def client_ip(request: Request) -> str:
     )
 
 
+def bremsen_schluessel(ip: str) -> str:
+    """Zählschlüssel für anonyme IP-Bremsen: IPv6 wird auf sein /64-Netz gefaltet.
+
+    Ein /64 ist die kleinste übliche Zuteilung an einen Anschluss. Würde je
+    Adresse gezählt, bekäme jeder Anschluss Milliarden Eimer und die Bremse
+    ließe sich durch Adresswechsel innerhalb des eigenen Netzes umgehen.
+    IPv4 und Unparsbares bleiben unverändert.
+    """
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if addr.version == 6:
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return ip
+
+
 def ws_client_ip(websocket: WebSocket) -> str:
     """Client-IP für WebSocket per-IP-Limits.
 

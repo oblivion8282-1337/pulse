@@ -36,7 +36,7 @@ from sqlalchemy import select
 from dcc_shared import gaeste as _geteilt
 
 from dcc_chat_gateway import gaeste
-from dcc_chat_gateway.client_ip import client_ip
+from dcc_chat_gateway.client_ip import bremsen_schluessel, client_ip
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Channel, GuestLink, Guild
@@ -82,10 +82,10 @@ def _absender_ip(request: Request) -> str | None:
     Fake-IPs umginge ein Angreifer genau die IP-Bremse, die gegen das
     Streuen vieler Codes gebaut ist, und bliebe nur dem je-Code-Zähler
     unterworfen. Deshalb derselbe Pfad wie überall im Dienst
-    (``client_ip``): XFF nur von ``trusted_proxies``, sonst die
+    (``client_ip``, danach ``bremsen_schluessel`` = IPv6 als /64): XFF nur von ``trusted_proxies``, sonst die
     Socket-Adresse.
     """
-    return client_ip(request)
+    return bremsen_schluessel(client_ip(request))
 
 
 async def _link_holen(session, code: str, redis, request: Request, aktion: str):

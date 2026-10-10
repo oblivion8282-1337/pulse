@@ -22,7 +22,7 @@ from fastapi import APIRouter, HTTPException, Path, Request, status
 from pydantic import BaseModel
 
 from dcc_chat_gateway import gaeste
-from dcc_chat_gateway.client_ip import client_ip
+from dcc_chat_gateway.client_ip import bremsen_schluessel, client_ip
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Guild, GuildInvite
 from dcc_chat_gateway.routes.invites import _INVITE_INVALID, _is_active, _member_count
@@ -47,7 +47,7 @@ class PublicInvitePreviewOut(BaseModel):
 
 
 async def _bremsen(redis, request: Request, code: str) -> None:
-    ip = client_ip(request)
+    ip = bremsen_schluessel(client_ip(request))
     if ip and not await gaeste.bremse(redis, f"einladung:rate:ip:{ip}", _IP_LIMIT, _FENSTER_S):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="zu viele Anfragen")
     code_h = gaeste.code_hash(code)
