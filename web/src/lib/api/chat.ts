@@ -609,7 +609,7 @@ export const chatApi = {
   },
   /** Anonyme Vorschau einer öffentlichen Adresse /c/<handle> (Name, Bild,
    *  Mitgliederzahl). 404 für jedes „nein“, 429 bei Bremse. */
-  getPublicCommunityPublicPreview(
+  getAnonymousCommunityPreview(
     handle: string,
     route: { serverId?: string } = {},
   ): Promise<PublicInvitePreview> {

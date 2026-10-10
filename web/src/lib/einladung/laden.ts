@@ -83,7 +83,7 @@ function adressVorschau(p: PublicInvitePreview): EinladungCommunity {
 async function ladeAdresseAbgemeldet(handle: string): Promise<GeladeneEinladung> {
   try {
     const cloudId = serversStore.cloudId();
-    const p = await chatApi.getPublicCommunityPublicPreview(
+    const p = await chatApi.getAnonymousCommunityPreview(
       handle,
       cloudId ? { serverId: cloudId } : {}
     );

@@ -81,8 +81,8 @@ def _absender_ip(request: Request) -> str | None:
     Fake-IPs umginge ein Angreifer genau die IP-Bremse, die gegen das
     Streuen vieler Codes gebaut ist, und bliebe nur dem je-Code-Zähler
     unterworfen. Deshalb derselbe Pfad wie überall im Dienst
-    (``client_ip``, danach ``bremsen_schluessel`` = IPv6 als /64): XFF nur von ``trusted_proxies``, sonst die
-    Socket-Adresse.
+    (``client_ip``): XFF nur von ``trusted_proxies``, sonst die
+    Socket-Adresse. Gezählt wird ``bremsen_schluessel`` davon (IPv6 als /64).
     """
     return bremsen_schluessel(client_ip(request))
 
