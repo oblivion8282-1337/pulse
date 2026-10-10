@@ -332,7 +332,7 @@ contextBridge.exposeInMainWorld('pulse', {
   // URLs and sends the sanitised {hostname, code} pair over this channel.
   // The renderer (root +layout.svelte) subscribes once on mount and navigates
   // to /invite/[code]?host=… where the user sees a confirmation dialog before
-  // anything happens.
+  // anything happens. hostname '' = Cloud-Einladung.
   invite: {
     /** Subscribe to incoming invite deep-links. Returns an unsubscribe fn. */
     onLink(cb: (data: { hostname: string; code: string }) => void): () => void {
