@@ -11,6 +11,7 @@ import {
   einladungAusParametern,
   klickAbfangen,
   deepLinkWeg,
+  deepLinkWiederholung,
   type KlickArt
 } from '../src/lib/einladung/einladungsLink.ts';
 
@@ -192,4 +193,13 @@ test('deepLinkWeg: Dialog nur auf echten Unterseiten von /app', () => {
   assert.equal(deepLinkWeg('/invite/abc12345', true), 'merken-und-app');
   assert.equal(deepLinkWeg('/login', false), 'merken');
   assert.equal(deepLinkWeg('/app/friends', false), 'merken');
+});
+
+test('Deep-Link-Wiederholung: dieselbe Einladung kurz hintereinander', () => {
+  const v = { schluessel: 'abc12345|', zeit: 10_000 };
+  assert.equal(deepLinkWiederholung(null, 'abc12345|', 10_000), false);
+  assert.equal(deepLinkWiederholung(v, 'abc12345|', 10_500), true);
+  assert.equal(deepLinkWiederholung(v, 'abc12345|', 15_000), false);
+  assert.equal(deepLinkWiederholung(v, 'xyz98765|', 10_500), false);
+  assert.equal(deepLinkWiederholung(v, 'abc12345|', 9_000), false);
 });

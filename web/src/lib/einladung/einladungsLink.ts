@@ -148,3 +148,18 @@ export function deepLinkWeg(pfad: string, bereit: boolean): 'dialog' | 'merken' 
   if (pfad.startsWith('/app/')) return 'dialog';
   return pfad === '/app' ? 'merken' : 'merken-und-app';
 }
+
+/** Dieselbe Einladung kurz hintereinander noch einmal? Der Hauptprozess der
+ *  Desktop-App meldet einen Deep-Link bei laufender App mehrfach (jeder
+ *  Fehlversuch der zweiten Instanz um das Single-Instance-Lock löst ein
+ *  `second-instance` aus — gemessen: 7× im Abstand von 500 ms). */
+export function deepLinkWiederholung(
+  vorher: { schluessel: string; zeit: number } | null,
+  schluessel: string,
+  jetzt: number,
+  fensterMs = 5000
+): boolean {
+  if (vorher === null || vorher.schluessel !== schluessel) return false;
+  const abstand = jetzt - vorher.zeit;
+  return abstand >= 0 && abstand < fensterMs;
+}
