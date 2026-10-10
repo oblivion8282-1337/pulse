@@ -24,7 +24,7 @@ export function istAdresse(z: Ziel): z is Adresse {
   return 'handle' in z;
 }
 
-/** Handle-Form wie `parseJoinInput` (lib/guilds/joinByInvite.ts). */
+/** Handle-Form wie `parseJoinInput` (lib/guilds/beitrittsEingabe.ts). */
 const HANDLE_RE = /^(?:[a-z0-9][a-z0-9-]{0,30}[a-z0-9]|[a-z0-9])$/;
 
 export function istGueltigerHandle(h: string): boolean {
