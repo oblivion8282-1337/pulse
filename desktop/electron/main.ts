@@ -161,9 +161,9 @@ if (DEV_ZWEITINSTANZ) {
 
 // ── Custom URL-Protocol (pulse://) ──────────────────────────────────────────
 // Registers this app as the default handler for `pulse://` URLs on the OS.
-// Needed for invite deep-links: clicking `pulse://invite?host=...&code=...` in
-// a browser should open (or focus) the running Pulse desktop client and navigate
-// to the invite page.
+// Needed for invite deep-links: clicking `pulse://invite?code=…[&host=…]` in
+// a browser should open (or focus) the running Pulse desktop client, which
+// opens the invite dialog.
 //
 // Dev-mode (electron . — `process.defaultApp` is true): Electron sets the
 // argv[1] slot to the app-path; we have to pass it explicitly so the OS knows

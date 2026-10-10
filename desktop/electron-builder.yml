@@ -26,8 +26,9 @@ productName: Pulse
 
 # pulse://invite?code=…[&host=…] — der Sprung aus der Einladungsseite im
 # Browser. macOS braucht das Schema im Info.plist (CFBundleURLTypes), sonst
-# bleibt `setAsDefaultProtocolClient` wirkungslos; der NSIS-Installer trägt es
-# zusätzlich in die Registry ein (zur Laufzeit tut es main.ts ohnehin).
+# bleibt `setAsDefaultProtocolClient` wirkungslos. Windows: keine Anmeldung
+# durch den Installer — das erledigt allein `setAsDefaultProtocolClient` in
+# main.ts beim ersten Start.
 protocols:
   - name: Pulse
     schemes:
