@@ -100,7 +100,12 @@
       return;
     }
     try {
-      preview = await chatApi.getInvitePreview(code);
+      // Host-loser Link = Cloud-Einladung → ausdrücklich die Cloud fragen,
+      // nicht den aktiven Server (sonst „ungültig“ in einem Self-Host-Kanal).
+      const cloudId = serversStore.cloudId();
+      preview = cloudId
+        ? await getInvitePreviewOn(code, { serverId: cloudId })
+        : await chatApi.getInvitePreview(code);
     } catch (e) {
       invalid = true;
     } finally {

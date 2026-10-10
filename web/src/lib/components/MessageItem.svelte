@@ -14,6 +14,8 @@
   import { detectEmbeds } from '$lib/embeds/providers';
   import { renderMessage } from './messageRender';
   import { m } from '$lib/paraglide/messages.js';
+  import { ersteEinladungImText } from '$lib/einladung/einladungsLink';
+  import { CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
   import { blocks } from '$lib/stores/blocks.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { nachrichtVonBlockiertem } from '$lib/nachrichten/blockierteAnzeige';
@@ -111,18 +113,15 @@
   const attachments = $derived(message.attachments ?? []);
   const isEdited = $derived(!!message.edited_at);
 
-  // Invite-Embed-Detection: extract the first /invite/<code> from the content.
-  // Require an explicit https?:// prefix so bare /invite/XXXXXXXX substrings
-  // (e.g. in path segments of unrelated URLs) do not trigger an embed fetch.
-  // Capture-Gruppe 1 = Code, 2 = optionaler ``?host=<fqdn>`` (Self-Host-Invite).
-  const INVITE_RE = /https?:\/\/[^\s]+\/invite\/([A-Za-z0-9]{8})(?:\?host=([^\s&#]+))?/;
-  const inviteMatch = $derived(message.content.match(INVITE_RE));
-  const inviteCode = $derived(inviteMatch ? inviteMatch[1] : null);
-  const inviteHost = $derived(inviteMatch && inviteMatch[2] ? decodeURIComponent(inviteMatch[2]) : null);
-  // Suppress the raw text entirely when the message is *only* the invite link
-  // (possibly with surrounding whitespace).
+  // Einladungs-Karte: erste gültige Einladung im Text (einladungsLink.ts —
+  // derselbe Leser wie Beitrittsfeld, Seite und Dialog; `host=` an jeder
+  // Stelle, Satzzeichen am Linkende werden abgeschnitten).
+  const inviteTreffer = $derived(ersteEinladungImText(message.content, CLOUD_HOSTNAME));
+  const inviteCode = $derived(inviteTreffer?.einladung.code ?? null);
+  const inviteHost = $derived(inviteTreffer?.einladung.host ?? null);
+  // Rohtext ausblenden, wenn die Nachricht NUR aus dem Link besteht.
   const isInviteOnly = $derived(
-    !!inviteCode && message.content.trim().replace(INVITE_RE, '').trim() === ''
+    !!inviteTreffer && message.content.trim() === inviteTreffer.roh
   );
   // Optimistic copy still awaiting its server echo — it has no real id yet,
   // so edit / delete / react would hit `/messages/tmp-…` and 4xx. Gate them

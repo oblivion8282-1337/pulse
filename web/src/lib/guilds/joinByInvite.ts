@@ -15,6 +15,7 @@ import {
   selfHostContactConfirmed,
   markSelfHostContactConfirmed,
 } from '$lib/api/add-server-flow';
+import { zielHost } from '$lib/einladung/einladungsLink';
 import { holeTicket, loeseTicketEin } from '$lib/api/server-ticket';
 
 import { instancesApi } from '$lib/api/instances';
@@ -169,15 +170,18 @@ async function joinByPublicHandle(
   host: string | null,
   confirmed: boolean,
 ): Promise<void> {
-  if (!host) {
-    // Cloud-Community
-    const result = await chatApi.joinPublicCommunity(handle);
+  const ziel = zielHost(host, CLOUD_HOSTNAME);
+  if (ziel === undefined) throw new Error(m.einladung_host_ungueltig());
+  if (!ziel) {
+    // Cloud-Community — ausdrücklich an die Cloud, wie im Invite-Pfad.
+    const cloudId = serversStore.cloudId();
+    const result = await chatApi.joinPublicCommunity(handle, cloudId ? { serverId: cloudId } : {});
+    if (cloudId) activeServer.set(cloudId);
     await navigateAfterJoin(result.guild.id, result.channel_id);
     return;
   }
 
-  const trimmed = host.trim().toLowerCase().replace(/\/$/, '');
-  const hostname = trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`;
+  const hostname = `https://${ziel}`;
 
   const existing = serversStore.findByHostname(hostname);
   if (existing) {
@@ -239,13 +243,16 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
   }
 
   // --- Invite-Code-Pfad (unveränderte Logik) ---
-  const { code, host } = parsed;
+  const { code } = parsed;
   if (!code) throw new Error(m.einladung_beitritt_eingabe());
+  // Zielserver streng prüfen (einladungsLink.ts): `?host=<cloud>` ist eine
+  // Cloud-Einladung; ein Host mit `@`, `\`, Port oder IP wird abgewiesen —
+  // daran lesen Browser und Cloud (Python) eine Adresse verschieden.
+  const host = zielHost(parsed.host, CLOUD_HOSTNAME);
+  if (host === undefined) throw new Error(m.einladung_host_ungueltig());
 
   if (host) {
-    // Self-Host: HTTPS-Hostname normalisieren
-    const trimmed = host.trim().toLowerCase().replace(/\/$/, '');
-    const hostname = trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`;
+    const hostname = `https://${host}`;
 
     let serverId: string;
     const existing = serversStore.findByHostname(hostname);
@@ -315,7 +322,13 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
     return;
   }
 
-  const result = await chatApi.acceptInvite(code);
+  // Cloud-Einladung AUSDRÜCKLICH an die Cloud: ist gerade ein Self-Host
+  // aktiv, kennt der den Code nicht und antwortete 404 „ungültig“.
+  const cloudId = serversStore.cloudId();
+  const result = cloudId
+    ? await acceptInvite(code, { serverId: cloudId })
+    : await chatApi.acceptInvite(code);
+  if (cloudId) activeServer.set(cloudId);
   joinedInvites.markJoined(code, result.guild.id);
   await guilds.hydrate();
   // Pull roles for the newly-joined guild so UI gates resolve correctly
