@@ -29,11 +29,10 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 import httpx
+from dcc_shared import gaeste as _geteilt
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
-
-from dcc_shared import gaeste as _geteilt
 
 from dcc_chat_gateway import gaeste
 from dcc_chat_gateway.client_ip import bremsen_schluessel, client_ip
