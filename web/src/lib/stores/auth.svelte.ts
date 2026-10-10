@@ -2,6 +2,7 @@ import { me } from '$lib/api/auth';
 import { isDefinitiveAuthError, currentAccessToken } from '$lib/api/client';
 import { clearTokens, loadTokens } from '$lib/api/storage';
 import { clearVoiceResume } from '$lib/voice/resume';
+import { browserSpeicher, gemerkteEinladungVerwerfen } from '$lib/einladung/gemerkt';
 import { readState } from './readState.svelte';
 import { userCache } from './users.svelte';
 import { capabilities } from './capabilities.svelte';
@@ -408,6 +409,10 @@ class AuthStore {
     // Voice-Resume verwerfen — nach explizitem Logout darf der nächste Boot
     // nicht in den alten Channel zurückspringen.
     clearVoiceResume();
+    // Gemerkte Einladung (lib/einladung/gemerkt.ts) — auf einem gemeinsam
+    // genutzten Rechner soll der nächste Nutzer nicht die Einladung des
+    // vorigen vorgesetzt bekommen.
+    gemerkteEinladungVerwerfen(browserSpeicher());
     this.user = null;
     // Server-scoped Stores: Helper aus Phase 4.5 — leert die Guild-Realtime-
     // Stores + Plugin-Toggle-Cache. Anti-Drift: jeder neue Server-scoped Store
