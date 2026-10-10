@@ -67,6 +67,7 @@ from dcc_chat_gateway.schemas import (
     PrivateGroupMemberAddIn,
     PrivateGroupMemberOut,
     PrivateGroupOut,
+    SnowflakeId,
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -403,7 +404,9 @@ async def gruppe_verlassen(
 class GruppenLesestandIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    last_read_message_id: int
+    # SnowflakeId statt int: prüft den BIGINT-Bereich (sonst 500 aus dem
+    # Treiber statt 422) — dieselbe Naht wie ``DmLesestandIn``.
+    last_read_message_id: SnowflakeId
 
 
 @router.put("/gruppen/{gruppe_id}/lesestand", status_code=status.HTTP_204_NO_CONTENT)

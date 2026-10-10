@@ -19,28 +19,26 @@ import {
   haekchenStufe,
   infoJeEmpfaenger,
   type HaekchenStufe,
-  type InfoStatus
+  type InfoStatus,
+  type TreppenEingabe
 } from './haekchen';
 
-interface Treppe {
-  anker: string;
-  empfaenger: string[];
-  gelesen: (konto: string) => string | undefined;
-  zugestellt: (konto: string) => string | undefined;
+type Treppe = Pick<TreppenEingabe, 'anker' | 'empfaenger' | 'gelesen' | 'zugestellt'> & {
   istGruppe: boolean;
-}
+};
 
 function treppe(nachricht: Message, ich: string | undefined): Treppe | null {
   if (!ich || nachricht.author_id !== ich) return null;
   const kanal = nachricht.channel_id;
   const gruppe = privateGruppen.byId[kanal];
   const dm = gruppe ? undefined : directMessages.byId[kanal];
-  if (!gruppe && !dm) return null;
+  const empfaenger = gruppe
+    ? empfaengerZurSendezeit(gruppe.members, ich, nachricht.created_at)
+    : dm && [dm.other_user_id];
+  if (!empfaenger) return null;
   return {
     anker: lesestandAnker(nachricht),
-    empfaenger: gruppe
-      ? empfaengerZurSendezeit(gruppe.members, ich, nachricht.created_at)
-      : [dm!.other_user_id],
+    empfaenger,
     gelesen: (k) => quittungen.gelesenVon(kanal, k),
     zugestellt: (k) => quittungen.zugestelltBei(kanal, k),
     istGruppe: !!gruppe

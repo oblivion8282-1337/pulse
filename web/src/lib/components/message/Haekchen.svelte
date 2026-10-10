@@ -47,24 +47,15 @@
       class="size-3.5 {stufe === 'gelesen' ? 'text-[#53bdeb]' : grau}"
       aria-label={text}
       role="img"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.7"
+      stroke-linecap="round"
+      stroke-linejoin="round"
     >
-      <path
-        d="M1 6.5 4.5 10 10.5 3"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.7"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
+      <path d="M1 6.5 4.5 10 10.5 3" />
       {#if stufe !== 'gesendet'}
-        <path
-          d="M6.9 9 8 10.3 15.4 2.8"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.7"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
+        <path d="M6.9 9 8 10.3 15.4 2.8" />
       {/if}
     </svg>
   {/if}

@@ -240,8 +240,10 @@ async def set_dm_lesestand(
     zurückschieben (dasselbe Vorgehen wie das clientseitige ``markRead``).
     Das Event geht an den Lesenden (seine anderen Geräte löschen ihre
     Ungelesen-Zähler) und — nur bei beidseitig eingeschalteten
-    Lesebestätigungen — an die Gegenstelle, die daraus die Häkchen baut. Best-effort-Publish — der Stand ist persistiert,
-    ein Redis-Hiccup kippt die Antwort nicht (Muster wie in postfach.py).
+    Lesebestätigungen (``haekchen.py``, WhatsApp-Regel) — an die Gegenstelle,
+    die daraus die Häkchen baut. Best-effort-Publish — der Stand ist
+    persistiert, ein Redis-Hiccup kippt die Antwort nicht (Muster wie in
+    postfach.py).
     """
     dm = await dm_member_check(session, dm_channel_id, current.id)
     if dm is None:
@@ -284,8 +286,6 @@ async def set_dm_lesestand(
     await session.commit()
 
     other = dm.user_b_id if dm.user_a_id == current.id else dm.user_a_id
-    # Der Lesende immer, die Gegenstelle nur bei beidseitig eingeschalteten
-    # Lesebestaetigungen (``haekchen.py``, WhatsApp-Regel).
     empfaenger = await dm_lesestand_empfaenger(session, current.id, other)
     ereignis = DmLesestandEvent(
         channel_id=str(dm.id),
