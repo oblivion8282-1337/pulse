@@ -38,6 +38,33 @@ public class QrScanPlugin: CAPPlugin, CAPBridgedPlugin {
             wurzel.present(scanner, animated: true)
         }
     }
+
+    #if DEBUG
+        /// **Prüfpfad, nur in Debug-Bauten** — zeigt den Scanner ohne
+        /// Anmeldung und Oberfläche (sonst führt der Weg durch die WebView):
+        ///
+        ///     xcrun simctl launch <sim> com.howispulse.app -PulseQrScanProbe YES
+        ///
+        /// Der Simulator hat keine Kamera und läuft damit durch den Zweig
+        /// „Aufbau gescheitert" — derselbe wie bei verweigerter Erlaubnis.
+        public override func load() {
+            guard UserDefaults.standard.bool(forKey: "PulseQrScanProbe") else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                guard let wurzel = self.bridge?.viewController else {
+                    NSLog("[PulseQr] Probe: keine Ansicht")
+                    return
+                }
+                NSLog("[PulseQr] Probe: Scanner wird gezeigt")
+                let scanner = QrScanAnsicht { code in
+                    NSLog("[PulseQr] Probe: Ergebnis %@", code ?? "nil")
+                }
+                scanner.modalPresentationStyle = .fullScreen
+                wurzel.present(scanner, animated: true) {
+                    NSLog("[PulseQr] Probe: Praesentation fertig")
+                }
+            }
+        }
+    #endif
 }
 
 /// Vollbild-Kamera, die den ersten erkannten QR-Code zurückgibt.
@@ -49,6 +76,9 @@ final class QrScanAnsicht: UIViewController, AVCaptureMetadataOutputObjectsDeleg
     /// bevor die Sitzung wirklich steht, und ein `CAPPluginCall` darf nur
     /// EINMAL aufgelöst werden.
     private var erledigt = false
+    /// Aufbau gescheitert (keine Kamera, keine Erlaubnis) — gemeldet wird das
+    /// erst in `viewDidAppear`, s. dort.
+    private var aufbauGescheitert = false
 
     init(fertig: @escaping (String?) -> Void) {
         self.fertig = fertig
@@ -71,14 +101,14 @@ final class QrScanAnsicht: UIViewController, AVCaptureMetadataOutputObjectsDeleg
             // Keine Kamera oder keine Erlaubnis: wie ein Abbruch behandeln.
             // Die Erlaubnis selbst erfragt iOS beim ersten Zugriff mit dem
             // Text aus NSCameraUsageDescription.
-            melden(nil)
+            aufbauGescheitert = true
             return
         }
         sitzung.addInput(eingang)
 
         let ausgang = AVCaptureMetadataOutput()
         guard sitzung.canAddOutput(ausgang) else {
-            melden(nil)
+            aufbauGescheitert = true
             return
         }
         sitzung.addOutput(ausgang)
@@ -118,6 +148,19 @@ final class QrScanAnsicht: UIViewController, AVCaptureMetadataOutputObjectsDeleg
             knopf.widthAnchor.constraint(equalToConstant: 160),
             knopf.heightAnchor.constraint(equalToConstant: 44)
         ])
+    }
+
+    /// Ein gescheiterter Aufbau wird ERST HIER gemeldet, nicht schon in
+    /// `viewDidLoad`. Dort läuft die Präsentation noch: `presentingViewController`
+    /// ist `nil`, `melden` löste also sofort auf, ohne zu schliessen — danach
+    /// erschien die schwarze Ansicht doch, `erledigt` stand schon, und
+    /// „Abbrechen" tat nichts mehr. Ein Ausweg blieb nicht — im Simulator
+    /// nachgestellt (Prüfpfad oben; er hat keine Kamera und landet im selben
+    /// `guard` wie eine verweigerte Erlaubnis). Nach dem Erscheinen schliesst
+    /// `dismiss` die Ansicht, ebenfalls dort nachgemessen.
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if aufbauGescheitert { melden(nil) }
     }
 
     override func viewDidLayoutSubviews() {
