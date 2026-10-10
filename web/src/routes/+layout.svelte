@@ -131,7 +131,13 @@
     // ankamen (finding 156).
     let disposeInvite: (() => void) | undefined;
     if (isElectron()) {
-      disposeInvite = window.pulse?.invite?.onLink(einladungAusDeepLink);
+      disposeInvite = window.pulse?.invite?.onLink((data) => {
+        einladungAusDeepLink(data);
+        // Der Hauptprozess leert seinen Puffer nach einem Push absichtlich
+        // nicht (desktop/electron/deeplink.ts). Ohne Abholen käme dieselbe
+        // Einladung beim nächsten Neuladen noch einmal.
+        void window.pulse?.invite?.getPending();
+      });
       void window.pulse?.invite?.getPending().then((data) => {
         if (data) einladungAusDeepLink(data);
       });

@@ -10,6 +10,7 @@ import {
   ohneEinladung,
   einladungAusParametern,
   klickAbfangen,
+  deepLinkWeg,
   type KlickArt
 } from '../src/lib/einladung/einladungsLink.ts';
 
@@ -180,4 +181,15 @@ test('klickAbfangen: nur der schlichte Linksklick', () => {
   assert.equal(klickAbfangen(k({ altKey: true })), false);
   assert.equal(klickAbfangen(k({ button: 1 })), false);
   assert.equal(klickAbfangen(k({ defaultPrevented: true })), false);
+});
+
+test('deepLinkWeg: Dialog nur auf echten Unterseiten von /app', () => {
+  assert.equal(deepLinkWeg('/app/guilds/1/channels/2', true), 'dialog');
+  assert.equal(deepLinkWeg('/app/friends', true), 'dialog');
+  // genau /app ist ein Durchgangszustand (Weiterleitung verwirft die Query)
+  assert.equal(deepLinkWeg('/app', true), 'merken');
+  assert.equal(deepLinkWeg('/application', true), 'merken-und-app');
+  assert.equal(deepLinkWeg('/invite/abc12345', true), 'merken-und-app');
+  assert.equal(deepLinkWeg('/login', false), 'merken');
+  assert.equal(deepLinkWeg('/app/friends', false), 'merken');
 });
