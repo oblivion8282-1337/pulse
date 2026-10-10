@@ -88,8 +88,41 @@ export function tonHqFunkSetzen(an: boolean): void {
   void anwenden();
 }
 
+/**
+ * **TESTLAUF 2026-10-10 — auf `false` zurück, sobald gehört.**
+ *
+ * Läuft auf iOS unsere eigene Sendekette (RNNoise) statt Apples Verarbeitung?
+ *
+ * Der Anlass ist ein Hörbefund: die Stimme vom iPhone klingt dumpf. Verdacht
+ * ist Apples Sprachverarbeitung — ein Telefonie-Prozessor, der für schnelle,
+ * zuverlässige Echo-Auslöschung die Höhen opfert.
+ *
+ * **Das Paket ist unteilbar.** Apples Rauschunterdrückung steckt in derselben
+ * Einheit wie die Echo-Auslöschung; wer die eine abschaltet, schaltet beide
+ * ab. Dieser Schalter tut deshalb ZWEIERLEI: er lässt `filterwahl.ts` wieder
+ * RNNoise aufbauen UND erzwingt `echoCancellation: false` in den
+ * Aufnahme-Vorgaben (`voice/livekit.svelte.ts`).
+ *
+ * **Nur mit Kopfhörern brauchbar.** Ohne sie hört das Gegenüber sich selbst —
+ * Echo kann zuverlässig nur das Betriebssystem auslöschen, weil nur es weiss,
+ * was der Lautsprecher gerade ausgibt.
+ *
+ * Fällt der Hörtest gut aus, wird daraus keine Einstellung, sondern eine
+ * Entscheidung nach Ausgabeweg (Kopfhörer → eigene Kette, Lautsprecher →
+ * Apples Paket). Dafür fehlt der App heute die Kenntnis des Wegs; die kennt
+ * nur die Hülle und müsste sie mitschicken.
+ */
+export const IOS_EIGENE_SENDEKETTE = true;
+// **Zweiter Testlauf, 2026-10-10.** Der erste brach ab, bevor etwas zu hoeren
+// war: mit `true` kam das iPhone nicht mehr in den Sprachkanal (Token erteilt,
+// dann `participant_connection_aborted`). Ursache war nicht der Klang, sondern
+// dass der Aufbau von RNNoise im Verbindungsweg ABGEWARTET wurde. Das ist
+// seither unkritisch — `#filterOhneBlockade` in `voice/livekit.svelte.ts` gibt
+// ihm eine Frist und geht danach weiter. Erst damit laesst sich die eigentliche
+// Frage ueberhaupt hoeren.
+
 export function tonSystemFiltert(): boolean {
-  return isCapacitorIOS();
+  return isCapacitorIOS() && !IOS_EIGENE_SENDEKETTE;
 }
 
 /** Zuletzt an WebKit gemeldeter Typ — eigener Merker, weil der Web-Teil

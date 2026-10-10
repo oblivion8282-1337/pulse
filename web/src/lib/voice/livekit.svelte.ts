@@ -60,7 +60,7 @@ import { istAblehnung, standMerken } from '$lib/platform/berechtigung.svelte';
 import { isCapacitorIOS, isMobile } from '$lib/platform/runtime';
 import { melde } from '$lib/diagnose/app-diagnose';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
-import { tonSystemFiltert, tonVoice } from '$lib/platform/iosTon';
+import { IOS_EIGENE_SENDEKETTE, tonSystemFiltert, tonVoice } from '$lib/platform/iosTon';
 import { filterziel } from './filterwahl';
 import { sidecar } from '$lib/stream/sidecar';
 import { runningStreamSlots } from '$lib/stream/state.svelte';
@@ -580,7 +580,7 @@ class VoiceRoom {
           await this.#abbruch(room);
           return;
         }
-        await this.applyNoiseFilter();
+        await this.#filterOhneBlockade();
         this.#attachLocalAnalyser();
       } catch (e) {
         if (gen !== this.#connectGen) {
@@ -731,7 +731,7 @@ class VoiceRoom {
         return;
       }
       if (on) {
-        await this.applyNoiseFilter();
+        await this.#filterOhneBlockade();
         this.#attachLocalAnalyser();
       } else {
         this.#resetSendLevel();
@@ -1253,6 +1253,29 @@ class VoiceRoom {
    * No-op when not connected / no mic track. Cheap when the target mode
    * matches the current one — just live-tunes the makeup gain.
    */
+  /**
+   * Den Sendefilter aufbauen, ohne den Aufrufer daran haengen zu lassen.
+   *
+   * **Am 2026-10-10 am Geraet erzwungen.** Ein Testlauf schaltete RNNoise auf
+   * iOS ein — und das iPhone kam nicht mehr in den Sprachkanal: Token
+   * erteilt, dann meldete LiveKit `participant_connection_aborted`. Der
+   * Aufbau des Prozessors wurde im Verbindungsweg abgewartet, direkt nach dem
+   * Oeffnen des Mikrofons; blieb er auf WebKit stehen, blieb der ganze
+   * Beitritt stehen.
+   *
+   * **Ein Tonfilter darf einen Beitritt nicht verhindern koennen.** Die Frist
+   * laesst ihm zwei Sekunden — genug, damit er im Normalfall vor dem ersten
+   * Wort steht — und geht danach weiter. Haengt er laenger, installiert er
+   * sich eben spaeter; der Kanal ist trotzdem da.
+   */
+  async #filterOhneBlockade(): Promise<void> {
+    const FRIST_MS = 2000;
+    await Promise.race([
+      this.applyNoiseFilter().catch(() => undefined),
+      new Promise<void>((fertig) => setTimeout(fertig, FRIST_MS))
+    ]);
+  }
+
   async applyNoiseFilter(): Promise<void> {
     const room = this.#room;
     if (!room) return;
@@ -1380,7 +1403,7 @@ class VoiceRoom {
     // **Läuft unsere eigene Sendekette hier wirklich?** Auf iOS seit dem
     // 2026-10-10 nicht mehr: dort filtert das System (s. `tonSystemFiltert`),
     // und `filterwahl.ts` baut deshalb keinen eigenen Prozessor auf.
-    const eigeneKette = customProcessor && !isCapacitorIOS();
+    const eigeneKette = customProcessor && (!isCapacitorIOS() || IOS_EIGENE_SENDEKETTE);
     const opts: AudioCaptureOptions = {
       // **Die Pegelautomatik hängt daran, und das ist der Punkt.** Sie war aus,
       // weil RNNoise plus Makeup-Verstärkung den Pegel selbst machten. Ohne
@@ -1389,7 +1412,12 @@ class VoiceRoom {
       // dünn, und beim Gegenüber kommt genau das an. Wo wir nichts mehr
       // verstärken, muss das System es dürfen.
       autoGainControl: !eigeneKette,
-      echoCancellation: a.echoCancellation,
+      // TESTLAUF (s. `IOS_EIGENE_SENDEKETTE`): Apples Rauschunterdrückung lässt
+      // sich nicht einzeln abschalten — sie steckt in derselben Einheit wie die
+      // Echo-Auslöschung. Wer die eigene Kette auf iOS will, muss das Paket
+      // ganz abbestellen, und das geht nur hier.
+      echoCancellation:
+        isCapacitorIOS() && IOS_EIGENE_SENDEKETTE ? false : a.echoCancellation,
       // Ohne eigene Kette auch die System-Unterdrückung anfordern. Auf WebKit
       // ist das ohnehin ein Paket mit der Echo-Auslöschung — die Zeile sagt
       // jetzt dasselbe wie die Wirklichkeit, statt ihr zu widersprechen.
