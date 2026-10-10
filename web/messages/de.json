@@ -1463,6 +1463,7 @@
   "invite_embed_join": "Beitreten",
   "invite_embed_joined": "Bereits beigetreten",
   "invite_embed_member_count": "{count} Mitglieder",
+  "invite_embed_member_count_one": "{count} Mitglied",
   "invite_embed_self_host_title": "Einladung zu einem Server",
   "invite_friend_picker_heading": "Direkt an Freunde senden",
   "invite_friend_picker_no_friends": "Noch keine Freunde — füge erst welche hinzu, um direkt einladen zu können.",

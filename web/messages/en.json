@@ -1463,6 +1463,7 @@
   "invite_embed_join": "Join",
   "invite_embed_joined": "Already joined",
   "invite_embed_member_count": "{count} members",
+  "invite_embed_member_count_one": "{count} member",
   "invite_embed_self_host_title": "Invitation to a server",
   "invite_friend_picker_heading": "Send directly to friends",
   "invite_friend_picker_no_friends": "No friends yet — add some first to send invites directly.",
