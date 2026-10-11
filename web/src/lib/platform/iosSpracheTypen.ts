@@ -48,8 +48,13 @@ export interface NativerZustand {
   kamera?: boolean;
   kameraVorn?: boolean;
   /** Mithören aus. Gilt nur für das Abspielen der fremden Spuren; die
-   *  Mikrofon-Hälfte des Discord-Verhaltens bleibt im Web (`setDeafened`). */
+   *  Mikrofon-Hälfte des Discord-Verhaltens bleibt im Web (`setDeafened`).
+   *  Der WIRKSAME Stand — während eines Anrufs `true` (s. `pausiert`). */
   taub?: boolean;
+  /** Ein Direktanruf hält den Kanal an (Etappe 4, `SpracheRaumStumm.swift`):
+   *  Mikrofon zu, Ton aus, bis aufgelegt ist. Ein Mikrofon- oder Taub-Befehl
+   *  ändert dann nur, was danach gilt. */
+  pausiert?: boolean;
   /** Steht die native Kanalansicht gerade? Entscheidet, ob die Web-Leiste den
    *  Griff „zurück in den Kanal" anbietet. */
   ansichtOffen?: boolean;
@@ -89,6 +94,7 @@ export interface NativerEigenerZustand {
   kamera?: boolean;
   kameraVorn?: boolean;
   taub?: boolean;
+  pausiert?: boolean;
 }
 
 /** Ein Knopf der nativen Ansicht, dessen Regeln im Web liegen

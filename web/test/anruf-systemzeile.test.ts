@@ -14,7 +14,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { anrufSystemzeile } from '../src/lib/anrufe/systemzeileKern.ts';
+import { AnrufSystemzeilen, anrufSystemzeile } from '../src/lib/anrufe/systemzeileKern.ts';
 
 describe('anrufSystemzeile — der Einleiter schreibt', () => {
   test('verpasst → Zeile „verpasst“', () => {
@@ -55,5 +55,52 @@ describe('anrufSystemzeile — keine Zeile', () => {
 
   test('unbekannter Grund', () => {
     assert.equal(anrufSystemzeile('dm', 'ausgehend', 'irgendwas', 5), null);
+  });
+});
+
+// Seit dem 2026-10-11 liegt auch der Merker „schon geschrieben?" hier
+// (aus `anruf.svelte.ts` herausgelöst) — und ist damit erst prüfbar.
+describe('AnrufSystemzeilen — höchstens eine Zeile je Anruf', () => {
+  const dm = { art: 'dm', rolle: 'ausgehend', channel_id: 'k1' };
+
+  function mitSenke() {
+    const gesendet: unknown[][] = [];
+    const zeilen = new AnrufSystemzeilen();
+    zeilen.zielSetzen((...args) => void gesendet.push(args));
+    return { zeilen, gesendet };
+  }
+
+  test('Ende und lokaler Abbau im Wettlauf: nur die erste Meldung zählt', () => {
+    const { zeilen, gesendet } = mitSenke();
+    zeilen.hinterlassen(dm, 'aufgelegt', 83);
+    zeilen.hinterlassen(dm, 'verpasst', 0);
+    assert.deepEqual(gesendet, [['k1', 'dauer', 83]]);
+  });
+
+  test('ein neuer Anruf darf wieder schreiben', () => {
+    const { zeilen, gesendet } = mitSenke();
+    zeilen.hinterlassen(dm, 'verpasst', 0);
+    zeilen.neuerAnruf();
+    zeilen.hinterlassen(dm, 'abgelehnt', 0);
+    assert.deepEqual(gesendet, [
+      ['k1', 'verpasst', 0],
+      ['k1', 'abgelehnt', 0]
+    ]);
+  });
+
+  test('keine Zeile vorgesehen: der Anruf bleibt offen für eine spätere', () => {
+    const { zeilen, gesendet } = mitSenke();
+    zeilen.hinterlassen(dm, 'aufgelegt', 0);
+    zeilen.hinterlassen(dm, 'aufgelegt', 12);
+    assert.deepEqual(gesendet, [['k1', 'dauer', 12]]);
+  });
+
+  test('ohne Senke (vor dem Bootstrap) wird nichts gesendet, aber gemerkt', () => {
+    const zeilen = new AnrufSystemzeilen();
+    zeilen.hinterlassen(dm, 'verpasst', 0);
+    const gesendet: unknown[][] = [];
+    zeilen.zielSetzen((...args) => void gesendet.push(args));
+    zeilen.hinterlassen(dm, 'verpasst', 0);
+    assert.deepEqual(gesendet, []);
   });
 });

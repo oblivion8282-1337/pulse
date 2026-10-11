@@ -1,289 +1,116 @@
 /**
  * Der Anruf-Zustand (Übergabe P0, Anrufe-Epic C+D) — EINE Sitzung, ein
- * Gleichzeitiger Anruf pro Fenster. Bewusst EIGENE LiveKit-Verbindung
- * neben der Voice-Engine: die Engine ist an Guild-Kanäle gekoppelt
- * (Presence, Bitrate, Resume, Guild-Lookups), ein Anruf hätte davon
- * nichts — der dünne Parallelweg ist weniger riskant als ein dritter
- * Modus in `livekit.svelte.ts`.
+ * gleichzeitiger Anruf pro Fenster.
  *
  * Ablauf 1:1: `starten` → klingelt (WS an die Gegenseite) → Annahme
  * (`call_angenommen`) → beide verbinden ihren Raum → Auflegen/Ende
  * (`call_ende`) räumt überall ab. 45 s ohne Annahme: der Rufende bricht
  * ab (serverseitig „verpasst“), der Angerufene lehnt automatisch ab.
  *
- * E2EE (2026-09-09): bei E2EE-fähigem Ziel (verschlüsselte DM bzw. private
- * Gruppe) erzeugt der Initiator EINEN LiveKit-E2EE-Schlüssel (32
- * Zufallsbytes) und verschickt ihn als Anruf-Schlüssel-Frame über das
- * verschlüsselte Postfach (`krypto/senden.ts` bzw. `krypto/gruppe/
- * frameSenden.ts`) — misslingt die Zustellung, bricht der Anruf ab
- * (fail-closed, kein unverschlüsselter Anruf). Der Angerufene wartet nach
- * der Annahme auf den Schlüssel (`schluesselWarten.ts`), bevor er mit der
- * `encryption`-Room-Option verbindet; Schlüssel liegen NUR im
- * Arbeitsspeicher dieser Map. Klartext-DMs (Schalter aus) laufen wie bisher
- * ohne Schlüssel — transportverschlüsselt, ehrlich im Overlay benannt.
+ * E2EE (2026-09-09): der Initiator erzeugt einen Anruf-Schlüssel und
+ * verschickt ihn über das verschlüsselte Postfach, der Angerufene wartet
+ * nach der Annahme darauf — fail-closed, beide Hälften in
+ * `anrufSchluesselweg.ts`.
+ *
+ * **Hier steht nur die Signalisierung.** Die Medienseite (eigene
+ * LiveKit-Verbindung, Knöpfe, Dauer, Verschlüsselung, die Übernahme nach
+ * einem Reload) erbt die Klasse von `AnrufMedienZustand`
+ * (`anrufMedienZustand.svelte.ts`).
  */
 
-import { ConnectionState, Room, RoomEvent, Track, ExternalE2EEKeyProvider } from 'livekit-client';
-import { isCapacitorAndroid, isCapacitorIOS } from '$lib/platform/runtime';
-import {
-  anrufAnnehmen,
-  anrufAblehnen,
-  anrufAuflegen,
-  anrufStarten,
-  getAnrufToken,
-  type AnrufArt
-} from '$lib/api/anrufe';
+import type { AnrufArt } from '$lib/api/anrufe';
+import { anrufAnnehmen, anrufAblehnen, anrufAuflegen, anrufStarten } from '$lib/api/anrufe';
 import { sounds } from '$lib/sounds/engine';
-import { setVoiceActive } from '$lib/platform/audioRoute';
-import { tonVoice } from '$lib/platform/iosTon';
 import { toast } from 'svelte-sonner';
 import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
 import { m } from '$lib/paraglide/messages.js';
-import { anrufSystemzeile, type AnrufZeilenSchluessel } from './systemzeileKern';
-import { warteAufAnrufSchluessel } from './schluesselWarten';
-import { E2E_DMS_ENABLED, PRIVATE_GRUPPEN_ENABLED } from '$lib/krypto/schalter';
-import { anrufNativ } from '$lib/platform/anrufNativ';
+import { AnrufSystemzeilen, type ZeilenZiel } from './systemzeileKern';
+import type { LaufenderAnruf } from './anrufMedien';
+import { AnrufMedienZustand, fehlerMelden } from './anrufMedienZustand.svelte';
+import { e2eeFaehig } from './anrufSchluesselweg';
+import { nativAnbinden, nativAnkommen, nativBeenden } from './anrufHuelle';
+import type { AnrufEndgrund } from '$lib/platform/anrufNativ';
 
 const KLINGEL_TIMEOUT_MS = 45_000;
 
-/** E2EE-fähiges Ziel? Bei DMs entscheidet der DM-Schalter, bei Gruppen der
- *  Gruppen-Schalter — ist einer aus, gibt es dort schlicht keinen
- *  verschlüsselten Weg (Klartext-DM), und der Anruf läuft ohne Schlüssel. */
-function e2eeFaehig(art: AnrufArt): boolean {
-  return art === 'gruppe' ? PRIVATE_GRUPPEN_ENABLED : E2E_DMS_ENABLED;
-}
-
-/** Frischer Anruf-Schlüssel: 32 Zufallsbytes, base64. */
-function neuAnrufSchluessel(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let binär = '';
-  for (const b of bytes) binär += String.fromCharCode(b);
-  return btoa(binär);
-}
-
-/** base64 → ArrayBuffer (für `keyProvider.setKey`). */
-function base64ZuBytes(wert: string): ArrayBuffer {
-  const binär = atob(wert);
-  const bytes = new Uint8Array(binär.length);
-  for (let i = 0; i < binär.length; i++) bytes[i] = binär.charCodeAt(i);
-  return bytes.buffer;
-}
-
-/** Der E2EE-Worker wird über alle Anrufe wiederverwendet (LiveKit-Muster:
- *  ein Worker, viele Rooms) — Seiten-Lebensdauer, kein Abbau nötig.
- *  Subpfad laut exports-Map dieser Version: `./e2ee-worker` (Bindestrich,
- *  NICHT `e2ee.worker` wie in der LiveKit-Doku). */
-let e2eeArbeiter: Worker | null = null;
-function e2eeWorker(): Worker {
-  return (e2eeArbeiter ??= new Worker(new URL('livekit-client/e2ee-worker', import.meta.url), {
-    type: 'module'
-  }));
-}
-
-/**
- * Native Brücke in die Mobil-Hüllen: Android zeigt eine
- * Full-Screen-Intent-Notification über dem Sperrbildschirm
- * (`mobile/android …/AnrufPlugin.java`, Anrufe-Epic E), iOS seit dem
- * 2026-10-08 den System-Anrufbildschirm (`mobile/ios …/AnrufPlugin.swift`,
- * Punkt 40). Beide Seiten tragen denselben Vertrag: gleicher JS-Name,
- * gleiche Methoden, gleiches `aktion`-Ereignis.
- *
- * Annehmen/Ablehnen kommen als `aktion`-Ereignis zurück, weil die
- * Signalisierung (anrufAnnehmen/anrufAblehnen) im Klienten lebt.
- * In Browser/Electron No-op.
- */
-
-/** Gibt es hier überhaupt eine native Anrufanzeige? An EINER Stelle, weil
- *  die Antwort drei Riegel in dieser Datei bedient — ein Riegel, der die
- *  neue Hülle vergisst, fällt sonst nur auf dem Gerät auf. */
-function nativeHuelle(): boolean {
-  return isCapacitorAndroid() || isCapacitorIOS();
-}
-
-/** Eingehenden Anruf nativ anzeigen (No-op außerhalb der Mobil-Hüllen).
- *
- *  Auf iOS kann derselbe Anruf ZWEIMAL hier ankommen: einmal über die
- *  WebSocket (dieser Weg) und einmal über den VoIP-Push. Die native Seite
- *  prüft deshalb die Kennung und meldet keinen zweiten Bildschirm für
- *  denselben Anruf. */
-async function nativAnkommen(callId: string, gegenstelle: string): Promise<void> {
-  if (!nativeHuelle()) return;
-  try {
-    await anrufNativ.ankommen({ callId, gegenstelle });
-  } catch (e) {
-    console.warn('[anruf] native Klingel-Anzeige fehlgeschlagen', e);
-  }
-}
-
-/** Native Anzeige entfernen (No-op außerhalb der Mobil-Hüllen). Auf iOS
- *  beendet das den CallKit-Bildschirm — ohne diesen Ruf klingelte das Telefon
- *  weiter, nachdem der Anruf im Web vorbei ist. */
-async function nativBeenden(): Promise<void> {
-  if (!nativeHuelle()) return;
-  try {
-    await anrufNativ.beenden();
-  } catch (e) {
-    console.warn('[anruf] native Klingel-Anzeige entfernen fehlgeschlagen', e);
-  }
-}
-
-type Rolle = 'ausgehend' | 'eingehend';
-
-type LaufenderAnruf = {
-  id: string;
-  art: AnrufArt;
-  channel_id: string;
-  rolle: Rolle;
-  gegenstelle: string;
-  zustand: 'klingelt' | 'verbunden';
-};
-
-class AnrufStore {
-  aktiv = $state<LaufenderAnruf | null>(null);
-  stumm = $state(false);
-  kameranAn = $state(false);
-  /** Sekunden seit Annahme — der Ticker der Overlay-UI. */
-  dauerSekunden = $state(0);
-  /** Overlay-Badge (E2EE-Anrufe): 'e2ee' = Ende-zu-Ende (gelesen aus
-   *  `room.isE2EEEnabled`), 'transport' = Klartext-Weg, `null` = kein Anruf
-   *  / noch nicht verbunden. */
-  verschluesselung = $state<'e2ee' | 'transport' | null>(null);
+export class AnrufStore extends AnrufMedienZustand {
   /** Overlay-Hinweis während der Angerufene auf den Schlüssel wartet. */
   schluesselWarten = $state(false);
 
-  #room: Room | null = null;
   #klingelWecker: ReturnType<typeof setTimeout> | null = null;
-  #dauerTimer: ReturnType<typeof setInterval> | null = null;
-  /** Reentrancy-Wächter für `#verbinden` (Vorbild `#connectGen` in der
-   *  Voice-Engine): zwei Lieferungen von `call_angenommen` oder ein
-   *  Doppel-Tipp auf Annehmen durften früher zwei Räume bauen — der erste
-   *  blieb als verwaiste Verbindung mit offenem Mikro zurück (Echo). */
-  #verbindenLaeuft = false;
   /** Die Annahme, die DIESES Gerät gerade durchführt — `call_angenommen`
    *  geht an alle Geräte des Kontos, auch an das annehmende selbst; ohne
    *  diesen Merker riss der Zweitgeräte-Abbau dem annehmenden Gerät den
    *  eigenen Anruf weg (Allein-Probe 05.10.). */
   #annahmeLaeuftFuer: string | null = null;
-  /** Von `track.attach()` erzeugte Audio-Elemente — beim Abbau entfernen. */
-  #ferneStimmen: HTMLMediaElement[] = [];
-  /** In einem WS-Handler gesetzte Endes-Info für das gerade Abgebaute. */
-  #abbauGen = 0;
-  /** Anruf-Schlüssel (E2EE-Anrufe), NUR im Arbeitsspeicher — `anrufId →
-   *  base64`. Gefüllt vom Empfangs-Dispatch (`empfangen.ts::schluessel-
-   *  Empfangen`) und vom Initiator in `starten`.
-   *  ponytail: Einträge von Anrufen, die dieses Gerät nie führte (fremde
-   *  Gruppenanrufe, eigenes Zweitgerät), bleiben bis zum Seitenende stehen —
-   *  je Eintrag 32 Bytes; Aufräumen per Altersliste wäre der Ausbau, falls
-   *  das je sichtbar wird. */
-  #schluessel = new Map<string, string>();
-  /** Vom WS-Bootstrap angedockte Senke für die Chat-Systemzeile — Injektion
-   *  statt Import (`systemzeileSenden.ts`), sonst zirkelt die Sendekette. */
-  #zeilenZiel:
-    | ((kanalId: string, schluessel: AnrufZeilenSchluessel, dauerSek: number) => void)
-    | null = null;
-  /** Schon eine Zeile für den LAUFENDEN Anruf hinterlassen? `ende()` und der
-   *  lokale Abbau können sich im Wettlauf doppelt melden. */
-  #systemzeileErledigt = false;
+  /** Die Chat-Systemzeile — höchstens eine je Anruf (`systemzeileKern.ts`). */
+  #systemzeilen = new AnrufSystemzeilen();
 
-  get inAnruf(): boolean {
-    return this.aktiv !== null;
+  protected override anrufBeginnt(): void {
+    this.#systemzeilen.neuerAnruf();
   }
 
   /** Vom WS-Bootstrap: dockt die Senke an, die die Systemzeile sendet. */
-  zeilenZielSetzen(
-    ziel: (kanalId: string, schluessel: AnrufZeilenSchluessel, dauerSek: number) => void
-  ): void {
-    this.#zeilenZiel = ziel;
-  }
-
-  /** Vom Empfangs-Dispatch (`empfangen.ts`, art 'anrufSchluessel'): den
-   *  Schlüssel eines Anrufs merken — fail-closed, nur sauber dekodierbare
-   *  32-Byte-Schlüssel; alles andere wird verworfen, statt einen halben
-   *  Schlüssel an LiveKit zu reichen. */
-  schluesselEmpfangen(anrufId: string, schluessel: string): void {
-    if (anrufId === '' || schluessel === '') return;
-    try {
-      if (base64ZuBytes(schluessel).byteLength !== 32) return;
-    } catch {
-      return; // kein base64
-    }
-    this.#schluessel.set(anrufId, schluessel);
+  zeilenZielSetzen(ziel: ZeilenZiel): void {
+    this.#systemzeilen.zielSetzen(ziel);
   }
 
   async starten(art: AnrufArt, channelId: string, gegenstelle: string): Promise<void> {
     if (this.aktiv) return;
-    // E2EE-fähiges Ziel: Schlüssel JETZT erzeugen — die ID des Anrufs kennt
-    // erst der Server, der Schlüsselinhalt kommt vom Initiator.
-    const schluessel = e2eeFaehig(art) ? neuAnrufSchluessel() : null;
+    const schluessel = this.schluessel.neu(art);
     // Sync-Platzhalter schließt das Doppelklick-Fenster vor dem await.
-    this.aktiv = { id: '', art, channel_id: channelId, rolle: 'ausgehend', gegenstelle, zustand: 'klingelt' };
-    this.#systemzeileErledigt = false;
+    const platzhalter: LaufenderAnruf = {
+      id: '',
+      art,
+      channel_id: channelId,
+      rolle: 'ausgehend',
+      gegenstelle,
+      zustand: 'klingelt'
+    };
+    this.aktiv = platzhalter;
+    // **Verglichen wird mit dem, was der Zustand ZURÜCKGIBT** — `$state` ist
+    // tief und hält einen Proxy, nie `platzhalter` selbst. Mit `platzhalter`
+    // verglichen galt jeder Start als „inzwischen aufgelegt" (am
+    // kompilierten Modul nachgeprüft, 2026-10-11).
+    const eigener = this.aktiv;
+    this.anrufBeginnt();
+    const medien = this.medienWaehlen();
     try {
       const angabe = await anrufStarten(art, channelId);
-      this.aktiv = {
-        id: angabe.id,
-        art,
-        channel_id: channelId,
-        rolle: 'ausgehend',
-        gegenstelle,
-        zustand: 'klingelt'
-      };
+      // **Aufgelegt, während der Server die Kennung vergab** (Bughunt T17:
+      // bis dahin dauerte das einen APNs-Rundlauf). Bis zum 2026-10-11
+      // überschrieb die Antwort den schon geräumten Zustand — die Gegenseite
+      // klingelte weiter, hier stand ein Overlay ohne Anruf dahinter.
+      if (this.aktiv !== eigener) {
+        void anrufAuflegen(angabe.id).catch(() => {});
+        return;
+      }
+      this.aktiv = { ...platzhalter, id: angabe.id };
+      void medien.vorbereitenAusgehend(this.aktiv);
       if (schluessel !== null) {
-        this.#schluessel.set(angabe.id, schluessel);
         try {
-          await this.#schluesselVerteilen(art, channelId, angabe.id, schluessel);
+          await this.schluessel.verteilen(art, channelId, angabe.id, schluessel);
         } catch (e) {
           // Fail-closed: ohne zugestellten Schlüssel keinen Anruf — der WS-
           // Ruf ist durch den POST schon draußen, also den Server-Anruf
           // beenden (sonst klingelt die Gegenseite ins Leere), dann abbrechen.
-          toast.error(m.anruf_schluessel_senden_fehlgeschlagen(), {
-            description: e instanceof Error ? e.message : undefined
-          });
+          fehlerMelden(m.anruf_schluessel_senden_fehlgeschlagen(), e);
           void anrufAuflegen(angabe.id).catch(() => {});
-          this.#aufräumen();
+          this.aufräumen('fehler');
           return;
         }
       }
     } catch (e) {
-      // Start fehlgeschlagen (Netz, DM weg, Drossel) — hier melden, nicht
-      // weiterwerfen: die Aufrufer feuern `void`, ein Wurf wäre unbehandelt.
-      toast.error(m.anruf_aktion_fehlgeschlagen(), {
-        description: e instanceof Error ? e.message : undefined
-      });
-      this.#aufräumen();
+      // Start fehlgeschlagen (Netz, DM weg, Drossel, Sperre) — hier melden,
+      // nicht weiterwerfen: die Aufrufer feuern `void`, ein Wurf wäre
+      // unbehandelt.
+      fehlerMelden(m.anruf_aktion_fehlgeschlagen(), e);
+      this.aufräumen('fehler');
     }
     if (this.aktiv) this.#klingelWeckerPlanen();
   }
 
-  /** Schlüssel-Umschlag an alle Geräte verteilen — DM per Olm, Gruppe per
-   *  Megolm. Dynamisch importiert (Muster wie `systemzeileSenden`): die
-   *  Sendekette zieht den halben Krypto-Stack nach sich, und der Store lädt
-   *  sie erst, wenn wirklich verschickt wird. Wirft, wenn nichts zugestellt
-   *  wurde — der Aufrufer bricht den Anruf ab. */
-  async #schluesselVerteilen(
-    art: AnrufArt,
-    kanalId: string,
-    anrufId: string,
-    schluessel: string
-  ): Promise<void> {
-    const nichtZustellbar = () => new Error('Anruf-Schlüssel nicht zustellbar');
-    if (art === 'gruppe') {
-      const { sendeGruppenAnrufSchluessel } = await import('$lib/krypto/gruppe/frameSenden');
-      if (!(await sendeGruppenAnrufSchluessel(kanalId, anrufId, schluessel))) {
-        throw nichtZustellbar();
-      }
-      return;
-    }
-    const { directMessages } = await import('$lib/stores/directMessages.svelte');
-    const empfaenger = directMessages.byId[kanalId]?.other_user_id;
-    if (!empfaenger) throw nichtZustellbar();
-    const { sendeAnrufSchluessel } = await import('$lib/krypto/senden');
-    if (!(await sendeAnrufSchluessel(kanalId, empfaenger, anrufId, schluessel))) {
-      throw nichtZustellbar();
-    }
-  }
-
-  /** Eingehender Ruf aus dem WS-Event `call_klingelt` — der Name der
+  /** Eingehender Ruf aus dem WS-Event `call_klingelt` — den Namen der
    *  Gegenstelle löst der Handler über den Nutzer-Cache auf. */
   eingehend(
     evt: { call_id: string; art: string; channel_id: string; einleiter_id: string },
@@ -307,63 +134,61 @@ class AnrufStore {
       gegenstelle,
       zustand: 'klingelt'
     };
-    this.#systemzeileErledigt = false;
+    this.anrufBeginnt();
+    this.medienWaehlen();
     sounds.play('notification.dm');
     this.#klingelWeckerPlanen();
     // Sperrbildschirm (Anrufe-Epic E): nativ Full-Screen-Notification zeigen.
     void nativAnkommen(evt.call_id, gegenstelle);
   }
 
-  /** Die Gegenseite hat den Namen ins Overlay getragen (vom Klienten des
-   *  Anrufers gesetzt; beim Angerufenen weiß der Store ihn nicht). */
-  #setGegenstelle(name: string): void {
-    if (this.aktiv) this.aktiv = { ...this.aktiv, gegenstelle: name };
-  }
-
   async annehmen(gegenstelle: string): Promise<void> {
     const anruf = this.aktiv;
     if (!anruf || anruf.rolle !== 'eingehend') return;
-    if (this.#verbindenLaeuft) return; // Doppel-Tipp auf Annehmen
+    if (this.verbindenLaeuft) return; // Doppel-Tipp auf Annehmen
     this.#annahmeLaeuftFuer = anruf.id;
-    this.#setGegenstelle(gegenstelle);
+    // Den Namen der Gegenseite trägt der Aufruf ins Overlay (vom Klienten
+    // des Anrufers gesetzt; beim Angerufenen weiss der Store ihn nicht).
+    this.aktiv = { ...anruf, gegenstelle };
     this.#klingelWeckerLoeschen();
+    const medien = this.medien ?? this.medienWaehlen();
     try {
       await anrufAnnehmen(anruf.id);
+      if (medien.nativ) {
+        // Nativ trägt CallKit das Gespräch — auch ein hier angenommenes.
+        // Die Hülle nimmt dort mit an und übernimmt die Session.
+        await medien.vorbereitenAnnahme(this.aktiv ?? anruf);
+      } else {
+        // **Web-Weg: die Klingel-Anzeige ZUERST weg** (Bughunt E4). Bis zum
+        // 2026-10-11 kam das erst nach dem Verbinden — die iOS-Hülle hielt
+        // die Session solange für CallKits und übersprang das Aktivieren.
+        await nativBeenden('anderswo-angenommen');
+      }
       if (e2eeFaehig(anruf.art)) {
-        // Postfach-Abholung anstoßen (bestehender Einstiegspunkt, dynamisch
-        // importiert — der WS-Weckruf `postfach_neu` hat sie meist schon
-        // angestoßen; hier doppelt sich nichts, der Nachlauf dedupliziert),
-        // dann fail-closed auf den Schlüssel warten.
-        void import('$lib/krypto/empfangen')
-          .then(({ postfachAbholenUndEntschluesseln }) => postfachAbholenUndEntschluesseln())
-          .catch(() => {});
+        // Fail-closed auf den Schlüssel des Anrufers warten.
         this.schluesselWarten = true;
-        const schluessel = await warteAufAnrufSchluessel(
-          () => this.#schluessel.get(anruf.id) ?? null
-        );
+        const schluessel = await this.schluessel.abwarten(anruf.id);
         this.schluesselWarten = false;
         if (this.aktiv?.id !== anruf.id) return; // inzwischen beendet — Abbau lief
         if (schluessel === null) {
           // Kein Schlüssel, kein Anruf — NICHT unverschlüsselt weitermachen.
           toast.error(m.anruf_schluessel_fehlt());
           void anrufAuflegen(anruf.id).catch(() => {});
-          this.#aufräumen();
+          this.aufräumen('fehler');
           return;
         }
       }
-      await this.#verbinden();
-      // Klingel-Notification weg — das Overlay übernimmt.
-      void nativBeenden();
+      await this.verbinden();
     } catch (e) {
       // Annahme fehlgeschlagen (Anruf inzwischen vorbei?) — sauber abräumen.
-      toast.error(m.anruf_aktion_fehlgeschlagen(), {
-        description: e instanceof Error ? e.message : undefined
-      });
-      this.#aufräumen();
+      fehlerMelden(m.anruf_aktion_fehlgeschlagen(), e);
+      this.aufräumen('fehler');
     }
   }
 
-  async ablehnen(): Promise<void> {
+  /** `grund`: `verpasst`, wenn der Klingel-Wecker ablehnt — CallKit trägt den
+   *  Anruf dann als unbeantwortet ein, nicht als abgelehnt. */
+  async ablehnen(grund: AnrufEndgrund = 'lokal'): Promise<void> {
     const anruf = this.aktiv;
     if (!anruf) return;
     this.#klingelWeckerLoeschen();
@@ -375,58 +200,31 @@ class AnrufStore {
         // aufgeräumt; das Ende kam oder kommt als `call_ende` ohnehin.
       }
     }
-    this.#aufräumen();
+    this.aufräumen(grund);
   }
 
-  async auflegen(): Promise<void> {
+  async auflegen(grund: AnrufEndgrund = 'lokal'): Promise<void> {
     const anruf = this.aktiv;
     if (!anruf) return;
     // Klingelt der Anruf noch, stuft der Server das Auflegen als „verpasst“
     // ein (routes/anrufe.py) — dieselbe Einstufung für die eigene Zeile.
-    this.#systemzeileHinterlassen(
-      anruf.zustand === 'klingelt' ? 'verpasst' : 'aufgelegt',
-      anruf.zustand === 'klingelt' ? 0 : this.dauerSekunden
+    const klingelt = anruf.zustand === 'klingelt';
+    this.#systemzeilen.hinterlassen(
+      anruf,
+      klingelt ? 'verpasst' : 'aufgelegt',
+      klingelt ? 0 : this.dauerSekunden
     );
     this.#klingelWeckerLoeschen();
-    try {
-      await anrufAuflegen(anruf.id);
-    } catch {
-      // Anruf war schon vorbei — der lokale Abbau zählt.
+    // Ohne Kennung (der Server vergibt sie noch) gibt es nichts zu beenden —
+    // `starten` legt den Anruf auf, sobald sie kommt.
+    if (anruf.id !== '') {
+      try {
+        await anrufAuflegen(anruf.id);
+      } catch {
+        // Anruf war schon vorbei — der lokale Abbau zählt.
+      }
     }
-    this.#aufräumen();
-  }
-
-  async stummUmschalten(): Promise<void> {
-    const room = this.#room;
-    if (!room) return;
-    const vorher = this.stumm;
-    this.stumm = !vorher;
-    try {
-      await room.localParticipant.setMicrophoneEnabled(vorher);
-    } catch (e) {
-      // Zurückrollen, sonst behauptet der Knopf etwas, das der Raum nie tat
-      // (Toggle-Desync) — und die Ablehnung landet nicht als unbehandelte
-      // Ablehnung im Nirgendwo.
-      this.stumm = vorher;
-      toast.error(m.anruf_aktion_fehlgeschlagen(), {
-        description: e instanceof Error ? e.message : undefined
-      });
-    }
-  }
-
-  async kameraUmschalten(): Promise<void> {
-    const room = this.#room;
-    if (!room) return;
-    const vorher = this.kameranAn;
-    this.kameranAn = !vorher;
-    try {
-      await room.localParticipant.setCameraEnabled(this.kameranAn);
-    } catch (e) {
-      this.kameranAn = vorher;
-      toast.error(m.anruf_aktion_fehlgeschlagen(), {
-        description: e instanceof Error ? e.message : undefined
-      });
-    }
+    this.aufräumen(grund);
   }
 
   /** Vom WS-Handler: Initiator stoppt Klingeln und verbindet. */
@@ -434,7 +232,7 @@ class AnrufStore {
     const anruf = this.aktiv;
     if (!anruf || anruf.id !== callId || anruf.rolle !== 'ausgehend') return;
     this.#klingelWeckerLoeschen();
-    void this.#verbinden();
+    void this.verbinden();
   }
 
   /** Vom WS-Handler: `call_angenommen` des EIGENEN Kontos — dieses Gerät
@@ -453,7 +251,7 @@ class AnrufStore {
       return;
     }
     toast.info(m.anruf_anderes_geraet_angenommen());
-    this.#aufräumen();
+    this.aufräumen('anderswo-angenommen');
   }
 
   /** Vom WS-Handler: `call_abgelehnt` beim Rufenden — UI-Info, das Ende
@@ -469,13 +267,22 @@ class AnrufStore {
   ende(callId: string, grund: string, dauerSek: number): void {
     const anruf = this.aktiv;
     if (!anruf || anruf.id !== callId) return;
-    this.#systemzeileHinterlassen(grund, dauerSek);
-    this.#aufräumen();
+    this.#systemzeilen.hinterlassen(anruf, grund, dauerSek);
+    this.aufräumen(grund === 'verpasst' ? 'verpasst' : 'gegenseite');
     if (anruf.rolle === 'eingehend' && grund === 'verpasst') {
       toast.error(m.anruf_verpasst());
     } else if (grund === 'aufgelegt' && dauerSek > 0) {
       toast.info(m.anruf_beendet_dauer({ dauer: formatiereDauer(dauerSek) }));
     }
+  }
+
+  /** Beim Abmelden: das Gespräch beenden. `bearer`: der Zugangstoken, den
+   *  `signOut` vor dem Löschen sichert — danach ginge der Ruf ohne durch. */
+  abmelden(bearer?: string): void {
+    const anruf = this.aktiv;
+    if (!anruf) return;
+    if (anruf.id !== '') void anrufAuflegen(anruf.id, bearer).catch(() => {});
+    this.aufräumen('lokal');
   }
 
   #klingelWeckerPlanen(): void {
@@ -486,7 +293,7 @@ class AnrufStore {
       // verbundenen Anruf totlegen (Feldbefund 2026-09-08).
       if (this.aktiv?.zustand !== 'klingelt') return;
       if (this.aktiv.rolle === 'ausgehend') void this.auflegen();
-      else void this.ablehnen();
+      else void this.ablehnen('verpasst');
     }, KLINGEL_TIMEOUT_MS);
   }
 
@@ -497,209 +304,25 @@ class AnrufStore {
     }
   }
 
-  /** Grund und Dauer sind bekannt → einmalig die Chat-Zeile anstoßen. Ob und
-   *  was, rechnet `systemzeileKern.ts` (nur 1:1, nur der Einleiter); ohne
-   *  angedockte Senke (Tests, vor dem Bootstrap) bleibt es beim lokalen
-   *  Abbau. */
-  #systemzeileHinterlassen(grund: string, dauerSek: number): void {
-    const anruf = this.aktiv;
-    if (!anruf || this.#systemzeileErledigt) return;
-    const zeile = anrufSystemzeile(anruf.art, anruf.rolle, grund, dauerSek);
-    if (!zeile) return;
-    this.#systemzeileErledigt = true;
-    this.#zeilenZiel?.(anruf.channel_id, zeile.schluessel, zeile.dauerSek);
-  }
-
-  /** LiveKit-Raum betreten — Token von voice-signaling, Room-Name vom Server.
-   *  Liegt ein Schlüssel zum Anruf (E2EE-Anrufe), wird der Raum mit der
-   *  `encryption`-Option gebaut und der Schlüssel VOR `connect()` gesetzt —
-   *  ohne Schlüssel (Klartext-Weg) verbindet der Raum wie bisher ohne E2EE. */
-  async #verbinden(): Promise<void> {
-    const anruf = this.aktiv;
-    if (!anruf || this.#verbindenLaeuft) return;
-    this.#verbindenLaeuft = true;
-    try {
-      await this.#verbindenInnere(anruf);
-    } finally {
-      this.#verbindenLaeuft = false;
-    }
-  }
-
-  async #verbindenInnere(anruf: LaufenderAnruf): Promise<void> {
-    const schluessel = this.#schluessel.get(anruf.id) ?? null;
-    const gen = ++this.#abbauGen;
-    try {
-      const resp = await getAnrufToken(anruf.id);
-      if (gen !== this.#abbauGen) return; // inzwischen abgebaut
-      let encryption: { keyProvider: ExternalE2EEKeyProvider; worker: Worker } | undefined;
-      if (schluessel !== null) {
-        const keyProvider = new ExternalE2EEKeyProvider();
-        await keyProvider.setKey(base64ZuBytes(schluessel));
-        // ponytail: LiveKits Frame-Verschlüsselung trägt nur VP8/Opus; der
-        // videoCodec läuft schon per Default auf vp8. Upgrade-Pfad: Codecs per
-        // Fähigkeit aushandeln, sobald LiveKit mehr beherrscht.
-        encryption = { keyProvider, worker: e2eeWorker() };
-      }
-      const room = new Room(encryption ? { encryption } : undefined);
-      if (encryption) await room.setE2EEEnabled(true);
-      this.#room = room;
-      room
-        .on(RoomEvent.ConnectionStateChanged, (s) => {
-          if (s === ConnectionState.Connected) {
-            this.aktiv = this.aktiv ? { ...this.aktiv, zustand: 'verbunden' } : null;
-            this.#dauerTimerStarten();
-          } else if (s === ConnectionState.Disconnected) {
-            // LiveKit-Kick oder Netzverlust — früher blieb ein totes Overlay
-            // stehen (der Store kannte nur Connected, Befund 03.10.). Eigene
-            // Räumung feuert Disconnected erneut → der Raum-Vergleich dämpft.
-            if (this.#room === room) {
-              toast.error(m.anruf_verbindung_verloren());
-              this.#aufräumen();
-            }
-          }
-        })
-        .on(RoomEvent.TrackSubscribed, (track) => {
-          // Ferne Stimme hörbar machen — LiveKit liefert Track-Objekte,
-          // ohne DOM-Anhang bleibt alles stumm (dasselbe Muster wie die
-          // Voice-Engine, nur ohne Gain-/Kompressor-Zubehör).
-          if (track.kind === Track.Kind.Audio) {
-            const element = track.attach();
-            // Versteckt an den Body — ein schwebendes Element spielt zwar,
-            // ist aber gegen GC-/Pause-Heuristiken einiger Browser unsicher.
-            element.hidden = true;
-            document.body.appendChild(element);
-            this.#ferneStimmen.push(element);
-          }
-        })
-        .on(RoomEvent.ParticipantEncryptionStatusChanged, (aktiv, teilnehmer) => {
-          // Das ehrliche Live-Lesezeichen fürs Badge — deckt auch den Fall,
-          // dass der Status erst NACH dem Connect-Resolve umschaltet.
-          if (teilnehmer?.isLocal && this.#room === room) {
-            this.verschluesselung = aktiv ? 'e2ee' : 'transport';
-          }
-        });
-
-      // Android: MODE_IN_COMMUNICATION VOR room.connect() erzwingen — derselbe
-      // Grund wie in `voice/livekit.svelte.ts`: Android pinnt ein laufendes
-      // AudioTrack auf seinen Stream; kommt der Modus erst nach dem Handschlag,
-      // laufen die Stimmen auf dem Medien-Kanal (falscher Lautstärkeregler,
-      // im Auto leises A2DP). So läuft der Anruf über die Anruf-Lautstärke und
-      // der Mic-Dienst hält die Verbindung bei gesperrtem Bildschirm am Leben.
-      await setVoiceActive(true);
-      // **iOS: hier fehlte die Audio-Session ganz** (gefunden 2026-10-08 beim
-      // Bau von Punkt 40). `setVoiceActive` ist Android-only; den iOS-Weg
-      // kannte nur der Sprachkanal (`voice/livekit.svelte.ts`), nicht der
-      // Anruf. Folge: ein ausgehender oder im Web angenommener Anruf lief ohne
-      // `.playAndRecord`/`.voiceChat` — kein Mikro-Routing, kein
-      // System-Echo-Auslösen. Nur ein über CallKit angenommener Anruf hatte
-      // Ton, weil dort der `CXProvider` die Session selbst aktiviert.
-      //
-      // Eigene Kennung, nicht `'sprachkanal'`: Anruf und Kanal laufen
-      // unabhängig, und mit einer gemeinsamen Kennung nähme das Auflegen dem
-      // Kanal die Session weg (s. `platform/iosTon.ts`).
-      //
-      // Abgewartet — dieselbe Regel wie im Sprachkanal: Session fertig, dann
-      // Mikrofon. Hier stand bis zum 2026-10-10 das Gegenteil, mit der
-      // Begruendung, der native `setActive` halte den Hauptthread; am Geraet
-      // nachgemessen stimmt das nicht (die Zahlen und die wirkliche Ursache
-      // stehen bei der Schwesterstelle in `voice/livekit.svelte.ts`).
-      await tonVoice('anruf', true);
-
-      await room.connect(resp.ws_url, resp.token);
-      if (gen !== this.#abbauGen) {
-        void room.disconnect();
-        return;
-      }
-      if (this.verschluesselung === null) {
-        this.verschluesselung = room.isE2EEEnabled ? 'e2ee' : 'transport';
-      }
-      await room.localParticipant.setMicrophoneEnabled(!this.stumm);
-    } catch (e) {
-      if (gen !== this.#abbauGen) return;
-      toast.error(m.anruf_verbindung_fehlgeschlagen(), {
-        description: e instanceof Error ? e.message : undefined
-      });
-      this.#aufräumen();
-    }
-  }
-
-  #dauerTimerStarten(): void {
-    // Reconnect (Connected feuert erneut) startet keinen zweiten Ticker —
-    // früher liefen dann zwei Intervalle parallel (Leak, Befund 03.10.), und
-    // die Dauer sprang zurück auf null.
-    if (this.#dauerTimer) return;
-    this.#dauerTimer = setInterval(() => {
-      this.dauerSekunden += 1;
-    }, 1000);
-  }
-
-  /** Lokaler Abbau — Room, Ticker, Zustand. Der Server-POST passiert
+  /** Lokaler Abbau — Raum, Ticker, Zustand. Der Server-POST passiert
    *  getrennt (auflegen/ablehnen), damit Fehler hier nicht hängen bleiben. */
-  #aufräumen(): void {
+  protected override aufräumen(grund: AnrufEndgrund): void {
     // Klingel-Notification auf dem Sperrbildschirm entfernen — deckt ablehnen,
-    // auflegen, call_ende, Klingel-Timeout und Annahme-Fehlschlag ab.
-    void nativBeenden();
+    // auflegen, call_ende, Klingel-Timeout und Annahme-Fehlschlag ab. Auf iOS
+    // schliesst das den CallKit-Anruf und mit ihm den nativen Raum.
+    void nativBeenden(grund);
     this.#annahmeLaeuftFuer = null;
-    this.#abbauGen++;
     // Auch der Klingel-Wecker gehört zum Aufräumen — sonst feuert der Wecker
     // eines beendeten Anrufs in den NÄCHSTEN hinein und legt ihn still weg.
     this.#klingelWeckerLoeschen();
-    if (this.#dauerTimer) {
-      clearInterval(this.#dauerTimer);
-      this.#dauerTimer = null;
-    }
-    const room = this.#room;
-    this.#room = null;
-    this.stumm = false;
-    this.kameranAn = false;
-    this.dauerSekunden = 0;
     this.schluesselWarten = false;
-    this.verschluesselung = null;
-    if (this.aktiv) this.#schluessel.delete(this.aktiv.id);
-    this.aktiv = null;
-    if (room) void room.disconnect();
-    // `room.disconnect()` trennt die Tracks, aber die angehängten Elemente
-    // bleiben als Medienreste im DOM — hier weg damit.
-    for (const element of this.#ferneStimmen) element.remove();
-    this.#ferneStimmen = [];
-    // Android: Ruf-Modus + Mic-Dienst freigeben (No-op außerhalb des Wrappers) —
-    // sonst bleibt das Telefon im Call-Modus hängen (falscher Lautstärkeregler).
-    void setVoiceActive(false);
-    void tonVoice('anruf', false);
+    if (this.aktiv) this.schluessel.vergessen(this.aktiv.id);
+    this.medienAbbauen();
   }
 }
 
 export const anrufe = new AnrufStore();
 
-// Annehmen/Ablehnen aus der nativen Anzeige (Android: Notification, iOS:
-// CallKit). Fremde oder abgelaufene callIds (verspäteter Tap
-// auf eine alte Klingel-Notification) werden ignoriert.
-// Guard ist PFLICHT: der Web-Stub von registerPlugin wirft beim addListener
-// ("not implemented on web") und riss sonst das komplette Boot mit — die
-// Login-Seite blieb im Browser weiß (Befund 2026-09-09).
-if (nativeHuelle()) {
-  void anrufNativ.addListener('aktion', (daten) => {
-    const { aktion, callId } = daten;
-    let anruf = anrufe.aktiv;
-    // **Der kalt gestartete Anruf ist der Fall, der hier leicht fehlt.** Wird
-    // ein Anruf per VoIP-Push auf dem Sperrbildschirm angenommen, hat das Web
-    // nie ein `call_klingelt` gesehen: `aktiv` ist leer, und ein blosses
-    // „Kennung passt nicht" verwürfe die Annahme. Der Push trägt den Kanal
-    // mit, also wird der Zustand hier nachgezogen — erst danach annehmen.
-    if (!anruf && daten.channel_id) {
-      anrufe.eingehend(
-        {
-          call_id: callId,
-          art: daten.anruf_art ?? 'audio',
-          channel_id: daten.channel_id,
-          einleiter_id: daten.einleiter_id ?? ''
-        },
-        daten.einleiter_name ?? 'Pulse'
-      );
-      anruf = anrufe.aktiv;
-    }
-    if (!anruf || anruf.id !== callId) return;
-    if (aktion === 'annehmen') void anrufe.annehmen(anruf.gegenstelle);
-    else void anrufe.ablehnen();
-  });
-}
+// Die native Anzeige (Android: Notification, iOS: CallKit) anbinden — und
+// nach einem Reload ein Gespräch übernehmen, das die Hülle noch hält.
+nativAnbinden(anrufe);

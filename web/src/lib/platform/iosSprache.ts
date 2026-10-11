@@ -19,6 +19,7 @@ import { registerPlugin } from '@capacitor/core';
 
 import { isCapacitorIOS } from './runtime';
 import { tonNativerRaum } from './iosTon';
+import { TonHalter } from './nativeTonHalter';
 import { mitFrist, SPRACHE_FRIST_KETTE_MS, SPRACHE_FRIST_SOFORT_MS } from './brueckenFrist';
 import type {
   NativerEigenerZustand,
@@ -77,7 +78,7 @@ function rufen<T>(
 /**
  * Was WebKit über seine EIGENE Audio-Session sagt — und das entscheidet auf
  * dem nativen Weg, ob die Hörmuschel wählbar ist.
- * **Nur aus `raumBeginnt`/`raumEndet`** — dort kippt `tonNativerRaum` mit.
+ * **Nur aus `halter`** (unten) — dort kippt `tonNativerRaum` mit.
  *
  * **Der Befund, 2026-10-10 am iPhone 16 Pro (iOS 26.6.2).** Die Hülle führt
  * den Sprachton, aber die Oberfläche spielt weiter ihre eigenen Töne — und der
@@ -137,7 +138,7 @@ function webSessionTyp(typ: 'ambient' | 'auto'): void {
 }
 
 /**
- * **Der native Raum steht — für WebKits Session UND für unsere eigene
+ * **Ein nativer Raum steht — für WebKits Session UND für unsere eigene
  * Session-Steuerung, an EINER Stelle.**
  *
  * Zwei Dinge gelten genau so lange, wie die Hülle einen Raum hält: WebKits
@@ -147,23 +148,35 @@ function webSessionTyp(typ: 'ambient' | 'auto'): void {
  * zurück: ein gescheiterter Beitritt liess WebKit auf `ambient` stehen (M2),
  * ein Abbruch von aussen ebenso (M1).
  *
- * `raumGen` hält die Fälle auseinander, in denen ein überholter Beitritt
- * erst scheitert, wenn schon der nächste läuft — sein `raumEndet` darf den
- * neueren nicht abräumen.
+ * **Halter sind der Sprachkanal und der Anruf** (Etappe 4) — als Menge
+ * (`nativeTonHalter.ts`), damit das Auflegen dem Kanal nichts wegnimmt.
  */
+const halter = new TonHalter((gehalten) => {
+  webSessionTyp(gehalten ? 'ambient' : 'auto');
+  tonNativerRaum(gehalten);
+});
+
+/** Einen nativen Raum anmelden oder abmelden. `'sprachkanal'` läuft über
+ *  `raumBeginnt`/`raumEndet` unten; der Anruf meldet sich hier direkt
+ *  (`anrufe/nativerAnrufRaum.ts`). */
+export function nativerTonHalten(wer: 'sprachkanal' | 'anruf', an: boolean): void {
+  halter.setzen(wer, an);
+}
+
+/** Hält beim Kanal die Fälle auseinander, in denen ein überholter Beitritt
+ *  erst scheitert, wenn schon der nächste läuft — sein `raumEndet` darf den
+ *  neueren nicht abräumen. */
 let raumGen = 0;
 
 function raumBeginnt(): number {
-  webSessionTyp('ambient');
-  tonNativerRaum(true);
+  nativerTonHalten('sprachkanal', true);
   return ++raumGen;
 }
 
 function raumEndet(gen?: number): void {
   if (gen !== undefined && gen !== raumGen) return;
   raumGen++;
-  webSessionTyp('auto');
-  tonNativerRaum(false);
+  nativerTonHalten('sprachkanal', false);
 }
 
 export async function spracheBeitreten(

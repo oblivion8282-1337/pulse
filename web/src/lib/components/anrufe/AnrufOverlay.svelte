@@ -16,6 +16,8 @@
   import PhoneIcon from '@lucide/svelte/icons/phone';
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
   import VideoIcon from '@lucide/svelte/icons/video';
+  import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import EarIcon from '@lucide/svelte/icons/ear';
   import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -92,7 +94,7 @@
             <PhoneOffIcon class="size-5" />
           </button>
         {:else}
-          <!-- Laufend/Ausgehend: Stumm, (Kamera), Auflegen -->
+          <!-- Laufend/Ausgehend: Stumm, (Lautsprecher), (Kamera), Auflegen -->
           <button
             type="button"
             class="flex size-11 items-center justify-center rounded-full {anrufe.stumm
@@ -104,6 +106,22 @@
           >
             {#if anrufe.stumm}<MicOffIcon class="size-4" />{:else}<MicIcon class="size-4" />{/if}
           </button>
+          {#if anrufe.nativ}
+            <!-- iOS, nativer Raum: am Ohr ist der Normalfall; der Knopf
+                 holt den Lautsprecher. Im Web-Weg gibt es keine Wahl. -->
+            <button
+              type="button"
+              class="flex size-11 items-center justify-center rounded-full {anrufe.lautsprecher
+                ? 'bg-primary text-white'
+                : 'bg-bg-input text-text-bright border border-border'}"
+              onclick={() => void anrufe.ausgabeUmschalten()}
+              aria-label={m.anruf_lautsprecher()}
+              aria-pressed={anrufe.lautsprecher}
+              data-testid="call-output"
+            >
+              {#if anrufe.lautsprecher}<Volume2Icon class="size-4" />{:else}<EarIcon class="size-4" />{/if}
+            </button>
+          {/if}
           {#if aktiv.zustand === 'verbunden'}
             <button
               type="button"

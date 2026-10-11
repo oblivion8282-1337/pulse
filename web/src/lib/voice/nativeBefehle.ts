@@ -105,6 +105,9 @@ export class NativeBefehle {
     try {
       const z = await spracheMikrofon(on);
       if (gen === this.#mikroGen && z) w.micEnabled = z.mikro;
+      // Ein Anruf hält den Kanal an — das Mikrofon bleibt zu, der Wunsch
+      // gilt nach dem Auflegen. Ohne Hinweis sähe der Knopf kaputt aus.
+      if (on && z?.pausiert) toast.info(m.livekit_anruf_pausiert());
     } catch (e) {
       console.error('[Sprache] Mikrofon schalten fehlgeschlagen', e);
       if (gen !== this.#mikroGen) return;

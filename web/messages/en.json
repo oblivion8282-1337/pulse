@@ -1797,6 +1797,8 @@
   "anruf_zeile_verpasst": "Missed call",
   "anruf_zeile_abgelehnt": "Call declined",
   "anruf_zeile_dauer": "Call · {dauer}",
+  "anruf_lautsprecher": "Speaker",
+  "livekit_anruf_pausiert": "The voice channel stays muted during a call.",
   "message_input_reply_to": "Replying to",
   "message_input_send": "Send",
   "message_input_take_photo": "Take photo",
