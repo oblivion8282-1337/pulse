@@ -104,6 +104,11 @@ export interface NativerWunsch {
   an: boolean;
 }
 
+/** Das Thema der Web-App (`settings.appearance.theme`), mit dem die native
+ *  Ansicht öffnet. `system` folgt dem Telefon. Eine ältere Hülle übergeht
+ *  das Feld und bleibt dunkel. */
+export type AnsichtThema = 'light' | 'dark' | 'system';
+
 export interface SprachePlugin {
   beitreten(o: {
     wsUrl: string;
@@ -122,12 +127,15 @@ export interface SprachePlugin {
     lautstaerken: Record<string, number>;
     gesamt: number;
   }): Promise<NativerZustand>;
+  /** Admin-Stumm- und -Taubschaltung im Kanal, je als Liste von Nutzer-Ids —
+   *  die ganze Tabelle, wie bei `lautstaerken`. */
+  erzwungen(o: { stumm: string[]; taub: string[] }): Promise<NativerZustand>;
   mikrofon(o: { an: boolean }): Promise<NativerZustand>;
   taub(o: { an: boolean }): Promise<NativerZustand>;
   ausgabe(o: { weg: 'lautsprecher' | 'hoermuschel' }): Promise<NativerZustand>;
   kamera(o: { an: boolean }): Promise<NativerZustand>;
   kameraSeite(o: { front: boolean }): Promise<NativerZustand>;
-  ansichtOeffnen(): Promise<NativerZustand>;
+  ansichtOeffnen(o: { thema: AnsichtThema }): Promise<NativerZustand>;
   ansichtSchliessen(): Promise<NativerZustand>;
   zustand(): Promise<NativerZustand>;
   addListener(
@@ -174,6 +182,7 @@ export const SPRACHE_METHODEN: readonly string[] = Object.keys({
   beitreten: true,
   verlassen: true,
   lautstaerken: true,
+  erzwungen: true,
   mikrofon: true,
   taub: true,
   ausgabe: true,

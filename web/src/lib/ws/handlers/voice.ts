@@ -84,16 +84,18 @@ export function register(ctx: HandlerContext): void {
     // (voice_disconnect) for actual enforcement. Mute is server-enforced
     // via LiveKit publish-permissions (see voice-signaling/_livekit_update_participant).
     // Lazy-imported to avoid the circular dep with voice/livekit.
-    if (currentServerUserId() === evt.user_id) {
-      void import('$lib/voice/livekit.svelte').then(({ voice }) => {
-        if (voice.channelId !== evt.channel_id) return;
-        // Bughunt Runde 25: Deafen VOR dem Mute abarbeiten — setDeafened
-        // sichert den Mikrofon-Vorzustand für den Restore; lief das Mute
-        // zuerst, sicherte es den schon gemuteten Zustand (false), und das
-        // spätere Unmute von mute+deafen restaurierte das Mikrofon nie.
-        if (evt.deafened !== voice.deafened) voice.setDeafened(evt.deafened);
-        voice.applyForceMute(evt.muted);
-      });
-    }
+    void import('$lib/voice/livekit.svelte').then(({ voice }) => {
+      if (voice.channelId !== evt.channel_id) return;
+      // Die native Ansicht (iOS) zeigt das Schild an JEDER Kachel — auch
+      // fremde Overrides müssen hinüber.
+      voice.nativErzwungenAbgleichen();
+      if (currentServerUserId() !== evt.user_id) return;
+      // Bughunt Runde 25: Deafen VOR dem Mute abarbeiten — setDeafened
+      // sichert den Mikrofon-Vorzustand für den Restore; lief das Mute
+      // zuerst, sicherte es den schon gemuteten Zustand (false), und das
+      // spätere Unmute von mute+deafen restaurierte das Mikrofon nie.
+      if (evt.deafened !== voice.deafened) voice.setDeafened(evt.deafened);
+      voice.applyForceMute(evt.muted);
+    });
   });
 }

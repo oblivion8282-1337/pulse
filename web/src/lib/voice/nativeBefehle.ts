@@ -4,6 +4,7 @@ import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 import { KeineAntwort } from '$lib/platform/brueckenFrist';
 import {
+  spracheErzwungen,
   spracheKamera,
   spracheKameraSeite,
   spracheLautstaerken,
@@ -11,6 +12,7 @@ import {
   spracheTaub,
   spracheZustand
 } from '$lib/platform/iosSprache';
+import { erzwungenAus, gleichErzwungen, type Erzwungen, type Override } from './erzwungen';
 import { LetzterWunsch } from './letzterWunsch';
 import type { VoiceParticipant } from './livekit.svelte';
 
@@ -75,6 +77,9 @@ export class NativeBefehle {
   #mikroGen = 0;
   /** Wie `#mikroGen`, für das Taubstellen. */
   #taubGen = 0;
+  /** Was zuletzt an Admin-Stummschaltung an die Hülle ging (`null`: in
+   *  diesem Raum noch nichts). */
+  #erzwungen: Erzwungen | null = null;
   #laut = new LetzterWunsch<{ je: Record<string, number>; gesamt: number }>((w) =>
     spracheLautstaerken(w.je, w.gesamt).catch((e: unknown) => {
       // Ohne Hinweis am Bildschirm: was der Regler bewirkt, hört man selbst,
@@ -188,5 +193,26 @@ export class NativeBefehle {
    */
   lautstaerken(je: Record<string, number>, gesamt: number): void {
     this.#laut.wuenschen({ je, gesamt });
+  }
+
+  /**
+   * Admin-Stumm- und -Taubschaltung des Kanals an die native Ansicht —
+   * Schild an der Kachel, gesperrter Knopf (Begründung in `erzwungen.ts`).
+   * Nur bei Änderung; ein Fehlschlag vergisst den Stand, damit der nächste
+   * Anlass ihn erneut schickt.
+   */
+  erzwungen(overrides: Record<string, Override> | undefined): void {
+    const z = erzwungenAus(overrides);
+    if (gleichErzwungen(this.#erzwungen, z)) return;
+    this.#erzwungen = z;
+    void spracheErzwungen(z.stumm, z.taub).catch((e: unknown) => {
+      this.#erzwungen = null;
+      console.error('[Sprache] Admin-Stummschaltung an die Hülle fehlgeschlagen', e);
+    });
+  }
+
+  /** Ein neuer Raum: was der alte wusste, gilt nicht mehr. */
+  erzwungenVergessen(): void {
+    this.#erzwungen = null;
   }
 }

@@ -726,6 +726,12 @@ class VoiceRoom {
     return this.#nativ.ansichtSchliessen();
   }
 
+  /** Admin-Stummschaltung im Kanal an die native Ansicht (WS
+   *  `voice_override`, `ready`). Ausserhalb des nativen Wegs ein No-op. */
+  nativErzwungenAbgleichen(): void {
+    this.#nativ.erzwungenAbgleichen();
+  }
+
   /** Nach einem Reload einen Raum übernehmen, den die Hülle noch hält
    *  (Entwurf §5). `true`, wenn danach ein Kanal steht. */
   async nativUebernehmen(resume: VoiceResume | null): Promise<boolean> {

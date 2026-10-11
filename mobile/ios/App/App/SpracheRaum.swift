@@ -221,6 +221,8 @@ final class SpracheRaum: NSObject, @unchecked Sendable {
         raum = nil
         kanalId = nil
         kanalName = ""
+        // Was die Moderation in DIESEM Kanal geschaltet hat, gilt im nächsten nicht.
+        DispatchQueue.main.async { SpracheStand.geteilt.erzwungenSetzen(stumm: [], taub: []) }
     }
 
     /// `sitzung`: nur verlassen, wenn genau dieser Beitritt noch läuft. `nil`

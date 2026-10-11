@@ -59,15 +59,25 @@ final class SpracheAnsichtHalter: NSObject, UISheetPresentationControllerDelegat
     /// **Idempotent.** Der Griff „zurück in den Kanal" in der Web-Leiste darf
     /// mehrfach kommen (Doppeltipp, zwei Leisten auf verschiedenen
     /// Bildschirmen) — ein zweites Blatt über dem ersten wäre eine Sackgasse.
+    /// Ein erneutes Zeigen stellt nur das Thema nach.
+    ///
+    /// `stil`: das Thema der Web-App (`SprachePlugin.stil`). Als
+    /// `overrideUserInterfaceStyle` gesetzt, gilt es für das Blatt samt
+    /// Hintergrund; die Farben lösen sich daran auf (`SpracheFarben`).
     @MainActor
-    func zeigen(ueber wurzel: UIViewController, raum: Room, kanalName: String) {
-        guard offen == nil else { return }
+    func zeigen(ueber wurzel: UIViewController, raum: Room, kanalName: String,
+                stil: UIUserInterfaceStyle) {
+        if let offen {
+            offen.overrideUserInterfaceStyle = stil
+            return
+        }
         let inhalt = SpracheAnsicht(
             raum: raum,
             kanalName: kanalName,
             schliessen: { [weak self] in self?.schliessen(melden: true) }
         )
         let halter = UIHostingController(rootView: inhalt)
+        halter.overrideUserInterfaceStyle = stil
         halter.modalPresentationStyle = .pageSheet
         halter.view.backgroundColor = UIColor(SpracheFarben.grund)
         if let blatt = halter.sheetPresentationController {

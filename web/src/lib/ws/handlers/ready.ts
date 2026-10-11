@@ -158,6 +158,7 @@ export function register(
             voicePresence.isForceMuted(voice.channelId, meineId),
             voicePresence.isForceDeafened(voice.channelId, meineId)
           );
+          voice.nativErzwungenAbgleichen();
         });
       }
       streamPresence.seed(evt.stream_states ?? []);

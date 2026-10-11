@@ -1,13 +1,33 @@
 import LiveKit
 import SwiftUI
 
-/// Was die Ansicht von `SpracheRaum` beobachten muss, das kein
-/// `ObservableObject` des SDK trägt. Heute nur `taub`: es lebt in der Hülle
-/// (`SpracheRaum.taub`), nicht am `Room`. Geschrieben nur auf dem Hauptthread
-/// (`didSet` dort schickt hierher).
+/// Was die Ansicht beobachten muss, das kein `ObservableObject` des SDK
+/// trägt: `taub` lebt in der Hülle (`SpracheRaum.taub`), die
+/// Admin-Stummschaltung im Web (`SprachePlugin.erzwungen`). Geschrieben nur auf
+/// dem Hauptthread.
 final class SpracheStand: ObservableObject {
     static let geteilt = SpracheStand()
     @Published var taub = false
+    /// Nutzer-Ids, die die Moderation im Kanal stumm- beziehungsweise
+    /// taubgeschaltet hat. **Nur Anzeige** (Schild, gesperrter Knopf): LiveKit
+    /// kennt die Stummschaltung bloss als entzogenes Recht und die
+    /// Taubschaltung gar nicht — die Wahrheit hat das Web
+    /// (`web/src/lib/voice/erzwungen.ts`).
+    @Published private(set) var erzwungenStumm: Set<String> = []
+    @Published private(set) var erzwungenTaub: Set<String> = []
+
+    func erzwungenSetzen(stumm: Set<String>, taub: Set<String>) {
+        if erzwungenStumm != stumm { erzwungenStumm = stumm }
+        if erzwungenTaub != taub { erzwungenTaub = taub }
+    }
+
+    /// Stumm- und Taubschaltung durch die Moderation für einen Teilnehmer.
+    func erzwungen(fuer p: Participant) -> (stumm: Bool, taub: Bool) {
+        guard let nutzer = SpracheRaum.nutzerId(aus: p.identity?.stringValue ?? "") else {
+            return (false, false)
+        }
+        return (erzwungenStumm.contains(nutzer), erzwungenTaub.contains(nutzer))
+    }
 }
 
 /// Die Knopfreihe der nativen Kanalansicht.
@@ -45,22 +65,25 @@ struct SpracheSteuerleiste: View {
     private var kameraAn: Bool { raum.localParticipant.isCameraEnabled() }
 
     var body: some View {
-        HStack(spacing: 14) {
+        // **Von der Moderation geschaltet: gesperrt, mit Schild.** Bis zum
+        // 2026-10-11 sah der Knopf aus wie bei eigener Stummschaltung, und ein
+        // Tipp tat still nichts — das Web lehnt das Einschalten ab
+        // (`toggleMic`), sagt es aber niemandem. Die Web-Leiste sperrt ihn
+        // genauso (`VoiceControlBar.svelte`).
+        let zwang = stand.erzwungen(fuer: raum.localParticipant)
+        let mikroOffen = mikroAn && !zwang.stumm
+        return HStack(spacing: 14) {
             knopf(
-                symbol: mikroAn ? "mic.fill" : "mic.slash.fill",
-                an: mikroAn, warnend: !mikroAn,
-                beschriftung: mikroAn
-                    ? NSLocalizedString("Mikrofon stummschalten", comment: "Sprachkanal")
-                    : NSLocalizedString("Mikrofon einschalten", comment: "Sprachkanal")
+                symbol: mikroOffen ? "mic.fill" : "mic.slash.fill",
+                an: mikroOffen, warnend: !mikroOffen, gesperrt: zwang.stumm,
+                beschriftung: mikroBeschriftung(erzwungen: zwang.stumm)
             ) {
                 try await SpracheRaum.geteilt.wunsch(.mikrofon, an: !mikroAn)
             }
             knopf(
                 symbol: stand.taub ? "speaker.slash.fill" : "headphones",
-                an: false, warnend: stand.taub,
-                beschriftung: stand.taub
-                    ? NSLocalizedString("Mithören einschalten", comment: "Sprachkanal")
-                    : NSLocalizedString("Nicht mehr mithören", comment: "Sprachkanal")
+                an: false, warnend: stand.taub, gesperrt: zwang.taub,
+                beschriftung: taubBeschriftung(erzwungen: zwang.taub)
             ) {
                 try await SpracheRaum.geteilt.wunsch(.taub, an: !stand.taub)
             }
@@ -106,6 +129,7 @@ struct SpracheSteuerleiste: View {
         symbol: String,
         an: Bool,
         warnend: Bool,
+        gesperrt: Bool = false,
         beschriftung: String,
         tun: @escaping () async throws -> Void
     ) -> some View {
@@ -124,18 +148,48 @@ struct SpracheSteuerleiste: View {
                 }
             }
         } label: {
+            // Auf Rot und Blau weiss, in Ruhe in der Schriftfarbe des Themas —
+            // die dunkle Schrift des hellen Satzes wäre auf Blau unlesbar.
             Image(systemName: symbol)
                 .font(.system(size: 22, weight: .medium))
-                .foregroundStyle(warnend ? Color.white : SpracheFarben.text)
+                .foregroundStyle(warnend || an ? Color.white : SpracheFarben.text)
                 .frame(width: 56, height: 56)
                 .background(hintergrund(an: an, warnend: warnend), in: Circle())
+                .overlay(alignment: .bottomTrailing) {
+                    if gesperrt {
+                        Image(systemName: "shield.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(SpracheFarben.schild)
+                    }
+                }
         }
+        .disabled(gesperrt)
         .accessibilityLabel(beschriftung)
     }
 
     private func hintergrund(an: Bool, warnend: Bool) -> Color {
         if warnend { return SpracheFarben.schlecht }
-        return an ? SpracheFarben.marke : SpracheFarben.kachel
+        return an ? SpracheFarben.marke : SpracheFarben.knopf
+    }
+
+    /// Von der Moderation geschaltet geht vor — dann sagt der Knopf, warum er
+    /// gesperrt ist, statt was ein Tippen täte.
+    private func mikroBeschriftung(erzwungen: Bool) -> String {
+        if erzwungen {
+            return NSLocalizedString("Vom Mod stummgeschaltet", comment: "Sprachkanal")
+        }
+        return mikroAn
+            ? NSLocalizedString("Mikrofon stummschalten", comment: "Sprachkanal")
+            : NSLocalizedString("Mikrofon einschalten", comment: "Sprachkanal")
+    }
+
+    private func taubBeschriftung(erzwungen: Bool) -> String {
+        if erzwungen {
+            return NSLocalizedString("Vom Mod taubgeschaltet", comment: "Sprachkanal")
+        }
+        return stand.taub
+            ? NSLocalizedString("Mithören einschalten", comment: "Sprachkanal")
+            : NSLocalizedString("Nicht mehr mithören", comment: "Sprachkanal")
     }
 }
 

@@ -88,7 +88,15 @@ test('Bau des Eigentuemer-Telefons (fuenf Methoden): Web-Weg, mit den fehlenden'
   assert.deepEqual(nativerSprachwegBefund(), {
     nativ: false,
     grund: 'methoden-fehlen',
-    fehlen: ['lautstaerken', 'taub', 'kamera', 'kameraSeite', 'ansichtOeffnen', 'ansichtSchliessen']
+    fehlen: [
+      'lautstaerken',
+      'erzwungen',
+      'taub',
+      'kamera',
+      'kameraSeite',
+      'ansichtOeffnen',
+      'ansichtSchliessen'
+    ]
   });
 });
 

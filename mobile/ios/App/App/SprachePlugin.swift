@@ -1,4 +1,5 @@
 import Capacitor
+import UIKit
 
 /// Brücke zwischen Web-Oberfläche und nativem Sprach-Raum (`SpracheRaum`).
 ///
@@ -27,6 +28,7 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "ansichtSchliessen", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "zustand", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "lautstaerken", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "erzwungen", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addListener", returnType: CAPPluginReturnCallback),
         CAPPluginMethod(name: "removeAllListeners", returnType: CAPPluginReturnPromise)
     ]
@@ -123,6 +125,19 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// Admin-Stumm- und -Taubschaltung im Kanal (Nutzer-Ids, je die ganze
+    /// Liste). Nur Anzeige — Schild und gesperrter Knopf in der Ansicht;
+    /// durchgesetzt wird die Stummschaltung vom Server, die Taubschaltung vom
+    /// Web (`taub`). Nicht in der Kette: kein SDK-Ruf, kein Rennen.
+    @objc func erzwungen(_ call: CAPPluginCall) {
+        let stumm = Set(call.getArray("stumm", String.self) ?? [])
+        let taub = Set(call.getArray("taub", String.self) ?? [])
+        DispatchQueue.main.async {
+            SpracheStand.geteilt.erzwungenSetzen(stumm: stumm, taub: taub)
+            call.resolve(SpracheRaum.geteilt.zustand())
+        }
+    }
+
     private static func hoerwunsch(_ call: CAPPluginCall) -> ([String: Double]?, Double?) {
         let je = call.getObject("lautstaerken")?.compactMapValues { wert -> Double? in
             (wert as? NSNumber)?.doubleValue
@@ -160,6 +175,7 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
     /// Ohne stehenden Raum tut der Befehl nichts: eine Kanalansicht ohne Kanal
     /// hätte keinen Inhalt und keinen Ausweg.
     @objc func ansichtOeffnen(_ call: CAPPluginCall) {
+        let stil = Self.stil(call.getString("thema"))
         DispatchQueue.main.async {
             guard let raum = SpracheRaum.geteilt.raum else {
                 call.reject("sprache_kein_raum")
@@ -170,8 +186,19 @@ public class SprachePlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             SpracheAnsichtHalter.geteilt.zeigen(
-                ueber: wurzel, raum: raum, kanalName: SpracheRaum.geteilt.kanalName)
+                ueber: wurzel, raum: raum, kanalName: SpracheRaum.geteilt.kanalName, stil: stil)
             call.resolve(SpracheRaum.geteilt.zustand())
+        }
+    }
+
+    /// Das Thema der Web-App (`thema`: `light`/`dark`/`system`). Ohne Angabe —
+    /// eine Web-App, die das Feld noch nicht mitschickt — folgt die Ansicht dem
+    /// Telefon, wie die Web-App mit ihrer Vorgabe `system`.
+    static func stil(_ thema: String?) -> UIUserInterfaceStyle {
+        switch thema {
+        case "light": return .light
+        case "dark": return .dark
+        default: return .unspecified
         }
     }
 

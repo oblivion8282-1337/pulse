@@ -142,7 +142,7 @@ import UIKit
                     await MainActor.run {
                         SpracheAnsichtHalter.geteilt.zeigen(
                             ueber: wurzel, raum: raum,
-                            kanalName: SpracheRaum.geteilt.kanalName)
+                            kanalName: SpracheRaum.geteilt.kanalName, stil: .unspecified)
                     }
                     let offen = await MainActor.run { SpracheAnsichtHalter.geteilt.istOffenSynchron }
                     NSLog("[PulseSprache] Probe ANSICHT offen=%@", offen ? "ja" : "nein")

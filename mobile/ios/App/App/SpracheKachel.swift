@@ -18,6 +18,7 @@ import SwiftUI
 /// also auf dem Hauptthread an, ohne dass wir dafür etwas tun müssten.
 struct SpracheKachel: View {
     @ObservedObject var teilnehmer: Participant
+    @ObservedObject private var stand = SpracheStand.geteilt
     let video: VideoTrack?
     let istBildschirm: Bool
     /// Front/Rück-Wechsel — nur auf der eigenen Kamerakachel gesetzt.
@@ -122,7 +123,7 @@ struct SpracheKachel: View {
             Button(action: tun) {
                 Image(systemName: "arrow.triangle.2.circlepath.camera")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(SpracheFarben.text)
+                    .foregroundStyle(SpracheFarben.aufBild)
                     .frame(width: 36, height: 36)
                     .background(Color.black.opacity(0.55), in: Circle())
                     .frame(width: 48, height: 48)
@@ -134,28 +135,55 @@ struct SpracheKachel: View {
 
     // MARK: - Fusszeile
 
+    /// Die Kapsel liegt auf Bild oder Kachel, in jedem Thema dunkel — Schrift
+    /// und neutrale Zeichen darin deshalb immer hell (`SpracheFarben.aufBild`),
+    /// die Stumm-Zeichen im Rot des dunklen Satzes (`warnungAufBild`).
     private var fussZeile: some View {
-        HStack(spacing: 6) {
+        // Von der Moderation geschaltet: dasselbe Zeichen mit Schild, wie
+        // `VoiceMuteIcon.svelte` im Web. Bis zum 2026-10-11 sah es hier aus wie
+        // eine eigene Stummschaltung, und die Taubschaltung fehlte ganz.
+        let zwang = stand.erzwungen(fuer: teilnehmer)
+        return HStack(spacing: 6) {
             // Kein Zeichen für „Mikrofon an" — eine Reihe immer sichtbarer
             // Symbole sagt weniger als ein einzelnes, das etwas bedeutet.
-            if !teilnehmer.isMicrophoneEnabled() {
-                Image(systemName: "mic.slash.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(SpracheFarben.schlecht)
+            if !teilnehmer.isMicrophoneEnabled() || zwang.stumm {
+                zeichen("mic.slash.fill", mitSchild: zwang.stumm,
+                        beschriftung: zwang.stumm
+                            ? NSLocalizedString("Vom Mod stummgeschaltet", comment: "Sprachkanal")
+                            : NSLocalizedString("Stummgeschaltet", comment: "Sprachkanal"))
+            }
+            if zwang.taub {
+                zeichen("speaker.slash.fill", mitSchild: true,
+                        beschriftung: NSLocalizedString("Vom Mod taubgeschaltet", comment: "Sprachkanal"))
             }
             if istBildschirm {
                 Image(systemName: "rectangle.on.rectangle")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(SpracheFarben.textMatt)
+                    .foregroundStyle(SpracheFarben.aufBild.opacity(0.7))
             }
             Text(anzeigeName)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(SpracheFarben.text)
+                .foregroundStyle(SpracheFarben.aufBild)
                 .lineLimit(1)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(Color.black.opacity(0.55), in: Capsule())
+    }
+
+    private func zeichen(_ symbol: String, mitSchild: Bool, beschriftung: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(SpracheFarben.warnungAufBild)
+            .overlay(alignment: .bottomTrailing) {
+                if mitSchild {
+                    Image(systemName: "shield.fill")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(SpracheFarben.schild)
+                        .offset(x: 3, y: 3)
+                }
+            }
+            .accessibilityLabel(beschriftung)
     }
 }

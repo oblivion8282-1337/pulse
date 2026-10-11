@@ -22,6 +22,7 @@ import { tonNativerRaum } from './iosTon';
 import { TonHalter } from './nativeTonHalter';
 import { mitFrist, SPRACHE_FRIST_KETTE_MS, SPRACHE_FRIST_SOFORT_MS } from './brueckenFrist';
 import type {
+  AnsichtThema,
   NativerEigenerZustand,
   NativerTeilnehmer,
   NativerWunsch,
@@ -273,6 +274,15 @@ export async function spracheLautstaerken(
   );
 }
 
+/**
+ * Wer im Kanal von der Moderation stumm- oder taubgeschaltet ist (Nutzer-Ids)
+ * — für Schild und gesperrte Knöpfe in der nativen Ansicht. Die Hülle kennt
+ * diesen Stand sonst nicht: er kommt über die WebSocket (`voice_override`).
+ */
+export async function spracheErzwungen(stumm: string[], taub: string[]): Promise<void> {
+  await rufen('erzwungen', SPRACHE_FRIST_SOFORT_MS, (p) => p.erzwungen({ stumm, taub }));
+}
+
 export async function spracheKamera(an: boolean): Promise<NativerZustand | null> {
   return rufen('kamera', SPRACHE_FRIST_KETTE_MS, (p) => p.kamera({ an }));
 }
@@ -291,8 +301,10 @@ export async function spracheKameraSeite(front: boolean): Promise<NativerZustand
  * **Öffnen ist idempotent, Schliessen nimmt nur die ANSICHT**, nie den Raum:
  * ein Wischen nach unten darf nicht versehentlich auflegen.
  */
-export async function spracheAnsichtOeffnen(): Promise<NativerZustand | null> {
-  return rufen('ansichtOeffnen', SPRACHE_FRIST_SOFORT_MS, (p) => p.ansichtOeffnen());
+export async function spracheAnsichtOeffnen(
+  thema: AnsichtThema
+): Promise<NativerZustand | null> {
+  return rufen('ansichtOeffnen', SPRACHE_FRIST_SOFORT_MS, (p) => p.ansichtOeffnen({ thema }));
 }
 
 export async function spracheAnsichtSchliessen(): Promise<NativerZustand | null> {

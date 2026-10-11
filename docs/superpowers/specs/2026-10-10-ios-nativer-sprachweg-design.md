@@ -148,6 +148,15 @@ Brücke mit Ereignissen nicht gibt.
 > - Solange der native Raum steht, fasst `iosTon` die Session nicht an (§6:
 >   „fasst sie im Sprach-Betrieb nicht mehr an" galt bis dahin nur für den
 >   Sprachkanal selbst, nicht für Stream-Ton und Anrufe daneben).
+> - Neuer Befehl `erzwungen({stumm, taub})` (Nutzer-Ids, ganze Liste): die
+>   Admin-Stumm- und -Taubschaltung des Kanals. Die native Ansicht sperrt
+>   damit Mikrofon- und Taub-Knopf und zeigt das Schild wie das Web — LiveKit
+>   kennt die Stummschaltung nur als entzogenes Recht (dasselbe wie „darf hier
+>   nicht sprechen") und die Taubschaltung gar nicht
+>   (`web/src/lib/voice/erzwungen.ts`).
+> - `ansichtOeffnen({thema})`: die Ansicht folgt dem Thema der Web-App
+>   (`light`/`dark`/`system`); vorher war sie immer dunkel. Eine Hülle ohne
+>   das Feld bleibt dunkel.
 
 ## 5. Die native Ansicht
 

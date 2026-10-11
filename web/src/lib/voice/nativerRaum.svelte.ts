@@ -5,6 +5,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { settings } from '$lib/stores/settings.svelte';
 import { sounds } from '$lib/sounds/engine';
+import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import {
   nativerSprachwegDa,
   spracheAnsichtOeffnen,
@@ -183,17 +184,24 @@ export class NativerRaum {
     this.ansichtOffen = false;
     this.#steht = false;
     this.#sitzung = undefined;
+    this.befehle.erzwungenVergessen();
   }
 
   /** Die native Kanalansicht zeigen — vom Griff in der Leiste und nach einem
    *  Beitritt auf die Kanal-Route. */
   async ansichtOeffnen(): Promise<void> {
     if (!this.aktiv) return;
-    const z = await spracheAnsichtOeffnen().catch((e: unknown) => {
+    const z = await spracheAnsichtOeffnen(settings.appearance.theme).catch((e: unknown) => {
       console.error('[Sprache] Kanalansicht öffnen fehlgeschlagen', e);
       return null;
     });
     this.ansichtOffen = z?.ansichtOffen ?? false;
+  }
+
+  /** Admin-Stummschaltung im Kanal an die native Ansicht (`nativeBefehle`). */
+  erzwungenAbgleichen(): void {
+    const kanal = this.#wirt.channelId;
+    if (this.aktiv && kanal) this.befehle.erzwungen(voicePresence.overrideByChannel[kanal]);
   }
 
   /** Nur die Ansicht wegnehmen — der Raum bleibt. */
@@ -225,6 +233,7 @@ export class NativerRaum {
       $state.snapshot(settings.voice.userVolumes),
       settings.voice.outputVolume
     );
+    this.erzwungenAbgleichen();
   }
 
   /** Der Beitritt (oder die Übernahme) steht: Sitzung merken, Zustand
