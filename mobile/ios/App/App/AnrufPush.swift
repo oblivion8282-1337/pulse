@@ -23,7 +23,7 @@ extension Anrufverwaltung {
         let ausgang = Self.pushAusgang(
             art: art, bekannt: bekannt, klingelt: bekannt.map { phasen[$0] == .klingelt } ?? false,
             kuerzlichBeendet: istKuerzlichBeendet(kennung))
-        NSLog("[Anruf] VoIP-Push %@ %@ → %@", art.rawValue, kennung, "\(ausgang)")
+        NSLog("[PulseAnruf] VoIP-Push %@ %@ → %@", art.rawValue, kennung, "\(ausgang)")
         #if DEBUG
             spur.ausgang = ausgang
         #endif
@@ -87,7 +87,7 @@ extension Anrufverwaltung {
                               fertig: @escaping () -> Void) {
         beiCallKitMelden(uuid, name: name, video: false) { folge in
             // Am Gerät der Beleg, dass CallKit das Duplikat erkannt hat.
-            NSLog("[Anruf] erneut gemeldet, CallKit: %@", "\(folge)")
+            NSLog("[PulseAnruf] erneut gemeldet, CallKit: %@", "\(folge)")
             switch Self.nachErneuterMeldung(folge, beenden: beenden, phase: self.phasen[uuid]) {
             case .nichts:
                 break
@@ -95,7 +95,7 @@ extension Anrufverwaltung {
                 self.anbieter?.reportCall(with: uuid, endedAt: nil, reason: .remoteEnded)
                 self.anrufZu(uuid)
             case .geisterBeenden:
-                NSLog("[Anruf] CallKit kannte den Anruf nicht mehr und zeigte ihn neu — beendet")
+                NSLog("[PulseAnruf] CallKit kannte den Anruf nicht mehr und zeigte ihn neu — beendet")
                 self.anbieter?.reportCall(with: uuid, endedAt: nil, reason: .remoteEnded)
             }
             fertig()
@@ -126,7 +126,7 @@ extension Anrufverwaltung {
         // Push-Registrierung an, und das Plugin ruft `starten()` vor jedem
         // `ankommen`.
         guard let anbieter else {
-            NSLog("[Anruf] kein CXProvider — Meldung unmöglich")
+            NSLog("[PulseAnruf] kein CXProvider — Meldung unmöglich")
             danach(.abgewiesen)
             return
         }
@@ -151,7 +151,7 @@ extension Anrufverwaltung {
                 // „Nicht stören" klingelte nichts, und nichts sagte warum.
                 // Häufige Gründe: `filteredByDoNotDisturb`,
                 // `filteredByBlockList`, `maximumCallGroupsReached`.
-                NSLog("[Anruf] CallKit hat den Anruf abgewiesen: %@",
+                NSLog("[PulseAnruf] CallKit hat den Anruf abgewiesen: %@",
                       (fehler as NSError).localizedDescription)
             }
             danach(folge)
@@ -161,7 +161,7 @@ extension Anrufverwaltung {
     private func klingelFristStellen(_ uuid: UUID) {
         let uhr = DispatchWorkItem { [weak self] in
             guard let self, phasen[uuid] == .klingelt else { return }
-            NSLog("[Anruf] nach %.0f s nicht angenommen — das Klingeln endet", Self.klingelFrist)
+            NSLog("[PulseAnruf] nach %.0f s nicht angenommen — das Klingeln endet", Self.klingelFrist)
             anbieter?.reportCall(with: uuid, endedAt: nil, reason: .unanswered)
             // Wie der 45-s-Wecker des Webs: der Server soll es wissen (im
             // Gruppenanruf geht das seit T4 auch, wenn schon jemand spricht).

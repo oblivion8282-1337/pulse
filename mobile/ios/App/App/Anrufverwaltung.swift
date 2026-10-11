@@ -167,7 +167,7 @@ public final class Anrufverwaltung: NSObject {
                 stilleEnden.insert(uuid)
                 steuerung.request(CXTransaction(action: CXEndCallAction(call: uuid))) { fehler in
                     guard let fehler else { return }
-                    NSLog("[Anruf] Auflegen bei CallKit abgewiesen: %@",
+                    NSLog("[PulseAnruf] Auflegen bei CallKit abgewiesen: %@",
                           (fehler as NSError).localizedDescription)
                     DispatchQueue.main.async {
                         self.stilleEnden.remove(uuid)
