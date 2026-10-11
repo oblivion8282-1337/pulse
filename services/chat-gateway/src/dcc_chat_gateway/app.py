@@ -216,6 +216,7 @@ async def lifespan(app: FastAPI):
     reaper: asyncio.Task | None = None
     push_cleanup: asyncio.Task | None = None
     idle_sweeper: asyncio.Task | None = None
+    stale_ws_reaper: asyncio.Task | None = None
     voice_pull_reaper: asyncio.Task | None = None
     jwks_poller: asyncio.Task | None = None
     suspend_poller: asyncio.Task | None = None
@@ -392,8 +393,11 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         if owns_manager:
+            # `stale_ws_reaper` fehlte hier bis zum 2026-10-11: gestartet, aber
+            # beim Herunterfahren nie abgebrochen (eine Endlosschleife mit
+            # `sleep(30)`), also bis zum Schliessen des Loops offen.
             bg_tasks = (
-                supervisor, reaper, push_cleanup, idle_sweeper,
+                supervisor, reaper, push_cleanup, idle_sweeper, stale_ws_reaper,
                 voice_pull_reaper, jwks_poller, suspend_poller, cloud_policy_task,
                 jwks_retry, dropbox_sweep_task, remote_audit, anzeigename_task,
             )
@@ -439,6 +443,13 @@ async def lifespan(app: FastAPI):
         from dcc_chat_gateway import voice_evict
 
         await voice_evict.shutdown_client()
+        # VoIP-Pushes, die noch unterwegs sind (Hintergrund-Sendungen aus
+        # ``anruf_push``), dürfen ausfliegen — kurz; dann der gemeinsame
+        # HTTP/2-Klient zu Apple.
+        from dcc_chat_gateway import anruf_push, apns_voip
+
+        await anruf_push.hintergrund_abwarten(frist_s=2.0)
+        await apns_voip.schliessen()
 
 
 def create_app(*, skip_redis: bool = False) -> FastAPI:

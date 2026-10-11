@@ -957,13 +957,12 @@ class ConnectionManager(
         Count 0 und der FCM-Push wird korrekt ausgelöst.
 
         ``frische_s`` verengt das Fenster für Aufrufer, die nicht 95 s warten
-        können. **Der Anruf-Pfad ist genau so ein Fall und der Grund, warum
-        dieser Parameter existiert:** ein Anruf klingelt 45 s
-        (``KLINGEL_TIMEOUT_MS``), die Vorgabe hier ist 95 — ein im Hintergrund
-        suspendiertes Telefon gilt also länger als online, als der Anruf
-        überhaupt dauert, und der VoIP-Push bliebe aus. Der Anruf wäre
-        verpasst, ohne dass irgendwo etwas schiefgeht. Begründung der dort
-        gewählten Zahl: ``anruf_push.ANRUF_FRISCHE_S``."""
+        können. Eingeführt wurde er für den Anruf-Pfad (ein Anruf klingelt nur
+        45 s); der fragt seit dem 2026-10-11 gar nicht mehr nach Frische und
+        klingelt jedes iOS-Gerät per Push an — auch ein enges Fenster liess
+        ein eben weggestecktes Telefon als wach gelten (Begründung im Kopf von
+        ``anruf_push.py``). Der Parameter bleibt für Aufrufer mit derselben
+        Not."""
         frisch_grenze = time.monotonic() - (
             self.SOCKET_STALE_SEKUNDEN if frische_s is None else frische_s
         )

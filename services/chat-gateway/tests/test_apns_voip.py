@@ -121,3 +121,56 @@ def test_jwt_vorrat_gibt_dasselbe_zurueck_und_erneuert_nach_ablauf():
     )
     assert nach_ablauf != erstes
     apns_voip.jwt_vorrat_leeren()
+
+
+# MARK: - Gegenprobe bei BadDeviceToken (Bughunt 2026-10-11, T15)
+
+
+def _antworten(
+    monkeypatch, je_umgebung: dict[bool, tuple[int, str | None] | None]
+) -> list[bool]:
+    """Ersetzt den einzelnen Rundlauf; merkt sich, welche Umgebung gefragt
+    wurde (``True`` = Sandbox)."""
+    gefragt: list[bool] = []
+
+    async def _einmal(zugang, token, nutzlast, sandbox):
+        gefragt.append(sandbox)
+        return je_umgebung[sandbox]
+
+    monkeypatch.setattr(apns_voip, "_einmal", _einmal)
+    return gefragt
+
+
+@pytest.mark.asyncio
+async def test_falsche_umgebung_kostet_den_token_nicht(monkeypatch):
+    """Ein Entwicklungs-Bau gegen eine auf Produktion gestellte Cloud: Apple
+    sagt ``BadDeviceToken`` — und bis zum 2026-10-11 war der Token damit weg,
+    bei jedem Anruf. Die andere Umgebung nimmt ihn an: zugestellt, nicht tot."""
+    gefragt = _antworten(monkeypatch, {False: (400, "BadDeviceToken"), True: (200, None)})
+    ergebnis = await apns_voip.senden(zugang=_zugang(sandbox=False), geraete_token="t", nutzlast={})
+    assert ergebnis == "ok"
+    assert gefragt == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_tot_erst_wenn_beide_umgebungen_ihn_abweisen(monkeypatch):
+    _antworten(monkeypatch, {False: (400, "BadDeviceToken"), True: (400, "BadDeviceToken")})
+    ergebnis = await apns_voip.senden(zugang=_zugang(sandbox=False), geraete_token="t", nutzlast={})
+    assert ergebnis == "dead"
+
+
+@pytest.mark.asyncio
+async def test_stoerung_bei_der_gegenprobe_kostet_den_token_nicht(monkeypatch):
+    _antworten(monkeypatch, {True: (400, "BadDeviceToken"), False: None})
+    ergebnis = await apns_voip.senden(zugang=_zugang(sandbox=True), geraete_token="t", nutzlast={})
+    assert ergebnis == "warn"
+
+
+@pytest.mark.asyncio
+async def test_andere_gruende_fragen_nicht_nach(monkeypatch):
+    """Nur ``BadDeviceToken`` ist zweideutig; ``Unregistered`` (410) ist es
+    nicht und braucht keinen zweiten Rundlauf."""
+    gefragt = _antworten(monkeypatch, {True: (410, "Unregistered"), False: (200, None)})
+    ergebnis = await apns_voip.senden(zugang=_zugang(sandbox=True), geraete_token="t", nutzlast={})
+    assert ergebnis == "dead"
+    assert gefragt == [True]

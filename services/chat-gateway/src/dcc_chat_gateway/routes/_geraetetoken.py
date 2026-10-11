@@ -8,9 +8,16 @@ damit dieselben zwei Rennen:
    legen an, einer verliert mit ``IntegrityError``. Der Verlierer darf nicht
    still 204 liefern — dann käme sein frischer Token nie an (Befund
    03.10.2026, deshalb der zweite Durchgang unten).
-2. **Ein Gerät wandert zu einem anderen Konto.** Der Token ist UNIQUE und
-   gehört physisch zu genau einem Konto; die Zeile des alten Kontos wird
-   vorher entfernt, sonst scheitert der Upsert an der Eindeutigkeit.
+2. **Derselbe Token taucht unter einem anderen Schlüssel auf.** Der Token
+   ist UNIQUE und gehört physisch zu genau einem Gerät; jede andere Zeile mit
+   ihm wird vorher entfernt, sonst scheitert der Upsert an der Eindeutigkeit.
+   Das ist zum einen das Gerät, das zu einem anderen KONTO wandert, zum
+   anderen dasselbe Konto mit einer NEUEN Geräte-Kennung — die Kennung lebt
+   im `localStorage` der WebView und ist nach dem Löschen der Website-Daten
+   neu, der Token des Systems nicht. Bis zum 2026-10-11 wurde nur der erste
+   Fall abgeräumt; der zweite scheiterte an der Eindeutigkeit, fand im zweiten
+   Durchgang keine Zeile und antwortete DAUERHAFT 409 — der Token kam nie
+   wieder an (Bughunt 2026-10-11).
 
 Diese Rechnung einmal zu haben ist der ganze Zweck: eine Kopie für den
 VoIP-Token hätte beim nächsten Fund genau eine der beiden Stellen geheilt.
@@ -21,7 +28,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 
 # ``modell`` ist nur ``type[Any]``, und das ist kein Versehen: die geforderte
@@ -57,7 +64,10 @@ async def upsert(
     belegt ist.
     """
     await session.execute(
-        delete(modell).where(modell.token == token, modell.user_id != user_id)
+        delete(modell).where(
+            modell.token == token,
+            or_(modell.user_id != user_id, modell.geraet_id != geraet_id),
+        )
     )
     vorhanden = await _zeile_des_geraets(session, modell, user_id, geraet_id)
     if vorhanden is not None:
