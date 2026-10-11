@@ -89,10 +89,19 @@ public final class Anrufverwaltung: NSObject {
     /// Hat CallKit die Session aktiviert (`didActivate`) und noch nicht
     /// wieder abgegeben?
     var sessionAktiv = false
-    /// CallKit hat den Anruf abgewiesen (Simulator, laufendes Mobilfunk-
-    /// Gespräch, „Nicht stören"): das Gespräch läuft trotzdem nativ, mit der
-    /// automatischen Konfiguration des SDK (`AnrufSitzung.swift`).
-    var ohneCallKit = false
+    /// Das Gespräch, das ohne CallKit läuft — seine Kennung. CallKit hat es
+    /// abgewiesen (Simulator, laufendes Mobilfunk-Gespräch, „Nicht stören"),
+    /// es läuft trotzdem nativ, mit der automatischen Konfiguration des SDK
+    /// (`AnrufSitzung.swift`).
+    ///
+    /// **Eine Kennung, kein Schalter.** Bis zum 2026-10-11 stand hier nur
+    /// `ohneCallKit = true`, und die Buchführung wusste nicht, WELCHES
+    /// Gespräch das war: ein späterer Klingel-Push meldete es neu (es klingelte
+    /// für ein laufendes Gespräch), nach dem Ende stand es nicht unter
+    /// `kuerzlichBeendet`, und das Ende eines fremden CallKit-Eintrags gab
+    /// den angehaltenen Kanal mitten im Gespräch frei (`letzterAnrufVorbei`).
+    var ohneCallKitKennung: String?
+    var ohneCallKit: Bool { ohneCallKitKennung != nil }
     /// Was der Kanal vor einem Anruf ohne CallKit wollte (Lautsprecher?).
     var kanalLautsprecher: Bool?
     var rueckgabeUhr: DispatchWorkItem?
@@ -135,6 +144,14 @@ public final class Anrufverwaltung: NSObject {
 
     func uuid(fuer kennung: String) -> UUID? {
         kennungen.first(where: { $0.value == kennung })?.key
+    }
+
+    /// **Führt die Verwaltung dieses Gespräch** — bei CallKit (in jeder
+    /// Phase) oder ohne? Die eine Frage, an der hängt, ob ein Raum dafür
+    /// entstehen darf (`AnrufRaum.beitreten`) und ob ein Push oder die
+    /// Oberfläche es neu melden darf.
+    func fuehrt(_ kennung: String) -> Bool {
+        !kennung.isEmpty && (uuid(fuer: kennung) != nil || ohneCallKitKennung == kennung)
     }
 
     /// Wie das Web ein Ende angestossen hat — bestimmt, was CallKit dem
@@ -180,10 +197,12 @@ public final class Anrufverwaltung: NSObject {
                 anrufZu(uuid)
             }
         }
-        // Ein Raum ohne CallKit-Anruf (CallKit hatte abgewiesen) geht mit.
-        if kennungen.isEmpty, ohneCallKit {
-            Task { await AnrufRaum.geteilt.verlassen(nur: kennung) }
-            ohneCallKitZurueck(kanalFreigeben: true)
+        // Das Gespräch ohne CallKit (CallKit hatte abgewiesen) geht mit. Bis
+        // zum 2026-10-11 hing das an `kennungen.isEmpty` — lief daneben ein
+        // CallKit-Eintrag, hatte dessen `vergessen` den Merker schon gelöscht,
+        // und der Raum blieb stehen.
+        if let ohne = ohneCallKitKennung, kennung == nil || kennung == ohne {
+            ohneCallKitBeendet(ohne)
         }
     }
 
@@ -242,8 +261,10 @@ public final class Anrufverwaltung: NSObject {
             anbieter?.reportCall(with: uuid, endedAt: nil,
                                  reason: aktion == "getrennt" ? .failed : .remoteEnded)
             anrufZu(uuid)
-        } else if ohneCallKit {
-            ohneCallKitZurueck(kanalFreigeben: true)
+        } else {
+            // Trennt auch den Raum — nach „Gegenseite seit 20 s weg" steht er
+            // noch (`alleinGelassen`); bis zum 2026-10-11 blieb er dort stehen.
+            ohneCallKitBeendet(kennung)
         }
         bruecke?.aktionMelden(aktion: aktion, kennung: kennung, kontext: kontext)
     }

@@ -47,7 +47,12 @@ extension Anrufverwaltung {
     func sessionUebernehmen() {
         rueckgabeUhr?.cancel()
         rueckgabeUhr = nil
-        if ohneCallKit { ohneCallKitZurueck(kanalFreigeben: false) }
+        // Ein gebuchtes Gespräch ohne CallKit bleibt gebucht: es ist ein
+        // ANDERES als das, das CallKit jetzt trägt (dasselbe kann es nicht
+        // sein, s. `fuehrt`), und es endet über `beenden` wie jedes andere.
+        // Läuft es dann noch, führt nach der Rückgabe das SDK wieder für es
+        // (`sessionZurueckgeben`). Bis zum 2026-10-11 fiel es hier aus der
+        // Buchführung, und die Rückgabe gab den Kanal frei, während es lief.
         guard !callkitAktiv else { return }
         callkitAktiv = true
         NSLog("[PulseAnruf] CallKit übernimmt die Audio-Session")
@@ -81,12 +86,16 @@ extension Anrufverwaltung {
         if kennungen.isEmpty { sessionZurueckgeben() }
     }
 
-    /// Der letzte Anruf ist aus der Buchführung (aus `vergessen`).
+    /// Der letzte CallKit-Eintrag ist aus der Buchführung (aus `vergessen`).
+    ///
+    /// **Ein Gespräch ohne CallKit endet hier NICHT.** Bis zum 2026-10-11
+    /// gab dieser Weg es frei — aber CallKit-Einträge neben einem Gespräch
+    /// ohne CallKit gehören immer einem ANDEREN Anruf (einem, der nur
+    /// klingelte, oder dem Eintrag, den CallKit selbst beendet hat). Lehnte
+    /// man den ab, lief das Gespräch weiter, während der Kanal wieder
+    /// zuhörte und sein Mikrofon öffnete. Das Gespräch endet über
+    /// `ohneCallKitBeendet`, mit seiner Kennung.
     func letzterAnrufVorbei() {
-        if ohneCallKit {
-            ohneCallKitZurueck(kanalFreigeben: true)
-            return
-        }
         guard callkitAktiv else { return }
         guard sessionAktiv else {
             sessionZurueckgeben()
@@ -115,7 +124,15 @@ extension Anrufverwaltung {
         try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.none)
         AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = true
         maschineStellen(.default, "freigeben")
-        kanalPause(false)
+        // Läuft daneben ein Gespräch ohne CallKit (abgewiesen, während CallKit
+        // die Session noch hielt — die Rückgabe wartet bis zu 3 s auf
+        // `didDeactivate`), bleibt der Kanal angehalten, und das SDK führt
+        // die Session jetzt für DIESES Gespräch.
+        if ohneCallKit {
+            ohneCallKitSessionUebernehmen()
+        } else {
+            kanalPause(false)
+        }
     }
 
     // MARK: - Ohne CallKit
@@ -125,21 +142,50 @@ extension Anrufverwaltung {
     /// der Automatik des SDK, wie der Kanal. Der Hörmuschel-Schalter ist dann
     /// DERSELBE wie der des Kanals; dessen Wunsch wird gemerkt und nach dem
     /// Anruf zurückgestellt (`kanalWunschMerken`).
-    func ohneCallKitUebernehmen() {
-        guard !callkitAktiv, !ohneCallKit else { return }
-        ohneCallKit = true
+    ///
+    /// **Die Kennung wird IMMER gebucht**, auch wenn CallKit die Session noch
+    /// hält (Rückgabe ausstehend, s. `sessionZurueckgeben`): ein Gespräch,
+    /// das die Buchführung nicht kennt, bekommt keinen Raum
+    /// (`AnrufRaum.beitreten`) und klingelt auf jeden Push neu.
+    func ohneCallKitUebernehmen(kennung: String) {
+        if let alt = ohneCallKitKennung, alt != kennung {
+            // Es gibt EINEN Anruf-Raum; ein zweites Gespräch ohne CallKit
+            // verdrängt das erste (`AnrufRaum.beitreten` verlässt es).
+            kuerzlichBeendet[alt] = Date()
+        }
+        let neu = ohneCallKitKennung == nil
+        ohneCallKitKennung = kennung
+        NSLog("[PulseAnruf] ohne CallKit: %@", kennung)
+        if neu, !callkitAktiv { ohneCallKitSessionUebernehmen() }
+    }
+
+    /// Das SDK führt die Session für das Gespräch ohne CallKit: der
+    /// Hörmuschel-Wunsch des Anrufs gilt, der des Kanals wird gemerkt, der
+    /// Kanal hält an.
+    private func ohneCallKitSessionUebernehmen() {
         NSLog("[PulseAnruf] ohne CallKit — das SDK führt die Session")
-        kanalLautsprecher = AudioManager.shared.isSpeakerOutputPreferred
+        if kanalLautsprecher == nil {
+            kanalLautsprecher = AudioManager.shared.isSpeakerOutputPreferred
+        }
         AudioManager.shared.isSpeakerOutputPreferred = AnrufRaum.geteilt.lautsprecher
         kanalPause(true)
     }
 
-    func ohneCallKitZurueck(kanalFreigeben: Bool) {
-        guard ohneCallKit else { return }
-        ohneCallKit = false
+    /// **Das Gespräch ohne CallKit ist zu Ende** — aus `beenden`,
+    /// `vonDerHuelleBeendet` und `providerDidReset` (verdrängt ein zweites
+    /// es, merkt `ohneCallKitUebernehmen` es nur als beendet). Wie
+    /// `anrufZu` für einen CallKit-Anruf: als kürzlich beendet merken (ein
+    /// Push danach klingelt nicht neu), Raum trennen, den Hörmuschel-Wunsch
+    /// des Kanals zurück, Kanal frei — es sei denn, CallKit hält die Session
+    /// gerade für einen anderen Anruf; dann gibt `sessionZurueckgeben` frei.
+    func ohneCallKitBeendet(_ kennung: String) {
+        guard ohneCallKitKennung == kennung else { return }
+        ohneCallKitKennung = nil
+        kuerzlichBeendet[kennung] = Date()
+        Task { await AnrufRaum.geteilt.verlassen(nur: kennung) }
         if let wunsch = kanalLautsprecher { AudioManager.shared.isSpeakerOutputPreferred = wunsch }
         kanalLautsprecher = nil
-        if kanalFreigeben { kanalPause(false) }
+        if !callkitAktiv { kanalPause(false) }
     }
 
     /// Ein Ausgabe-Wunsch des KANALS während eines Anrufs ohne CallKit: gemerkt

@@ -264,6 +264,17 @@ Brücke mit Ereignissen nicht gibt.
 >   mehr, über den ihn `beenden` fände. **Nur am Gerät**: ob CallKit die
 >   Session aktiviert, die Hörmuschel am Ohr, das Mikrofon im Anruf neben
 >   der stummen Kanal-Spur, Lautsprecher-Taste im System-Bildschirm.
+> - **Behoben am selben Tag (Buchführung):** ein Anruf-Raum entsteht nur
+>   noch für ein Gespräch, das `Anrufverwaltung.fuehrt` (`AnrufRaum.Fehler.
+>   keinAnruf`, Begründung dort: eine Prüfung, keine Reihenfolge), und ein
+>   Gespräch ohne CallKit steht mit seiner Kennung in der Buchführung
+>   (`ohneCallKitKennung`) — ein Push dafür meldet und endet sofort, das
+>   Ende eines fremden CallKit-Eintrags gibt den Kanal nicht mehr frei, und
+>   nach dem Ende steht es unter „kürzlich beendet". Die Probe ist darauf
+>   umgebaut: im Simulator führt sie das Gespräch absichtlich ohne CallKit
+>   (CallKit weist wegen einer belegten Anrufgruppe ab) und prüft so
+>   Pause, Push, fremdes Ende und Ende an einem STEHENDEN Raum — 0 Fehler;
+>   ohne die neue Prüfung 4 rot, darunter „Anruf-Raum weg".
 
 - Ebenfalls aus dem README: vor dem Veröffentlichen des Mikrofons muss die
   Session mit `.playAndRecord` und Modus `.voiceChat`/`.videoChat`

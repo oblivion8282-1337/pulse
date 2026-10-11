@@ -22,7 +22,8 @@ extension Anrufverwaltung {
         let bekannt = uuid(fuer: kennung)
         let ausgang = Self.pushAusgang(
             art: art, bekannt: bekannt, klingelt: bekannt.map { phasen[$0] == .klingelt } ?? false,
-            kuerzlichBeendet: istKuerzlichBeendet(kennung))
+            kuerzlichBeendet: istKuerzlichBeendet(kennung),
+            ohneCallKit: !kennung.isEmpty && ohneCallKitKennung == kennung)
         NSLog("[PulseAnruf] VoIP-Push %@ %@ → %@", art.rawValue, kennung, "\(ausgang)")
         #if DEBUG
             spur.ausgang = ausgang
@@ -48,10 +49,10 @@ extension Anrufverwaltung {
 
     /// Die Oberfläche meldet einen Anruf (`ankommen`): die WebSocket war
     /// schneller als der Push. Hier gilt Apples Pflicht nicht — ein schon
-    /// gemeldeter oder eben beendeter Anruf verfällt still; ein zweiter
-    /// Bildschirm wäre ein zweiter Anruf.
+    /// gemeldeter, ein ohne CallKit laufender oder ein eben beendeter Anruf
+    /// verfällt still; ein zweiter Bildschirm wäre ein zweiter Anruf.
     func klingeln(kennung: String, name: String, video: Bool) {
-        guard uuid(fuer: kennung) == nil, !istKuerzlichBeendet(kennung) else { return }
+        guard !fuehrt(kennung), !istKuerzlichBeendet(kennung) else { return }
         neuMelden(kennung: kennung, name: name, video: video) {}
     }
 

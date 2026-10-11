@@ -69,22 +69,26 @@ import Foundation
 
         @MainActor private static func tabelle() {
             let u = UUID()
-            let ausgaenge: [(V.PushArt, UUID?, Bool, Bool, V.PushAusgang)] = [
-                (.klingeln, nil, false, false, .neuMelden),
-                (.klingeln, nil, false, true, .meldenUndSofortBeenden),
-                (.abbruch, nil, false, false, .meldenUndSofortBeenden),
-                (.abbruch, nil, false, true, .meldenUndSofortBeenden),
-                (.klingeln, u, true, false, .erneutMelden(u)),
-                (.klingeln, u, false, false, .erneutMelden(u)),
-                (.klingeln, u, true, true, .erneutMelden(u)),
-                (.abbruch, u, true, false, .erneutMeldenUndBeenden(u)),
-                (.abbruch, u, false, false, .erneutMelden(u)),
+            // (Art, bekannt, klingelt, kürzlich beendet, ohne CallKit) → Ausgang
+            let ausgaenge: [(V.PushArt, UUID?, Bool, Bool, Bool, V.PushAusgang)] = [
+                (.klingeln, nil, false, false, false, .neuMelden),
+                (.klingeln, nil, false, true, false, .meldenUndSofortBeenden),
+                (.abbruch, nil, false, false, false, .meldenUndSofortBeenden),
+                (.abbruch, nil, false, true, false, .meldenUndSofortBeenden),
+                (.klingeln, u, true, false, false, .erneutMelden(u)),
+                (.klingeln, u, false, false, false, .erneutMelden(u)),
+                (.klingeln, u, true, true, false, .erneutMelden(u)),
+                (.abbruch, u, true, false, false, .erneutMeldenUndBeenden(u)),
+                (.abbruch, u, false, false, false, .erneutMelden(u)),
+                // Ein Gespräch ohne CallKit klingelt nicht neu und endet nicht.
+                (.klingeln, nil, false, false, true, .meldenUndSofortBeenden),
+                (.abbruch, nil, false, false, true, .meldenUndSofortBeenden),
             ]
-            for (art, bekannt, klingelt, kuerzlich, erwartet) in ausgaenge {
+            for (art, bekannt, klingelt, kuerzlich, ohne, erwartet) in ausgaenge {
                 let ist = V.pushAusgang(art: art, bekannt: bekannt, klingelt: klingelt,
-                                        kuerzlichBeendet: kuerzlich)
+                                        kuerzlichBeendet: kuerzlich, ohneCallKit: ohne)
                 soll("Tabelle \(art) bekannt=\(bekannt != nil) klingelt=\(klingelt) "
-                    + "kürzlich=\(kuerzlich) → \(erwartet)", ist == erwartet)
+                    + "kürzlich=\(kuerzlich) ohneCallKit=\(ohne) → \(erwartet)", ist == erwartet)
             }
 
             soll("Folge: kein Fehler → angezeigt", V.meldungsFolge(nil) == .angezeigt)

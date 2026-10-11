@@ -62,7 +62,24 @@ final class AnrufRaum: NSObject, @unchecked Sendable {
 
     enum Fehler: LocalizedError {
         case ueberholt
-        var errorDescription: String? { "anruf_beitritt_ueberholt" }
+        /// **Ein Raum, den die Verwaltung nicht führt, entsteht gar nicht
+        /// erst.** Beendet CallKit einen Anruf, bevor sein Raum steht (Simulator:
+        /// 65–150 ms nach jeder Meldung; Gerät: Ablehnen im falschen Moment), und
+        /// kommt der Beitritt danach, stand bis zum 2026-10-11 ein Raum ohne
+        /// Eintrag, den `beenden` nicht fand — mit offenem Mikrofon.
+        ///
+        /// **Eine Prüfung, keine Reihenfolge:** das Ende kam VOR dem Beitritt,
+        /// eine Kette hätte daran nichts geändert (und Auflegen darf nicht hinter
+        /// einem hängenden Aufbau warten, `SpracheRaum.nacheinander`). Gefragt
+        /// wird, nachdem `raum` steht: ein späteres Ende findet ihn über
+        /// `verlassen(nur:)`, ein früheres macht die Antwort nein.
+        case keinAnruf
+        var errorDescription: String? {
+            switch self {
+            case .ueberholt: return "anruf_beitritt_ueberholt"
+            case .keinAnruf: return "anruf_beitritt_ohne_anruf"
+            }
+        }
     }
 
     /// Wie `SpracheRaum.nacheinander`, Begründung dort.
@@ -96,6 +113,12 @@ final class AnrufRaum: NSObject, @unchecked Sendable {
         e2eeZustand = ""
         mikrofonFehler = nil
         gegenseiteGesehen = false
+        // Nur für ein Gespräch, das die Verwaltung führt (`Fehler.keinAnruf`).
+        guard await MainActor.run(body: { Anrufverwaltung.geteilt.fuehrt(neu) }) else {
+            loesen(r)
+            NSLog("[PulseAnruf] Beitritt abgewiesen: %@ ist nicht (mehr) gebucht", neu)
+            throw Fehler.keinAnruf
+        }
         do {
             try await r.connect(url: wsUrl, token: token)
         } catch {

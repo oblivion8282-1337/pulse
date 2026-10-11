@@ -17,6 +17,8 @@ extension Anrufverwaltung: CXProviderDelegate {
     public func providerDidReset(_ provider: CXProvider) {
         for uhr in klingelUhren.values { uhr.cancel() }
         klingelUhren.removeAll()
+        // Wie jedes andere Ende: ein Push danach klingelt nicht neu.
+        for kennung in kennungen.values { kuerzlichBeendet[kennung] = Date() }
         kennungen.removeAll()
         // Die Kontexte mit: lesen könnten sie nur `melde` (braucht die eben
         // geleerte Zuordnung UUID → Kennung) und `vonDerHuelleBeendet` — und
@@ -28,8 +30,10 @@ extension Anrufverwaltung: CXProviderDelegate {
         annahmenVomWeb.removeAll()
         Task { await AnrufRaum.geteilt.verlassen() }
         sessionAktiv = false
+        // Erst das Gespräch ohne CallKit aus der Buchführung — sonst hielte
+        // die Rückgabe es für laufend und den Kanal angehalten.
+        if let ohne = ohneCallKitKennung { ohneCallKitBeendet(ohne) }
         sessionZurueckgeben()
-        ohneCallKitZurueck(kanalFreigeben: true)
     }
 
     public func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
@@ -112,10 +116,10 @@ extension Anrufverwaltung: CXProviderDelegate {
                     // Das Gespräch läuft ohne CallKit weiter — der klingelnde
                     // Eintrag muss dort weg, sonst klingelte er weiter und
                     // lehnte nach der Klingelfrist ein laufendes Gespräch ab.
-                    // Ohne `vergessen`: das gäbe die Session gleich wieder frei.
-                    self.ohneCallKitUebernehmen()
+                    // ERST buchen, dann `vergessen` (s. `gespraechBeginnen`).
+                    self.ohneCallKitUebernehmen(kennung: kennung)
                     self.anbieter?.reportCall(with: uuid, endedAt: nil, reason: .answeredElsewhere)
-                    self.stillVergessen(uuid)
+                    self.vergessen(uuid)
                 }
                 fertig()
             }
@@ -130,7 +134,9 @@ extension Anrufverwaltung: CXProviderDelegate {
 
     private func gespraechBeginnen(kennung: String, name: String, phase: Phase,
                                    fertig: @escaping () -> Void) {
-        if uuid(fuer: kennung) != nil {
+        // Auch ein Gespräch ohne CallKit zählt — sonst bekäme es beim zweiten
+        // Tipp auf „Annehmen" einen zweiten Anruf bei CallKit.
+        if fuehrt(kennung) {
             fertig()
             return
         }
@@ -144,10 +150,16 @@ extension Anrufverwaltung: CXProviderDelegate {
                 if let fehler {
                     NSLog("[PulseAnruf] CallKit hat das Gespräch abgewiesen: %@",
                           (fehler as NSError).localizedDescription)
-                    // Ohne `vergessen`: das gäbe die Session zurück, die es nie
-                    // bekommen hat.
-                    self.stillVergessen(uuid)
-                    self.ohneCallKitUebernehmen()
+                    // **Erst buchen, dann `vergessen`.** Bis zum 2026-10-11
+                    // stand hier `stillVergessen`, weil `vergessen` ein Gespräch
+                    // ohne CallKit mit beendete — das tut `letzterAnrufVorbei`
+                    // nicht mehr. Und nur `vergessen` schliesst eine Rückgabe ab,
+                    // die noch von einem vorigen Anruf aussteht: ihre Uhr und
+                    // `didDeactivate` geben nur bei leerer Buchführung zurück, und
+                    // lag dieser Eintrag gerade darin, gab sonst niemand mehr
+                    // zurück (`callkitAktiv` blieb stehen, die Maschine aus).
+                    self.ohneCallKitUebernehmen(kennung: kennung)
+                    self.vergessen(uuid)
                 } else {
                     let stand = CXCallUpdate()
                     stand.localizedCallerName = name

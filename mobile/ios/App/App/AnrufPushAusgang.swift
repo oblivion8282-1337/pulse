@@ -37,8 +37,9 @@ extension Anrufverwaltung {
         /// melden, DANN beenden. Andersherum wäre die UUID bei CallKit schon
         /// frei, und die Meldung liesse den Anruf neu klingeln.
         case erneutMeldenUndBeenden(UUID)
-        /// Kein Anruf dazu (Abbruch eines unbekannten, Klingeln eines eben
-        /// beendeten): mit einer Wegwerf-UUID melden und sofort beenden.
+        /// Kein CallKit-Anruf dazu (Abbruch eines unbekannten, Klingeln eines
+        /// eben beendeten oder eines Gesprächs, das ohne CallKit läuft): mit
+        /// einer Wegwerf-UUID melden und sofort beenden.
         case meldenUndSofortBeenden
     }
 
@@ -68,12 +69,18 @@ extension Anrufverwaltung {
     /// **Ein Abbruch beendet nur einen KLINGELNDEN Anruf.** Ein angenommenes
     /// Gespräch beendet der Server nicht per Push (`anruf_push.py`); käme doch
     /// einer, wird er gemeldet und das Gespräch läuft weiter.
+    ///
+    /// **`ohneCallKit`: das Gespräch läuft, aber CallKit kennt es nicht** (es
+    /// hatte abgewiesen). Ein Push dafür darf es nicht neu klingeln lassen —
+    /// das klingelte für ein laufendes Gespräch —, melden muss er trotzdem;
+    /// es gilt derselbe Ausgang wie ohne Anruf. Ein Abbruch berührt es nicht.
     static func pushAusgang(art: PushArt, bekannt: UUID?, klingelt: Bool,
-                            kuerzlichBeendet: Bool) -> PushAusgang {
+                            kuerzlichBeendet: Bool, ohneCallKit: Bool) -> PushAusgang {
         if let bekannt {
             return art == .abbruch && klingelt ? .erneutMeldenUndBeenden(bekannt) : .erneutMelden(bekannt)
         }
-        return art == .abbruch || kuerzlichBeendet ? .meldenUndSofortBeenden : .neuMelden
+        let neu = art == .klingeln && !kuerzlichBeendet && !ohneCallKit
+        return neu ? .neuMelden : .meldenUndSofortBeenden
     }
 
     /// Ein Duplikat erkennt man an Domäne UND Code — eine `2` aus einer
