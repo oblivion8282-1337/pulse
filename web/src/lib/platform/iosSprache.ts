@@ -15,10 +15,11 @@
  * `nativerSprachwegDa()` ist dort `false`, und der bestehende Weg bleibt.
  */
 
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import { registerPlugin } from '@capacitor/core';
 
 import { isCapacitorIOS } from './runtime';
 import { tonNativerRaum } from './iosTon';
+import { mitFrist, SPRACHE_FRIST_KETTE_MS, SPRACHE_FRIST_SOFORT_MS } from './brueckenFrist';
 import type {
   NativerEigenerZustand,
   NativerTeilnehmer,
@@ -28,8 +29,10 @@ import type {
 } from './iosSpracheTypen';
 
 // Weitergereicht, damit die Aufrufer ihren Import nicht ändern müssen — die
-// Typen sind Teil DIESER Schnittstelle, sie liegen nur woanders.
+// Typen und die Weiche sind Teil DIESER Schnittstelle, sie liegen nur woanders
+// (die Weiche in `iosSpracheWeiche.ts`, Begründung dort).
 export type { NativerEigenerZustand, NativerTeilnehmer, NativerWunsch, NativerZustand };
+export { nativerSprachwegBefund, nativerSprachwegDa } from './iosSpracheWeiche';
 
 /**
  * **Über `registerPlugin`, nicht über `window.Capacitor.Plugins` — und das ist
@@ -61,48 +64,14 @@ function plugin(): SprachePlugin | null {
   return isCapacitorIOS() ? nativ : null;
 }
 
-/**
- * **Notschalter. AN seit dem 2026-10-10** (Eigentümer-Entscheid: der native
- * Weg soll es werden, und zwar sauber).
- *
- * Er bleibt als Schalter stehen, weil die Web-App zentral ausgeliefert wird
- * und JEDES Telefon sofort erreicht: wer hier etwas kaputtmacht, nimmt allen
- * iOS-Nutzern die Sprache, bis ein neuer Bau draussen ist. Mit dem Schalter
- * ist der Rückweg eine Zeile.
- *
- * **Er hat an genau diesem Tag schon einmal Zeit gekostet:** auf `false`
- * gesetzt und dann vergessen, liefen vier Messläufe unbemerkt auf dem ALTEN
- * Weg — die Oberfläche sah richtig aus, nur die Zahlen gehörten zu etwas
- * anderem. Wer hier misst, prüft diesen Wert ZUERST.
- */
-const NATIVER_SPRACHWEG_AN = true;
-
-/**
- * Trägt diese App den nativen Weg?
- *
- * **Die Prüfung auf das Plugin ist nicht Zierde, sondern Pflicht.** Web und
- * Hülle werden getrennt ausgeliefert: die Oberfläche kommt bei jedem Start
- * frisch vom Server, die App nur über den Store. Ein Telefon mit älterem
- * Binary bekommt diese Datei also, ohne das Plugin zu haben — ohne diese
- * Weiche gäbe es dort gar keine Sprache mehr.
- */
-export function nativerSprachwegDa(): boolean {
-  if (!NATIVER_SPRACHWEG_AN) return false;
-  if (!isCapacitorIOS()) return false;
-  // **Gefragt wird die HÜLLE, nicht `Capacitor.Plugins`.** Hier stand bis zum
-  // 2026-10-11 `Plugins.SprachePlugin !== undefined` — und das war immer
-  // wahr: `registerPlugin` oben schreibt den Eintrag beim Import dieser Datei
-  // selbst hinein, ob die Hülle das Plugin hat oder nicht. Auf jedem älteren
-  // App-Bau lief der Beitritt damit in `UNIMPLEMENTED`, ohne Rückfall auf den
-  // Web-Weg: keine Sprache, sobald dieser Web-Stand ausgeliefert ist
-  // (Bughunt 2026-10-11, K1, in Node nachgebaut).
-  //
-  // `isPluginAvailable` liest die Kopfzeilen, die die Hülle beim Laden der
-  // Seite einspielt (`Capacitor.PluginHeaders`) — und die kommen nur für
-  // Plugins, die der Bau wirklich trägt. Das Verhalten beider Wege ist in
-  // `test/ios-sprache-weiche.test.ts` gegen das echte `@capacitor/core`
-  // festgehalten.
-  return Capacitor.isPluginAvailable('SprachePlugin');
+/** Einen Befehl an die Hülle, mit Frist. `null` ausserhalb der Hülle. */
+function rufen<T>(
+  befehl: string,
+  frist: number,
+  ruf: (p: SprachePlugin) => Promise<T>
+): Promise<T | null> {
+  const p = plugin();
+  return p ? mitFrist(ruf(p), frist, befehl) : Promise.resolve(null);
 }
 
 /**
@@ -235,7 +204,9 @@ export async function spracheBeitreten(
  */
 export async function spracheVerlassen(sitzung?: number): Promise<void> {
   try {
-    await plugin()?.verlassen(sitzung === undefined ? {} : { sitzung });
+    await rufen('verlassen', SPRACHE_FRIST_SOFORT_MS, (p) =>
+      p.verlassen(sitzung === undefined ? {} : { sitzung })
+    );
   } finally {
     // Ein gezieltes Verlassen eines schon abgelösten Raums ändert am
     // laufenden nichts — dann bleibt auch WebKits Erklärung stehen.
@@ -258,7 +229,7 @@ export function spracheRaumWeg(): void {
 }
 
 export async function spracheMikrofon(an: boolean): Promise<NativerZustand | null> {
-  return plugin()?.mikrofon({ an }) ?? null;
+  return rufen('mikrofon', SPRACHE_FRIST_KETTE_MS, (p) => p.mikrofon({ an }));
 }
 
 /**
@@ -271,27 +242,30 @@ export async function spracheMikrofon(an: boolean): Promise<NativerZustand | nul
  * Funktion**, weil es nach aussen aussieht wie eine vorhandene.
  */
 export async function spracheTaub(an: boolean): Promise<NativerZustand | null> {
-  return plugin()?.taub({ an }) ?? null;
+  return rufen('taub', SPRACHE_FRIST_KETTE_MS, (p) => p.taub({ an }));
 }
 
 /**
  * Lautstärke je Nutzer und gesamt — immer die ganze Tabelle (Begründung an
- * `lautstaerken` in `SprachePlugin.swift`). Eine ältere Hülle kennt den
- * Befehl nicht und lehnt ab; der Aufrufer schluckt das.
+ * `lautstaerken` in `SprachePlugin.swift`). Eine Hülle, die den Befehl nicht
+ * kennt, erreicht diese Stelle nicht mehr: die Weiche lässt sie beim Web-Weg
+ * (`SPRACHE_METHODEN`).
  */
 export async function spracheLautstaerken(
   je: Record<string, number>,
   gesamt: number
 ): Promise<void> {
-  await plugin()?.lautstaerken({ lautstaerken: je, gesamt });
+  await rufen('lautstaerken', SPRACHE_FRIST_KETTE_MS, (p) =>
+    p.lautstaerken({ lautstaerken: je, gesamt })
+  );
 }
 
 export async function spracheKamera(an: boolean): Promise<NativerZustand | null> {
-  return plugin()?.kamera({ an }) ?? null;
+  return rufen('kamera', SPRACHE_FRIST_KETTE_MS, (p) => p.kamera({ an }));
 }
 
 export async function spracheKameraSeite(front: boolean): Promise<NativerZustand | null> {
-  return plugin()?.kameraSeite({ front }) ?? null;
+  return rufen('kameraSeite', SPRACHE_FRIST_KETTE_MS, (p) => p.kameraSeite({ front }));
 }
 
 /**
@@ -305,21 +279,21 @@ export async function spracheKameraSeite(front: boolean): Promise<NativerZustand
  * ein Wischen nach unten darf nicht versehentlich auflegen.
  */
 export async function spracheAnsichtOeffnen(): Promise<NativerZustand | null> {
-  return plugin()?.ansichtOeffnen() ?? null;
+  return rufen('ansichtOeffnen', SPRACHE_FRIST_SOFORT_MS, (p) => p.ansichtOeffnen());
 }
 
 export async function spracheAnsichtSchliessen(): Promise<NativerZustand | null> {
-  return plugin()?.ansichtSchliessen() ?? null;
+  return rufen('ansichtSchliessen', SPRACHE_FRIST_SOFORT_MS, (p) => p.ansichtSchliessen());
 }
 
 export async function spracheAusgabe(
   weg: 'lautsprecher' | 'hoermuschel'
 ): Promise<NativerZustand | null> {
-  return plugin()?.ausgabe({ weg }) ?? null;
+  return rufen('ausgabe', SPRACHE_FRIST_SOFORT_MS, (p) => p.ausgabe({ weg }));
 }
 
 export async function spracheZustand(): Promise<NativerZustand | null> {
-  return plugin()?.zustand() ?? null;
+  return rufen('zustand', SPRACHE_FRIST_SOFORT_MS, (p) => p.zustand());
 }
 
 /** Alle Ereignisse der Hülle anmelden. Gibt den Abmelder zurück. */

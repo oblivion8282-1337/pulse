@@ -1,5 +1,8 @@
 /**
  * Die Formen an der Grenze zur iOS-Hülle — nur Gestalt, kein Verhalten.
+ * Dazu zählt die Liste der Methoden (`SPRACHE_METHODEN`): sie ist die
+ * Schnittstelle zur Laufzeit, und sie muss hier stehen, damit der Typ sie
+ * vollständig hält.
  *
  * **Warum getrennt von `iosSprache.ts`:** dort steht, was die Brücke TUT,
  * samt der Messungen, die dahinterstehen; zusammen lag die Datei über der
@@ -143,3 +146,35 @@ export interface SprachePlugin {
   ): Promise<{ remove: () => void }>;
   addListener(name: 'wunsch', cb: (e: NativerWunsch) => void): Promise<{ remove: () => void }>;
 }
+
+/**
+ * Jede Methode, die die Oberfläche auf dem nativen Weg an der Hülle ruft — die
+ * Liste, gegen die die Weiche den installierten Bau prüft
+ * (`iosSpracheWeiche.ts`). Der Bau muss ALLE kennen, sonst bleibt es beim
+ * Web-Weg: ein halber nativer Weg sieht funktionierend aus, wo er es nicht
+ * ist (so lief es mit dem Taubstellen, s. `spracheTaub`).
+ *
+ * **Vom Typ erzwungen vollständig.** Die Schlüssel sind genau die von
+ * `SprachePlugin`: wer dort eine Methode ergänzt, bekommt hier einen
+ * Typfehler, bis sie auch in der Liste steht. Eine zweite, von Hand gepflegte
+ * Aufzählung liefe beim nächsten Zuwachs auseinander — und niemand merkte es,
+ * weil der eigene Bau ja alles kennt.
+ *
+ * `addListener` steht mit drin, obwohl Capacitor es jedem Kopf von sich aus
+ * beigibt: die Liste soll die Schnittstelle abbilden, nicht raten, was der
+ * Kern ergänzt.
+ */
+export const SPRACHE_METHODEN: readonly string[] = Object.keys({
+  beitreten: true,
+  verlassen: true,
+  lautstaerken: true,
+  mikrofon: true,
+  taub: true,
+  ausgabe: true,
+  kamera: true,
+  kameraSeite: true,
+  ansichtOeffnen: true,
+  ansichtSchliessen: true,
+  zustand: true,
+  addListener: true
+} satisfies Record<keyof SprachePlugin, true>);

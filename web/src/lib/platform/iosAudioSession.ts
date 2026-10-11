@@ -1,3 +1,4 @@
+import { huelleKennt } from './huelleKann';
 import { isCapacitorIOS } from './runtime';
 
 /**
@@ -74,11 +75,24 @@ interface AudioSessionPlugin {
   ): Promise<{ remove: () => void }>;
 }
 
-function plugin(): AudioSessionPlugin | null {
+/**
+ * Das Plugin — aber nur, wenn der installierte Bau `methode` kennt.
+ *
+ * **Das rohe `Capacitor.Plugins`-Objekt hat genau die Methoden SEINES Baus.**
+ * Fünf kamen erst zwei Tage nach dem Plugin (`routen`, `routeSetzen`,
+ * `jetztLaeuft`, `jetztLaeuftAus`, `airplayWaehler`, alle 2026-10-08; das
+ * Plugin selbst 2026-10-06). Auf einem Bau dazwischen sind sie `undefined`,
+ * und ihr Aufruf wäre ein `TypeError` statt der Rückfall-Antwort, die jede
+ * Funktion hier verspricht (`null`, `false`, nichts). Hängen kann dabei
+ * nichts (`huelleKann.ts`); gefragt wird trotzdem an derselben Stelle wie
+ * überall.
+ */
+function plugin(methode: keyof AudioSessionPlugin): AudioSessionPlugin | null {
   if (typeof window === 'undefined') return null;
   const cap = (window as Window & { Capacitor?: { Plugins?: Record<string, unknown> } })
     .Capacitor;
-  return (cap?.Plugins?.AudioSessionPlugin as AudioSessionPlugin | undefined) ?? null;
+  const p = cap?.Plugins?.AudioSessionPlugin as AudioSessionPlugin | undefined;
+  return p && huelleKennt('AudioSessionPlugin', methode) ? p : null;
 }
 
 /**
@@ -102,7 +116,7 @@ export async function iosVoiceAktiv(
   hqFunk = false
 ): Promise<{ modus: string; weg: string | null; ok: boolean }> {
   if (!isCapacitorIOS()) return { modus: 'unbekannt', weg: null, ok: false };
-  const p = plugin();
+  const p = plugin('setVoiceActive');
   if (!p) return { modus: 'unbekannt', weg: null, ok: false };
   const antwort = await p.setVoiceActive({ aktiv, hqFunk }).catch((e: unknown) => {
     // **Nicht stillschweigend verschlucken.** Scheitert das Einrichten, ist
@@ -126,7 +140,7 @@ export async function iosVoiceAktiv(
  *  eingerichtet (s. `ok` an `iosVoiceAktiv`). */
 export async function iosPlaybackModus(): Promise<boolean> {
   if (!isCapacitorIOS()) return false;
-  const p = plugin();
+  const p = plugin('setPlaybackMode');
   if (!p) return false;
   return p
     .setPlaybackMode()
@@ -148,7 +162,7 @@ export async function iosPlaybackModus(): Promise<boolean> {
  */
 export async function iosTonWege(): Promise<TonWege | null> {
   if (!isCapacitorIOS()) return null;
-  const p = plugin();
+  const p = plugin('routen');
   if (!p) return null;
   return p.routen().catch(() => null);
 }
@@ -156,7 +170,7 @@ export async function iosTonWege(): Promise<TonWege | null> {
 /** Einen Ausgabeweg erzwingen. `false`, wenn er nicht (mehr) da ist. */
 export async function iosTonWegSetzen(id: string): Promise<boolean> {
   if (!isCapacitorIOS()) return false;
-  const p = plugin();
+  const p = plugin('routeSetzen');
   if (!p) return false;
   return p
     .routeSetzen({ id })
@@ -178,7 +192,7 @@ export async function iosTonWegSetzen(id: string): Promise<boolean> {
  */
 export function iosUnterbrechungen(cb: (e: Unterbrechung) => void): () => void {
   if (!isCapacitorIOS()) return () => undefined;
-  const p = plugin();
+  const p = plugin('addListener');
   if (!p) return () => undefined;
   const griff = p.addListener('unterbrechung', cb);
   return () => void griff.then((h) => h.remove()).catch(() => undefined);
@@ -187,7 +201,7 @@ export function iosUnterbrechungen(cb: (e: Unterbrechung) => void): () => void {
 /** Wegwechsel melden (Headset rein/raus, AirPods verbunden). */
 export function iosWegWechsel(cb: (e: WegWechsel) => void): () => void {
   if (!isCapacitorIOS()) return () => undefined;
-  const p = plugin();
+  const p = plugin('addListener');
   if (!p) return () => undefined;
   // **Die Nutzlast wird durchgereicht, nicht verworfen.** Sie war von Anfang
   // an da (`routeGewechselt` in `AudioSessionPlugin.swift`); dass dieser
@@ -200,19 +214,19 @@ export function iosWegWechsel(cb: (e: WegWechsel) => void): () => void {
 /** Was gerade läuft, auf Sperrbildschirm und Kontrollzentrum anzeigen. */
 export async function iosJetztLaeuft(titel: string, zeile2: string): Promise<void> {
   if (!isCapacitorIOS()) return;
-  await plugin()?.jetztLaeuft({ titel, zeile2 }).catch(() => undefined);
+  await plugin('jetztLaeuft')?.jetztLaeuft({ titel, zeile2 }).catch(() => undefined);
 }
 
 /** Anzeige wieder abräumen. */
 export async function iosJetztLaeuftAus(): Promise<void> {
   if (!isCapacitorIOS()) return;
-  await plugin()?.jetztLaeuftAus().catch(() => undefined);
+  await plugin('jetztLaeuftAus')?.jetztLaeuftAus().catch(() => undefined);
 }
 
 /** Knopfdrücke vom Sperrbildschirm (`laut`/`stumm`). Rückgabe = Abriss. */
 export function iosFernbefehle(cb: (befehl: 'laut' | 'stumm') => void): () => void {
   if (!isCapacitorIOS()) return () => undefined;
-  const p = plugin();
+  const p = plugin('addListener');
   if (!p) return () => undefined;
   const griff = p.addListener('fernbefehl', (e) => cb(e.befehl));
   return () => void griff.then((h) => h.remove()).catch(() => undefined);
@@ -228,7 +242,7 @@ export function iosFernbefehle(cb: (befehl: 'laut' | 'stumm') => void): () => vo
  */
 export async function iosAirplayWaehler(): Promise<boolean> {
   if (!isCapacitorIOS()) return false;
-  const p = plugin();
+  const p = plugin('airplayWaehler');
   if (!p) return false;
   return p
     .airplayWaehler()

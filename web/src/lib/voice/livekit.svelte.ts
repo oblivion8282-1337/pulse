@@ -58,7 +58,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { istAblehnung, standMerken } from '$lib/platform/berechtigung.svelte';
 import { isMobile } from '$lib/platform/runtime';
-import { nativerSprachwegDa } from '$lib/platform/iosSprache';
+import { nativerSprachwegBefund } from '$lib/platform/iosSprache';
 import { NativerRaum } from './nativerRaum.svelte';
 import { melde } from '$lib/diagnose/app-diagnose';
 import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
@@ -491,16 +491,19 @@ class VoiceRoom {
     // Grund.** Am 2026-10-10 liefen vier Messläufe unbemerkt auf dem ALTEN
     // Weg, weil ein vergessener Schalter ihn abgeschaltet hatte. Von aussen
     // sah alles richtig aus; nur die Zahlen gehörten zu etwas anderem. Seither
-    // sagt die App, wofür sie sich entschieden hat.
+    // sagt die App, wofür sie sich entschieden hat — und seit dem 2026-10-11
+    // auch, WARUM (`grund`, bei einem zu alten App-Bau samt `fehlen`: welche
+    // Methoden ihm fehlen; s. `iosSpracheWeiche.ts`).
+    const weiche = nativerSprachwegBefund();
     try {
       localStorage.setItem(
         'pulse.diag.weiche',
-        JSON.stringify({ zeit: new Date().toISOString(), nativ: nativerSprachwegDa() })
+        JSON.stringify({ zeit: new Date().toISOString(), ...weiche })
       );
     } catch {
       /* Diagnose darf nie der Grund sein, dass ein Beitritt scheitert. */
     }
-    if (nativerSprachwegDa()) {
+    if (weiche.nativ) {
       // `this.micEnabled` wird erst weiter unten gesetzt und trägt hier noch
       // den Stand des vorigen Kanals. Die Absicht steht in `opts`.
       await this.#nativ.verbinden(resp.ws_url, resp.token, channelId, channelName, gen, {

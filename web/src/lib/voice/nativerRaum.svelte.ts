@@ -1,4 +1,5 @@
 import { ConnectionState } from 'livekit-client';
+import { toast } from 'svelte-sonner';
 
 import { m } from '$lib/paraglide/messages.js';
 import { guilds } from '$lib/stores/guilds.svelte';
@@ -100,7 +101,9 @@ export class NativerRaum {
     // — `sitzung` sorgt dafür, dass ein inzwischen gestarteter neuerer nicht
     // mitgerissen wird (Bughunt 2026-10-11, M6).
     if (!this.#haken.aktuell(gen)) {
-      await spracheVerlassen(z.sitzung ?? undefined);
+      await spracheVerlassen(z.sitzung ?? undefined).catch((e: unknown) => {
+        console.error('[Sprache] Überholten Raum verlassen fehlgeschlagen', e);
+      });
       return;
     }
     w.state = ConnectionState.Connected;
@@ -158,7 +161,17 @@ export class NativerRaum {
     this.zuruecksetzen();
     this.#wirt.participants = [];
     this.#wirt.localSpeaking = false;
-    await spracheVerlassen();
+    // **Schweigt die Hülle, geht die Oberfläche trotzdem** — die Frist in
+    // `iosSprache.ts` beendet das Warten, und ein Nutzer, der nicht auflegen
+    // kann, ist der schlimmere Zustand. Gesagt wird es aber: ob die Hülle den
+    // Raum wirklich verlassen hat, weiss hier niemand. Nicht weiterwerfen —
+    // ein Kanalwechsel wartet in `connect` auf dieses Auflegen und bräche
+    // sonst mit ab; sein `beitreten` räumt einen alten Raum in der Hülle
+    // ohnehin zuerst ab (`SpracheRaum.beitreten`).
+    await spracheVerlassen().catch((e: unknown) => {
+      console.error('[Sprache] Verlassen nicht bestätigt', e);
+      toast.error(m.livekit_leave_unconfirmed());
+    });
   }
 
   /** Spiegel abmelden und vergessen — aus `#teardown`, also für jeden Weg
