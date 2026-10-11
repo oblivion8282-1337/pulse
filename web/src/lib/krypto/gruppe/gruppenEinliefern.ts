@@ -153,14 +153,18 @@ export async function einliefernEinmal(
    *  braucht sie SICHTBAR: nur mit ihnen bindet er die Anhänge an die
    *  Zustellungen (`postfach_anhaenge.py::binde_anhaenge`). Ohne Bindung
    *  verweigert der Abrufweg jedem Empfaenger die Bytes (404). */
-  anhangIds: string[] = []
+  anhangIds: string[] = [],
+  /** `false` für Steuer-Umschläge (Verteilschlüssel, Reaktion, Bearbeitung,
+   *  Löschung, Anruf-Schlüssel) — s. `benachrichtigen` in `api/postfach.ts`. */
+  benachrichtigen = true
 ): Promise<string[]> {
   const ergebnis = await postfachApi.einliefern(
     {
       channel_id: kanalId,
       device_pubkey: geraeteKennung,
       nutzlasten,
-      ...(anhangIds.length > 0 ? { anhaenge: anhangIds } : {})
+      ...(anhangIds.length > 0 ? { anhaenge: anhangIds } : {}),
+      ...(benachrichtigen ? {} : { benachrichtigen: false })
     },
     cloudRoute()
   );
@@ -188,7 +192,8 @@ export async function bloeckeEinliefern(
   kanalId: string,
   geraeteKennung: string,
   bloecke: PostfachNutzlast[][],
-  anhangIds: string[] = []
+  anhangIds: string[] = [],
+  benachrichtigen = true
 ): Promise<{ beliefert: Set<string>; letzterFehler: unknown }> {
   const beliefert = new Set<string>();
   let letzterFehler: unknown;
@@ -199,7 +204,8 @@ export async function bloeckeEinliefern(
         kanalId,
         geraeteKennung,
         block,
-        anhangIds
+        anhangIds,
+        benachrichtigen
       );
       for (const g of geraeteImBlock) {
         if (!uebersprungeneDesBlocks.includes(g)) beliefert.add(g);

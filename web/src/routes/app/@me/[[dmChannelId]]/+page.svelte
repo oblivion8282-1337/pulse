@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import GuildRail from '$lib/components/GuildRail.svelte';
@@ -37,6 +37,8 @@
   import { berechneSynthChannel } from '$lib/components/chat/dmSynthChannel';
   import { erstelleDmKanalWechsel } from '$lib/components/chat/dmKanalWechsel.svelte';
   import { sendeDmNachricht } from '$lib/components/chat/dmSenden';
+  import { bannerAntworten } from '$lib/platform/bannerAntwort.svelte';
+  import { drafts } from '$lib/stores/drafts.svelte';
   import {
     nachrichtBearbeiten,
     nachrichtLoeschen,
@@ -215,6 +217,20 @@
       melden
     });
   }
+
+  // Antwort aus dem Mitteilungs-Banner (iOS): senden, sobald die Seite den
+  // Kanal kennt — Begründung in `platform/bannerAntwort.svelte.ts`. Gesperrt
+  // (keine Freundschaft) oder gescheitert: als Entwurf zurück ins Feld.
+  $effect(() => {
+    const id = dmChannelId;
+    if (!id || !(activeDM || aktiveGruppe) || bannerAntworten.fuer(id) === undefined) return;
+    untrack(() => {
+      const text = bannerAntworten.nehmen(id);
+      if (!text) return;
+      if (dmSperre) drafts.set(id, text);
+      else sendMessage(text, null, [], [], (ok) => !ok && drafts.set(id, text));
+    });
+  });
 
   // Aktions-Umschläge (Reaktion/Bearbeitung/Löschen, P1.5): bei einer DM
   // läuft der Frame per Olm-Paarung an die Gegenstelle, in einer

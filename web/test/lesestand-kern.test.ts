@@ -79,3 +79,39 @@ test('serverStandUeberholt vergleicht ueber die Stellen-Grenze', () => {
 	// Gegenteil (dieselbe Falle wie bei compareSnowflakeId selbst).
 	assert.equal(serverStandUeberholt('100000000000000000', '99999999999999999'), true);
 });
+
+test('startGelesenBis: eigene letzte Nachricht gilt als gelesen (T13)', async () => {
+  const { startGelesenBis } = await import('../src/lib/stores/lesestandKern.ts');
+  assert.equal(
+    startGelesenBis({
+      letzteNachricht: '900000000000000009',
+      letzterAutor: '42',
+      ich: '42',
+      serverStand: '900000000000000001',
+      lokalerStand: undefined
+    }),
+    '900000000000000009'
+  );
+});
+
+test('startGelesenBis: gar kein Lesestand (frische Installation) gilt als gelesen', async () => {
+  const { startGelesenBis } = await import('../src/lib/stores/lesestandKern.ts');
+  assert.equal(
+    startGelesenBis({
+      letzteNachricht: '900000000000000009',
+      letzterAutor: '7',
+      ich: '42',
+      serverStand: null,
+      lokalerStand: undefined
+    }),
+    '900000000000000009'
+  );
+});
+
+test('startGelesenBis: mit einem Lesestand entscheidet der gewöhnliche Vergleich', async () => {
+  const { startGelesenBis } = await import('../src/lib/stores/lesestandKern.ts');
+  const grund = { letzteNachricht: '900000000000000009', letzterAutor: '7', ich: '42' };
+  assert.equal(startGelesenBis({ ...grund, serverStand: '900000000000000001', lokalerStand: undefined }), null);
+  assert.equal(startGelesenBis({ ...grund, serverStand: null, lokalerStand: '900000000000000001' }), null);
+  assert.equal(startGelesenBis({ ...grund, letzteNachricht: null, serverStand: null, lokalerStand: undefined }), null);
+});

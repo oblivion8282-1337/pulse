@@ -1,8 +1,14 @@
 import { request } from '$lib/api/client';
-import { darfMelden, type Drosselstand } from './badgeDrossel';
+import { serversStore } from '$lib/api/servers.svelte';
+import { darfMelden, serverStandUnsicher, type Drosselstand } from './badgeDrossel';
 
 /** Drosselstand dieser Sitzung — was zuletzt gemeldet wurde und wann. */
 const stand: Drosselstand = { letzterWert: null, letzteZeit: 0, bereit: false };
+/** Zuletzt GERECHNETER Wert — auch wenn er nicht gemeldet wurde. Den braucht
+ *  `badgeMeldungFreigeben`, um nach dem Wiederverbinden nachzumelden. */
+let gerechnet: number | null = null;
+/** Steht ein Nachmelden an (`badgeNachVerbindung`)? */
+let nachmelden = false;
 
 /**
  * Den eigenen Ungelesen-Stand an den Server melden, damit er ihn im Push
@@ -16,24 +22,29 @@ const stand: Drosselstand = { letzterWert: null, letzteZeit: 0, bereit: false };
  *
  * **Gilt für JEDE Plattform, nicht nur die iOS-Hülle.** Wer am Rechner liest,
  * soll damit die Plakette am Telefon abräumen — dieselbe Erwartung wie bei
- * WhatsApp Web. Der Aufruf geht an den AKTIVEN Server, genau wie die
- * FCM-Token-Meldung daneben (`fcm.ts::meldeAn`): Pushes verschickt der
- * Server, der den Token hält.
+ * WhatsApp Web. Der Aufruf geht an die CLOUD: nur sie verschickt Pushes (sie
+ * gelten DMs, und die sind Cloud-only), also führt nur sie den Zähler. Bis
+ * zum 2026-10-11 ging er an den AKTIVEN Server — mit einem Self-Host davor
+ * setzte das dessen Zähler zurück, während der in der Cloud weiter wuchs
+ * (Bughunt T2).
  */
 export function badgeMelden(wert: number): void {
+  gerechnet = wert;
   const jetzt = Date.now();
   if (!darfMelden(stand, wert, jetzt)) return;
   const vorher = stand.letzterWert;
   stand.letzterWert = wert;
   stand.letzteZeit = jetzt;
-  void request<void>('/fcm/badge', { method: 'POST', body: { anzahl: wert } }).catch(
-    () => {
-      // Fehlgeschlagen (offline, 429, nicht angemeldet): den Merker
-      // zurücknehmen, sonst gilt ein nie angekommener Wert als gemeldet und
-      // der nächste Durchlauf schweigt über denselben Stand.
-      if (stand.letzterWert === wert) stand.letzterWert = vorher;
-    }
-  );
+  void request<void>(
+    '/fcm/badge',
+    { method: 'POST', body: { anzahl: wert } },
+    { serverId: serversStore.cloudId() }
+  ).catch(() => {
+    // Fehlgeschlagen (offline, 429, nicht angemeldet): den Merker
+    // zurücknehmen, sonst gilt ein nie angekommener Wert als gemeldet und
+    // der nächste Durchlauf schweigt über denselben Stand.
+    if (stand.letzterWert === wert) stand.letzterWert = vorher;
+  });
 }
 
 /**
@@ -47,6 +58,27 @@ export function badgeMelden(wert: number): void {
  */
 export function badgeMeldungFreigeben(): void {
   stand.bereit = true;
+  if (!nachmelden) return;
+  nachmelden = false;
+  serverStandUnsicher(stand);
+  // Hat sich die Zahl durch das Abholen geändert, meldet der `$effect` sie
+  // gleich selbst. Hat sie sich NICHT geändert, läuft er nicht — dann
+  // meldet dieser Nachzügler sie (im nächsten Takt, damit der `$effect` mit
+  // der frischen Zahl zuerst dran ist).
+  setTimeout(() => {
+    if (stand.letzterWert === null && gerechnet !== null) badgeMelden(gerechnet);
+  }, 0);
+}
+
+/**
+ * Die Verbindung zur Cloud steht (wieder) — `ready`. Das nächste Freigeben
+ * meldet den Stand neu, auch wenn er gleich geblieben ist: der Server hat in
+ * der Zwischenzeit womöglich selbst hochgezählt (`serverStandUnsicher`,
+ * Bughunt T12). Nur hier, nicht bei jedem `postfach_neu`: solange eine
+ * Verbindung offen ist, pusht der Server nicht und zählt nichts.
+ */
+export function badgeNachVerbindung(): void {
+  nachmelden = true;
 }
 
 /** Nach dem Abmelden: der nächste Anmelder soll seinen Stand frisch melden
@@ -56,4 +88,6 @@ export function badgeMeldungZuruecksetzen(): void {
   stand.letzterWert = null;
   stand.letzteZeit = 0;
   stand.bereit = false;
+  gerechnet = null;
+  nachmelden = false;
 }

@@ -107,6 +107,12 @@ export const postfachApi = {
        *  Einlieferung dieselbe Nachricht sind — nur je Empfaengergeraet
        *  verschluesselt. Weglassen = keine Anhaenge (Server-Vorgabe `[]`). */
       anhaenge?: string[];
+      /** `false` für Steuer-Umschläge (Reaktion, Bearbeitung, Löschung,
+       *  Anruf- und Verteilschlüssel): der Server kann den Umschlag nicht
+       *  öffnen, also muss man es ihm sagen — sonst meldete jede Reaktion
+       *  „Neue Nachricht" und zählte die Plakette am Icon hoch (Bughunt
+       *  2026-10-11, T11). Weglassen = benachrichtigen (Server-Vorgabe). */
+      benachrichtigen?: boolean;
     },
     route: { serverId?: string } = {}
   ): Promise<PostfachEinliefernErgebnis | undefined> {

@@ -116,7 +116,9 @@ async function versendeGruppenFrame(
     const { beliefert: schluesselBeliefert } = await bloeckeEinliefern(
       kanalId,
       eigeneKennung,
-      inBloecke(schluesselUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
+      inBloecke(schluesselUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE),
+      [],
+      false // Verteilschlüssel: keine Mitteilung (Bughunt T11)
     );
     const frameUmschlaege: PostfachNutzlast[] = inEmpfaengerBloecke(alleGeraete).map(
       (block) => ({ art: ART_GRUPPENNACHRICHT, daten, empfaenger: block })
@@ -124,7 +126,9 @@ async function versendeGruppenFrame(
     const { beliefert: frameBeliefert, letzterFehler } = await bloeckeEinliefern(
       kanalId,
       eigeneKennung,
-      inBloecke(frameUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
+      inBloecke(frameUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE),
+      [],
+      false // Steuer-Frame (Reaktion, Bearbeitung, Löschung, Anruf-Schlüssel)
     );
 
     if (frameBeliefert.size === 0) {

@@ -18,7 +18,8 @@
 
 import { goto } from '$app/navigation';
 import { request } from '$lib/api/client';
-import { drafts } from '$lib/stores/drafts.svelte';
+import { serversStore } from '$lib/api/servers.svelte';
+import { bannerAntworten } from './bannerAntwort.svelte';
 import { isCapacitorAndroid, isCapacitorIOS } from './runtime';
 import { badgeNachziehen } from './badge';
 import { berechtigungsblatt } from './berechtigung.svelte';
@@ -61,24 +62,35 @@ function plugin(): FcmPlugin | null {
  */
 const KANAL_ID = 'messages';
 
+/**
+ * **An die CLOUD, nicht an den aktiven Server.** Pushes verschickt nur sie —
+ * sie gelten DMs (`fcm.py::fan_out_fcm_dm_push`), und DMs sind Cloud-only.
+ * Mit einem Self-Host davor landete der Token bis zum 2026-10-11 dort, und
+ * die Cloud kannte ihn nie (dieselbe Klasse wie VoIP-Token und Badge,
+ * Bughunt T2).
+ */
+function cloud(): { serverId?: string } {
+  return { serverId: serversStore.cloudId() };
+}
+
 async function meldeAn(fcm: FcmPlugin): Promise<void> {
   const { token } = await fcm.getToken();
-  await request<void>('/fcm/token', {
-    method: 'POST',
-    body: { token, geraet_id: pushGeraetId() }
-  });
+  await request<void>(
+    '/fcm/token',
+    { method: 'POST', body: { token, geraet_id: pushGeraetId() } },
+    cloud()
+  );
 }
 
 /**
  * Push-Tap → Deep-Link in den DM-Chat (Kanal ohne Guild → `/app/@me`).
  *
  * Die Aktion „Antworten" bringt den im Banner getippten Text mit. Er wird
- * NICHT hier gesendet, sondern als Entwurf hinterlegt: Senden heisst bei
- * einer verschlüsselten DM, eine Sitzung aufzubauen und den Umschlag zu
- * bauen — das gehört in den Chat, der gerade aufgeht, nicht in einen
- * Ereignis-Handler. Der Nutzer sieht seinen Text im Eingabefeld stehen und
- * drückt Senden; was dazwischen schiefgehen kann, zeigt die Oberfläche dann
- * an, statt still zu scheitern.
+ * nicht HIER gesendet — Senden heisst bei einer verschlüsselten DM, eine
+ * Sitzung aufzubauen und den Umschlag zu bauen, und das gehört in den Chat,
+ * der gerade aufgeht. Dort wird er gesendet, sobald die Seite den Kanal kennt
+ * (`bannerAntwort.svelte.ts`, Bughunt 2026-10-11, T10: bis dahin landete er
+ * nur als Entwurf, obwohl der Knopf „Senden" heisst).
  */
 function zeigAn(event: {
   notification: { data?: unknown };
@@ -92,7 +104,7 @@ function zeigAn(event: {
       : '';
   if (!kanalId) return;
   const text = event.actionId === 'antworten' ? (event.inputValue ?? '').trim() : '';
-  if (text) drafts.set(kanalId, text);
+  if (text) bannerAntworten.ablegen(kanalId, text);
   void goto(`/app/@me/${kanalId}`);
 }
 
@@ -213,13 +225,17 @@ export async function abmeldeFcmToken(bearerOverride?: string): Promise<void> {
   if (!fcm) return;
   try {
     const { token } = await fcm.getToken();
-    await request<void>('/fcm/token', {
-      method: 'DELETE',
-      body: { token },
-      ...(bearerOverride
-        ? { auth: false, headers: { Authorization: `Bearer ${bearerOverride}` } }
-        : {})
-    });
+    await request<void>(
+      '/fcm/token',
+      {
+        method: 'DELETE',
+        body: { token },
+        ...(bearerOverride
+          ? { auth: false, headers: { Authorization: `Bearer ${bearerOverride}` } }
+          : {})
+      },
+      cloud()
+    );
   } catch {
     /* best-effort — Sign-Out darf daran nicht hängen */
   }

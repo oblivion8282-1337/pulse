@@ -17,19 +17,32 @@
  */
 import { anrufNativ } from './anrufNativ';
 import { request } from '$lib/api/client';
+import { serversStore } from '$lib/api/servers.svelte';
 import { pushGeraetId } from './geraeteKennungPush';
 import { isCapacitorIOS } from './runtime';
 
+/**
+ * **An die CLOUD, nicht an den aktiven Server** (Bughunt 2026-10-11, T2).
+ * Anrufe gibt es nur in der Cloud (`api/anrufe.ts`), also klingelt nur sie.
+ * Bis dahin ging die Meldung an den aktiven Server: mit einem Self-Host davor
+ * kannte die Cloud den Token nie, und bei geschlossener App klingelte nichts —
+ * und das `DELETE` beim Abmelden traf den Self-Host, die Zeile in der Cloud
+ * blieb, und das abgemeldete Telefon klingelte weiter für das alte Konto.
+ */
+function cloud(): { serverId?: string } {
+  return { serverId: serversStore.cloudId() };
+}
 
 let gemeldet: string | null = null;
 
 async function melden(token: string | null): Promise<void> {
   if (!token || token === gemeldet) return;
   try {
-    await request<void>('/voip/token', {
-      method: 'POST',
-      body: { token, geraet_id: pushGeraetId() }
-    });
+    await request<void>(
+      '/voip/token',
+      { method: 'POST', body: { token, geraet_id: pushGeraetId() } },
+      cloud()
+    );
     gemeldet = token;
   } catch (e) {
     // Keine Sitzung, offline, oder der Server kennt die Route nicht (älterer
@@ -52,19 +65,24 @@ export function voipTokenVerfolgen(): void {
 /** Beim Abmelden: die Registrierung dieses Geräts entfernen.
  *
  *  `bearerOverride` aus demselben Grund wie bei `abmeldeFcmToken` — im
- *  Sign-Out-Pfad sind die Token schon gelöscht, wenn dieser Aufruf feuert. */
+ *  Sign-Out-Pfad sind die Token schon gelöscht, wenn dieser Aufruf feuert.
+ *  Es muss der CLOUD-Token sein, auch wenn gerade ein Self-Host aktiv ist. */
 export async function voipTokenAbmelden(bearerOverride?: string): Promise<void> {
   if (!isCapacitorIOS()) return;
   try {
     const { token } = await anrufNativ.voipToken();
     if (!token) return;
-    await request<void>('/voip/token', {
-      method: 'DELETE',
-      body: { token },
-      ...(bearerOverride
-        ? { auth: false, headers: { Authorization: `Bearer ${bearerOverride}` } }
-        : {})
-    });
+    await request<void>(
+      '/voip/token',
+      {
+        method: 'DELETE',
+        body: { token },
+        ...(bearerOverride
+          ? { auth: false, headers: { Authorization: `Bearer ${bearerOverride}` } }
+          : {})
+      },
+      cloud()
+    );
   } catch {
     /* best-effort — Sign-Out darf daran nicht hängen */
   } finally {

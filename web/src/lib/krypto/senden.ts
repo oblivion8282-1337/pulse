@@ -112,7 +112,11 @@ async function versendeUmschlaege(
   ziel: ReturnType<typeof zielgeraeteBerechnen>,
   eigeneKennung: string,
   klartextBytes: Uint8Array,
-  anhangIds: string[] = []
+  anhangIds: string[] = [],
+  // Steuer-Umschläge (Reaktion, Bearbeitung, Löschung, Anruf-Schlüssel)
+  // wecken niemanden und zählen die Plakette nicht hoch — s.
+  // `benachrichtigen` in `api/postfach.ts`.
+  benachrichtigen = true
 ): Promise<'verschluesselt' | 'unverschluesselt' | null> {
   const nutzlasten: PostfachNutzlast[] = [];
   const ident = await kryptoAccountLaden();
@@ -206,7 +210,8 @@ async function versendeUmschlaege(
         // Nutzlast, damit ein Empfaenger eine frische Sitzung aufbauen kann.
         device_pubkey: eigeneKennung,
         nutzlasten,
-        anhaenge: anhangIds
+        anhaenge: anhangIds,
+        benachrichtigen
       },
       cloudRoute()
     );
@@ -369,7 +374,7 @@ async function versendeFrame(
   const buendel = await keysApi.claim([eigeneUserId, empfaengerUserId], cloudRoute());
   const ziel = zielgeraeteBerechnen(buendel, eigeneUserId, empfaengerUserId, eigeneKennung);
   if (ziel.length === 0) return false;
-  const status = await versendeUmschlaege(kanalId, ziel, eigeneKennung, klartextBytes);
+  const status = await versendeUmschlaege(kanalId, ziel, eigeneKennung, klartextBytes, [], false);
   return status === 'verschluesselt';
 }
 

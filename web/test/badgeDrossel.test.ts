@@ -42,3 +42,14 @@ test('nach der Freigabe gilt die normale Regel wieder', () => {
 	const stand = { letzterWert: null, letzteZeit: 0, bereit: true };
 	assert.equal(darfMelden(stand, 5, 1_000), true);
 });
+
+test('nach dem Wiederverbinden geht derselbe Wert erneut raus (T12)', async () => {
+	// Die Cloud zählt selbst hoch, während keine Verbindung steht. Rechnet
+	// die App danach dieselbe Zahl wie vorher, muss sie sie trotzdem melden —
+	// sonst bleibt der Zaehler am Server auf dem falschen Sockel.
+	const { serverStandUnsicher } = await import('../src/lib/platform/badgeDrossel.ts');
+	const stand = { letzterWert: 3, letzteZeit: 10_000, bereit: true };
+	assert.equal(darfMelden(stand, 3, 10_001), false);
+	serverStandUnsicher(stand);
+	assert.equal(darfMelden(stand, 3, 10_001), true);
+});

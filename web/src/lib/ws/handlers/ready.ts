@@ -11,6 +11,8 @@
 import { guilds } from '$lib/stores/guilds.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { readState } from '$lib/stores/readState.svelte';
+import { startGelesenBis } from '$lib/stores/lesestandKern';
+import { auth } from '$lib/stores/auth.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { streamPresence } from '$lib/stores/streamPresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -40,6 +42,7 @@ import { gesundheitTor } from '$lib/stream/gesundheitTor';
 import { pruefeGesundheit } from '$lib/stream/state.svelte';
 import { standplatz } from '$lib/remote/standplatz.svelte';
 import { postfachAbholenUndAnzeigen } from './chat';
+import { badgeNachVerbindung } from '$lib/platform/badgeMelden';
 import { teardownGuildLocally } from './guildTeardown';
 import type { HandlerContext } from './context';
 import { page } from '$app/state';
@@ -192,6 +195,18 @@ export function register(
           if (dm.last_read_message_id) {
             readState.seedOwnLesestand(dm.id, dm.last_read_message_id);
           }
+          // Eigene letzte Nachricht, oder gar kein Lesestand (frische
+          // Installation, Gespräch von vor P0.2): als gelesen werten statt
+          // die ganze Geschichte rot zu zeigen (Bughunt T13, Begründung und
+          // Abwägung an `startGelesenBis`).
+          const gelesenBis = startGelesenBis({
+            letzteNachricht: dm.last_message_id,
+            letzterAutor: dm.last_message_author_id,
+            ich: auth.user?.id ? String(auth.user.id) : null,
+            serverStand: dm.last_read_message_id,
+            lokalerStand: readState.lastReadByChannel[dm.id]
+          });
+          if (gelesenBis) readState.seedOwnLesestand(dm.id, gelesenBis);
           if (dm.partner_last_read_message_id) {
             readState.setPartnerLesestand(dm.id, dm.partner_last_read_message_id);
           }
@@ -250,6 +265,10 @@ export function register(
       // Postfach-Zyklus das Rennen gegen die Gruppenliste regelmassig verlor).
       // Bei ausgeschaltetem Schalter geht kein Aufruf hinaus
       // (`api/gruppen.ts`), die Antwort ist dann eine leere Liste.
+      // Nach dem Abholen dieses Durchlaufs den Badge-Stand NEU melden —
+      // auch einen unveränderten: die Cloud hat womöglich hochgezählt,
+      // während keine Verbindung stand (Bughunt T12, `badgeMelden.ts`).
+      badgeNachVerbindung();
       const abholen = () =>
         postfachAbholenUndAnzeigen((kanalId) => {
           if (!ctx.getSubs().has(kanalId)) return false;

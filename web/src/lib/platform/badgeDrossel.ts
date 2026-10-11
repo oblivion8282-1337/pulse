@@ -56,3 +56,23 @@ export function darfMelden(
   if (stand.letzterWert === null) return true;
   return jetzt - stand.letzteZeit >= MINDESTABSTAND_MS;
 }
+
+/**
+ * Nach dem Wiederverbinden: der Server kennt den zuletzt gemeldeten Wert
+ * NICHT mehr sicher.
+ *
+ * **Warum.** „Derselbe Wert ist keine Nachricht" (oben) stimmt nur, solange
+ * der Server nichts selbst gezählt hat. Er zählt aber hoch, sobald er an ein
+ * Gerät ohne offene Verbindung pusht (`badgezaehler.py::erhoehen`) — also
+ * genau, während diese App im Hintergrund lag. Kam die App zurück und
+ * rechnete dieselbe Zahl wie vorher (die neue Nachricht war schon gelesen,
+ * oder sie zählt hier gar nicht), schwieg der Klient, und der Zähler am
+ * Server blieb oben stehen — die Plakette wuchs beim nächsten Push von einem
+ * falschen Sockel aus weiter (Bughunt 2026-10-11, T12).
+ *
+ * Danach darf (und soll) der nächste Wert gemeldet werden, auch wenn er
+ * gleich ist; er geht sofort raus (`letzterWert === null`).
+ */
+export function serverStandUnsicher(stand: Drosselstand): void {
+  stand.letzterWert = null;
+}

@@ -239,7 +239,9 @@ export async function sendeInGruppe(
     const { beliefert: schluesselBeliefert } = await bloeckeEinliefern(
       kanalId,
       eigeneKennung,
-      inBloecke(schluesselUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
+      inBloecke(schluesselUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE),
+      [],
+      false // Verteilschlüssel: keine Mitteilung (Bughunt T11)
     );
     const nachrichtUmschlaege: PostfachNutzlast[] = inEmpfaengerBloecke(alleGeraete).map(
       (block) => ({ art: ART_GRUPPENNACHRICHT, daten, empfaenger: block })
