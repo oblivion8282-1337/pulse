@@ -126,6 +126,30 @@ import Foundation
             var stand: (String, () -> Bool)?
         }
 
+        /// Weckt die wartende Probe GENAU EINMAL — aus PushKits letzter
+        /// `completion` oder nach der Frist, je nachdem, was zuerst kommt.
+        ///
+        /// **Eine Klasse mit Sperre statt eines Merkers im Abschluss.** Die
+        /// Frist geht über `asyncAfter`, und das verlangt einen
+        /// `@Sendable`-Block; ein Abschluss, der eine lokale `var` mitnimmt,
+        /// ist das nicht (Compiler-Warnung „non-Sendable function value").
+        /// `@unchecked Sendable` hält hier, was es sagt, wegen der Sperre —
+        /// nicht, weil beide Rufer heute zufällig auf dem Hauptthread laufen.
+        private final class Wecker: @unchecked Sendable {
+            private let sperre = NSLock()
+            private var weiter: CheckedContinuation<Void, Never>?
+
+            init(_ weiter: CheckedContinuation<Void, Never>) { self.weiter = weiter }
+
+            func wecken() {
+                sperre.lock()
+                let w = weiter
+                weiter = nil
+                sperre.unlock()
+                w?.resume()
+            }
+        }
+
         /// Was bei einem Push tatsächlich geschah.
         private struct Beobachtung {
             var ausgang: V.PushAusgang?
@@ -148,12 +172,7 @@ import Foundation
             var beobachtet = [Beobachtung](repeating: Beobachtung(), count: pushes.count)
             var fremd = false
             await withCheckedContinuation { (weiter: CheckedContinuation<Void, Never>) in
-                var wach = true
-                let aufwachen = {
-                    guard wach else { return }
-                    wach = false
-                    weiter.resume()
-                }
+                let wecker = Wecker(weiter)
                 for (i, p) in pushes.enumerated() {
                     let vorher = v.spur.meldungen
                     v.pushVerarbeiten(p.inhalt) {
@@ -161,12 +180,12 @@ import Foundation
                         beobachtet[i].folge = v.spur.folge
                         beobachtet[i].stand = p.stand?.1() ?? true
                         if v.spur.fremdEnden != fremdVorher { fremd = true }
-                        if beobachtet.allSatisfy(\.fertig) { aufwachen() }
+                        if beobachtet.allSatisfy(\.fertig) { wecker.wecken() }
                     }
                     beobachtet[i].gemeldet = v.spur.meldungen - vorher
                     beobachtet[i].ausgang = v.spur.ausgang
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: aufwachen)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { wecker.wecken() }
             }
             for (p, b) in zip(pushes, beobachtet) {
                 if let erwartet = p.ausgang { soll("\(p.was): Ausgang \(erwartet)", b.ausgang == erwartet) }
