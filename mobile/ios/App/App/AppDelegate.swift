@@ -175,6 +175,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             // Startargument, und existiert in Release-Bauten gar nicht.
             // Begründung im Kopf von `SprachePlugin.swift`.
             SprachePlugin.probeAusStartargumenten()
+            AnrufProbe.ausStartargumenten()
         #endif
         // Schnellwahl beim KALTSTART: iOS legt die Wahl in die
         // `launchOptions` und ruft `performActionFor` dann NICHT. Wer nur den

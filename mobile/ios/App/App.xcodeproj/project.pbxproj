@@ -30,6 +30,13 @@
 		A1B2C3D4E5F607180000018B /* SpracheAnsichtHalter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F607180000018C /* SpracheAnsichtHalter.swift */; };
 		A1B2C3D4E5F607180000018D /* SprachePluginProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F607180000018E /* SprachePluginProbe.swift */; };
 		A1B2C3D4E5F607180000018F /* SpracheRaumSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000190 /* SpracheRaumSession.swift */; };
+		A1B2C3D4E5F607180000019D /* AnrufProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F607180000019E /* AnrufProbe.swift */; };
+		A1B2C3D4E5F6071800000191 /* Anrufverwaltung.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000192 /* Anrufverwaltung.swift */; };
+		A1B2C3D4E5F6071800000193 /* AnrufCallKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000194 /* AnrufCallKit.swift */; };
+		A1B2C3D4E5F6071800000195 /* AnrufSitzung.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000196 /* AnrufSitzung.swift */; };
+		A1B2C3D4E5F6071800000197 /* AnrufRaum.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000198 /* AnrufRaum.swift */; };
+		A1B2C3D4E5F6071800000199 /* AnrufPluginRaum.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F607180000019A /* AnrufPluginRaum.swift */; };
+		A1B2C3D4E5F607180000019B /* SpracheRaumStumm.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F607180000019C /* SpracheRaumStumm.swift */; };
 		A1B2C3D4E5F6071800000171 /* SpracheRaum.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000172 /* SpracheRaum.swift */; };
 		A1B2C3D4E5F6071800000151 /* AudioSessionJetztLaeuft.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000152 /* AudioSessionJetztLaeuft.swift */; };
 		A1B2C3D4E5F6071800000141 /* AudioSessionAusgabe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000142 /* AudioSessionAusgabe.swift */; };
@@ -72,6 +79,13 @@
 		A1B2C3D4E5F607180000018C /* SpracheAnsichtHalter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpracheAnsichtHalter.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F607180000018E /* SprachePluginProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SprachePluginProbe.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000190 /* SpracheRaumSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpracheRaumSession.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F607180000019E /* AnrufProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufProbe.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6071800000192 /* Anrufverwaltung.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Anrufverwaltung.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6071800000194 /* AnrufCallKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufCallKit.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6071800000196 /* AnrufSitzung.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufSitzung.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6071800000198 /* AnrufRaum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufRaum.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F607180000019A /* AnrufPluginRaum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufPluginRaum.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F607180000019C /* SpracheRaumStumm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpracheRaumStumm.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000172 /* SpracheRaum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpracheRaum.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000152 /* AudioSessionJetztLaeuft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionJetztLaeuft.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000142 /* AudioSessionAusgabe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionAusgabe.swift; sourceTree = "<group>"; };
@@ -146,6 +160,13 @@
 				A1B2C3D4E5F607180000018C /* SpracheAnsichtHalter.swift */,
 				A1B2C3D4E5F607180000018E /* SprachePluginProbe.swift */,
 				A1B2C3D4E5F6071800000190 /* SpracheRaumSession.swift */,
+				A1B2C3D4E5F607180000019E /* AnrufProbe.swift */,
+				A1B2C3D4E5F6071800000192 /* Anrufverwaltung.swift */,
+				A1B2C3D4E5F6071800000194 /* AnrufCallKit.swift */,
+				A1B2C3D4E5F6071800000196 /* AnrufSitzung.swift */,
+				A1B2C3D4E5F6071800000198 /* AnrufRaum.swift */,
+				A1B2C3D4E5F607180000019A /* AnrufPluginRaum.swift */,
+				A1B2C3D4E5F607180000019C /* SpracheRaumStumm.swift */,
 				A1B2C3D4E5F6071800000172 /* SpracheRaum.swift */,
 				A1B2C3D4E5F6071800000152 /* AudioSessionJetztLaeuft.swift */,
 				A1B2C3D4E5F6071800000142 /* AudioSessionAusgabe.swift */,
@@ -310,6 +331,13 @@
 				A1B2C3D4E5F607180000018B /* SpracheAnsichtHalter.swift in Sources */,
 				A1B2C3D4E5F607180000018D /* SprachePluginProbe.swift in Sources */,
 				A1B2C3D4E5F607180000018F /* SpracheRaumSession.swift in Sources */,
+				A1B2C3D4E5F607180000019D /* AnrufProbe.swift in Sources */,
+				A1B2C3D4E5F6071800000191 /* Anrufverwaltung.swift in Sources */,
+				A1B2C3D4E5F6071800000193 /* AnrufCallKit.swift in Sources */,
+				A1B2C3D4E5F6071800000195 /* AnrufSitzung.swift in Sources */,
+				A1B2C3D4E5F6071800000197 /* AnrufRaum.swift in Sources */,
+				A1B2C3D4E5F6071800000199 /* AnrufPluginRaum.swift in Sources */,
+				A1B2C3D4E5F607180000019B /* SpracheRaumStumm.swift in Sources */,
 				A1B2C3D4E5F6071800000171 /* SpracheRaum.swift in Sources */,
 				A1B2C3D4E5F6071800000151 /* AudioSessionJetztLaeuft.swift in Sources */,
 				A1B2C3D4E5F6071800000141 /* AudioSessionAusgabe.swift in Sources */,

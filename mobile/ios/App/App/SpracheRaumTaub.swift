@@ -92,10 +92,11 @@ extension SpracheRaum {
 
     /// Nur auf `tonFaden`. `taub` wird hier gelesen, nicht mitgegeben: der
     /// Befehl setzt es, BEVOR er diese Arbeit einreiht, also liegt hier immer
-    /// der neueste Stand an.
+    /// der neueste Stand an. Gelesen wird der WIRKSAME Stand — ein laufender
+    /// Anruf hält den Kanal stumm wie Taubstellen (`SpracheRaumStumm.swift`).
     private func stellen(_ spur: RemoteAudioTrack, kennung: String) {
         let nutzer = Self.nutzerId(aus: kennung).flatMap { hoerwunsch.je[$0] }
-        spur.volume = Self.wirksameLautstaerke(taub: taub, nutzer: nutzer,
+        spur.volume = Self.wirksameLautstaerke(taub: wirksamTaub, nutzer: nutzer,
                                                gesamt: hoerwunsch.gesamt)
     }
 

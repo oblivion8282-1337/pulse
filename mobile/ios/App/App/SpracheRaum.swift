@@ -34,11 +34,12 @@ import LiveKit
 /// mehreren Fäden berührt: Befehle kommen über `nacheinander`, die
 /// Delegat-Rufe des SDK von dessen eigenen Fäden, die Ansicht liest vom
 /// Hauptthread. Geprüft sind davon zwei Dinge — `hoerwunsch` liegt hinter
-/// `tonFaden` (s. `SpracheRaumTaub.swift`), `kette` hinter `ketteSperre`. Die
-/// übrigen Felder (`raum`, `kanalId`, `kanalName`, `kameraVorn`, `taub`,
-/// `sitzung`, `melde`) sind kleine Werte, die ein Befehl setzt und andere
-/// lesen; sie sind NICHT synchronisiert, und das ist der Grund für
-/// `unchecked`. Wer auf Swift 6 geht, muss sie wirklich absichern.
+/// `tonFaden` (s. `SpracheRaumTaub.swift`), die Kette hinter der Sperre in
+/// `Befehlskette`. Die übrigen Felder (`raum`, `kanalId`, `kanalName`,
+/// `kameraVorn`, `taub`, `anrufPausiert`, `mikroWunsch`, `sitzung`, `melde`)
+/// sind kleine Werte, die ein Befehl setzt und andere lesen; sie sind NICHT
+/// synchronisiert, und das ist der Grund für `unchecked`. Wer auf Swift 6
+/// geht, muss sie wirklich absichern.
 final class SpracheRaum: NSObject, @unchecked Sendable {
     static let geteilt = SpracheRaum()
 
@@ -69,13 +70,24 @@ final class SpracheRaum: NSObject, @unchecked Sendable {
     /// überlebt, ist das, was die Oberfläche braucht.
     private(set) var kameraVorn = true
     /// Mithören aus. Setzt das Web bei JEDEM Beitritt ausdrücklich
-    /// (`startTaub`); der Stand eines früheren Raums gilt nicht mit.
-    private(set) var taub = false {
+    /// (`startTaub`); der Stand eines früheren Raums gilt nicht mit. Gesetzt
+    /// nur hier und in `SpracheRaumStumm.swift` (`private(set)` gilt in Swift
+    /// je Datei).
+    var taub = false {
         didSet {
             let neu = taub
             DispatchQueue.main.async { SpracheStand.geteilt.taub = neu }
         }
     }
+    /// Ein Direktanruf hält den Kanal an (`SpracheRaumStumm.swift`).
+    /// **Überdauert Beitritte**: wer WÄHREND eines Anrufs einem Kanal
+    /// beitritt, tritt angehalten bei — gesetzt und gelöst nur von der
+    /// Anrufverwaltung (`AnrufSitzung.swift`).
+    var anrufPausiert = false
+    /// Was der Nutzer für das Mikrofon WILL. Während der Pause bleibt das
+    /// Mikrofon zu, ein Mikrofon-Befehl ändert nur den Wunsch; mit dem Ende des
+    /// Anrufs gilt er wieder.
+    var mikroWunsch = true
     /// Warum das Mikrofon beim Beitritt nicht hochkam, falls es das nicht tat.
     /// Reist im Zustand mit, statt den Beitritt zu werfen — Begründung in
     /// `beitreten`.
@@ -92,8 +104,7 @@ final class SpracheRaum: NSObject, @unchecked Sendable {
     let tonFaden = DispatchQueue(label: "com.howispulse.sprache.lautstaerke")
 
     /// Die Befehlskette, s. `nacheinander`.
-    private let ketteSperre = NSLock()
-    private var kette: Task<Void, Never>?
+    private let kette = Befehlskette()
 
     /// Knöpfe der nativen Ansicht, deren Regeln dem Web gehören.
     enum Wunsch: String {
@@ -122,19 +133,7 @@ final class SpracheRaum: NSObject, @unchecked Sendable {
     /// einem hängenden Verbindungsaufbau warten, und es bricht ihn ab (s.
     /// `nochAktuell`).
     func nacheinander<T>(_ arbeit: @escaping () async throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { fortsetzen in
-            ketteSperre.lock()
-            let vorher = kette
-            kette = Task {
-                await vorher?.value
-                do {
-                    fortsetzen.resume(returning: try await arbeit())
-                } catch {
-                    fortsetzen.resume(throwing: error)
-                }
-            }
-            ketteSperre.unlock()
-        }
+        try await kette.nacheinander(arbeit)
     }
 
     // MARK: - Steuerung
@@ -188,11 +187,13 @@ final class SpracheRaum: NSObject, @unchecked Sendable {
         // Gerät die verweigerte Erlaubnis. Ohne Mikrofon kann man zuhören —
         // der Preis ist der Absatz darüber: ohne Aufnahme keine Hörmuschel.
         mikrofonFehler = nil
+        mikroWunsch = !stumm
         do {
             try await r.localParticipant.setMicrophone(enabled: true)
             // `r`, nicht `raum`: ein Befehl dieses Beitritts darf nie auf einem
-            // anderen Raum landen (M6).
-            if stumm { try await stummSchalten(true, in: r) }
+            // anderen Raum landen (M6). Läuft ein Anruf, bleibt das Mikrofon
+            // im Kanal zu — der Anruf gewinnt (Entwurf §8, Punkt 2).
+            if stumm || anrufPausiert { try await Self.stummSchalten(true, in: r) }
         } catch {
             mikrofonFehler = error.localizedDescription
             NSLog("[PulseSprache] Mikrofon beim Beitritt gescheitert: %@",
@@ -254,17 +255,6 @@ final class SpracheRaum: NSObject, @unchecked Sendable {
         Task { @MainActor in SpracheAnsichtHalter.geteilt.schliessen(melden: true) }
     }
 
-    /// **Beide Meldungen, und das ist kein Versehen.** `eigenerZustand` stellt
-    /// den Knopf, `teilnehmer` die eigene KACHEL — die zeichnet aus
-    /// `voice.participants`, und die Liste kommt nur aus dem
-    /// `teilnehmer`-Ereignis. Zwei Meldungen mit demselben Inhalt kosten
-    /// nichts: jede liest den Live-Zustand.
-    func mikrofon(_ an: Bool) async throws {
-        if let r = raum { try await stummSchalten(!an, in: r) }
-        schickeEigenen()
-        schickeTeilnehmer()
-    }
-
     /// Kamera veröffentlichen oder zurücknehmen.
     ///
     /// **Ausschalten heisst ZURÜCKNEHMEN, nicht stummschalten** — der genaue
@@ -299,45 +289,48 @@ final class SpracheRaum: NSObject, @unchecked Sendable {
         schickeEigenen()
     }
 
-    // MARK: - Taubstellen
-
-    /// Nicht mehr mithören. Es gibt im SDK kein globales Stummschalten der
-    /// Wiedergabe; die Wirkung liegt an den Lautstärken der fremden Spuren
-    /// (`SpracheRaumTaub.swift`). **Bis zum 2026-10-10 war dieser Knopf auf
-    /// iOS wirkungslos:** der Web-Weg schaltet `<audio>`-Elemente stumm, die
-    /// es hier nicht gibt — das Zeichen kippte, gehört wurde weiter alles.
-    func taubStellen(_ an: Bool) async {
-        taub = an
-        await lautstaerkenAnwenden()
-        schickeEigenen()
-    }
-
-    /// Stummschalten, ohne die Spur aufzuheben — s. Begründung in `beitreten`.
-    /// Gibt es noch keine Spur, wird sie angelegt.
-    private func stummSchalten(_ stumm: Bool, in r: Room) async throws {
-        // Über `audioTracks` statt `getTrackPublication(source:)` — Letzteres
-        // ist im SDK `internal`.
-        guard let spur = r.localParticipant.audioTracks
-            .first(where: { $0.source == .microphone })?.track as? LocalAudioTrack
-        else {
-            try await r.localParticipant.setMicrophone(enabled: !stumm)
-            return
-        }
-        if stumm { try await spur.mute() } else { try await spur.unmute() }
-    }
-
     /// Lautsprecher oder Hörmuschel — der Schalter, um den es beim ganzen
     /// Umbau geht (`isSpeakerOutputPreferred`, Doc-Kommentar des SDK: „Set to
     /// `false` if the receiver is preferred instead of the speaker").
     ///
-    /// **Er gilt NICHT, wenn CallKit führt** — dort ist die Konfiguration des
-    /// SDK abgeschaltet, und die Hülle stellt die Route selbst
-    /// (`AudioSessionAusgabe.swift`). Die Route wird hier NICHT gemeldet: sie
-    /// wechselt asynchron (8–17 ms, am Gerät gemessen), ein Lesen hier läse
-    /// den alten Wert. Die Wahrheit schickt der Routen-Beobachter.
+    /// **Er wirkt NICHT, solange ein Anruf die Session führt** — führt CallKit,
+    /// ist die Konfiguration des SDK abgeschaltet und die Hülle stellt die
+    /// Route des Anrufs selbst; der Wunsch hier bleibt liegen und gilt nach
+    /// dem Anruf. Läuft der Anruf ohne CallKit, teilen sich beide den Schalter
+    /// des SDK, und der Wunsch wird nur gemerkt (`AnrufSitzung.swift`). Die
+    /// Route wird hier NICHT gemeldet: sie wechselt asynchron (8–17 ms, am
+    /// Gerät gemessen), ein Lesen hier läse den alten Wert. Die Wahrheit
+    /// schickt der Routen-Beobachter.
     func ausgabe(_ weg: String) {
-        AudioManager.shared.isSpeakerOutputPreferred = (weg != "hoermuschel")
+        let lautsprecher = weg != "hoermuschel"
+        if !Anrufverwaltung.geteilt.kanalWunschMerken(lautsprecher: lautsprecher) {
+            AudioManager.shared.isSpeakerOutputPreferred = lautsprecher
+        }
         NSLog("[PulseSprache] Ausgabe '%@' gewuenscht", weg)
         schickeEigenen()
+    }
+}
+
+/// Befehle der Reihe nach — für `SpracheRaum` und `AnrufRaum` dieselbe
+/// Mechanik (Begründung an `SpracheRaum.nacheinander`). Jeder Befehl wartet
+/// auf den vorigen; ein Fehlschlag reisst die Kette nicht ab.
+final class Befehlskette: @unchecked Sendable {
+    private let sperre = NSLock()
+    private var letzte: Task<Void, Never>?
+
+    func nacheinander<T>(_ arbeit: @escaping () async throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { fortsetzen in
+            sperre.lock()
+            let vorher = letzte
+            letzte = Task {
+                await vorher?.value
+                do {
+                    fortsetzen.resume(returning: try await arbeit())
+                } catch {
+                    fortsetzen.resume(throwing: error)
+                }
+            }
+            sperre.unlock()
+        }
     }
 }

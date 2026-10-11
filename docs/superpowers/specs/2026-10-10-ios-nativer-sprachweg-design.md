@@ -227,6 +227,44 @@ Brücke mit Ereignissen nicht gibt.
   `setEngineAvailability(.default)`; in `provider(_:didDeactivate:)` wieder
   `.none`. `Anrufverwaltung` hält diesen Zustand heute schon
   (`callkitAktiv`) und hat beide Delegat-Methoden — das Stück ist gebaut.
+> **Nachtrag 2026-10-11 — Etappe 4 gebaut** (`AnrufRaum.swift`,
+> `AnrufSitzung.swift`, `AnrufCallKit.swift`; im Web `anrufe/anrufMedien.ts`
+> mit zwei Medienwegen). Was entschieden und wo es begründet ist:
+>
+> - **CallKit trägt JEDES Gespräch**, auch das in der App angenommene
+>   (`CXAnswerCallAction` per Transaktion) und das ausgehende
+>   (`CXStartCallAction`). Nur so gibt es eine einzige Stelle, die über die
+>   Session entscheidet. Lehnt CallKit ab (Simulator ohne Audio, laufendes
+>   Mobilfunk-Gespräch), läuft der Anruf mit der Automatik des SDK weiter
+>   (`ohneCallKit`), und der Hörmuschel-Wunsch des Kanals wird gemerkt.
+> - **Die Session-Übergabe** — Tabelle und Reihenfolge im Kopf von
+>   `AnrufSitzung.swift`: erst Automatik aus, dann Maschine `.none`; zurück
+>   erst nach `didDeactivate` (Notbremse 3 s).
+> - **Ein Anruf gewinnt** (Punkt 2 unten, Eigentümer-Entscheid): der Kanal
+>   bleibt verbunden, Mikrofon zu, Spuren auf 0, und meldet sich so (`taub`,
+>   `pausiert`) — in der Hülle, weil der Anruf oft auf dem Sperrbildschirm
+>   angenommen wird (`SpracheRaumStumm.swift`).
+> - **Verschlüsselung über HKDF**, wie livekit-client sie für rohe
+>   Schlüssel-Bytes nimmt — mit der Vorgabe des Swift-SDK (PBKDF2) hörten
+>   beide Seiten nur Rauschen. Am Quelltext beider SDKs geprüft, nicht an
+>   zwei Geräten gemessen.
+> - **Messbar im Simulator** (`AnrufProbe.swift`, gegen den lokalen
+>   LiveKit): Übergabe, Pause und Rückkehr des Kanals, Raum verbunden und
+>   verschlüsselt — beim Bau als grün gemeldet. **Zwei Läufe danach (noch am
+>   2026-10-11) nur teilweise:** der Simulator nimmt den Anruf bei CallKit an
+>   und beendet ihn 65–95 ms später selbst (`callservicesd`: „Disconnecting
+>   call because there wont be a UI to host the call"). Danach führt weder
+>   CallKit noch der Weg ohne CallKit, die Probe betritt den Raum trotzdem,
+>   und `beenden` findet ihn nicht mehr: 11 von 15 Prüfungen grün (Raum
+>   verbunden und verschlüsselt, Rückgabe an das SDK, Kanal danach wie
+>   vorher), rot sind „einer der beiden Wege führt", „Kanal angehalten",
+>   „Kanal meldet sich taub" und „Anruf-Raum weg". Der Ablauf dahinter ist
+>   auch am Gerät denkbar: CallKit beendet einen Anruf, bevor sein Raum
+>   steht, und ein danach noch ankommender Beitritt hat keinen Eintrag
+>   mehr, über den ihn `beenden` fände. **Nur am Gerät**: ob CallKit die
+>   Session aktiviert, die Hörmuschel am Ohr, das Mikrofon im Anruf neben
+>   der stummen Kanal-Spur, Lautsprecher-Taste im System-Bildschirm.
+
 - Ebenfalls aus dem README: vor dem Veröffentlichen des Mikrofons muss die
   Session mit `.playAndRecord` und Modus `.voiceChat`/`.videoChat`
   **konfiguriert UND aktiviert** sein. Das ist dieselbe Reihenfolge-Regel, an
@@ -265,7 +303,9 @@ Weiter offen und bewusst benannt:
    WebRTCs Signalisierungs-Thread es angewandt hat — also nicht vom
    Hauptthread und nicht aus einem Brücken-Ruf heraus, der etwas anderes
    aufhält.
-2. **Anruf WÄHREND eines Sprachkanals.** Heute sind das zwei Räume
+2. ~~**Anruf WÄHREND eines Sprachkanals.**~~ **Entschieden 2026-10-11: der
+   Anruf gewinnt**, der Kanal bleibt angehalten bestehen (Nachtrag in §6).
+   Der ursprüngliche Text: Heute sind das zwei Räume
    nebeneinander, und `iosTon.ts` hält dafür zwei Quellen (`'sprachkanal'`,
    `'anruf'`) auseinander. Nativ wären es zwei `Room`-Objekte und EINE
    Audio-Session — wer dann wen verdrängt, ist nicht entschieden. Vermutlich

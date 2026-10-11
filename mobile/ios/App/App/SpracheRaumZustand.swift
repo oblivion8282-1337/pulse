@@ -26,7 +26,11 @@ extension SpracheRaum {
             // richtig stellen können.
             "kamera": raum?.localParticipant.isCameraEnabled() ?? false,
             "kameraVorn": kameraVorn,
-            "taub": taub,
+            // Der WIRKSAME Stand: während eines Anrufs hört man den Kanal
+            // nicht, auch wenn man nicht taub gestellt hat
+            // (`SpracheRaumStumm.swift`). `pausiert` sagt, warum.
+            "taub": wirksamTaub,
+            "pausiert": anrufPausiert,
             "ansichtOffen": SpracheAnsichtHalter.geteilt.istOffenSynchron,
             // Leer, solange alles in Ordnung ist. Ein Beitritt OHNE Mikrofon ist
             // kein gescheiterter Beitritt (man kann zuhören) — aber er muss
@@ -183,7 +187,8 @@ extension SpracheRaum {
             "mikro": raum?.localParticipant.isMicrophoneEnabled() ?? false,
             "kamera": raum?.localParticipant.isCameraEnabled() ?? false,
             "kameraVorn": kameraVorn,
-            "taub": taub,
+            "taub": wirksamTaub,
+            "pausiert": anrufPausiert,
             "lautsprecher": AudioManager.shared.isSpeakerOutputPreferred,
             "route": routeJetzt()
         ])
