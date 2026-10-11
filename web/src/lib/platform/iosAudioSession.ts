@@ -1,4 +1,5 @@
 import { huelleKennt } from './huelleKann';
+import { abmelder, type HoererGriff } from './hoererAbmelden';
 import { isCapacitorIOS } from './runtime';
 
 /**
@@ -61,18 +62,15 @@ interface AudioSessionPlugin {
   jetztLaeuft(options: { titel: string; zeile2: string }): Promise<void>;
   jetztLaeuftAus(): Promise<void>;
   airplayWaehler(): Promise<void>;
-  addListener(
-    name: 'unterbrechung',
-    cb: (e: Unterbrechung) => void
-  ): Promise<{ remove: () => void }>;
-  addListener(
-    name: 'routeGewechselt',
-    cb: (e: WegWechsel) => void
-  ): Promise<{ remove: () => void }>;
-  addListener(
-    name: 'fernbefehl',
-    cb: (e: { befehl: 'laut' | 'stumm' }) => void
-  ): Promise<{ remove: () => void }>;
+  // **Kein Promise:** am rohen Objekt (s. `plugin` unten) kommt der Griff
+  // sofort — Begründung und Fundstellen in `hoererAbmelden.ts`. Und darum
+  // fehlt `addListener` in `pluginMethods` von `AudioSessionPlugin.swift` mit
+  // Recht: dort eingetragen, ersetzte `JSExport` diesen Weg am rohen Objekt
+  // durch einen, der den Ereignisnamen unbenannt schickt — der Absturz, den
+  // `iosSprache.ts` an `const nativ` beschreibt.
+  addListener(name: 'unterbrechung', cb: (e: Unterbrechung) => void): HoererGriff;
+  addListener(name: 'routeGewechselt', cb: (e: WegWechsel) => void): HoererGriff;
+  addListener(name: 'fernbefehl', cb: (e: { befehl: 'laut' | 'stumm' }) => void): HoererGriff;
 }
 
 /**
@@ -194,8 +192,7 @@ export function iosUnterbrechungen(cb: (e: Unterbrechung) => void): () => void {
   if (!isCapacitorIOS()) return () => undefined;
   const p = plugin('addListener');
   if (!p) return () => undefined;
-  const griff = p.addListener('unterbrechung', cb);
-  return () => void griff.then((h) => h.remove()).catch(() => undefined);
+  return abmelder(p.addListener('unterbrechung', cb));
 }
 
 /** Wegwechsel melden (Headset rein/raus, AirPods verbunden). */
@@ -207,8 +204,7 @@ export function iosWegWechsel(cb: (e: WegWechsel) => void): () => void {
   // an da (`routeGewechselt` in `AudioSessionPlugin.swift`); dass dieser
   // Binder sie wegwarf, hat `iosTon.ts` monatelang zu einer Zeitfrist
   // gezwungen, wo ein Vergleich genuegt.
-  const griff = p.addListener('routeGewechselt', cb);
-  return () => void griff.then((h) => h.remove()).catch(() => undefined);
+  return abmelder(p.addListener('routeGewechselt', cb));
 }
 
 /** Was gerade läuft, auf Sperrbildschirm und Kontrollzentrum anzeigen. */
@@ -228,8 +224,7 @@ export function iosFernbefehle(cb: (befehl: 'laut' | 'stumm') => void): () => vo
   if (!isCapacitorIOS()) return () => undefined;
   const p = plugin('addListener');
   if (!p) return () => undefined;
-  const griff = p.addListener('fernbefehl', (e) => cb(e.befehl));
-  return () => void griff.then((h) => h.remove()).catch(() => undefined);
+  return abmelder(p.addListener('fernbefehl', (e) => cb(e.befehl)));
 }
 
 /**
