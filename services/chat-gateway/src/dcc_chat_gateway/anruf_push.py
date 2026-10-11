@@ -26,7 +26,10 @@ Daraus folgen die zwei Hälften dieses Moduls:
   das ``call_klingelt`` aber nie, und der Anruf war verpasst (T14). Ein
   zusätzlicher Push an ein waches Telefon kostet nichts: die Hülle kennt den
   Anruf dann schon (die WebSocket hat ihn über ``ankommen`` gemeldet) und
-  meldet keinen zweiten Bildschirm.
+  meldet ihn mit derselben UUID noch einmal — CallKit antwortet
+  ``callUUIDAlreadyExists``, das erfüllt Apples Regel, und es entsteht kein
+  zweiter Bildschirm (``AnrufPushAusgang.swift``). Bis zum 2026-10-11 meldete
+  die Hülle in diesem Fall gar nichts, und der Push war ein Verstoss.
 * **Der Abbruch geht nur an Geräte, die per Push geklingelt haben** — und an
   keins davon zweimal. Welche das waren, steht je Anruf in Redis
   (:func:`klingeln` schreibt, :func:`abbrechen` liest und trägt aus). Wer

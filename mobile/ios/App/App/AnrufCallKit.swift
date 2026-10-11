@@ -62,6 +62,9 @@ extension Anrufverwaltung: CXProviderDelegate {
         let uuid = action.callUUID
         if stilleEnden.remove(uuid) == nil {
             melde(phasen[uuid] == .klingelt ? "ablehnen" : "auflegen", uuid)
+            #if DEBUG
+                if kennungen[uuid] != nil { spur.fremdEnden += 1 }
+            #endif
         }
         anrufZu(uuid)
         action.fulfill()
@@ -181,40 +184,8 @@ extension Anrufverwaltung: PKPushRegistryDelegate {
         for type: PKPushType,
         completion: @escaping () -> Void
     ) {
-        let inhalt = payload.dictionaryPayload
-        let kennung = inhalt["call_id"] as? String ?? ""
-        let name = inhalt["einleiter_name"] as? String ?? "Pulse"
-        if inhalt["art"] as? String == "abbruch" {
-            // **Nur einen Anruf beenden, der KLINGELT.** Ein angenommenes
-            // Gespräch beendet der Server nicht per Push (`anruf_push.py`);
-            // käme doch einer, ist es ein laufender Anruf — und damit ist
-            // Apples Pflicht erfüllt, ohne ihn zu beenden.
-            if let uuid = uuid(fuer: kennung) {
-                if phasen[uuid] == .klingelt {
-                    anbieter?.reportCall(with: uuid, endedAt: nil, reason: .remoteEnded)
-                    anrufZu(uuid)
-                }
-                completion()
-            } else {
-                meldenUndSofortBeenden(name: name, fertig: completion)
-            }
-            return
-        }
-        kontextMerken(kennung: kennung, inhalt: inhalt)
-        // SOFORT melden, im selben Lauf — s. Klassenkommentar. `anruf_art`
-        // ist `dm` oder `gruppe`, NICHT Video (G3): ein Anruf beginnt immer
-        // ohne Kamera.
-        klingeln(kennung: kennung, name: name, video: false, ausPush: true, fertig: completion)
-    }
-
-    /// Kontext aus einem Push merken. Nur Strings — was hier hineinkommt,
-    /// geht unverändert ins Web und soll dort nicht erst gedeutet werden.
-    private func kontextMerken(kennung: String, inhalt: [AnyHashable: Any]) {
-        guard !kennung.isEmpty else { return }
-        var k: [String: String] = [:]
-        for feld in ["channel_id", "anruf_art", "einleiter_id", "einleiter_name"] {
-            if let wert = inhalt[feld] as? String { k[feld] = wert }
-        }
-        kontexte[kennung] = k
+        // SOFORT melden, im selben Lauf — jeder Ausgang meldet bei CallKit,
+        // auch für einen Anruf, den es hier schon gibt (`AnrufPush.swift`).
+        pushVerarbeiten(payload.dictionaryPayload, fertig: completion)
     }
 }

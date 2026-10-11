@@ -15,13 +15,15 @@ import PushKit
 /// ein Anruf an CallKit gemeldet werden. Tut die App das nicht, beendet iOS
 /// sie — und nach Wiederholung entzieht es die VoIP-Pushes ganz. Hier steht
 /// deshalb kein `async` und kein Netzaufruf zwischen Push und Meldung, und
-/// auch ein Abbruch-Push für einen Anruf, den es hier nicht (mehr) gibt,
-/// meldet einen und beendet ihn sofort (`meldenUndSofortBeenden`, Bughunt
-/// 2026-10-11, K3). Dass solche Pushes selten bleiben, sorgt der Server
+/// JEDER Push meldet: ein unbekannter Anruf neu, ein bekannter mit seiner
+/// bestehenden UUID, ein Push ohne Anruf mit einer Wegwerf-UUID, die sofort
+/// endet. Die Entscheidung steht in `AnrufPushAusgang.swift`, die Ausgänge in
+/// `AnrufPush.swift`. Dass Pushes ohne Anruf selten bleiben, sorgt der Server
 /// (`anruf_push.py`).
 ///
 /// Aufgeteilt nach der Grössen-Policy: PushKit- und CallKit-Delegat in
-/// `AnrufCallKit.swift`, die Übergabe der Audio-Session in
+/// `AnrufCallKit.swift`, die Meldungen an CallKit in `AnrufPush.swift` und
+/// `AnrufPushAusgang.swift`, die Übergabe der Audio-Session in
 /// `AnrufSitzung.swift`, die Brücke in `AnrufPlugin.swift` und
 /// `AnrufPluginRaum.swift`. Alles hier lebt auf dem Hauptthread — dort
 /// rufen PushKit und CallKit (`queue: .main`) und das Plugin.
@@ -100,15 +102,19 @@ public final class Anrufverwaltung: NSObject {
     /// Verweis ist nur der Weg zum Plugin, sobald es existiert.
     weak var bruecke: AnrufPlugin?
 
+    #if DEBUG
+        /// Was die Push-Ausgänge getan haben — der Prüfpfad zählt damit nach,
+        /// dass jeder Push meldet (`AnrufPushProbe.swift`).
+        var spur = PushSpur()
+    #endif
+
     private override init() { super.init() }
 
+    /// **Erst der Anbieter, dann die Push-Registrierung:** ein Push, der
+    /// sofort eintrifft, findet so immer einen `CXProvider` vor, bei dem er
+    /// sich melden kann (`AnrufPush.swift::beiCallKitMelden`).
     public func starten() {
         if registry != nil { return }
-        let r = PKPushRegistry(queue: .main)
-        r.delegate = self
-        r.desiredPushTypes = [.voIP]
-        registry = r
-
         let aufbau = CXProviderConfiguration()
         aufbau.supportsVideo = true
         aufbau.maximumCallsPerCallGroup = 1
@@ -120,94 +126,15 @@ public final class Anrufverwaltung: NSObject {
         let p = CXProvider(configuration: aufbau)
         p.setDelegate(self, queue: .main)
         anbieter = p
+
+        let r = PKPushRegistry(queue: .main)
+        r.delegate = self
+        r.desiredPushTypes = [.voIP]
+        registry = r
     }
 
     func uuid(fuer kennung: String) -> UUID? {
         kennungen.first(where: { $0.value == kennung })?.key
-    }
-
-    /// Einen eingehenden Anruf melden. Auch vom Web gerufen (`ankommen`), wenn
-    /// die WebSocket schneller war als der Push.
-    ///
-    /// `ausPush`: nur dann gilt Apples Pflicht, auf jeden Fall einen Anruf zu
-    /// melden. Eine WebSocket-Meldung für einen eben beendeten Anruf darf
-    /// still verfallen.
-    func klingeln(kennung: String, name: String, video: Bool, ausPush: Bool,
-                  fertig: (() -> Void)? = nil) {
-        // Dieselbe Kennung nicht zweimal melden: Push und WebSocket kommen
-        // beide an, und ein zweiter Bildschirm wäre ein zweiter Anruf. Der
-        // Push ist damit erledigt — es läuft ja ein gemeldeter Anruf.
-        guard let anbieter, uuid(fuer: kennung) == nil else {
-            fertig?()
-            return
-        }
-        if istKuerzlichBeendet(kennung) {
-            if ausPush { meldenUndSofortBeenden(name: name, fertig: fertig) } else { fertig?() }
-            return
-        }
-        let uuid = UUID()
-        kennungen[uuid] = kennung
-        phasen[uuid] = .klingelt
-        let stand = CXCallUpdate()
-        stand.remoteHandle = CXHandle(type: .generic, value: name)
-        stand.localizedCallerName = name
-        stand.hasVideo = video
-        stand.supportsDTMF = false
-        stand.supportsHolding = false
-        stand.supportsGrouping = false
-        stand.supportsUngrouping = false
-        anbieter.reportNewIncomingCall(with: uuid, update: stand) { fehler in
-            if let fehler {
-                // **Diese Meldung ist nachträglich dazugekommen, und sie hat
-                // einen Anlass** (2026-10-08): bei eingeschaltetem „Nicht
-                // stören" klingelte nichts, und nichts sagte warum — der Push
-                // kam an, CallKit wies ihn ab, der Fehler wurde hier still
-                // verworfen. Häufige Gründe: `filteredByDoNotDisturb`,
-                // `filteredByBlockList`, `maximumCallGroupsReached`.
-                // Der Anruf ist damit ERLEDIGT, nicht verschoben.
-                NSLog("[Anruf] CallKit hat den Anruf abgewiesen: %@",
-                      (fehler as NSError).localizedDescription)
-                self.vergessen(uuid)
-            } else {
-                self.klingelFristStellen(uuid)
-            }
-            fertig?()
-        }
-    }
-
-    /// **Für Pushes, zu denen es hier keinen Anruf gibt** — Abbruch eines
-    /// unbekannten Anrufs, Klingeln eines eben beendeten. Apples Vorgabe für
-    /// diesen Fall: melden und sofort beenden (PushKit-Dokumentation,
-    /// „Responding to VoIP Notifications from PushKit"; gefolgert, nicht am
-    /// Gerät gemessen). Ob der Bildschirm dabei kurz aufblitzt, ist am Gerät
-    /// offen — der Server vermeidet den Fall, so gut er kann.
-    func meldenUndSofortBeenden(name: String, fertig: (() -> Void)?) {
-        guard let anbieter else {
-            fertig?()
-            return
-        }
-        let uuid = UUID()
-        let stand = CXCallUpdate()
-        stand.remoteHandle = CXHandle(type: .generic, value: name)
-        stand.localizedCallerName = name
-        anbieter.reportNewIncomingCall(with: uuid, update: stand) { _ in
-            anbieter.reportCall(with: uuid, endedAt: nil, reason: .remoteEnded)
-            fertig?()
-        }
-    }
-
-    private func klingelFristStellen(_ uuid: UUID) {
-        let uhr = DispatchWorkItem { [weak self] in
-            guard let self, phasen[uuid] == .klingelt else { return }
-            NSLog("[Anruf] nach %.0f s nicht angenommen — das Klingeln endet", Self.klingelFrist)
-            anbieter?.reportCall(with: uuid, endedAt: nil, reason: .unanswered)
-            // Wie der 45-s-Wecker des Webs: der Server soll es wissen (im
-            // Gruppenanruf geht das seit T4 auch, wenn schon jemand spricht).
-            melde("ablehnen", uuid)
-            anrufZu(uuid)
-        }
-        klingelUhren[uuid] = uhr
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.klingelFrist, execute: uhr)
     }
 
     /// Wie das Web ein Ende angestossen hat — bestimmt, was CallKit dem
@@ -291,12 +218,6 @@ public final class Anrufverwaltung: NSObject {
         phasen[uuid] = nil
         annahmenVomWeb.remove(uuid)
         klingelUhren.removeValue(forKey: uuid)?.cancel()
-    }
-
-    private func istKuerzlichBeendet(_ kennung: String) -> Bool {
-        let grenze = Date().addingTimeInterval(-10 * 60)
-        kuerzlichBeendet = kuerzlichBeendet.filter { $0.value > grenze }
-        return kuerzlichBeendet[kennung] != nil
     }
 
     func melde(_ aktion: String, _ uuid: UUID) {

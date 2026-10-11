@@ -55,8 +55,7 @@ import LiveKit
 
             let kennung = "probe-\(Int(Date().timeIntervalSince1970))"
             await MainActor.run {
-                Anrufverwaltung.geteilt.klingeln(
-                    kennung: kennung, name: "Probe", video: false, ausPush: false)
+                Anrufverwaltung.geteilt.klingeln(kennung: kennung, name: "Probe", video: false)
             }
             await warten(1)
             await withCheckedContinuation { (fertig: CheckedContinuation<Void, Never>) in

@@ -42,8 +42,7 @@ public class AnrufPlugin: CAPPlugin, CAPBridgedPlugin {
         let name = call.getString("gegenstelle") ?? "Pulse"
         let video = call.getBool("video") ?? false
         DispatchQueue.main.async {
-            Anrufverwaltung.geteilt.klingeln(
-                kennung: kennung, name: name, video: video, ausPush: false)
+            Anrufverwaltung.geteilt.klingeln(kennung: kennung, name: name, video: video)
             call.resolve()
         }
     }

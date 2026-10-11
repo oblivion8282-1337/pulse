@@ -31,6 +31,9 @@
 		A1B2C3D4E5F607180000018D /* SprachePluginProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F607180000018E /* SprachePluginProbe.swift */; };
 		A1B2C3D4E5F607180000018F /* SpracheRaumSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000190 /* SpracheRaumSession.swift */; };
 		A1B2C3D4E5F607180000019D /* AnrufProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F607180000019E /* AnrufProbe.swift */; };
+		A1B2C3D4E5F607180000019F /* AnrufPush.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000001A0 /* AnrufPush.swift */; };
+		A1B2C3D4E5F60718000001A1 /* AnrufPushAusgang.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000001A2 /* AnrufPushAusgang.swift */; };
+		A1B2C3D4E5F60718000001A3 /* AnrufPushProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718000001A4 /* AnrufPushProbe.swift */; };
 		A1B2C3D4E5F6071800000191 /* Anrufverwaltung.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000192 /* Anrufverwaltung.swift */; };
 		A1B2C3D4E5F6071800000193 /* AnrufCallKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000194 /* AnrufCallKit.swift */; };
 		A1B2C3D4E5F6071800000195 /* AnrufSitzung.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071800000196 /* AnrufSitzung.swift */; };
@@ -80,6 +83,9 @@
 		A1B2C3D4E5F607180000018E /* SprachePluginProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SprachePluginProbe.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000190 /* SpracheRaumSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpracheRaumSession.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F607180000019E /* AnrufProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufProbe.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718000001A0 /* AnrufPush.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufPush.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718000001A2 /* AnrufPushAusgang.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufPushAusgang.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718000001A4 /* AnrufPushProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufPushProbe.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000192 /* Anrufverwaltung.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Anrufverwaltung.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000194 /* AnrufCallKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufCallKit.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071800000196 /* AnrufSitzung.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnrufSitzung.swift; sourceTree = "<group>"; };
@@ -161,6 +167,9 @@
 				A1B2C3D4E5F607180000018E /* SprachePluginProbe.swift */,
 				A1B2C3D4E5F6071800000190 /* SpracheRaumSession.swift */,
 				A1B2C3D4E5F607180000019E /* AnrufProbe.swift */,
+				A1B2C3D4E5F60718000001A0 /* AnrufPush.swift */,
+				A1B2C3D4E5F60718000001A2 /* AnrufPushAusgang.swift */,
+				A1B2C3D4E5F60718000001A4 /* AnrufPushProbe.swift */,
 				A1B2C3D4E5F6071800000192 /* Anrufverwaltung.swift */,
 				A1B2C3D4E5F6071800000194 /* AnrufCallKit.swift */,
 				A1B2C3D4E5F6071800000196 /* AnrufSitzung.swift */,
@@ -332,6 +341,9 @@
 				A1B2C3D4E5F607180000018D /* SprachePluginProbe.swift in Sources */,
 				A1B2C3D4E5F607180000018F /* SpracheRaumSession.swift in Sources */,
 				A1B2C3D4E5F607180000019D /* AnrufProbe.swift in Sources */,
+				A1B2C3D4E5F607180000019F /* AnrufPush.swift in Sources */,
+				A1B2C3D4E5F60718000001A1 /* AnrufPushAusgang.swift in Sources */,
+				A1B2C3D4E5F60718000001A3 /* AnrufPushProbe.swift in Sources */,
 				A1B2C3D4E5F6071800000191 /* Anrufverwaltung.swift in Sources */,
 				A1B2C3D4E5F6071800000193 /* AnrufCallKit.swift in Sources */,
 				A1B2C3D4E5F6071800000195 /* AnrufSitzung.swift in Sources */,
