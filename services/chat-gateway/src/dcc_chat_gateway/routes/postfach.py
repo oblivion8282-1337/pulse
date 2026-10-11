@@ -392,8 +392,11 @@ async def postfach_einliefern(
     # nur offene Tabs. Der Server kennt den Inhalt nie; der Push traegt
     # deshalb weder Nachrichteninhalt noch Dateiname, nur Absender und Kanal
     # (dieselbe Grenze wie beim Klartext-Push). Best-effort — kein ``try``
-    # noetig, ``_fan_out_payload`` faengt selbst jede Ausnahme ab.
-    if push_empfaenger:
+    # noetig, ``_fan_out_payload`` faengt selbst jede Ausnahme ab. Steuer-
+    # Umschlaege (Reaktion, Bearbeitung, Loeschung, Schluessel) markiert der
+    # Klient mit ``benachrichtigen: false`` — sie wecken niemanden und zaehlen
+    # die Plakette am Icon nicht hoch (Begruendung am Feld in ``schemas.py``).
+    if push_empfaenger and body.benachrichtigen:
         await fan_out_dm_push_encrypted(
             recipient_ids=push_empfaenger,
             author_name=user.username,

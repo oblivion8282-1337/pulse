@@ -33,7 +33,10 @@ def test_dm_message_encodiert_mit_ios_payload(payload):
     assert aps["alert"]["title"] == "max"
     assert aps["alert"]["body"] == "Neue Direktnachricht"
     assert aps["sound"] == "pulse-push.caf"
-    assert d["apns"]["headers"]["apns-interruption-level"] == "time-sensitive"
+    # Zeitkritisch ist ein Feld der NUTZLAST (`aps.interruption-level`) —
+    # als Kopf übergeht APNs es still (Bughunt 2026-10-11, T16).
+    assert aps["interruption-level"] == "time-sensitive"
+    assert "apns-interruption-level" not in d["apns"]["headers"]
     assert d["apns"]["headers"]["apns-push-type"] == "alert"
     assert d["token"] == "testtoken"
     assert d["android"]["notification"]["channel_id"] == "messages"

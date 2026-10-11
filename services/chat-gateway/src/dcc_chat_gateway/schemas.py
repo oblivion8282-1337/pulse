@@ -1503,6 +1503,18 @@ class PostfachEinliefernRequest(BaseModel):
     #: bewusst mit Luft nach oben — die scharfe Grenze zieht die
     #: Groessenpruefung beim Hochladen.
     anhaenge: list[SnowflakeId] = Field(default_factory=list, max_length=16)
+    #: Soll der Empfänger davon eine Mitteilung bekommen (Web-Push, FCM samt
+    #: Zahl am App-Icon)? ``False`` für Steuer-Umschläge — Reaktion,
+    #: Bearbeitung, Löschung, Anruf- und Verteilschlüssel. Der Server kann den
+    #: Umschlag nicht öffnen und muss es deshalb gesagt bekommen; bis zum
+    #: 2026-10-11 meldete jede Reaktion „Neue Nachricht" und zählte die
+    #: Plakette am Icon hoch (Bughunt T11). Vorgabe ``True``: ein älterer
+    #: Klient, der das Feld nicht kennt, verhält sich wie bisher.
+    #:
+    #: **Der Preis, und er ist bewusst:** der Server erfährt, welche Umschläge
+    #: Nachrichten sind und welche nicht — Zeitpunkt und Grösse kannte er
+    #: schon. Dieselbe Abwägung trifft Signal mit seinem ``urgent``-Feld.
+    benachrichtigen: bool = True
 
 
 class PostfachEinliefernResponse(BaseModel):

@@ -159,11 +159,18 @@ def _build_dm_message(
         # iOS: eigener Sound (pulse-push.caf im Bundle) + zeitkritisch —
         # durchbricht Fokus-Modi; das Zeitkritisch-Privileg vergibt der
         # Nutzer einmalig im Systemdialog.
+        #
+        # **Die Dringlichkeit steht im `aps`-Block, nicht im Kopf.** Bis zum
+        # 2026-10-11 stand hier ein Kopf `apns-interruption-level` — einen
+        # solchen Kopf kennt APNs nicht (die Kopfzeilen sind `apns-push-type`,
+        # `apns-priority`, `apns-expiration`, `apns-topic`, `apns-collapse-id`,
+        # `apns-id`); die Ebene ist ein Feld der Nutzlast,
+        # `aps.interruption-level` (Apple, „Generating a remote
+        # notification"). Der Kopf wurde still übergangen, und keine Meldung
+        # war je zeitkritisch (Bughunt T16). Gefolgert aus der Doku, nicht am
+        # Gerät gemessen.
         apns=messaging.APNSConfig(
-            headers={
-                "apns-push-type": "alert",
-                "apns-interruption-level": "time-sensitive",
-            },
+            headers={"apns-push-type": "alert"},
             payload=messaging.APNSPayload(
                 aps=messaging.Aps(
                     alert=messaging.ApsAlert(
@@ -174,6 +181,7 @@ def _build_dm_message(
                     # die Absicht, s. Docstring.
                     badge=badge,
                     category=DM_KATEGORIE,
+                    custom_data={"interruption-level": "time-sensitive"},
                 )
             ),
         ),
